@@ -1,8 +1,20 @@
 import axios from "axios";
 
-// Read base URL from environment variable. Do not hardcode endpoints.
-// If not set, default to same-origin which works with reverse proxy setups.
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "";
+// Build base URLs from environment variables. Avoid hardcoding.
+// REACT_APP_API_BASE_URL: e.g., http://localhost:3001
+// REACT_APP_API_PREFIX: default "/api" (backend mounts public routes under /api/*)
+const RAW_BASE_URL = process.env.REACT_APP_API_BASE_URL || "";
+const API_PREFIX = process.env.REACT_APP_API_PREFIX || "/api";
+
+// Normalize base URL + prefix, avoiding double slashes
+function joinUrl(base, path) {
+  if (!base) return path || "";
+  const b = base.endsWith("/") ? base.slice(0, -1) : base;
+  const p = path ? (path.startsWith("/") ? path : `/${path}`) : "";
+  return `${b}${p}`;
+}
+
+const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
 
 // Keys for localStorage persistence
 const LS_TOKEN_KEY = "dashboard_token";
@@ -55,9 +67,9 @@ function getUser() {
   }
 }
 
-// Create configured axios instance
+// Create configured axios instance for API routes under /api
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_BASE_URL || "/api",
   headers: {
     "Content-Type": "application/json",
   },
@@ -87,6 +99,16 @@ api.interceptors.response.use(
   }
 );
 
+// Helper to normalize list responses from backend { success, data, meta }
+function normalizeListResponse(res) {
+  const payload = res?.data || {};
+  const items = Array.isArray(payload) ? payload : payload.data || [];
+  const total =
+    (payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
+    (Array.isArray(items) ? items.length : 0);
+  return { items, total, meta: payload.meta || null };
+}
+
 // PUBLIC_INTERFACE
 export function getApiClient() {
   /** Returns the configured Axios instance for advanced usage. */
@@ -108,8 +130,10 @@ export function persistAuth(token, user) {
 
 // PUBLIC_INTERFACE
 export async function health() {
-  /** Calls the health endpoint to verify backend connectivity. */
-  const res = await api.get("/");
+  /** Calls the health endpoint to verify backend connectivity (bypasses /api). */
+  const rootBase = RAW_BASE_URL || ""; // same-origin if empty
+  const url = joinUrl(rootBase, "/");
+  const res = await axios.get(url);
   return res.data;
 }
 
@@ -131,84 +155,84 @@ export async function registerApi(payload) {
 
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
-  /** GET /users with optional query params for filtering/pagination. */
+  /** GET /api/users with optional query params for filtering/pagination. */
   const res = await api.get("/users", { params });
-  return res.data;
+  return normalizeListResponse(res);
 }
 
 // PUBLIC_INTERFACE
 export async function createUser(body) {
-  /** POST /users to create a new user/referral record. */
+  /** POST /api/users to create a new user/referral record. */
   const res = await api.post("/users", body);
-  return res.data;
+  return res.data?.data ?? res.data;
 }
 
 // PUBLIC_INTERFACE
 export async function updateUser(id, body) {
-  /** PUT /users/:id to update a user/referral record. */
+  /** PUT /api/users/:id to update a user/referral record. */
   const res = await api.put(`/users/${id}`, body);
-  return res.data;
+  return res.data?.data ?? res.data;
 }
 
 // PUBLIC_INTERFACE
 export async function deleteUser(id) {
-  /** DELETE /users/:id to remove a user/referral record. */
+  /** DELETE /api/users/:id to remove a user/referral record. */
   const res = await api.delete(`/users/${id}`);
-  return res.data;
+  return res.data?.data ?? res.data;
 }
 
 // PUBLIC_INTERFACE
 export async function listSessions(params = {}) {
-  /** GET /session-tracking with optional filters. */
+  /** GET /api/session-tracking with optional filters. */
   const res = await api.get("/session-tracking", { params });
-  return res.data;
+  return normalizeListResponse(res);
 }
 
 // PUBLIC_INTERFACE
 export async function createSession(body) {
-  /** POST /session-tracking to create a session record. */
+  /** POST /api/session-tracking to create a session record. */
   const res = await api.post("/session-tracking", body);
-  return res.data;
+  return res.data?.data ?? res.data;
 }
 
 // PUBLIC_INTERFACE
 export async function updateSession(id, body) {
-  /** PUT /session-tracking/:id to update a session record. */
+  /** PUT /api/session-tracking/:id to update a session record. */
   const res = await api.put(`/session-tracking/${id}`, body);
-  return res.data;
+  return res.data?.data ?? res.data;
 }
 
 // PUBLIC_INTERFACE
 export async function deleteSession(id) {
-  /** DELETE /session-tracking/:id to remove a session record. */
+  /** DELETE /api/session-tracking/:id to remove a session record. */
   const res = await api.delete(`/session-tracking/${id}`);
-  return res.data;
+  return res.data?.data ?? res.data;
 }
 
 // PUBLIC_INTERFACE
 export async function listDeployments(params = {}) {
-  /** GET /app-deployments with optional filters. */
+  /** GET /api/app-deployments with optional filters. */
   const res = await api.get("/app-deployments", { params });
-  return res.data;
+  return normalizeListResponse(res);
 }
 
 // PUBLIC_INTERFACE
 export async function createDeployment(body) {
-  /** POST /app-deployments to create a new deployment record. */
+  /** POST /api/app-deployments to create a new deployment record. */
   const res = await api.post("/app-deployments", body);
-  return res.data;
+  return res.data?.data ?? res.data;
 }
 
 // PUBLIC_INTERFACE
 export async function updateDeployment(id, body) {
-  /** PUT /app-deployments/:id to update a deployment record. */
+  /** PUT /api/app-deployments/:id to update a deployment record. */
   const res = await api.put(`/app-deployments/${id}`, body);
-  return res.data;
+  return res.data?.data ?? res.data;
 }
 
 // PUBLIC_INTERFACE
 export async function deleteDeployment(id) {
-  /** DELETE /app-deployments/:id to remove a deployment record. */
+  /** DELETE /api/app-deployments/:id to remove a deployment record. */
   const res = await api.delete(`/app-deployments/${id}`);
-  return res.data;
+  return res.data?.data ?? res.data;
 }
