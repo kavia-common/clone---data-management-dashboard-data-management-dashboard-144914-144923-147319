@@ -1,8 +1,13 @@
 const mongoose = require('mongoose');
 
 /**
+ * PUBLIC_INTERFACE
  * Establishes a connection to MongoDB using Mongoose.
- * Uses environment variables for configuration with a sensible default.
+ * - Reads the connection string from process.env.MONGODB_URI
+ * - Falls back to a predefined default if the environment variable is not set
+ * - Emits useful, non-sensitive logs for verification
+ *
+ * Returns the active mongoose.connection.
  */
 async function connectDB() {
   // Default URI provided per task requirement; can be overridden by MONGODB_URI env var
@@ -29,9 +34,20 @@ async function connectDB() {
     family: 4,
   };
 
+  // Prepare a safe, masked log for the cluster host (never log credentials)
+  let clusterHost = 'unknown-host';
+  try {
+    const parsed = new URL(uri);
+    clusterHost = parsed.hostname || clusterHost;
+  } catch {
+    // swallow parse errors; we will still connect
+  }
+
   mongoose.connection.on('connected', () => {
     // eslint-disable-next-line no-console
-    console.log('MongoDB connected');
+    console.log(
+      `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
+    );
   });
 
   mongoose.connection.on('error', (err) => {
