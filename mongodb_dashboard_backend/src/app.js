@@ -1,34 +1,49 @@
-const cors = require('cors');
 const express = require('express');
-const routes = require('./routes');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('../swagger');
+const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
+const { connectDB } = require('./config/db');
 
 // Initialize express app
 const app = express();
 
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// Trust proxy for proper protocol and IP detection
 app.set('trust proxy', true);
-app.use('/docs', swaggerUi.serve, (req, res, next) => {
-  const host = req.get('host');           // may or may not include port
-  let protocol = req.protocol;          // http or https
 
+// Security middlewares
+app.use(helmetMiddleware());
+app.use(corsMiddleware());
+app.use(rateLimiter());
+
+// Parse JSON request body with sensible limits
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Swagger UI with dynamic server URL
+app.use('/docs', swaggerUi.serve, (req, res, next) => {
+  const host = req.get('host');
+  let protocol = req.protocol;
   const actualPort = req.socket.localPort;
   const hasPort = host.includes(':');
-  
+
   const needsPort =
     !hasPort &&
     ((protocol === 'http' && actualPort !== 80) ||
-     (protocol === 'https' && actualPort !== 443));
+      (protocol === 'https' && actualPort !== 443));
   const fullHost = needsPort ? `${host}:${actualPort}` : host;
   protocol = req.secure ? 'https' : protocol;
 
   const dynamicSpec = {
     ...swaggerSpec,
+    info: {
+      ...swaggerSpec.info,
+      title: process.env.SWAGGER_TITLE || swaggerSpec.info?.title || 'Dashboard API',
+      version: process.env.SWAGGER_VERSION || swaggerSpec.info?.version || '1.0.0',
+      description:
+        process.env.SWAGGER_DESCRIPTION ||
+        swaggerSpec.info?.description ||
+        'REST API for Dashboard backed by MongoDB',
+    },
     servers: [
       {
         url: `${protocol}://${fullHost}`,
@@ -38,19 +53,32 @@ app.use('/docs', swaggerUi.serve, (req, res, next) => {
   swaggerUi.setup(dynamicSpec)(req, res, next);
 });
 
-// Parse JSON request body
-app.use(express.json());
+// Health and base routes
+const baseRouter = require('./routes');
+app.use('/', baseRouter);
 
-// Mount routes
-app.use('/', routes);
+// Domain routes
+app.use('/api/auth', require('./routes/auth.routes'));
+app.use('/api/users', require('./routes/users.routes'));
+app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
+app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 
 // Error handling middleware
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    status: 'error',
-    message: 'Internal Server Error',
+  // eslint-disable-next-line no-console
+  console.error(err);
+  const status = err.status || 500;
+  res.status(status).json({
+    success: false,
+    message: err.message || 'Internal Server Error',
   });
+});
+
+// Kick off DB connection once on app startup
+connectDB().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error('Failed to connect to MongoDB on startup:', err.message);
 });
 
 module.exports = app;
