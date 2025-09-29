@@ -6,6 +6,12 @@ const { parsePagination, success, failure } = require('../utils/http');
  * This implementation adds robust error handling to avoid runtime 500s for:
  * - CastError (e.g., invalid _id, invalid filter value types)
  * - ValidationError (create/update schema validations)
+ *
+ * Response format change:
+ * - If pagination is NOT explicitly requested (no page/limit query), return RAW MongoDB data:
+ *   - list: returns an array of documents directly (no {success,data,meta})
+ *   - getById/create/update/remove: return the document or result object directly
+ * - If pagination IS explicitly requested, keep envelope { success, data, meta } for backward compatibility.
  */
 function buildCrudController(Model, listDefaultSort = '-_id') {
   // Map known Mongoose errors to user-friendly responses
@@ -31,7 +37,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
     // PUBLIC_INTERFACE
     async list(req, res) {
       /** List documents with basic JSON filter, pagination, and sort */
-      const { page, limit, skip } = parsePagination(req.query);
+      const { page, limit, skip, explicit } = parsePagination(req.query);
       const filterRaw = req.query.filter ? req.query.filter : '{}';
       let filter = {};
       try {
@@ -43,11 +49,18 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       const sort = req.query.sort || listDefaultSort;
 
       try {
-        const [items, total] = await Promise.all([
-          Model.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-          Model.countDocuments(filter),
-        ]);
-        return success(res, items, { page, limit, total }, 200);
+        // If pagination explicitly requested, respect pagination and provide envelope + meta
+        if (explicit) {
+          const [items, total] = await Promise.all([
+            Model.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+            Model.countDocuments(filter),
+          ]);
+          return success(res, items, { page, limit, total }, 200);
+        }
+
+        // No explicit pagination: return the raw array of documents (no envelope)
+        const items = await Model.find(filter).sort(sort).lean();
+        return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
       }
@@ -60,7 +73,8 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       try {
         const doc = await Model.findById(id).lean();
         if (!doc) return failure(res, 'Not found', 404);
-        return success(res, doc);
+        // Return raw doc
+        return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'getById');
       }
@@ -72,7 +86,8 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       const data = req.body;
       try {
         const doc = await Model.create(data);
-        return success(res, doc, undefined, 201);
+        // Return raw created doc
+        return res.status(201).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'create');
       }
@@ -86,7 +101,8 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       try {
         const doc = await Model.findByIdAndUpdate(id, data, { new: true }).lean();
         if (!doc) return failure(res, 'Not found', 404);
-        return success(res, doc);
+        // Return raw updated doc
+        return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'update');
       }
@@ -99,7 +115,8 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       try {
         const doc = await Model.findByIdAndDelete(id).lean();
         if (!doc) return failure(res, 'Not found', 404);
-        return success(res, { _id: id });
+        // Return minimal raw response indicating deleted id
+        return res.status(200).json({ _id: id });
       } catch (err) {
         return mapAndReplyError(res, err, 'remove');
       }
