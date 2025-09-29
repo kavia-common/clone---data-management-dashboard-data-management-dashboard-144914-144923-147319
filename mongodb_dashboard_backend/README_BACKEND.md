@@ -92,8 +92,15 @@ To confirm the backend is connected to the correct MongoDB cluster and the dashb
   GET /api/session-tracking   OR  /api/sessionTracking
   GET /api/app-deployments    OR  /api/appDeployments
   GET /api/users
+  GET /api/data               # Sample endpoint backed by the "sample" collection
   ```
   If documents exist in your cluster, responses will reflect the current, real-time state.
+
+- Optional: Seed sample data for demos
+  ```
+  GET /api/dev/seed
+  ```
+  This will insert minimal demo records into session_tracking and app_deployments if empty. The /api/data endpoint uses the "sample" collection which you can populate directly in your MongoDB cluster.
 
 Note:
 - The frontend should only call these backend APIs. It should not connect directly to MongoDB.

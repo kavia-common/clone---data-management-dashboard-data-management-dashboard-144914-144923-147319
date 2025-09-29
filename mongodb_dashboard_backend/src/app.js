@@ -108,6 +108,9 @@ app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
 
+// Sample data endpoint (demonstration): /api/data
+app.use('/api/data', require('./routes/data.routes'));
+
 // JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
 app.use((req, res) => {
   return res.status(404).json({
