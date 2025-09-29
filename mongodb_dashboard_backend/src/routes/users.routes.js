@@ -7,6 +7,62 @@ const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
 
 /**
+ * PUBLIC_INTERFACE
+ * GET /api/users/seed-if-empty
+ * Seeds a minimal set of demo users into the "users" collection if it is currently empty.
+ * This helps verify that GET /api/users returns real data from MongoDB.
+ *
+ * Response shape:
+ *  {
+ *    success: true,
+ *    before: <number>,
+ *    inserted: <number>,
+ *    after: <number>,
+ *    sample: <object|null>
+ *  }
+ */
+router.get('/seed-if-empty', asyncHandler(async (req, res) => {
+  const before = await User.countDocuments({});
+  let inserted = 0;
+
+  if (before === 0) {
+    const now = new Date();
+    const demoUsers = [
+      {
+        referral_code: 'REF-ALPHA',
+        referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
+        referral_history: [
+          { user_id: 'u-101', user_email: 'alpha1@example.com', user_name: 'Alpha One', referred_at: now, status: 'verified' },
+          { user_id: 'u-102', user_email: 'alpha2@example.com', user_name: 'Alpha Two', referred_at: now, status: 'pending' },
+        ],
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        referral_code: 'REF-BETA',
+        referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
+        referral_history: [],
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+    const result = await User.insertMany(demoUsers);
+    inserted = result.length;
+  }
+
+  const after = await User.countDocuments({});
+  const sample = await User.findOne({}).sort({ _id: -1 }).lean();
+
+  return res.status(200).json({
+    success: true,
+    before,
+    inserted,
+    after,
+    sample: sample || null,
+  });
+}));
+
+/**
  * @swagger
  * tags:
  *   name: Users
@@ -56,6 +112,26 @@ const controller = buildCrudController(User, '-created_at');
  *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400:
  *         description: Invalid filter
+ *
+ * /api/users/seed-if-empty:
+ *   get:
+ *     summary: Seed demo users if collection is empty
+ *     description: Inserts a small set of demo users only when the collection is empty, then returns counts and one sample document.
+ *     tags: [Users]
+ *     responses:
+ *       200:
+ *         description: Seeding summary and a sample document
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 before: { type: integer, example: 0 }
+ *                 inserted: { type: integer, example: 2 }
+ *                 after: { type: integer, example: 2 }
+ *                 sample:
+ *                   $ref: '#/components/schemas/GenericDocument'
  */
 router.get('/', asyncHandler(controller.list));
 
