@@ -4,8 +4,17 @@ const mongoose = require('mongoose');
  * PUBLIC_INTERFACE
  * Establishes a connection to MongoDB using Mongoose.
  * - Reads the connection string from process.env.MONGODB_URI
- * - Falls back to a predefined default if the environment variable is not set
+ * - Selects the database name from:
+ *    1) process.env.MONGODB_DB (highest priority)
+ *    2) Environment-based fallback (NODE_ENV):
+ *       - development/dev/local/test -> develop_kaviaroot
+ *       - qa/staging -> qa_kaviaroot
+ *       - production/prod/beta/preprod/pre_prod/pre-prod -> pre_prod__kaviaroot
+ *    3) Driver default (often "test") if none of the above (not recommended)
  * - Emits useful, non-sensitive logs for verification
+ *
+ * Optional verification:
+ * - If VERIFY_COLLECTIONS=true, logs an estimated count for session_tracking at startup
  *
  * Returns the active mongoose.connection.
  */
@@ -31,7 +40,26 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = process.env.MONGODB_DB; // Optional; if not set, Mongo will use the URI/path default (often 'test')
+  // Resolve the dbName: explicit env or environment-based fallback
+  const envName = (process.env.NODE_ENV || 'development').toLowerCase();
+  let resolvedDbName = process.env.MONGODB_DB;
+  let dbSource = 'env';
+
+  if (!resolvedDbName) {
+    if (/(^|\b)(dev|development|local|test)(\b|$)/.test(envName)) {
+      resolvedDbName = 'develop_kaviaroot';
+      dbSource = 'NODE_ENV fallback';
+    } else if (/(^|\b)(qa|staging)(\b|$)/.test(envName)) {
+      resolvedDbName = 'qa_kaviaroot';
+      dbSource = 'NODE_ENV fallback';
+    } else if (/(^|\b)(production|prod|beta|preprod|pre_prod|pre-prod)(\b|$)/.test(envName)) {
+      resolvedDbName = 'pre_prod__kaviaroot';
+      dbSource = 'NODE_ENV fallback';
+    } else {
+      // If we get here, keep undefined to use driver default, but warn loudly.
+      dbSource = 'driver default';
+    }
+  }
 
   const options = {
     autoIndex,
@@ -39,7 +67,7 @@ async function connectDB() {
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
     family: 4,
-    ...(dbName ? { dbName } : {}),
+    ...(resolvedDbName ? { dbName: resolvedDbName } : {}),
   };
 
   // Prepare a safe, masked log for the cluster host (never log credentials)
@@ -56,9 +84,15 @@ async function connectDB() {
     console.log(
       `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
     );
-    if (dbName) {
+    if (resolvedDbName) {
       // eslint-disable-next-line no-console
-      console.log(`MongoDB dbName selected via env: ${dbName}`);
+      console.log(`MongoDB dbName selected via ${dbSource}: ${resolvedDbName}`);
+    } else {
+      // eslint-disable-next-line no-console
+      console.warn(
+        'MongoDB dbName not specified; relying on driver default (often "test"). ' +
+          'To ensure non-empty results, set MONGODB_DB or rely on NODE_ENV-based fallback.'
+      );
     }
     // eslint-disable-next-line no-console
     console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
@@ -75,6 +109,21 @@ async function connectDB() {
   });
 
   await mongoose.connect(uri, options);
+
+  // Optional verification: log an estimated count of the session_tracking collection
+  if ((process.env.VERIFY_COLLECTIONS || '').toString().toLowerCase() === 'true') {
+    try {
+      const count = await mongoose.connection.db
+        .collection('session_tracking')
+        .estimatedDocumentCount();
+      // eslint-disable-next-line no-console
+      console.log(`[Verify] session_tracking estimated count: ${count}`);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[Verify] Unable to estimate session_tracking count:', e.message);
+    }
+  }
+
   return mongoose.connection;
 }
 
