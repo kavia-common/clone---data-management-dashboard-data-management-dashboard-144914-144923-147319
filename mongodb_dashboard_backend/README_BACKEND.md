@@ -34,12 +34,33 @@ Key features:
   MONGOOSE_AUTO_INDEX=true   # optional
   ```
 
-2) Install dependencies:
+2) Configure CORS
+- By default, the backend now explicitly allows the frontend origin:
+  ```
+  https://vscode-internal-28199-beta.beta01.cloud.kavia.ai:4000
+  ```
+- To customize:
+  - Single origin:
+    ```
+    CORS_ORIGIN=https://your-frontend.example.com
+    ```
+  - Multiple origins (comma-separated):
+    ```
+    CORS_ORIGINS=https://app.example.com,https://admin.example.com
+    ```
+  - If your frontend sends cookies or uses `credentials: 'include'` (or axios `withCredentials: true`):
+    ```
+    CORS_CREDENTIALS=true
+    ```
+    Note: Credentialed requests cannot work with `Access-Control-Allow-Origin: *`; an explicit origin is required (the middleware handles this).
+- See `.env.example` for all options.
+
+3) Install dependencies:
 ```
 npm install
 ```
 
-3) Run:
+4) Run:
 ```
 npm run dev
 ```
@@ -66,7 +87,7 @@ To confirm the backend is connected to the correct MongoDB cluster and the dashb
   ```
   MONGODB_URI not set in environment. Falling back to built-in default MongoDB URI.
   ```
-- Call any data endpoint to verify live results (no auth required). Both kebab-case and camelCase paths are supported to match various frontends:
+- Call any data endpoint to verify live results (no auth required). Both kebab-case and camelCase paths are supported to match frontend calls:
   ```
   GET /api/session-tracking   OR  /api/sessionTracking
   GET /api/app-deployments    OR  /api/appDeployments
