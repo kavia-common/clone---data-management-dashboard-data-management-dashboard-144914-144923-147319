@@ -173,10 +173,23 @@ export async function registerApi(payload) {
 
 // Collection APIs
 
+/** Internal helper: ensure filter param is JSON.stringified when provided. */
+function withStringifiedFilter(params = {}) {
+  const p = { ...(params || {}) };
+  if (p.filter && typeof p.filter === "object") {
+    try {
+      p.filter = JSON.stringify(p.filter);
+    } catch {
+      // leave as-is if stringify fails
+    }
+  }
+  return p;
+}
+
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
   /** GET /api/users with optional query params for filtering/pagination. */
-  const res = await api.get("/users", { params });
+  const res = await api.get("/users", { params: withStringifiedFilter(params) });
   return normalizeListResponse(res);
 }
 
@@ -201,10 +214,11 @@ export async function deleteUser(id) {
   return res.data?.data ?? res.data;
 }
 
+/* See withStringifiedFilter above */
 // PUBLIC_INTERFACE
 export async function listSessions(params = {}) {
   /** GET /api/session-tracking with optional filters. */
-  const res = await api.get("/session-tracking", { params });
+  const res = await api.get("/session-tracking", { params: withStringifiedFilter(params) });
   return normalizeListResponse(res);
 }
 
@@ -229,10 +243,11 @@ export async function deleteSession(id) {
   return res.data?.data ?? res.data;
 }
 
+/* See withStringifiedFilter above */
 // PUBLIC_INTERFACE
 export async function listDeployments(params = {}) {
   /** GET /api/app-deployments with optional filters. */
-  const res = await api.get("/app-deployments", { params });
+  const res = await api.get("/app-deployments", { params: withStringifiedFilter(params) });
   return normalizeListResponse(res);
 }
 
