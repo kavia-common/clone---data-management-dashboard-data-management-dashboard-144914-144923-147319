@@ -1,9 +1,25 @@
 import axios from "axios";
 
-// Build base URLs from environment variables. Avoid hardcoding.
-// REACT_APP_API_BASE_URL: e.g., http://localhost:3001
-// REACT_APP_API_PREFIX: default "/api" (backend mounts public routes under /api/*)
-const RAW_BASE_URL = process.env.REACT_APP_API_BASE_URL || "";
+ // Build base URLs from environment variables. Avoid hardcoding.
+ // REACT_APP_API_BASE_URL: e.g., http://localhost:3001
+ // REACT_APP_API_PREFIX: default "/api" (backend mounts public routes under /api/*)
+ // REACT_APP_BACKEND_PORT: optional (defaults to 3001) used for auto-detection fallback
+function inferBackendBase() {
+  /**
+   * Attempt to infer backend origin when REACT_APP_API_BASE_URL is not provided.
+   * Uses the current page protocol/hostname with port 3001 (or REACT_APP_BACKEND_PORT).
+   * This matches the default backend container port and avoids dev 404s on /api routes.
+   */
+  try {
+    if (typeof window === "undefined") return "";
+    const { protocol, hostname } = window.location;
+    const backendPort = process.env.REACT_APP_BACKEND_PORT || "3001";
+    return `${protocol}//${hostname}:${backendPort}`;
+  } catch {
+    return "";
+  }
+}
+const RAW_BASE_URL = process.env.REACT_APP_API_BASE_URL || inferBackendBase() || "";
 const API_PREFIX = process.env.REACT_APP_API_PREFIX || "/api";
 
 // Normalize base URL + prefix, avoiding double slashes

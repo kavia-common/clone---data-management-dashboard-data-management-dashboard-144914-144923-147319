@@ -42,7 +42,10 @@ App will run at http://localhost:3000
 
 ## Environment Variables
 
-- REACT_APP_API_BASE_URL: Backend API root (required)
+- REACT_APP_API_BASE_URL: Backend API root (optional). If not set, the app auto-detects the backend origin using the current hostname with port REACT_APP_BACKEND_PORT (default 3001). Example: http://localhost:3001
+- REACT_APP_API_PREFIX: API prefix used by the backend. Default: /api
+- REACT_APP_BACKEND_PORT: Used for auto-detection when REACT_APP_API_BASE_URL is not set. Default: 3001
+
 Note: Do not commit .env; use .env.example as reference.
 
 ## API Endpoints
