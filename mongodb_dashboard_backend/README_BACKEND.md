@@ -6,8 +6,10 @@ Key features:
 - Express.js with Helmet, CORS, Rate Limiting
 - MongoDB via Mongoose with indexes per schema guidance
 - Public CRUD for:
+  - users
   - session_tracking
   - app_deployments
+  - sample (demo)
 - Swagger docs at /docs with dynamic server URL
 
 ## Setup
@@ -89,35 +91,52 @@ To confirm the backend is connected to the correct MongoDB cluster and the dashb
   ```
 - Call any data endpoint to verify live results (no auth required). Both kebab-case and camelCase paths are supported to match frontend calls:
   ```
+  GET /api/users
   GET /api/session-tracking   OR  /api/sessionTracking
   GET /api/app-deployments    OR  /api/appDeployments
-  GET /api/users
   GET /api/data               # Sample endpoint backed by the "sample" collection
   ```
-  If documents exist in your cluster, responses will reflect the current, real-time state.
 
-- Optional: Seed sample data for demos
+- Seed demo data if your collections are empty:
   ```
   GET /api/dev/seed
   ```
-  This will insert minimal demo records into session_tracking and app_deployments if empty. The /api/data endpoint uses the "sample" collection which you can populate directly in your MongoDB cluster.
+  This will insert minimal demo records into users, sample, session_tracking and app_deployments if empty.
 
-Note:
+- Quick verification endpoint:
+  ```
+  GET /api/dev/verify
+  ```
+  Returns counts and a few sample documents from each collection to confirm data presence.
+
+- DB connection status:
+  ```
+  GET /api/dev/db-status
+  ```
+
+Notes:
 - The frontend should only call these backend APIs. It should not connect directly to MongoDB.
-- The backend does not overwrite `MONGODB_URI` with any placeholders; it uses `process.env.MONGODB_URI` if set, otherwise the provided default.
+- The backend uses `process.env.MONGODB_URI` if set, otherwise the provided default.
 
-## Collections
+## Collections & Query Hints
 
+- Users: /api/users
 - Session Tracking: /api/session-tracking
 - App Deployments: /api/app-deployments
+- Sample: /api/data
 
 List supports:
-- ?page=1&limit=20
+- ?page=1&limit=20  -> returns { success, data, meta }
+- Without page/limit -> returns raw array
 - ?sort=-created_at
-- ?filter={"status":"active"}
+- ?filter={"status":"active"}   (use valid JSON)
 
-## Notes
+## Troubleshooting
 
-- Endpoints are public and do not require authentication.
-- Schema comes from SCHEMA.md and schema.summary.json.
-- Validate URLs and dates when sending data.
+- Empty arrays in responses usually mean:
+  - The collection has no data (use /api/dev/seed)
+  - The filter JSON excludes all documents (remove or adjust `filter`)
+  - Connected to a different database (check logs and /api/dev/db-status)
+- Invalid filter JSON returns 400 with message "Invalid filter JSON".
+- If you need indexes for performance, enable `MONGOOSE_AUTO_INDEX=true` temporarily or manage indexes directly in MongoDB.
+

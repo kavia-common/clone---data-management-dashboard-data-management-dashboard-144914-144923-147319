@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const { asyncHandler } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const AppDeployment = require('../models/appDeployments.model');
+const User = require('../models/user.model');
+const Sample = require('../models/sample.model');
 
 const router = express.Router();
 
@@ -38,23 +40,65 @@ router.get('/db-status', asyncHandler(async (req, res) => {
 /**
  * PUBLIC_INTERFACE
  * GET /api/dev/seed
- * Seeds sample records into session_tracking and app_deployments if collections are empty.
- * This helps verify that /api/session-tracking and /api/app-deployments return non-empty results.
+ * Seeds sample records into users, sample, session_tracking and app_deployments if collections are empty.
+ * This helps verify that the list endpoints return non-empty results.
  * 
- * Returns:
- * {
- *   success: true,
- *   sessionTracking: { before: number, inserted: number, after: number, sample: object | null },
- *   appDeployments: { before: number, inserted: number, after: number, sample: object | null }
- * }
+ * Returns envelope with before/after/inserted counts and one sample document per collection.
  */
 router.get('/seed', asyncHandler(async (req, res) => {
-  const sessionBefore = await SessionTracking.countDocuments({});
-  const appBefore = await AppDeployment.countDocuments({});
+  const countsBefore = await Promise.all([
+    User.countDocuments({}),
+    Sample.countDocuments({}),
+    SessionTracking.countDocuments({}),
+    AppDeployment.countDocuments({}),
+  ]);
+  const [usersBefore, sampleBefore, sessionBefore, appBefore] = countsBefore;
 
+  let usersInserted = 0;
+  let sampleInserted = 0;
   let sessionInserted = 0;
   let appInserted = 0;
 
+  // Seed users if empty
+  if (usersBefore === 0) {
+    const now = new Date();
+    const users = [
+      {
+        referral_code: 'REF-ALPHA',
+        referral_stats: { total_referrals: 3, verified_referrals: 2, last_referral_date: now },
+        referral_history: [
+          { user_id: 'u-201', user_email: 'a@example.com', user_name: 'User A', referred_at: now, status: 'verified' },
+          { user_id: 'u-202', user_email: 'b@example.com', user_name: 'User B', referred_at: now, status: 'pending' },
+        ],
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        referral_code: 'REF-BETA',
+        referral_stats: [
+          { total_referrals: 1, verified_referrals: 1, last_referral_date: now },
+        ],
+        referral_history: [],
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+    const resUsers = await User.insertMany(users);
+    usersInserted = resUsers.length;
+  }
+
+  // Seed sample if empty
+  if (sampleBefore === 0) {
+    const now = new Date();
+    const docs = [
+      { name: 'demo', value: { any: 'shape', ok: true }, created_at: now },
+      { name: 'alpha', value: 42, created_at: new Date(now.getTime() - 60000) },
+    ];
+    const resSample = await Sample.insertMany(docs);
+    sampleInserted = resSample.length;
+  }
+
+  // Seed session_tracking if empty
   if (sessionBefore === 0) {
     const now = new Date();
     const docs = [
@@ -119,6 +163,7 @@ router.get('/seed', asyncHandler(async (req, res) => {
     sessionInserted = result.length;
   }
 
+  // Seed app_deployments if empty
   if (appBefore === 0) {
     const now = new Date();
     const docs = [
@@ -177,26 +222,55 @@ router.get('/seed', asyncHandler(async (req, res) => {
     appInserted = result.length;
   }
 
-  const sessionAfter = await SessionTracking.countDocuments({});
-  const appAfter = await AppDeployment.countDocuments({});
+  const [usersAfter, sampleAfter, sessionAfter, appAfter] = await Promise.all([
+    User.countDocuments({}),
+    Sample.countDocuments({}),
+    SessionTracking.countDocuments({}),
+    AppDeployment.countDocuments({}),
+  ]);
 
-  const sessionSample = await SessionTracking.findOne({}).sort({ _id: -1 }).lean();
-  const appSample = await AppDeployment.findOne({}).sort({ _id: -1 }).lean();
+  const samples = await Promise.all([
+    User.findOne({}).sort({ _id: -1 }).lean(),
+    Sample.findOne({}).sort({ _id: -1 }).lean(),
+    SessionTracking.findOne({}).sort({ _id: -1 }).lean(),
+    AppDeployment.findOne({}).sort({ _id: -1 }).lean(),
+  ]);
 
   return res.status(200).json({
     success: true,
-    sessionTracking: {
-      before: sessionBefore,
-      inserted: sessionInserted,
-      after: sessionAfter,
-      sample: sessionSample || null,
-    },
-    appDeployments: {
-      before: appBefore,
-      inserted: appInserted,
-      after: appAfter,
-      sample: appSample || null,
-    },
+    users: { before: usersBefore, inserted: usersInserted, after: usersAfter, sample: samples[0] || null },
+    sample: { before: sampleBefore, inserted: sampleInserted, after: sampleAfter, sample: samples[1] || null },
+    sessionTracking: { before: sessionBefore, inserted: sessionInserted, after: sessionAfter, sample: samples[2] || null },
+    appDeployments: { before: appBefore, inserted: appInserted, after: appAfter, sample: samples[3] || null },
+  });
+}));
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/dev/verify
+ * Quickly verify data availability and basic querying across all collections.
+ * Returns counts and the first 3 documents for each collection.
+ */
+router.get('/verify', asyncHandler(async (req, res) => {
+  const [users, sample, sessions, apps] = await Promise.all([
+    User.find({}).limit(3).lean(),
+    Sample.find({}).limit(3).lean(),
+    SessionTracking.find({}).limit(3).lean(),
+    AppDeployment.find({}).limit(3).lean(),
+  ]);
+  const [usersCount, sampleCount, sessionsCount, appsCount] = await Promise.all([
+    User.countDocuments({}),
+    Sample.countDocuments({}),
+    SessionTracking.countDocuments({}),
+    AppDeployment.countDocuments({}),
+  ]);
+
+  return res.status(200).json({
+    success: true,
+    users: { count: usersCount, data: users },
+    sample: { count: sampleCount, data: sample },
+    sessionTracking: { count: sessionsCount, data: sessions },
+    appDeployments: { count: appsCount, data: apps },
   });
 }));
 

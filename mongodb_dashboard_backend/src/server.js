@@ -1,14 +1,14 @@
 const app = require('./app');
 const mongoose = require('mongoose');
 
-const PORT = process.env.PORT || 3000;
+// Default to 3001 to match container deployment and docs URL
+const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
 const server = app.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
   console.log(`Server running at http://${HOST}:${PORT}`);
 });
-
 // Graceful shutdown
 const shutdown = (signal) => {
   // eslint-disable-next-line no-console
