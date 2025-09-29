@@ -15,16 +15,31 @@ export default function Sessions() {
   const [openForm, setOpenForm] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
 
+  // Columns cover key schema fields, with common date formatting
   const columns = useMemo(
     () => [
       { key: "task_id", label: "Task ID" },
       { key: "tenant_id", label: "Tenant ID" },
+      { key: "organization_name", label: "Organization" },
       { key: "user_name", label: "User Name" },
       { key: "service_type", label: "Service Type" },
+      {
+        key: "session_start",
+        label: "Started",
+        render: (v) => (v ? new Date(v).toLocaleString() : "")
+      },
+      {
+        key: "session_end",
+        label: "Ended",
+        render: (v) => (v ? new Date(v).toLocaleString() : "")
+      },
       { key: "status", label: "Status" },
-      { key: "session_start", label: "Started" },
-      { key: "session_end", label: "Ended" },
       { key: "total_cost", label: "Total Cost" },
+      {
+        key: "created_at",
+        label: "Created",
+        render: (v) => (v ? new Date(v).toLocaleString() : "")
+      },
     ],
     []
   );
@@ -35,6 +50,26 @@ export default function Sessions() {
       const data = await listSessions();
       const arr = Array.isArray(data) ? data : data?.items || [];
       setItems(arr);
+    } catch {
+      // Mock-friendly default for preview
+      setItems([
+        {
+          _id: "sess1",
+          task_id: "T-100",
+          tenant_id: "TEN-1",
+          organization_name: "Acme Corp",
+          user_id: "U-1",
+          user_name: "Ada",
+          project_id: "P-9",
+          container_id: "C-2",
+          service_type: "code generation",
+          session_start: new Date(Date.now() - 3600000).toISOString(),
+          session_end: "",
+          status: "active",
+          total_cost: 1.75,
+          created_at: new Date().toISOString()
+        }
+      ]);
     } finally {
       setLoading(false);
     }
@@ -56,6 +91,7 @@ export default function Sessions() {
       session_end: "",
       status: "active",
       total_cost: 0,
+      created_at: ""
     });
     setOpenForm(true);
   }
@@ -145,6 +181,7 @@ export default function Sessions() {
             <label><span>Session Start</span><input type="datetime-local" value={editItem.session_start || ""} onChange={(e)=>setEditItem({...editItem, session_start: e.target.value})}/></label>
             <label><span>Session End</span><input type="datetime-local" value={editItem.session_end || ""} onChange={(e)=>setEditItem({...editItem, session_end: e.target.value})}/></label>
             <label><span>Total Cost</span><input type="number" value={editItem.total_cost || 0} onChange={(e)=>setEditItem({...editItem, total_cost: e.target.value})}/></label>
+            <label><span>Created At</span><input type="datetime-local" value={editItem.created_at || ""} onChange={(e)=>setEditItem({...editItem, created_at: e.target.value})}/></label>
           </div>
         )}
       </Modal>
