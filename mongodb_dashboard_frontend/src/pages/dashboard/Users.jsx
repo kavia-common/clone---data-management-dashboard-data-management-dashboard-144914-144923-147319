@@ -60,6 +60,7 @@ export default function Users() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [error, setError] = useState("");
 
   const columns = useMemo(
     () => [
@@ -133,6 +134,7 @@ export default function Users() {
 
   async function load() {
     setLoading(true);
+    setError("");
     try {
       const data = await listUsers();
       const arr = Array.isArray(data) ? data : data?.items || [];
@@ -148,8 +150,9 @@ export default function Users() {
         ...it,
       }));
       setItems(safe);
-    } catch {
+    } catch (e) {
       setItems([]);
+      setError(e?.response?.data?.message || e?.message || "Failed to load users.");
     } finally {
       setLoading(false);
     }
@@ -165,15 +168,20 @@ export default function Users() {
 
   async function confirmDeleteAction() {
     if (confirmDelete?._id) {
-      await deleteUser(confirmDelete._id);
-      setConfirmDelete(null);
-      await load();
+      try {
+        await deleteUser(confirmDelete._id);
+        setConfirmDelete(null);
+        await load();
+      } catch (e) {
+        setError(e?.response?.data?.message || e?.message || "Failed to delete user.");
+      }
     }
   }
 
   return (
     <div>
       <Card title="Users" subtitle="Referral users and statistics (null-safe, flexible schema)">
+        {error && <div className="error" role="alert">{error}</div>}
         <DataTable
           columns={columns}
           data={items}

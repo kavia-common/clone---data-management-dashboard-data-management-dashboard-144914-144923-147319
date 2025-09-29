@@ -9,10 +9,12 @@ export default function Overview() {
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
   const [trend, setTrend] = useState([]);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
+      setError("");
       try {
         const [users, sessions, deployments] = await Promise.all([
           listUsers({ limit: 5 }),
@@ -34,8 +36,8 @@ export default function Overview() {
           { label: "Sun", value: (users?.length || 1) + (sessions?.length || 1) },
         ];
         setTrend(t);
-      } catch {
-        // Best effort overview, ignore failures
+      } catch (e) {
+        setError(e?.response?.data?.message || e?.message || "Failed to load overview data.");
       } finally {
         setLoading(false);
       }
@@ -65,6 +67,7 @@ export default function Overview() {
       </Card>
 
       <Card title="Activity trend" subtitle="Weekly activity overview" className="col-span-3">
+        {error && <div className="error" role="alert">{error}</div>}
         {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" />}
       </Card>
     </div>

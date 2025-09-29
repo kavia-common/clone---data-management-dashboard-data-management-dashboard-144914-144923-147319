@@ -10,6 +10,7 @@ export default function Deployments() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [error, setError] = useState("");
 
   const columns = useMemo(
     () => [
@@ -45,12 +46,14 @@ export default function Deployments() {
 
   async function load() {
     setLoading(true);
+    setError("");
     try {
       const data = await listDeployments();
       const arr = Array.isArray(data) ? data : data?.items || [];
       setItems(arr);
-    } catch {
+    } catch (e) {
       setItems([]);
+      setError(e?.response?.data?.message || e?.message || "Failed to load deployments.");
     } finally {
       setLoading(false);
     }
@@ -64,9 +67,13 @@ export default function Deployments() {
 
   async function confirmDeleteAction() {
     if (confirmDelete?._id) {
-      await deleteDeployment(confirmDelete._id);
-      setConfirmDelete(null);
-      await load();
+      try {
+        await deleteDeployment(confirmDelete._id);
+        setConfirmDelete(null);
+        await load();
+      } catch (e) {
+        setError(e?.response?.data?.message || e?.message || "Failed to delete deployment.");
+      }
     }
   }
 
@@ -76,6 +83,7 @@ export default function Deployments() {
         title="App Deployments"
         subtitle="View and delete application deployments"
       >
+        {error && <div className="error" role="alert">{error}</div>}
         <DataTable
           columns={columns}
           data={items}

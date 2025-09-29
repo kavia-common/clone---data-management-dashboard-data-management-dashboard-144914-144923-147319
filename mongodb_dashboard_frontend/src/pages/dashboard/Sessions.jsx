@@ -10,6 +10,7 @@ export default function Sessions() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [error, setError] = useState("");
 
   const columns = useMemo(
     () => [
@@ -41,12 +42,14 @@ export default function Sessions() {
 
   async function load() {
     setLoading(true);
+    setError("");
     try {
       const data = await listSessions();
       const arr = Array.isArray(data) ? data : data?.items || [];
       setItems(arr);
-    } catch {
+    } catch (e) {
       setItems([]);
+      setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
     } finally {
       setLoading(false);
     }
@@ -60,9 +63,13 @@ export default function Sessions() {
 
   async function confirmDeleteAction() {
     if (confirmDelete?._id) {
-      await deleteSession(confirmDelete._id);
-      setConfirmDelete(null);
-      await load();
+      try {
+        await deleteSession(confirmDelete._id);
+        setConfirmDelete(null);
+        await load();
+      } catch (e) {
+        setError(e?.response?.data?.message || e?.message || "Failed to delete session.");
+      }
     }
   }
 
@@ -72,6 +79,7 @@ export default function Sessions() {
         title="Session Tracking"
         subtitle="View and delete session records"
       >
+        {error && <div className="error" role="alert">{error}</div>}
         <DataTable
           columns={columns}
           data={items}
