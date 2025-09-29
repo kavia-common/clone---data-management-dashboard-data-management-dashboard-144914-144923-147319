@@ -19,7 +19,11 @@ function inferBackendBase() {
     return "";
   }
 }
-const RAW_BASE_URL = process.env.REACT_APP_API_BASE_URL || inferBackendBase() || "";
+const RAW_BASE_URL =
+  process.env.REACT_APP_API_URL || // allow REACT_APP_API_URL as requested
+  process.env.REACT_APP_API_BASE_URL || // backward compatibility with README
+  inferBackendBase() ||
+  "";
 const API_PREFIX = process.env.REACT_APP_API_PREFIX || "/api";
 
 // Normalize base URL + prefix, avoiding double slashes
