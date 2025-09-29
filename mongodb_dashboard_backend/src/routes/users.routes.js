@@ -46,24 +46,14 @@ const controller = buildCrudController(User, '-created_at');
  *         description: JSON string filter (e.g., {"referral_code":"ABC"})
  *     responses:
  *       200:
- *         description: List of users
+ *         description: List of users (array or envelope based on pagination params)
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean, example: true }
- *                 data:
- *                   type: array
- *                   items:
- *                     type: object
- *                     description: User document (flexible schema)
- *                 meta:
- *                   type: object
- *                   properties:
- *                     page: { type: integer }
- *                     limit: { type: integer }
- *                     total: { type: integer }
+ *               oneOf:
+ *                 - type: array
+ *                   items: { $ref: '#/components/schemas/GenericDocument' }
+ *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400:
  *         description: Invalid filter
  */

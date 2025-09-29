@@ -18,7 +18,9 @@ const controller = buildCrudController(SessionTracking, '-session_start');
  * /api/session-tracking:
  *   get:
  *     summary: List session tracking records
- *     description: Paginated list with optional filter and sort.
+ *     description: >
+ *       Returns a list of session tracking documents. If explicit pagination (page/limit) is provided,
+ *       the response will be wrapped in an envelope with meta; otherwise, a raw array is returned.
  *     tags: [SessionTracking]
  *     parameters:
  *       - in: query
@@ -36,7 +38,14 @@ const controller = buildCrudController(SessionTracking, '-session_start');
  *         description: JSON filter (e.g., {"tenant_id":"org1","status":"active"})
  *     responses:
  *       200:
- *         description: List response
+ *         description: Successful response (array or envelope based on pagination params)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - type: array
+ *                   items: { $ref: '#/components/schemas/GenericDocument' }
+ *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400:
  *         description: Invalid filter
  */

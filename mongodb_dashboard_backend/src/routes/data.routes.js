@@ -41,7 +41,14 @@ const controller = buildCrudController(Sample, '-created_at');
  *         description: JSON string filter (e.g., {"name":"demo"})
  *     responses:
  *       200:
- *         description: List of sample documents
+ *         description: List of sample documents (array or envelope based on pagination params)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - type: array
+ *                   items: { $ref: '#/components/schemas/GenericDocument' }
+ *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400:
  *         description: Invalid filter JSON
  */

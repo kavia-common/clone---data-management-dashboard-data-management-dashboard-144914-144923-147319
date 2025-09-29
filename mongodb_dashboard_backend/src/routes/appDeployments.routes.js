@@ -36,7 +36,15 @@ const controller = buildCrudController(AppDeployment, '-created_at');
  *         schema: { type: string }
  *         description: JSON filter (e.g., {"project_id":"p1","status":"success"})
  *     responses:
- *       200: { description: OK }
+ *       200:
+ *         description: OK (array or envelope based on pagination params)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - type: array
+ *                   items: { $ref: '#/components/schemas/GenericDocument' }
+ *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400: { description: Invalid filter }
  */
 router.get('/', asyncHandler(controller.list));
