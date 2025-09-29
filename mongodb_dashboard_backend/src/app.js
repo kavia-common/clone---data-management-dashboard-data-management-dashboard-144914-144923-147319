@@ -83,9 +83,17 @@ app.use('/docs', swaggerUi.serve, (req, res, next) => {
   swaggerUi.setup(dynamicSpec)(req, res, next);
 });
 
-// Health and base routes
+/**
+ * Health and base routes
+ */
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
+
+/**
+ * Dev utilities (seed data / db status) - non-auth, for debugging only.
+ * Mount under /api/dev
+ */
+app.use('/api/dev', require('./routes/dev.routes'));
 
 /**
  * Public API routes (no authentication middleware).
