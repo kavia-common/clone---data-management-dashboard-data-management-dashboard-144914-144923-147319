@@ -1,0 +1,20 @@
+import React from "react";
+import Button from "./Button.jsx";
+
+// PUBLIC_INTERFACE
+export default function Modal({ title, open, onClose, children, footer }) {
+  /** Accessible modal with header, body, and footer areas. */
+  if (!open) return null;
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="modal-card">
+        <div className="modal-header">
+          <h3>{title}</h3>
+          <Button variant="ghost" aria-label="Close" onClick={onClose}>✕</Button>
+        </div>
+        <div className="modal-body">{children}</div>
+        <div className="modal-footer">{footer}</div>
+      </div>
+    </div>
+  );
+}

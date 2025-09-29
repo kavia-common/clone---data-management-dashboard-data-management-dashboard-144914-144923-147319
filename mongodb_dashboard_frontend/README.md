@@ -1,82 +1,77 @@
-# Lightweight React Template for KAVIA
+# MongoDB Dashboard Frontend (React)
 
-This project provides a minimal React template with a clean, modern UI and minimal dependencies.
+Modern, modular React dashboard styled with the "Ocean Professional" theme to manage data via a secure Express.js API.
 
-## Features
+## Highlights
 
-- **Lightweight**: No heavy UI frameworks - uses only vanilla CSS and React
-- **Modern UI**: Clean, responsive design with KAVIA brand styling
-- **Fast**: Minimal dependencies for quick loading times
-- **Simple**: Easy to understand and modify
+- Authentication: login/registration, token persistence, logout, protected routes.
+- Collections: Users, Session Tracking, App Deployments — CRUD UIs with modals and data tables.
+- Charts: KPI area chart for overview/trends.
+- Theming: Blue primary and amber accents, subtle gradients, rounded surfaces.
+- API Integration: Axios instance with interceptors, environment‑based base URL, standardized helpers.
+- Structure: Clean separation of pages, components, routes, and API client.
 
-## Getting Started
+## Quickstart
 
-In the project directory, you can run:
+1) Install dependencies
+- npm install
 
-### `npm start`
+2) Configure environment
+- Copy .env.example to .env and set:
+  - REACT_APP_API_BASE_URL (e.g., http://localhost:3001)
+  - REACT_APP_SITE_URL (public URL of this app, e.g., http://localhost:3000)
 
-Runs the app in development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+3) Run the app
+- npm start
 
-### `npm test`
+App will run at http://localhost:3000
 
-Launches the test runner in interactive watch mode.
+## Project Structure
 
-### `npm run build`
+- src/
+  - api/client.js — Axios client + API functions (login/register and CRUD for all collections)
+  - auth/AuthContext.jsx — auth state, login/register/logout, Protected wrapper
+  - components/
+    - layout/ — Topbar, Sidebar, AppLayout
+    - ui/ — Button, Modal, Card
+    - charts/ — KPIChart (Recharts)
+    - DataTable.jsx — generic table with sorting and actions
+  - pages/
+    - Login.jsx, Register.jsx
+    - dashboard/Overview.jsx, Users.jsx, Sessions.jsx, Deployments.jsx
+  - routes/AppRoutes.jsx — public + protected routes
+  - App.js — root composition
+  - App.css / index.css — Ocean Professional theme styles
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Environment Variables
+
+- REACT_APP_API_BASE_URL: Backend API root (required)
+- REACT_APP_SITE_URL: Public URL of this frontend (used for auth flows like email redirects)
+Note: Do not commit .env; use .env.example as reference.
+
+## API Endpoints
+
+The frontend expects conventional REST endpoints:
+- POST /auth/login { email, password } -> { token, user }
+- POST /auth/register { name, email, password } -> { token, user }
+- Users: GET/POST /users, PUT/DELETE /users/:id
+- Sessions: GET/POST /session-tracking, PUT/DELETE /session-tracking/:id
+- Deployments: GET/POST /app-deployments, PUT/DELETE /app-deployments/:id
+
+Adjust src/api/client.js if your backend differs.
+
+## Accessibility and Security
+
+- Keyboard-accessible modals and buttons
+- Authorization header applied automatically
+- 401 response clears session to prevent stale tokens
 
 ## Customization
 
-### Colors
+- Update colors and radii in App.css variables.
+- Extend DataTable columns and forms based on your schema.
+- Add pagination and server-side filters as your API supports them.
 
-The main brand colors are defined as CSS variables in `src/App.css`:
+## Testing
 
-```css
-:root {
-  --kavia-orange: #E87A41;
-  --kavia-dark: #1A1A1A;
-  --text-color: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.7);
-  --border-color: rgba(255, 255, 255, 0.1);
-}
-```
-
-### Components
-
-This template uses pure HTML/CSS components instead of a UI framework. You can find component styles in `src/App.css`. 
-
-Common components include:
-- Buttons (`.btn`, `.btn-large`)
-- Container (`.container`)
-- Navigation (`.navbar`)
-- Typography (`.title`, `.subtitle`, `.description`)
-
-## Learn More
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- CRA testing setup is included; extend tests in src/.
