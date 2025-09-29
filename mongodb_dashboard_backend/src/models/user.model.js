@@ -12,7 +12,8 @@ const ReferralStatsSchema = new mongoose.Schema(
 const UserSchema = new mongoose.Schema(
   {
     referral_code: { type: String, required: true, index: true, unique: true },
-    referral_stats: { type: ReferralStatsSchema, default: () => ({}) },
+    // Accept either object or array for referral_stats using Mixed to match heterogeneous data in cluster
+    referral_stats: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
     created_at: { type: Date, default: Date.now, index: true },
     updated_at: { type: Date, default: Date.now, index: true },
   },
@@ -21,6 +22,7 @@ const UserSchema = new mongoose.Schema(
 
 // Useful indexes
 UserSchema.index({ created_at: -1 });
+// If referral_stats is an array on some docs, this index will still be valid for those with object form
 UserSchema.index({ 'referral_stats.last_referral_date': -1 });
 
 // Keep updated_at current on update operations

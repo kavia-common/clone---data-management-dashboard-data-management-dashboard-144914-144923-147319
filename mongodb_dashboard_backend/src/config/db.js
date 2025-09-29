@@ -26,12 +26,20 @@ async function connectDB() {
   mongoose.set('strictQuery', true);
 
   // Connection options recommended for modern Mongoose
+  // - Disable autoIndex by default to avoid failures on clusters with existing duplicate data.
+  //   You can override by setting MONGOOSE_AUTO_INDEX=true
+  const autoIndex =
+    (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
+
+  const dbName = process.env.MONGODB_DB; // Optional; if not set, Mongo will use the URI/path default (often 'test')
+
   const options = {
-    autoIndex: true,
+    autoIndex,
     maxPoolSize: 10,
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
     family: 4,
+    ...(dbName ? { dbName } : {}),
   };
 
   // Prepare a safe, masked log for the cluster host (never log credentials)
@@ -48,6 +56,12 @@ async function connectDB() {
     console.log(
       `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
     );
+    if (dbName) {
+      // eslint-disable-next-line no-console
+      console.log(`MongoDB dbName selected via env: ${dbName}`);
+    }
+    // eslint-disable-next-line no-console
+    console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
   });
 
   mongoose.connection.on('error', (err) => {

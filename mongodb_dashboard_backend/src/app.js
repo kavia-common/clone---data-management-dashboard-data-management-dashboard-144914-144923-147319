@@ -62,9 +62,22 @@ app.use('/', baseRouter);
  * All collection endpoints are mounted under /api to provide a stable prefix.
  */
 app.use('/api/users', require('./routes/users.routes'));
-app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
-app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 
+// Provide both kebab-case and camelCase route aliases to match frontend calls
+app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
+app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
+
+app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
+app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
+
+// JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
+app.use((req, res) => {
+  return res.status(404).json({
+    success: false,
+    message: 'Not Found',
+    path: req.originalUrl,
+  });
+});
 // Error handling middleware
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {

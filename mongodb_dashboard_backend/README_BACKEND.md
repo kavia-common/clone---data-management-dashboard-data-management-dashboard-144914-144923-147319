@@ -12,9 +12,13 @@ Key features:
 
 ## Setup
 
-1) Configure MongoDB URI
+1) Configure MongoDB
 - The service reads the MongoDB connection string from the environment variable:
   - `MONGODB_URI`
+- You can optionally force the database name by setting:
+  - `MONGODB_DB` (e.g., develop_kaviaroot / qa_kaviaroot / pre_prod__kaviaroot)
+- Automatic index creation is disabled by default to avoid failures on existing datasets.
+  - To enable, set: `MONGOOSE_AUTO_INDEX=true`
 - A `.env.example` is provided. Copy it to `.env` (or set environment variables in your runtime):
   ```
   cp .env.example .env
@@ -26,6 +30,8 @@ Key features:
 - To override or ensure explicit configuration, set:
   ```
   MONGODB_URI=<your-mongodb-uri>
+  MONGODB_DB=<your-db-name> # optional
+  MONGOOSE_AUTO_INDEX=true   # optional
   ```
 
 2) Install dependencies:
@@ -51,14 +57,19 @@ To confirm the backend is connected to the correct MongoDB cluster and the dashb
   MongoDB connected to cluster host: phaseonedata.qlyhyxu.mongodb.net (db: <dbName>)
   ```
   This log is informational and masks credentials. It indicates the backend is using the specified MongoDB cluster.
+  If you set a database via `MONGODB_DB` you will also see:
+  ```
+  MongoDB dbName selected via env: <your-db>
+  Mongoose autoIndex=ENABLED|DISABLED
+  ```
 - If `MONGODB_URI` is not set, you will see a warning:
   ```
   MONGODB_URI not set in environment. Falling back to built-in default MongoDB URI.
   ```
-- Call any data endpoint to verify live results (no auth required):
+- Call any data endpoint to verify live results (no auth required). Both kebab-case and camelCase paths are supported to match various frontends:
   ```
-  GET /api/session-tracking
-  GET /api/app-deployments
+  GET /api/session-tracking   OR  /api/sessionTracking
+  GET /api/app-deployments    OR  /api/appDeployments
   GET /api/users
   ```
   If documents exist in your cluster, responses will reflect the current, real-time state.
