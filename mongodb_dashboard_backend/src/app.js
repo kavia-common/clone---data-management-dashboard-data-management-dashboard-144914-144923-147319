@@ -19,6 +19,36 @@ app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Expose OpenAPI JSON (useful for tooling and external consumers)
+app.get('/openapi.json', (req, res) => {
+  // Inject dynamic server similar to /docs
+  const host = req.get('host');
+  let protocol = req.protocol;
+  const actualPort = req.socket.localPort;
+  const hasPort = host.includes(':');
+  const needsPort =
+    !hasPort &&
+    ((protocol === 'http' && actualPort !== 80) ||
+      (protocol === 'https' && actualPort !== 443));
+  const fullHost = needsPort ? `${host}:${actualPort}` : host;
+  protocol = req.secure ? 'https' : protocol;
+
+  const dynamicSpec = {
+    ...swaggerSpec,
+    info: {
+      ...swaggerSpec.info,
+      title: process.env.SWAGGER_TITLE || swaggerSpec.info?.title || 'Dashboard API',
+      version: process.env.SWAGGER_VERSION || swaggerSpec.info?.version || '1.0.0',
+      description:
+        process.env.SWAGGER_DESCRIPTION ||
+        swaggerSpec.info?.description ||
+        'REST API for Data Management Dashboard with MongoDB and Express',
+    },
+    servers: [{ url: `${protocol}://${fullHost}` }],
+  };
+  res.json(dynamicSpec);
+});
+
 // Swagger UI with dynamic server URL
 app.use('/docs', swaggerUi.serve, (req, res, next) => {
   const host = req.get('host');
