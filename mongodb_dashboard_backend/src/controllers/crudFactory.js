@@ -1,4 +1,5 @@
 const { parsePagination, success, failure } = require('../utils/http');
+const mongoose = require('mongoose');
 
 /**
  * Build a REST controller for a Mongoose model.
@@ -47,6 +48,16 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
           Model.find(filter).sort(sort).skip(skip).limit(limit).lean(),
           Model.countDocuments(filter),
         ]);
+
+        if ((process.env.DEBUG_DB_LOGS || '').toString().toLowerCase() === 'true') {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[DB][list] model=${Model.modelName} collection=${Model.collection?.collectionName} db=${mongoose.connection?.name} filter=${JSON.stringify(
+              filter
+            )} sort=${sort} page=${page} limit=${limit} returned=${items.length} total=${total}`
+          );
+        }
+
         return success(res, items, { page, limit, total }, 200);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');

@@ -126,3 +126,42 @@ List supports:
 - Endpoints are public and do not require authentication.
 - Schema comes from SCHEMA.md and schema.summary.json.
 - Validate URLs and dates when sending data.
+
+## Troubleshooting: Empty results on /api/session-tracking
+
+If the `/api/session-tracking` endpoint returns an empty `data` array even though documents exist in your MongoDB cluster, check the following:
+
+1) Confirm the database name
+- Set `MONGODB_DB` to the exact database that contains your documents (e.g., `develop_kaviaroot`, `qa_kaviaroot`, `pre_prod__kaviaroot`).
+- On startup you should see a log like:
+  ```
+  MongoDB dbName selected via env: <your-db>
+  ```
+- If this is missing and you see a warning about relying on the driver default, set `MONGODB_DB`.
+
+2) Confirm the collection name
+- Some datasets may use a different collection name or casing.
+- Set `SESSION_TRACKING_COLLECTION` to override the collection the backend uses.
+  - Default is `session_tracking`.
+  - Example overrides:
+    - `sessionTracking`
+    - `Session_Tracking`
+- The backend will now query that specific collection name.
+
+3) Enable quick verification
+- Set `VERIFY_COLLECTIONS=true` to log the estimated count of the `session_tracking` collection at startup (or your override).
+- Set `DEBUG_DB_LOGS=true` to log which database and collection are queried by list endpoints, including filter and counts, for quick diagnosis.
+
+Example .env excerpt:
+```
+MONGODB_URI=<your-mongodb-uri>
+MONGODB_DB=pre_prod__kaviaroot
+SESSION_TRACKING_COLLECTION=session_tracking
+VERIFY_COLLECTIONS=true
+DEBUG_DB_LOGS=true
+```
+
+Tip: You can also retrieve a single record to verify connectivity:
+```
+GET /api/session-tracking?limit=1
+```
