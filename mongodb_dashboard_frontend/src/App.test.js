@@ -1,15 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import App from "./App";
-import { AuthProvider } from "./auth/AuthContext";
 
-test("renders login screen by default when not authenticated", () => {
+test("renders dashboard overview by default with no authentication", () => {
   render(
     <MemoryRouter initialEntries={["/"]}>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <App />
     </MemoryRouter>
   );
-  expect(screen.getByText(/Welcome back/i)).toBeInTheDocument();
+  // Expect a known overview card title to be present
+  expect(screen.getByText(/Activity trend/i)).toBeInTheDocument();
 });
