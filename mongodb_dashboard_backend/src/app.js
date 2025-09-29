@@ -57,9 +57,7 @@ app.use('/docs', swaggerUi.serve, (req, res, next) => {
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
 
-// Domain routes
-app.use('/api/auth', require('./routes/auth.routes'));
-app.use('/api/users', require('./routes/users.routes'));
+// Public domain routes (no authentication middleware)
 app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
 app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 

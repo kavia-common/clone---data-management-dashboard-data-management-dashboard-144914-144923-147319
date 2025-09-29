@@ -10,16 +10,7 @@ const options = {
         process.env.SWAGGER_DESCRIPTION ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    components: {
-      securitySchemes: {
-        bearerAuth: {
-          type: 'http',
-          scheme: 'bearer',
-          bearerFormat: 'JWT',
-        },
-      },
-    },
-    security: [{ bearerAuth: [] }],
+    // Note: No securitySchemes or global security as endpoints are public
   },
   apis: ['./src/routes/*.js'],
 };

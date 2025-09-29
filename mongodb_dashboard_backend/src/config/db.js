@@ -2,12 +2,20 @@ const mongoose = require('mongoose');
 
 /**
  * Establishes a connection to MongoDB using Mongoose.
- * Uses environment variables for configuration.
+ * Uses environment variables for configuration with a sensible default.
  */
 async function connectDB() {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    throw new Error('Missing MONGODB_URI environment variable');
+  // Default URI provided per task requirement; can be overridden by MONGODB_URI env var
+  const DEFAULT_URI =
+    'mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData';
+
+  const uri = process.env.MONGODB_URI || DEFAULT_URI;
+
+  if (!process.env.MONGODB_URI) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      'MONGODB_URI not set in environment. Falling back to built-in default MongoDB URI.'
+    );
   }
 
   mongoose.set('strictQuery', true);
