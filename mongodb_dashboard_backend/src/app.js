@@ -57,7 +57,11 @@ app.use('/docs', swaggerUi.serve, (req, res, next) => {
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
 
-// Public domain routes (no authentication middleware)
+/**
+ * Public API routes (no authentication middleware).
+ * All collection endpoints are mounted under /api to provide a stable prefix.
+ */
+app.use('/api/users', require('./routes/users.routes'));
 app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
 app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 
