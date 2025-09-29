@@ -48,8 +48,9 @@ export default function Deployments() {
     setLoading(true);
     setError("");
     try {
-      const data = await listDeployments();
-      const arr = Array.isArray(data) ? data : data?.items || [];
+      // listDeployments uses normalizeListResponse and returns { items, total, meta }
+      const res = await listDeployments();
+      const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setItems(arr);
     } catch (e) {
       setItems([]);

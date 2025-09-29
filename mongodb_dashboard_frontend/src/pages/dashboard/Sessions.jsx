@@ -44,8 +44,9 @@ export default function Sessions() {
     setLoading(true);
     setError("");
     try {
-      const data = await listSessions();
-      const arr = Array.isArray(data) ? data : data?.items || [];
+      // listSessions uses normalizeListResponse and returns { items, total, meta }
+      const res = await listSessions();
+      const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setItems(arr);
     } catch (e) {
       setItems([]);

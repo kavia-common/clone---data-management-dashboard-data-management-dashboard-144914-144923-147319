@@ -6,6 +6,18 @@ export default function DataTable({ columns, data, loading, onEdit, onDelete }) 
   const [sortKey, setSortKey] = useState("");
   const [sortDir, setSortDir] = useState("asc");
 
+  function getValue(row, path) {
+    if (!row || !path) return undefined;
+    try {
+      return path.split(".").reduce((acc, key) => {
+        if (acc === null || acc === undefined) return undefined;
+        return acc[key];
+      }, row);
+    } catch {
+      return undefined;
+    }
+  }
+
   const sorted = useMemo(() => {
     if (!sortKey) return data || [];
     const copy = [...(data || [])];
@@ -16,15 +28,11 @@ export default function DataTable({ columns, data, loading, onEdit, onDelete }) 
         return sortDir === "asc" ? av - bv : bv - av;
       }
       return sortDir === "asc"
-        ? String(av || "").localeCompare(String(bv || ""))
-        : String(bv || "").localeCompare(String(av || ""));
+        ? String(av ?? "").localeCompare(String(bv ?? ""))
+        : String(bv ?? "").localeCompare(String(av ?? ""));
     });
     return copy;
   }, [data, sortDir, sortKey]);
-
-  function getValue(row, path) {
-    return path.split(".").reduce((acc, key) => (acc ? acc[key] : undefined), row);
-  }
 
   function toggleSort(key) {
     if (sortKey === key) {
@@ -58,11 +66,14 @@ export default function DataTable({ columns, data, loading, onEdit, onDelete }) 
           )}
           {!loading && sorted && sorted.map((row) => (
             <tr key={row._id || row.id || JSON.stringify(row)}>
-              {columns.map((c) => (
-                <td key={c.key} className="td">
-                  {c.render ? c.render(getValue(row, c.key), row) : String(getValue(row, c.key) ?? "")}
-                </td>
-              ))}
+              {columns.map((c) => {
+                const value = getValue(row, c.key);
+                return (
+                  <td key={c.key} className="td">
+                    {c.render ? c.render(value, row) : String(value ?? "")}
+                  </td>
+                );
+              })}
               {(onEdit || onDelete) && (
                 <td className="td actions">
                   {onEdit && <button className="btn btn-ghost" onClick={() => onEdit(row)}>Edit</button>}
