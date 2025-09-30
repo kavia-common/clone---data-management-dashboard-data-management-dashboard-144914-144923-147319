@@ -7,10 +7,12 @@ import { deleteSession, listSessions } from "../../api/client";
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /** Session tracking viewer: list and delete only (no create/update). */
+  const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
 
   const columns = useMemo(
     () => [
@@ -47,8 +49,10 @@ export default function Sessions() {
       // listSessions uses normalizeListResponse and returns { items, total, meta }
       const res = await listSessions();
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
+      setAllItems(arr);
       setItems(arr);
     } catch (e) {
+      setAllItems([]);
       setItems([]);
       setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
     } finally {
@@ -57,6 +61,30 @@ export default function Sessions() {
   }
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) {
+      setItems(allItems);
+      return;
+    }
+    const filtered = (allItems || []).filter((s) => {
+      const vals = [
+        s?.task_id,
+        s?.tenant_id,
+        s?.organization_name,
+        s?.user_name,
+        s?.service_type,
+        s?.status,
+        s?._id,
+        s?.id,
+      ]
+        .filter(Boolean)
+        .map((v) => String(v).toLowerCase());
+      return vals.some((v) => v.includes(q));
+    });
+    setItems(filtered);
+  }, [query, allItems]);
 
   function onDelete(row) {
     setConfirmDelete(row);
@@ -80,6 +108,16 @@ export default function Sessions() {
         title="Session Tracking"
         subtitle="View and delete session records"
       >
+        <div className="toolbar" aria-label="Sessions toolbar">
+          <input
+            className="input-search"
+            placeholder="Search sessions or tenants..."
+            aria-label="Search sessions or tenants"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="spacer" />
+        </div>
         {error && <div className="error" role="alert">{error}</div>}
         <DataTable
           columns={columns}

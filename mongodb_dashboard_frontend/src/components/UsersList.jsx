@@ -14,10 +14,12 @@ import { getApiClient, listUsers } from "../api/client";
  * - Shows environment hints for API connectivity/debugging in development
  */
 export default function UsersList({ title = "Users", subtitle = "All users", showActions = true }) {
+  const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [query, setQuery] = useState("");
 
   // Columns chosen to be resilient across variable schemas, matching Swagger GenericDocument flexibility.
   const columns = useMemo(
@@ -48,8 +50,10 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       // listUsers uses normalization to accommodate array or envelope.
       const res = await listUsers();
       const arr = Array.isArray(res) ? res : res?.items || [];
+      setAllItems(arr);
       setItems(arr);
     } catch (e) {
+      setAllItems([]);
       setItems([]);
       setError(e?.response?.data?.message || e?.message || "Failed to load users.");
     } finally {
@@ -61,6 +65,31 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     load();
   }, []);
 
+  // Client-side filter across common user fields and potential tenant-like identifiers in user object
+  useEffect(() => {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) {
+      setItems(allItems);
+      return;
+    }
+    const filtered = (allItems || []).filter((u) => {
+      const vals = [
+        u?.referral_code,
+        u?.name,
+        u?.email,
+        u?._id,
+        u?.id,
+        u?.tenant_id,
+        u?.tenant_name,
+        u?.organization_name,
+      ]
+        .filter(Boolean)
+        .map((v) => String(v).toLowerCase());
+      return vals.some((v) => v.includes(q));
+    });
+    setItems(filtered);
+  }, [query, allItems]);
+
   // Optional: delete action stub; actual delete handled by page-level component if passed.
   function onDelete(row) {
     setConfirmDelete(row);
@@ -69,9 +98,6 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   function closeDelete() {
     setConfirmDelete(null);
   }
-
-  // Note: Delete action is intentionally not wired to API here to keep this component generic/reusable.
-  // Page-level container (e.g., dashboard/Users.jsx) implements the actual delete with deleteUser API.
 
   // Dev-only: render a small environment helper block
   function EnvHint() {
@@ -96,9 +122,15 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       <Card title={title} subtitle={subtitle}>
         <EnvHint />
         <div className="toolbar" aria-label="Users toolbar">
-          <input className="input-search" placeholder="Search users..." aria-label="Search users" />
+          <input
+            className="input-search"
+            placeholder="Search users or tenants..."
+            aria-label="Search users or tenants"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
           <div className="spacer" />
-          <Button variant="primary">+ Add User</Button>
+          {/* Removed Add User button as requested */}
         </div>
         {error && (
           <div className="error" role="alert" style={{ marginBottom: 12 }}>
