@@ -5,8 +5,9 @@
  * Purpose:
  *   - Connect to MongoDB using the backend's existing configuration (dotenv + src/config/db.js).
  *   - Use process.env.MONGODB_URI (with fallback in db.js) and clearly print the resolved/used URI (masked).
- *   - Report the actual connected database name (mongoose.connection.name).
- *   - List ALL collection names found in the connected database.
+ *   - Determine and display the ACTUAL database name in use after connection (from mongoose.connection.name),
+ *     also show the database parsed from the URI path for comparison.
+ *   - List ALL collection names found in that database.
  *   - For EACH collection, fetch and print up to the first 10 documents for inspection.
  *   - Gracefully handle connection and query errors with clear console output.
  *
@@ -16,7 +17,7 @@
  *
  * Environment:
  *   - MONGODB_URI (recommended) or falls back to default in src/config/db.js
- *   - MONGODB_DB (optional)
+ *   - MONGODB_DB (optional; overrides db name)
  *   - MONGOOSE_AUTO_INDEX (optional)
  */
 
@@ -33,7 +34,7 @@ if (!process.env.DOTENV_CONFIG_PATH) {
 const { connectDB } = require('../src/config/db');
 
 /**
- * Print a friendly section header
+ * Print a friendly section header to make output easy to scan.
  */
 function section(title) {
   // eslint-disable-next-line no-console
@@ -59,6 +60,23 @@ function maskMongoUri(uri) {
 }
 
 /**
+ * Extract database name from a MongoDB URI's pathname (e.g., /mydb -> mydb).
+ * If no db name is present in the URI path, return null.
+ */
+function dbNameFromUriPath(uri) {
+  try {
+    const u = new URL(uri);
+    const path = (u.pathname || '').trim(); // e.g., "/mydb"
+    if (!path || path === '/') return null;
+    // strip leading slash
+    const name = path.startsWith('/') ? path.slice(1) : path;
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read first N documents from a collection using the native driver to avoid schema constraints.
  */
 async function fetchFirstNFromCollection(collectionName, n = 10) {
@@ -77,11 +95,16 @@ async function main() {
     const masked = maskMongoUri(rawUri);
 
     // eslint-disable-next-line no-console
-    console.log('Environment MONGODB_URI (masked):', masked);
+    console.log('MONGODB_URI (masked):', masked);
     if (process.env.MONGODB_DB) {
       // eslint-disable-next-line no-console
-      console.log('Environment MONGODB_DB (override dbName):', process.env.MONGODB_DB);
+      console.log('MONGODB_DB (env override for dbName):', process.env.MONGODB_DB);
     }
+
+    // Also parse out db name from URI path for transparency
+    const uriDbName = dbNameFromUriPath(rawUri);
+    // eslint-disable-next-line no-console
+    console.log('DB name parsed from URI path:', uriDbName || '(none in URI path)');
 
     // Connect using existing backend config (it logs basic connection details)
     await connectDB();
@@ -90,21 +113,36 @@ async function main() {
     const isConnected = mongoose.connection.readyState === 1;
     // eslint-disable-next-line no-console
     console.log('Connected:', isConnected ? 'YES' : 'NO');
-    // Actual resolved DB name from mongoose
-    // eslint-disable-next-line no-console
-    console.log('Resolved DB Name:', mongoose.connection.name);
-    // Print effective cluster host derived from URI
-    try {
-      const parsed = new URL(rawUri);
-      // eslint-disable-next-line no-console
-      console.log('Cluster Host:', parsed.hostname || 'unknown-host');
-    } catch {
-      // eslint-disable-next-line no-console
-      console.log('Cluster Host:', 'unknown-host');
-    }
 
     if (!isConnected) {
       throw new Error('Mongoose is not connected (readyState != 1).');
+    }
+
+    // Determine the effective DB name in use by Mongoose after connection.
+    const effectiveDbName = mongoose.connection.name;
+    let clusterHost = 'unknown-host';
+    try {
+      const parsed = new URL(rawUri);
+      clusterHost = parsed.hostname || clusterHost;
+    } catch {
+      // ignore parse errors
+    }
+
+    // eslint-disable-next-line no-console
+    console.log('Cluster Host:', clusterHost);
+    // eslint-disable-next-line no-console
+    console.log('Effective DB Name (from mongoose.connection.name):', effectiveDbName);
+
+    // Provide a clear summary of how db was chosen
+    if (process.env.MONGODB_DB) {
+      // eslint-disable-next-line no-console
+      console.log('Note: DB name is set via MONGODB_DB, which overrides any db in the URI.');
+    } else if (uriDbName) {
+      // eslint-disable-next-line no-console
+      console.log('Note: No MONGODB_DB override; DB name comes from the URI path.');
+    } else {
+      // eslint-disable-next-line no-console
+      console.log('Note: No DB specified in env or URI path; MongoDB driver default is used (often "test" on some setups).');
     }
 
     section('Collections');
@@ -112,12 +150,14 @@ async function main() {
     const collectionNames = collections.map((c) => c.name).sort();
     if (collectionNames.length === 0) {
       // eslint-disable-next-line no-console
-      console.log('No collections found in database:', mongoose.connection.name);
+      console.log(`No collections found in database "${effectiveDbName}".`);
       // eslint-disable-next-line no-console
       console.log('Tip: Start the server and call GET /api/dev/seed to insert demo data, then re-run this script.');
     } else {
       // eslint-disable-next-line no-console
-      console.log('Found collections:', collectionNames);
+      console.log(`Found ${collectionNames.length} collection(s) in "${effectiveDbName}":`);
+      // eslint-disable-next-line no-console
+      collectionNames.forEach((n, idx) => console.log(`  ${idx + 1}. ${n}`));
     }
 
     // For each collection, show the first 10 documents
@@ -126,14 +166,30 @@ async function main() {
       try {
         const docs = await fetchFirstNFromCollection(name, 10);
         // eslint-disable-next-line no-console
-        console.log(`Showing ${docs.length} document(s) (max 10) from "${name}":`);
-        // eslint-disable-next-line no-console
-        console.log(JSON.stringify(docs, null, 2));
+        console.log(`Showing ${docs.length} document(s) (max 10) from "${name}" in "${effectiveDbName}":`);
+        // Pretty-print each document on its own for readability
+        if (docs.length === 0) {
+          // eslint-disable-next-line no-console
+          console.log('  (no documents)');
+        } else {
+          docs.forEach((doc, i) => {
+            // eslint-disable-next-line no-console
+            console.log(`  #${i + 1}: ${JSON.stringify(doc, null, 2)}`);
+          });
+        }
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error(`Error reading from collection "${name}":`, err.message);
       }
     }
+
+    section('Summary');
+    // eslint-disable-next-line no-console
+    console.log('Connected to cluster host:', clusterHost);
+    // eslint-disable-next-line no-console
+    console.log('Database name in use:', effectiveDbName);
+    // eslint-disable-next-line no-console
+    console.log('Collections:', collectionNames.length > 0 ? collectionNames : '(none)');
 
     section('Result');
     // eslint-disable-next-line no-console
