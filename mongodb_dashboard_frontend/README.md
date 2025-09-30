@@ -21,8 +21,7 @@ Modern, modular React dashboard styled with the "Ocean Professional" theme to ma
   - REACT_APP_API_BASE_URL (required in cloud preview):
     https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001
   - REACT_APP_API_PREFIX (default /api)
-  - Optionally REACT_APP_BACKEND_PORT (default 3001) for local dev fallback
-- Note: The client also supports REACT_APP_API_URL and will prefer it if set.
+- Optional: You may use REACT_APP_API_URL instead of REACT_APP_API_BASE_URL; if both are set, REACT_APP_API_URL is preferred.
 
 3) Run the app
 - npm start
@@ -30,8 +29,9 @@ Modern, modular React dashboard styled with the "Ocean Professional" theme to ma
 App will run at http://localhost:3000 (or your environment preview URL)
 
 ### Verify backend connectivity
-- The API base URL is resolved at runtime. In development, the console prints:
-  [API] baseURL: <resolved> (RAW: <raw> PREFIX: <prefix>)
+- The API base URL is resolved as: ${REACT_APP_API_BASE_URL}${REACT_APP_API_PREFIX}
+- In development, the console prints:
+  [API] baseURL: <resolved> (RAW: <raw> PREFIX: <prefix>) — Ensure REACT_APP_API_BASE_URL is set to https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001
 - Ensure it points to EXACTLY:
   https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001/api
 - Backend OpenAPI (for reference): /openapi.json or the provided environment docs URL.

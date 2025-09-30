@@ -2,39 +2,31 @@ import axios from "axios";
 
 /**
  * API client configuration
- * Ensures the frontend calls the backend using the precise base URL and /api prefix.
+ * Enforces environment-driven API base URL and /api prefix.
  *
  * Priority:
- * 1) REACT_APP_API_URL or REACT_APP_API_BASE_URL if provided
- * 2) If running under the known cloud host, default to https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001
- * 3) Fallback: same host with REACT_APP_BACKEND_PORT (default 3001)
+ * 1) REACT_APP_API_URL or REACT_APP_API_BASE_URL (recommended)
+ * 2) Soft fallback: same-origin (no port inference, no localhost)
  */
 
 // Build base URLs from environment variables. Avoid hardcoding.
-function inferBackendBase() {
+function resolveBackendBase() {
   try {
-    // 1) Environment-provided base
     const envUrl = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_BASE_URL;
     if (envUrl) return envUrl;
 
-    if (typeof window === "undefined") return "";
-
-    const { protocol, hostname } = window.location;
-    const backendPort = process.env.REACT_APP_BACKEND_PORT || "3001";
-
-    // 2) Known cloud preview host — force the correct origin to avoid mixed/blocked requests
-    if (hostname === "vscode-internal-14377-beta.beta01.cloud.kavia.ai") {
-      return `https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:${backendPort}`;
+    // As a safe fallback, use same-origin (e.g., when a reverse proxy serves /api on the same host).
+    if (typeof window !== "undefined" && window.location) {
+      const { protocol, host } = window.location; // includes port if any
+      return `${protocol}//${host}`;
     }
-
-    // 3) Generic fallback to same host with backend port
-    return `${protocol}//${hostname}:${backendPort}`;
+    return "";
   } catch {
     return "";
   }
 }
 
-const RAW_BASE_URL = inferBackendBase();
+const RAW_BASE_URL = resolveBackendBase();
 const API_PREFIX = process.env.REACT_APP_API_PREFIX || "/api";
 
 // Normalize base URL + prefix, avoiding double slashes
@@ -58,7 +50,7 @@ if (process.env.NODE_ENV !== "production") {
       RAW_BASE_URL || "(same-origin)",
       "PREFIX:",
       API_PREFIX,
-      ")"
+      ") — Ensure REACT_APP_API_BASE_URL is set to https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001"
     );
   } catch {
     // ignore
