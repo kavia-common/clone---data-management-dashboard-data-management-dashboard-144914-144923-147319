@@ -34,6 +34,9 @@ export default function Sidebar({ open, sidebarRef }) {
         <NavLink to="/dashboard/deployments" className="nav-link">
           <span className="nav-label">App Deployments</span>
         </NavLink>
+        <NavLink to="/dashboard/costs" className="nav-link">
+          <span className="nav-label">Costs</span>
+        </NavLink>
       </nav>
     </aside>
   );

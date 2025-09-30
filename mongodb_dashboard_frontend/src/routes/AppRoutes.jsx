@@ -6,6 +6,7 @@ import Overview from "../pages/dashboard/Overview";
 import Users from "../pages/dashboard/Users";
 import Sessions from "../pages/dashboard/Sessions";
 import Deployments from "../pages/dashboard/Deployments";
+import Costs from "../pages/dashboard/Costs";
 
 // PUBLIC_INTERFACE
 export default function AppRoutes() {
@@ -43,6 +44,14 @@ export default function AppRoutes() {
         element={
           <AppLayout>
             <Deployments />
+          </AppLayout>
+        }
+      />
+      <Route
+        path="/dashboard/costs"
+        element={
+          <AppLayout>
+            <Costs />
           </AppLayout>
         }
       />

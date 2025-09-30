@@ -295,3 +295,11 @@ export async function deleteDeployment(id) {
   const res = await api.delete(`/app-deployments/${id}`);
   return res.data?.data ?? res.data;
 }
+
+/* LLM Costs */
+// PUBLIC_INTERFACE
+export async function listLlmCosts(params = {}) {
+  /** GET /api/llm-costs with optional filters and pagination, returns normalized { items, total, meta }. */
+  const res = await api.get("/llm-costs", { params: withStringifiedFilter(params) });
+  return normalizeListResponse(res);
+}
