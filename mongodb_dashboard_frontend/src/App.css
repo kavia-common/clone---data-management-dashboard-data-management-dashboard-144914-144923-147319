@@ -129,16 +129,17 @@
   display: grid;
   grid-template-columns: 240px 1fr;
   min-height: calc(100vh - 64px);
-  position: relative;
+  position: relative; /* anchor overlay stacking context */
 }
 
+/* Base sidebar: acts as a static column on >=768px, off-canvas on <768px */
 .sidebar {
   background: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
   padding: 16px 12px;
   transition: width .25s ease, transform .25s ease, opacity .2s ease;
   will-change: transform, width;
-  z-index: 50; /* keep above overlay so it’s always clickable */
+  z-index: 60; /* above overlay (40), below topbar (30) but enough to overlay content */
   width: 240px;
   min-width: 240px;
 }
@@ -401,6 +402,21 @@ input:focus, select:focus, textarea:focus {
   .grid { grid-template-columns: repeat(12, minmax(0,1fr)); }
 }
 
+/* Backdrop overlay (defined globally; visible/interactive only on mobile) */
+.sidebar-overlay {
+  position: fixed;
+  inset: 64px 0 0 0; /* below sticky topbar */
+  background: rgba(15,23,42,0.45);
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+.sidebar-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /* Mobile: off-canvas sidebar with overlay and slide-in animation */
 @media (max-width: 767px) {
   .shell-body { grid-template-columns: 1fr; }
@@ -414,21 +430,6 @@ input:focus, select:focus, textarea:focus {
     display: block;
   }
   .sidebar.open { transform: translateX(0); }
-
-  /* Overlay behind the sidebar when open */
-  .sidebar-overlay {
-    position: fixed;
-    inset: 64px 0 0 0;
-    background: rgba(15,23,42,0.45);
-    z-index: 40;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity .2s ease;
-  }
-  .sidebar-overlay.open {
-    opacity: 1;
-    pointer-events: auto;
-  }
 
   .content { padding: 16px; }
   .grid { grid-template-columns: repeat(12, minmax(0,1fr)); }

@@ -10,25 +10,21 @@ import { NavLink } from "react-router-dom";
  * - Mobile: off-canvas with slide-in and overlay when open
  */
 // PUBLIC_INTERFACE
-export default function Sidebar({ open }) {
+export default function Sidebar({ open, sidebarRef }) {
   /** Collapsible and responsive sidebar with primary navigation links. */
   return (
-    <>
-      {/* Overlay for mobile; visibility controlled via CSS classes */}
-      <div
-        className={`sidebar-overlay ${open ? "open" : ""}`}
-        aria-hidden={!open}
-        aria-label="Navigation overlay"
-      />
-      <aside className={`sidebar ${open ? "open" : ""}`} aria-label="Primary navigation">
-        <nav>
-          <NavLink to="/dashboard" end className="nav-link">Overview</NavLink>
-          <div className="sidebar-group">Collections</div>
-          <NavLink to="/dashboard/users" className="nav-link">Users</NavLink>
-          <NavLink to="/dashboard/sessions" className="nav-link">Session Tracking</NavLink>
-          <NavLink to="/dashboard/deployments" className="nav-link">App Deployments</NavLink>
-        </nav>
-      </aside>
-    </>
+    <aside
+      ref={sidebarRef}
+      className={`sidebar ${open ? "open" : ""}`}
+      aria-label="Primary navigation"
+    >
+      <nav>
+        <NavLink to="/dashboard" end className="nav-link">Overview</NavLink>
+        <div className="sidebar-group">Collections</div>
+        <NavLink to="/dashboard/users" className="nav-link">Users</NavLink>
+        <NavLink to="/dashboard/sessions" className="nav-link">Session Tracking</NavLink>
+        <NavLink to="/dashboard/deployments" className="nav-link">App Deployments</NavLink>
+      </nav>
+    </aside>
   );
 }
