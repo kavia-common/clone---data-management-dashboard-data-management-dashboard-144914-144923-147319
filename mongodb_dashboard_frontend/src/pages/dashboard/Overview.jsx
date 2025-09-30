@@ -54,12 +54,14 @@ export default function Overview() {
           <div className="kpi-label">Users</div>
         </div>
       </Card>
+
       <Card title="Sessions" subtitle="Active and historical sessions" className="kpi-card">
         <div className="kpi">
           <div className="kpi-value">{metrics.sessions}</div>
           <div className="kpi-label">Sessions</div>
         </div>
       </Card>
+
       <Card title="Deployments" subtitle="Recent app deployments" className="kpi-card">
         <div className="kpi">
           <div className="kpi-value">{metrics.deployments}</div>
@@ -67,7 +69,7 @@ export default function Overview() {
         </div>
       </Card>
 
-      <Card title="Activity trend" subtitle="Weekly activity overview" className="col-span-3">
+      <Card title="Activity trend" subtitle="Weekly activity overview" className="block-full">
         <div className="toolbar" aria-label="Overview toolbar">
           <input className="input-search" placeholder="Search..." aria-label="Search" />
           <div className="spacer" />

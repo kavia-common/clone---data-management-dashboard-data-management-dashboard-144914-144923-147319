@@ -15,7 +15,11 @@ export default function Sidebar({ open }) {
   return (
     <>
       {/* Overlay for mobile; visibility controlled via CSS classes */}
-      <div className={`sidebar-overlay ${open ? "open" : ""}`} aria-hidden={!open} />
+      <div
+        className={`sidebar-overlay ${open ? "open" : ""}`}
+        aria-hidden={!open}
+        aria-label="Navigation overlay"
+      />
       <aside className={`sidebar ${open ? "open" : ""}`} aria-label="Primary navigation">
         <nav>
           <NavLink to="/dashboard" end className="nav-link">Overview</NavLink>

@@ -12,7 +12,7 @@ export default function AppLayout({ children }) {
       <Topbar onToggleSidebar={() => setSidebarOpen(o => !o)} />
       <div className="shell-body">
         <Sidebar open={sidebarOpen} />
-        <main className="content">{children}</main>
+        <main className="content" role="main">{children}</main>
       </div>
     </div>
   );

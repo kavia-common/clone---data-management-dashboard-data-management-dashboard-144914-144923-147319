@@ -49,12 +49,20 @@ export default function DataTable({ columns, data, loading, onEdit, onDelete }) 
         <thead>
           <tr>
             {columns.map((c) => (
-              <th key={c.key} onClick={() => toggleSort(c.key)} role="button" className="th">
+              <th
+                key={c.key}
+                onClick={() => toggleSort(c.key)}
+                role="button"
+                className="th"
+                scope="col"
+                aria-sort={sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                title="Click to sort"
+              >
                 {c.label}
                 {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
               </th>
             ))}
-            {(onEdit || onDelete) && <th className="th">Actions</th>}
+            {(onEdit || onDelete) && <th className="th" scope="col">Actions</th>}
           </tr>
         </thead>
         <tbody>
