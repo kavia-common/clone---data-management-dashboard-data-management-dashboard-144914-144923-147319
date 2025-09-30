@@ -46,18 +46,30 @@ Key features:
   - Adds sensible defaults for local development: `http://localhost:3000`, `https://localhost:3000`.
   - Honors `CORS_CREDENTIALS=true` to enable credentialed requests.
 
-- Typical configurations:
+- Local development (recommended):
+  - Backend runs on 3001 and frontend on 3000.
+  - Frontend must set:
+    ```
+    REACT_APP_API_BASE_URL=http://localhost:3001/api
+    ```
+  - Backend already allows `http://localhost:3000` by default. No additional CORS envs are required for this pairing.
+  - If your frontend uses credentialed requests (cookies), also set:
+    ```
+    CORS_CREDENTIALS=true
+    ```
+
+- Typical configurations (hosted/prod):
   - Single origin:
     ```
-    CORS_ORIGIN=https://vscode-internal-13427-beta.beta01.cloud.kavia.ai:3000
+    CORS_ORIGIN=https://app.example.com
     ```
   - Multiple origins:
     ```
-    CORS_ORIGINS=https://vscode-internal-13427-beta.beta01.cloud.kavia.ai:3000,https://admin.example.com
+    CORS_ORIGINS=https://app.example.com,https://admin.example.com
     ```
-  - Derive from frontend API base:
+  - Derive from frontend API base (when frontend build injects this):
     ```
-    REACT_APP_API_BASE_URL=https://vscode-internal-13427-beta.beta01.cloud.kavia.ai:3001/api
+    REACT_APP_API_BASE_URL=https://api.example.com/api
     ```
   - Enable cookies/credentials:
     ```
@@ -65,7 +77,7 @@ Key features:
     ```
 
 - On startup, backend logs the computed CORS whitelist to help diagnose mismatches.
-- See `.env.example` for all options.
+- See `.env.example` for all options and copy it as a starting point.
 
 3) Install dependencies:
 ```
