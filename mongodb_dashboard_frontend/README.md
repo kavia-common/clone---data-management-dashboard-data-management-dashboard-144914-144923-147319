@@ -34,11 +34,17 @@ App will run at http://localhost:3000 (or your environment preview URL)
 - Ensure it points to your backend (e.g., https://<host>:3001/api).
 - Backend OpenAPI (for reference): /openapi.json or the provided environment docs URL.
 
+### Users list from Swagger
+- The Users screen calls GET /api/users and supports both:
+  - Paginated envelope: { success, data: [...], meta: { page, limit, total } }
+  - Non-paginated array: [...]
+- The component normalizes both shapes; records are shown in a modern Ocean Professional table.
+
 ### Troubleshooting "Network error"
 - Common causes:
   1. Wrong API base URL or protocol mismatch (http vs https).
-     - Fix .env to use the correct origin. For the provided environment:
-       REACT_APP_API_BASE_URL=https://vscode-internal-13427-beta.beta01.cloud.kavia.ai:3001
+     - Fix .env to use the correct origin. For example:
+       REACT_APP_API_BASE_URL=https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001
   2. Backend not reachable from the frontend origin (server down, wrong port).
      - Open the backend docs URL directly to confirm availability.
   3. CORS rejection on the backend.
@@ -66,6 +72,7 @@ App will run at http://localhost:3000 (or your environment preview URL)
     - ui/ — Button, Modal, Card
     - charts/ — KPIChart (Recharts)
     - DataTable.jsx — generic table with sorting and actions
+    - UsersList.jsx — reusable users list component that consumes /api/users
   - pages/
     - dashboard/Overview.jsx, Users.jsx, Sessions.jsx, Deployments.jsx
   - routes/AppRoutes.jsx — public routes
