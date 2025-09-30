@@ -12,21 +12,22 @@ Key features:
 
 ## Setup
 
-1) Configure MongoDB
+1) Configure environment
+- A `.env.example` is provided. Copy it to `.env` (or set environment variables in your runtime):
+  ```
+  cp .env.example .env
+  ```
+- By default, the server listens on `PORT=3001`. Adjust if needed.
+
+2) Configure MongoDB
 - The service reads the MongoDB connection string from the environment variable:
   - `MONGODB_URI`
 - You can optionally force the database name by setting:
   - `MONGODB_DB` (e.g., develop_kaviaroot / qa_kaviaroot / pre_prod__kaviaroot)
 - Automatic index creation is disabled by default to avoid failures on existing datasets.
   - To enable, set: `MONGOOSE_AUTO_INDEX=true`
-- A `.env.example` is provided. Copy it to `.env` (or set environment variables in your runtime):
-  ```
-  cp .env.example .env
-  ```
-- By default (if `MONGODB_URI` is not set), the service will use the following URI:
-  ```
-  mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData
-  ```
+- If `MONGODB_URI` is not set, the service will use a built-in development default.
+  - For production, ALWAYS set `MONGODB_URI`.
 - To override or ensure explicit configuration, set:
   ```
   MONGODB_URI=<your-mongodb-uri>
@@ -34,12 +35,12 @@ Key features:
   MONGOOSE_AUTO_INDEX=true   # optional
   ```
 
-2) Install dependencies:
+3) Install dependencies:
 ```
 npm install
 ```
 
-3) Run:
+4) Run:
 ```
 npm run dev
 ```
@@ -47,6 +48,13 @@ npm run dev
 Service:
 - Docs: http://localhost:3001/docs (or the port configured by your environment)
 - Health: GET /
+
+## Frontend integration
+
+- Ensure the frontend is configured to call the correct backend URL, for example:
+  - REACT_APP_BACKEND_URL=http://localhost:3001
+- The frontend should only call these backend APIs; it must not connect directly to MongoDB.
+- Swagger/OpenAPI JSON is available at `/openapi.json` and the UI at `/docs`.
 
 ## Database Selection Behavior (Important)
 
@@ -87,7 +95,7 @@ To confirm the backend is connected to the correct MongoDB cluster and the dashb
 
 - On startup, check logs for a message similar to:
   ```
-  MongoDB connected to cluster host: phaseonedata.qlyhyxu.mongodb.net (db: <dbName>)
+  MongoDB connected to cluster host: <cluster-host> (db: <dbName>)
   ```
   This log is informational and masks credentials. It indicates the backend is using the specified MongoDB cluster.
   If you set a database via `MONGODB_DB` you will also see:
@@ -105,11 +113,6 @@ To confirm the backend is connected to the correct MongoDB cluster and the dashb
   GET /api/app-deployments    OR  /api/appDeployments
   GET /api/users
   ```
-  If documents exist in your cluster and the correct database is selected, responses will reflect the current, real-time state.
-
-Note:
-- The frontend should only call these backend APIs. It should not connect directly to MongoDB.
-- The backend does not overwrite `MONGODB_URI` with any placeholders; it uses `process.env.MONGODB_URI` if set, otherwise the provided default.
 
 ## Collections
 
@@ -143,10 +146,6 @@ If the `/api/session-tracking` endpoint returns an empty `data` array even thoug
 - Some datasets may use a different collection name or casing.
 - Set `SESSION_TRACKING_COLLECTION` to override the collection the backend uses.
   - Default is `session_tracking`.
-  - Example overrides:
-    - `sessionTracking`
-    - `Session_Tracking`
-- The backend will now query that specific collection name.
 
 3) Enable quick verification
 - Set `VERIFY_COLLECTIONS=true` to log the estimated count of the `session_tracking` collection at startup (or your override).
@@ -154,6 +153,7 @@ If the `/api/session-tracking` endpoint returns an empty `data` array even thoug
 
 Example .env excerpt:
 ```
+PORT=3001
 MONGODB_URI=<your-mongodb-uri>
 MONGODB_DB=pre_prod__kaviaroot
 SESSION_TRACKING_COLLECTION=session_tracking
