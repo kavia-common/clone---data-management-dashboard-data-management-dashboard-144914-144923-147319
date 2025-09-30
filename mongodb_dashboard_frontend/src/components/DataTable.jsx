@@ -53,7 +53,7 @@ export default function DataTable({ columns, data, loading, onEdit, onDelete }) 
                 key={c.key}
                 onClick={() => toggleSort(c.key)}
                 role="button"
-                className="th"
+                className={`th ${c.priority ? `col-priority-${c.priority}` : ""}`.trim()}
                 scope="col"
                 aria-sort={sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                 title="Click to sort"
@@ -62,7 +62,7 @@ export default function DataTable({ columns, data, loading, onEdit, onDelete }) 
                 {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
               </th>
             ))}
-            {(onEdit || onDelete) && <th className="th" scope="col">Actions</th>}
+            {(onEdit || onDelete) && <th className="th col-priority-4" scope="col">Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -78,14 +78,15 @@ export default function DataTable({ columns, data, loading, onEdit, onDelete }) 
                 const value = getValue(row, c.key);
                 const content = c.render ? c.render(value, row) : (value ?? "");
                 const isNumber = typeof value === "number";
+                const priorityClass = c.priority ? `col-priority-${c.priority}` : "";
                 return (
-                  <td key={c.key} className={`td ${isNumber ? "num" : ""}`}>
+                  <td key={c.key} className={`td ${isNumber ? "num" : ""} ${priorityClass}`.trim()}>
                     {content === null || content === undefined || content === "" ? "—" : content}
                   </td>
                 );
               })}
               {(onEdit || onDelete) && (
-                <td className="td actions">
+                <td className="td actions col-priority-4">
                   {onEdit && <button className="btn btn-ghost" onClick={() => onEdit(row)}>Edit</button>}
                   {onDelete && <button className="btn btn-danger" onClick={() => onDelete(row)}>Delete</button>}
                 </td>

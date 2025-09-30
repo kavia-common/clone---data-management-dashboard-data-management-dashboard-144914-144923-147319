@@ -47,12 +47,14 @@
   justify-content: space-between;
   padding: 0 24px;
   border-bottom: 1px solid var(--border-subtle);
+  gap: 8px;
 }
 
 .topbar-left {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0; /* allow ellipsis when needed */
 }
 
 .topbar .brand {
@@ -78,6 +80,9 @@
   font-weight: 700;
   font-size: 16px;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hamburger {
@@ -93,6 +98,11 @@
   display: flex;
   gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
+}
+@media (max-width: 375px) {
+  .topbar-actions { gap: 8px; }
+  .user-chip { padding: 6px 8px; }
 }
 
 /* Role badge example (if used) */
@@ -176,7 +186,8 @@
 .content {
   /* Constrain very wide screens and center content with consistent gutters */
   padding: 24px;
-  max-width: 1280px;
+  max-width: 1400px;
+  width: 100%;
   margin: 0 auto;
 }
 
@@ -184,6 +195,11 @@
   display: grid;
   grid-template-columns: repeat(12, minmax(0,1fr));
   gap: 16px;
+}
+
+@media (max-width: 767px) {
+  .grid { grid-template-columns: repeat(12, minmax(0,1fr)); gap: 12px; }
+  .col-span-6, .col-span-4, .col-span-3 { grid-column: span 12 / span 12; }
 }
 
 /* Simple span utilities for 12-col grid */
@@ -216,6 +232,9 @@
   cursor: pointer;
   transition: transform .05s ease, box-shadow .2s ease, background .2s ease;
   box-shadow: 0 1px 2px rgba(16,24,40,0.04);
+}
+@media (max-width: 767px) {
+  .btn { min-height: 36px; }
 }
 .btn:active { transform: translateY(1px); }
 .btn-primary { background: var(--brand-primary); color: white; height: 36px; }
@@ -261,9 +280,10 @@
   border-radius: 8px;
   height: 36px;
   width: min(420px, 50vw);
+  max-width: 100%;
   padding: 0 12px 0 12px;
   color: var(--text-primary);
-  flex: 0 1 auto;
+  flex: 1 1 260px; /* grow/shrink with toolbar */
 }
 .input-search::placeholder { color: var(--placeholder); }
 
@@ -278,7 +298,7 @@
 /* Set a reasonable min width so columns don’t collapse on small screens */
 .table {
   width: 100%;
-  min-width: 720px;
+  min-width: 640px; /* slightly smaller to better fit tablet split view */
   border-collapse: separate;
   border-spacing: 0;
   background: var(--bg-surface);
@@ -301,15 +321,40 @@
 }
 .tr:hover .td { background: #FFF7ED; }
 .table-empty { padding: 16px; color: var(--text-tertiary); text-align: center; }
-.td.actions { display: flex; gap: 8px; align-items: center; justify-content: flex-start; }
+.td.actions { display: flex; gap: 8px; align-items: center; justify-content: flex-start; flex-wrap: wrap; }
 .td.num { text-align: right; }
 .amount-positive { color: var(--success); font-weight: 600; }
+
+/* Priority-based column visibility helpers for smaller screens */
+@media (max-width: 767px) {
+  .th, .td { padding: 10px 12px; }
+  .table { min-width: 560px; } /* allow slightly tighter table */
+  .td, .th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+  .td .status-badge { white-space: nowrap; }
+  .td.actions { gap: 6px; }
+  /* hide very low priority metadata columns if authors opt-in via classnames */
+  .col-priority-5, .col-priority-6, .col-priority-7 { display: none; }
+}
+
+@media (max-width: 375px) {
+  .table { min-width: 520px; }
+  .th, .td { padding: 8px 10px; }
+}
 .status-badge {
   background: var(--badge-bg);
   color: var(--badge-text);
   font-size: 12px; font-weight: 600;
   padding: 2px 8px; border-radius: 9999px;
 }
+
+/* Optional utility marker classes to use on th/td when needed */
+.col-priority-1 {}
+.col-priority-2 {}
+.col-priority-3 {}
+.col-priority-4 {}
+.col-priority-5 {}
+.col-priority-6 {}
+.col-priority-7 {}
 
 /* Modal */
 .modal-backdrop {
@@ -327,6 +372,13 @@
 .modal-body { padding: 16px; overflow: auto; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
+@media (max-width: 767px) {
+  .modal-backdrop { padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .modal-card { max-width: 100%; max-height: calc(100vh - 32px); border-radius: 10px; }
+  .modal-header, .modal-footer { padding: 10px 12px; }
+  .modal-body { padding: 12px; }
+}
+
 /* Forms */
 .form-grid {
   display: grid;
@@ -340,6 +392,9 @@ input, select, textarea {
   height: 36px;
 }
 textarea { height: auto; min-height: 80px; }
+@media (max-width: 767px) {
+  .form-grid { grid-template-columns: 1fr; gap: 10px; }
+}
 input:focus, select:focus, textarea:focus {
   border-color: var(--brand-primary);
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
@@ -424,10 +479,11 @@ input:focus, select:focus, textarea:focus {
     position: fixed;
     top: 64px; left: 0; right: auto; bottom: 0;
     width: 280px;
-    max-width: 85vw;
+    max-width: min(85vw, 320px);
     transform: translateX(-100%);
     box-shadow: 0 8px 24px rgba(0,0,0,0.12);
     display: block;
+    background: var(--bg-surface);
   }
   .sidebar.open { transform: translateX(0); }
 
@@ -437,4 +493,8 @@ input:focus, select:focus, textarea:focus {
   .toolbar { flex-direction: column; align-items: stretch; gap: 8px; padding: 8px 0; }
   .input-search { width: 100%; }
   .table { display: block; overflow-x: auto; }
+}
+@media (max-width: 375px) {
+  .hamburger { font-size: 20px; }
+  .brand-title { font-size: 14px; }
 }
