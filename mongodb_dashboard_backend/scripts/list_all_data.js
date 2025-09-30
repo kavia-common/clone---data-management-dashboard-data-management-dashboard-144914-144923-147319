@@ -3,14 +3,12 @@
  * PUBLIC_INTERFACE
  * Script: scripts/list_all_data.js
  * Purpose:
- *   - Connects to MongoDB using the backend's existing configuration (dotenv + src/config/db.js).
- *   - Attempts to read and print documents from a representative collection in priority order:
- *       1) users
- *       2) session_tracking
- *       3) app_deployments
- *       4) sample
- *   - If none of the above collections exist, lists available collections and exits.
- *   - Gracefully handles connection and query errors with clear console output.
+ *   - Connect to MongoDB using the backend's existing configuration (dotenv + src/config/db.js).
+ *   - Use process.env.MONGODB_URI (with fallback in db.js) and clearly print the resolved/used URI (masked).
+ *   - Report the actual connected database name (mongoose.connection.name).
+ *   - List ALL collection names found in the connected database.
+ *   - For EACH collection, fetch and print up to the first 10 documents for inspection.
+ *   - Gracefully handle connection and query errors with clear console output.
  *
  * Usage:
  *   node -r dotenv/config scripts/list_all_data.js
@@ -34,12 +32,6 @@ if (!process.env.DOTENV_CONFIG_PATH) {
 
 const { connectDB } = require('../src/config/db');
 
-// Import models so we can query them directly
-const User = require('../src/models/user.model');
-const SessionTracking = require('../src/models/sessionTracking.model');
-const AppDeployment = require('../src/models/appDeployments.model');
-const Sample = require('../src/models/sample.model');
-
 /**
  * Print a friendly section header
  */
@@ -49,37 +41,29 @@ function section(title) {
 }
 
 /**
- * Print documents with capped count and pretty formatting
+ * Mask credentials in MongoDB URI for safe logging.
+ * - Preserves protocol and host
+ * - Masks username/password if present
+ * - Leaves query string as-is
  */
-function printDocs(label, docs, cap = 10) {
-  const toShow = Array.isArray(docs) ? docs.slice(0, cap) : [];
-  // eslint-disable-next-line no-console
-  console.log(`${label}: showing ${toShow.length} of ${docs.length}`);
-  // eslint-disable-next-line no-console
-  console.log(JSON.stringify(toShow, null, 2));
-}
-
-/**
- * Determine if a collection exists in the current database.
- */
-async function collectionExists(name) {
-  const collections = await mongoose.connection.db.listCollections({ name }).toArray();
-  return collections.length > 0;
-}
-
-/**
- * Try fetching from a collection using a model, with safety and logging.
- */
-async function tryFetch(name, model, sort = { _id: -1 }, limit = 50) {
-  const exists = await collectionExists(name);
-  if (!exists) {
-    // eslint-disable-next-line no-console
-    console.log(`Collection "${name}" does not exist (skipping).`);
-    return null;
+function maskMongoUri(uri) {
+  try {
+    const u = new URL(uri);
+    const user = u.username ? '***' : '';
+    const pass = u.password ? '***' : '';
+    const auth = u.username || u.password ? `${user}:${pass}@` : '';
+    return `${u.protocol}//${auth}${u.host}${u.pathname || ''}${u.search || ''}`;
+  } catch {
+    return '<invalid-uri>';
   }
-  // eslint-disable-next-line no-console
-  console.log(`Querying collection "${name}"...`);
-  const docs = await model.find({}).sort(sort).limit(limit).lean();
+}
+
+/**
+ * Read first N documents from a collection using the native driver to avoid schema constraints.
+ */
+async function fetchFirstNFromCollection(collectionName, n = 10) {
+  const coll = mongoose.connection.db.collection(collectionName);
+  const docs = await coll.find({}).limit(n).toArray();
   return docs;
 }
 
@@ -87,72 +71,73 @@ async function main() {
   try {
     section('MongoDB Connectivity Check');
 
-    // Show which URI host is being used (mask credentials)
-    const uri = process.env.MONGODB_URI ||
+    const rawUri =
+      process.env.MONGODB_URI ||
       'mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData';
-    let host = 'unknown-host';
-    try {
-      const parsed = new URL(uri);
-      host = parsed.hostname || host;
-    } catch { /* ignore */ }
+    const masked = maskMongoUri(rawUri);
 
-    // Connect using existing backend config (logs connection details)
+    // eslint-disable-next-line no-console
+    console.log('Environment MONGODB_URI (masked):', masked);
+    if (process.env.MONGODB_DB) {
+      // eslint-disable-next-line no-console
+      console.log('Environment MONGODB_DB (override dbName):', process.env.MONGODB_DB);
+    }
+
+    // Connect using existing backend config (it logs basic connection details)
     await connectDB();
 
     section('Connection Info');
+    const isConnected = mongoose.connection.readyState === 1;
     // eslint-disable-next-line no-console
-    console.log('Connected:', mongoose.connection.readyState === 1 ? 'YES' : 'NO');
+    console.log('Connected:', isConnected ? 'YES' : 'NO');
+    // Actual resolved DB name from mongoose
     // eslint-disable-next-line no-console
-    console.log('DB Name:', mongoose.connection.name);
-    // eslint-disable-next-line no-console
-    console.log('Cluster Host:', host);
-
-    section('Data Listing');
-
-    // Priority order of representative collections
-    const attempts = [
-      { name: 'users', model: User, sort: { created_at: -1 } },
-      { name: 'session_tracking', model: SessionTracking, sort: { session_start: -1 } },
-      { name: 'app_deployments', model: AppDeployment, sort: { created_at: -1 } },
-      { name: 'sample', model: Sample, sort: { created_at: -1 } },
-    ];
-
-    let anyListed = false;
-    for (const { name, model, sort } of attempts) {
-      try {
-        const docs = await tryFetch(name, model, sort, 50);
-        if (docs && docs.length >= 0) {
-          anyListed = true;
-          printDocs(`Collection "${name}"`, docs, 10);
-          // Stop at the first successful collection with at least 0 results to prove connectivity.
-          break;
-        }
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error(`Error querying "${name}":`, err.message);
-      }
+    console.log('Resolved DB Name:', mongoose.connection.name);
+    // Print effective cluster host derived from URI
+    try {
+      const parsed = new URL(rawUri);
+      // eslint-disable-next-line no-console
+      console.log('Cluster Host:', parsed.hostname || 'unknown-host');
+    } catch {
+      // eslint-disable-next-line no-console
+      console.log('Cluster Host:', 'unknown-host');
     }
 
-    if (!anyListed) {
-      // No target collection found; list available collections to guide the user
-      section('No Target Collections Found');
-      const list = await mongoose.connection.db.listCollections().toArray();
-      const names = list.map((c) => c.name).sort();
-      if (names.length === 0) {
+    if (!isConnected) {
+      throw new Error('Mongoose is not connected (readyState != 1).');
+    }
+
+    section('Collections');
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const collectionNames = collections.map((c) => c.name).sort();
+    if (collectionNames.length === 0) {
+      // eslint-disable-next-line no-console
+      console.log('No collections found in database:', mongoose.connection.name);
+      // eslint-disable-next-line no-console
+      console.log('Tip: Start the server and call GET /api/dev/seed to insert demo data, then re-run this script.');
+    } else {
+      // eslint-disable-next-line no-console
+      console.log('Found collections:', collectionNames);
+    }
+
+    // For each collection, show the first 10 documents
+    for (const name of collectionNames) {
+      section(`Data Preview: ${name}`);
+      try {
+        const docs = await fetchFirstNFromCollection(name, 10);
         // eslint-disable-next-line no-console
-        console.log('No collections found in this database.');
-      } else {
+        console.log(`Showing ${docs.length} document(s) (max 10) from "${name}":`);
         // eslint-disable-next-line no-console
-        console.log('Available collections:', names);
-        // Suggest trying one of them manually
+        console.log(JSON.stringify(docs, null, 2));
+      } catch (err) {
         // eslint-disable-next-line no-console
-        console.log('Tip: Add data using GET /api/dev/seed while the server is running, then re-run this script.');
+        console.error(`Error reading from collection "${name}":`, err.message);
       }
     }
 
     section('Result');
     // eslint-disable-next-line no-console
-    console.log('MongoDB connectivity and listing script finished.');
+    console.log('MongoDB listing script finished.');
     await mongoose.connection.close();
     // eslint-disable-next-line no-console
     console.log('MongoDB connection closed. Bye.');
