@@ -135,96 +135,105 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
  */
 router.get(
   '/',
-  asyncHandler(async (req, res, next) => {
-    // We want to preserve existing behavior from controller.list:
-    // - If explicit pagination (page/limit) is provided, it returns an envelope
-    // - Otherwise returns a raw array.
-    // We'll call it first. If result is empty (raw array or envelope with empty data),
-    // we will trigger seeding via the local route handler and then re-fetch using controller.list.
-    // Note: We are not using HTTP to call our own endpoint to avoid network and CORS; we directly run the same logic.
+  asyncHandler(async (req, res) => {
+    // Determine pagination intent and parse filter/sort similar to controller logic
+    const explicit =
+      Object.prototype.hasOwnProperty.call(req.query, 'page') ||
+      Object.prototype.hasOwnProperty.call(req.query, 'limit');
 
-    // Helper to detect empty response body
-    function isEmptyResult(body) {
-      if (Array.isArray(body)) return body.length === 0;
-      if (body && typeof body === 'object' && Array.isArray(body.data)) {
-        return body.data.length === 0;
-      }
-      return false;
-    }
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
+    const skip = (page - 1) * limit;
 
-    // Capture original res.json to intercept controller output
-    const originalJson = res.json.bind(res);
-    let firstPayload = undefined;
+    const sort = req.query.sort || '-created_at';
 
-    // Temporarily override res.json to capture controller.list output
-    res.json = (payload) => {
-      firstPayload = payload;
-      return originalJson(payload);
-    };
-
-    // First call: execute the normal listing logic
-    await controller.list(req, res);
-
-    // If not empty, we are done
-    if (!isEmptyResult(firstPayload)) {
-      return;
-    }
-
-    // If empty, run the same logic as /seed-if-empty, then re-run the list to return actual data
+    // Parse filter safely
+    const filterRaw = req.query.filter ? req.query.filter : '{}';
+    let filter = {};
     try {
-      // Run seeding (inline logic reproduced from seed-if-empty handler)
-      const before = await User.countDocuments({});
-      if (before === 0) {
-        const now = new Date();
-        const demoUsers = [
-          {
-            referral_code: 'REF-ALPHA',
-            referral_stats: {
-              total_referrals: 2,
-              verified_referrals: 1,
-              last_referral_date: now,
-            },
-            referral_history: [
-              {
-                user_id: 'u-101',
-                user_email: 'alpha1@example.com',
-                user_name: 'Alpha One',
-                referred_at: now,
-                status: 'verified',
-              },
-              {
-                user_id: 'u-102',
-                user_email: 'alpha2@example.com',
-                user_name: 'Alpha Two',
-                referred_at: now,
-                status: 'pending',
-              },
-            ],
-            created_at: now,
-            updated_at: now,
-          },
-          {
-            referral_code: 'REF-BETA',
-            referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
-            referral_history: [],
-            created_at: now,
-            updated_at: now,
-          },
-        ];
-        await User.insertMany(demoUsers);
-      }
-
-      // Re-run list: restore res.json override to capture new payload and send it
-      // We need to call controller.list again and allow it to respond normally.
-      return controller.list(req, res);
-    } catch (err) {
-      // If seeding fails for any reason, fallback to the originally empty payload already sent.
-      // But since we already sent the original payload, we cannot send again.
-      // Log error and end.
-      // eslint-disable-next-line no-console
-      console.error('Auto-seed on empty /api/users failed:', err?.message || err);
-      return;
+      filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
+
+    // First pass: check data presence without sending a response
+    let items = [];
+    let total = 0;
+
+    try {
+      if (explicit) {
+        // For pagination, we still need to detect emptiness using the paginated query
+        [items, total] = await Promise.all([
+          User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+          User.countDocuments(filter),
+        ]);
+      } else {
+        items = await User.find(filter).sort(sort).lean();
+        total = items.length;
+      }
+    } catch (err) {
+      // Map common cast errors to 400 to avoid 500
+      const message = err?.message || 'Request failed';
+      if (err?.name === 'CastError' || /Cast to/.test(message)) {
+        return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
+      }
+      return res.status(400).json({ success: false, message: 'Request failed', details: message });
+    }
+
+    // If empty and no documents exist at all, seed and re-run once
+    if (total === 0) {
+      try {
+        const before = await User.countDocuments({});
+        if (before === 0) {
+          const now = new Date();
+          const demoUsers = [
+            {
+              referral_code: 'REF-ALPHA',
+              referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
+              referral_history: [
+                { user_id: 'u-101', user_email: 'alpha1@example.com', user_name: 'Alpha One', referred_at: now, status: 'verified' },
+                { user_id: 'u-102', user_email: 'alpha2@example.com', user_name: 'Alpha Two', referred_at: now, status: 'pending' },
+              ],
+              created_at: now,
+              updated_at: now,
+            },
+            {
+              referral_code: 'REF-BETA',
+              referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
+              referral_history: [],
+              created_at: now,
+              updated_at: now,
+            },
+          ];
+          await User.insertMany(demoUsers);
+        }
+        // Re-run list after seeding
+        if (explicit) {
+          [items, total] = await Promise.all([
+            User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+            User.countDocuments(filter),
+          ]);
+        } else {
+          items = await User.find(filter).sort(sort).lean();
+          total = items.length;
+        }
+      } catch (err) {
+        // Seeding failure should not 500; return an empty array/envelope gracefully
+        // and log for diagnostics
+        // eslint-disable-next-line no-console
+        console.error('Auto-seed on empty /api/users failed:', err?.message || err);
+      }
+    }
+
+    // Final response (single send): match controller behavior and Swagger
+    if (explicit) {
+      return res.status(200).json({
+        success: true,
+        data: items,
+        meta: { page, limit, total },
+      });
+    }
+    return res.status(200).json(items);
   })
 );
 
