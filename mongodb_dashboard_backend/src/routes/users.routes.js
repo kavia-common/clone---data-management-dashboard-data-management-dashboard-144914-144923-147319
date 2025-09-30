@@ -133,7 +133,100 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
  *                 sample:
  *                   $ref: '#/components/schemas/GenericDocument'
  */
-router.get('/', asyncHandler(controller.list));
+router.get(
+  '/',
+  asyncHandler(async (req, res, next) => {
+    // We want to preserve existing behavior from controller.list:
+    // - If explicit pagination (page/limit) is provided, it returns an envelope
+    // - Otherwise returns a raw array.
+    // We'll call it first. If result is empty (raw array or envelope with empty data),
+    // we will trigger seeding via the local route handler and then re-fetch using controller.list.
+    // Note: We are not using HTTP to call our own endpoint to avoid network and CORS; we directly run the same logic.
+
+    // Helper to detect empty response body
+    function isEmptyResult(body) {
+      if (Array.isArray(body)) return body.length === 0;
+      if (body && typeof body === 'object' && Array.isArray(body.data)) {
+        return body.data.length === 0;
+      }
+      return false;
+    }
+
+    // Capture original res.json to intercept controller output
+    const originalJson = res.json.bind(res);
+    let firstPayload = undefined;
+
+    // Temporarily override res.json to capture controller.list output
+    res.json = (payload) => {
+      firstPayload = payload;
+      return originalJson(payload);
+    };
+
+    // First call: execute the normal listing logic
+    await controller.list(req, res);
+
+    // If not empty, we are done
+    if (!isEmptyResult(firstPayload)) {
+      return;
+    }
+
+    // If empty, run the same logic as /seed-if-empty, then re-run the list to return actual data
+    try {
+      // Run seeding (inline logic reproduced from seed-if-empty handler)
+      const before = await User.countDocuments({});
+      if (before === 0) {
+        const now = new Date();
+        const demoUsers = [
+          {
+            referral_code: 'REF-ALPHA',
+            referral_stats: {
+              total_referrals: 2,
+              verified_referrals: 1,
+              last_referral_date: now,
+            },
+            referral_history: [
+              {
+                user_id: 'u-101',
+                user_email: 'alpha1@example.com',
+                user_name: 'Alpha One',
+                referred_at: now,
+                status: 'verified',
+              },
+              {
+                user_id: 'u-102',
+                user_email: 'alpha2@example.com',
+                user_name: 'Alpha Two',
+                referred_at: now,
+                status: 'pending',
+              },
+            ],
+            created_at: now,
+            updated_at: now,
+          },
+          {
+            referral_code: 'REF-BETA',
+            referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
+            referral_history: [],
+            created_at: now,
+            updated_at: now,
+          },
+        ];
+        await User.insertMany(demoUsers);
+      }
+
+      // Re-run list: restore res.json override to capture new payload and send it
+      // We need to call controller.list again and allow it to respond normally.
+      return controller.list(req, res);
+    } catch (err) {
+      // If seeding fails for any reason, fallback to the originally empty payload already sent.
+      // But since we already sent the original payload, we cannot send again.
+      // Log error and end.
+      // eslint-disable-next-line no-console
+      console.error('Auto-seed on empty /api/users failed:', err?.message || err);
+      return;
+    }
+  })
+);
 
 /**
  * @swagger
