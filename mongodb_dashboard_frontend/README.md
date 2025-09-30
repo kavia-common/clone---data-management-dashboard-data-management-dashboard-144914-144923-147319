@@ -18,12 +18,44 @@ Modern, modular React dashboard styled with the "Ocean Professional" theme to ma
 
 2) Configure environment
 - Copy .env.example to .env and set:
-  - REACT_APP_API_BASE_URL (e.g., http://localhost:3001)
+  - REACT_APP_API_BASE_URL (e.g., http://localhost:3001 or your cloud https://host:3001)
+  - REACT_APP_API_PREFIX (default /api)
+  - Optionally REACT_APP_BACKEND_PORT (default 3001) if not setting API_BASE_URL
+- Note: The client also supports REACT_APP_API_URL and will prefer it if set.
 
 3) Run the app
 - npm start
 
-App will run at http://localhost:3000
+App will run at http://localhost:3000 (or your environment preview URL)
+
+### Verify backend connectivity
+- The API base URL is resolved at runtime. In development, the console prints:
+  [API] baseURL: <resolved> (RAW: <raw> PREFIX: <prefix>)
+- Ensure it points to your backend (e.g., https://<host>:3001/api).
+- Backend OpenAPI (for reference): /openapi.json or the provided environment docs URL.
+
+### Troubleshooting "Network error"
+- Common causes:
+  1. Wrong API base URL or protocol mismatch (http vs https).
+     - Fix .env to use the correct origin. For the provided environment:
+       REACT_APP_API_BASE_URL=https://vscode-internal-13427-beta.beta01.cloud.kavia.ai:3001
+  2. Backend not reachable from the frontend origin (server down, wrong port).
+     - Open the backend docs URL directly to confirm availability.
+  3. CORS rejection on the backend.
+     - Ensure backend enables CORS allowing the frontend origin, e.g.:
+       origin: ["http://localhost:3000","https://<your-frontend-host>:3000"]
+       methods: ["GET","POST","PUT","DELETE","OPTIONS"], credentials: false
+  4. Self-signed or invalid TLS certificate when using https.
+     - Use a valid certificate or access via http if acceptable in dev.
+  5. Mixed content blocked: https page calling http API.
+     - Use https for both frontend and backend in secure environments.
+
+### Endpoint compatibility
+- This frontend targets:
+  - GET/POST /api/users, PUT/DELETE /api/users/:id
+  - GET/POST /api/session-tracking, PUT/DELETE /api/session-tracking/:id
+  - GET/POST /api/app-deployments, PUT/DELETE /api/app-deployments/:id
+- If your backend differs, adjust src/api/client.js paths accordingly.
 
 ## Project Structure
 

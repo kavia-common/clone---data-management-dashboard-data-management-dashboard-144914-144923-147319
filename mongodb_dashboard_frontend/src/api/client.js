@@ -36,6 +36,17 @@ function joinUrl(base, path) {
 
 const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
 
+// Helpful dev log to verify resolved API base URL (won't affect production builds)
+if (process.env.NODE_ENV !== "production") {
+  try {
+    // Avoid leaking tokens or sensitive info; only print base URL
+    // eslint-disable-next-line no-console
+    console.log("[API] baseURL:", API_BASE_URL || "/api", "(RAW:", RAW_BASE_URL || "(same-origin)", "PREFIX:", API_PREFIX, ")");
+  } catch {
+    // ignore
+  }
+}
+
 // Keys for localStorage persistence
 const LS_TOKEN_KEY = "dashboard_token";
 const LS_USER_KEY = "dashboard_user";
