@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
+import Button from "../../components/ui/Button.jsx";
 import { listUsers, listSessions, listDeployments } from "../../api/client";
 
 // PUBLIC_INTERFACE
@@ -70,7 +71,7 @@ export default function Overview() {
         <div className="toolbar" aria-label="Overview toolbar">
           <input className="input-search" placeholder="Search..." aria-label="Search" />
           <div className="spacer" />
-          <button className="btn btn-primary">+ Quick Action</button>
+          <Button variant="primary">+ Quick Action</Button>
         </div>
         {error && <div className="error" role="alert">{error}</div>}
         {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" />}

@@ -2,7 +2,7 @@ import React from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 // PUBLIC_INTERFACE
-export default function KPIChart({ data = [], xKey = "label", yKey = "value", color = "#2563EB" }) {
+export default function KPIChart({ data = [], xKey = "label", yKey = "value", color = "#F59E0B" }) {
   /** Simple responsive area chart for KPI trends. */
   return (
     <div style={{ width: "100%", height: 260 }}>
