@@ -22,19 +22,19 @@ export default function Sessions() {
       {
         key: "session_start",
         label: "Started",
-        render: (v) => (v ? new Date(v).toLocaleString() : "")
+        render: (v) => (v ? new Date(v).toLocaleString() : "—")
       },
       {
         key: "session_end",
         label: "Ended",
-        render: (v) => (v ? new Date(v).toLocaleString() : "")
+        render: (v) => (v ? new Date(v).toLocaleString() : "—")
       },
-      { key: "status", label: "Status" },
-      { key: "total_cost", label: "Total Cost" },
+      { key: "status", label: "Status", render: (v) => (v ? <span className="status-badge">{v}</span> : "—") },
+      { key: "total_cost", label: "Total Cost", render: (v) => (typeof v === "number" ? <span className="amount-positive">{v.toLocaleString()}</span> : "—") },
       {
         key: "created_at",
         label: "Created",
-        render: (v) => (v ? new Date(v).toLocaleString() : "")
+        render: (v) => (v ? new Date(v).toLocaleString() : "—")
       },
     ],
     []

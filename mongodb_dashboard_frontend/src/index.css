@@ -2,14 +2,15 @@
 html, body, #root { height: 100%; }
 body {
   margin: 0;
-  color: #111827;
-  background: #f9fafb;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol;
+  color: var(--text-primary, #0F172A);
+  background: var(--bg-canvas, #F3F6F9);
+  font-family: "Helvetica Neue", Arial, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Cantarell, "Helvetica Neue", Arial, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  line-height: 1.45;
 }
 
-a { color: #2563EB; text-decoration: none; }
+a { color: var(--link, #2563EB); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 code {

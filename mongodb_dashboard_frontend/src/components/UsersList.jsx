@@ -95,6 +95,11 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     <div>
       <Card title={title} subtitle={subtitle}>
         <EnvHint />
+        <div className="toolbar" aria-label="Users toolbar">
+          <input className="input-search" placeholder="Search users..." aria-label="Search users" />
+          <div className="spacer" />
+          <Button variant="primary">+ Add User</Button>
+        </div>
         {error && (
           <div className="error" role="alert" style={{ marginBottom: 12 }}>
             {error}

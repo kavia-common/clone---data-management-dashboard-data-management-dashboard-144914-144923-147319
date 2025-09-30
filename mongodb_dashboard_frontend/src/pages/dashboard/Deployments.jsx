@@ -17,7 +17,7 @@ export default function Deployments() {
       { key: "deployment_id", label: "Deployment ID" },
       { key: "project_name", label: "Project" },
       { key: "branch_name", label: "Branch" },
-      { key: "status", label: "Status" },
+      { key: "status", label: "Status", render: (v) => v ? <span className="status-badge">{v}</span> : "—" },
       { key: "artifact_count", label: "Artifacts" },
       { key: "domain_status", label: "Domain Status" },
       {

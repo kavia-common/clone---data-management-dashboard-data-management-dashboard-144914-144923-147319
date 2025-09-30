@@ -67,6 +67,11 @@ export default function Overview() {
       </Card>
 
       <Card title="Activity trend" subtitle="Weekly activity overview" className="col-span-3">
+        <div className="toolbar" aria-label="Overview toolbar">
+          <input className="input-search" placeholder="Search..." aria-label="Search" />
+          <div className="spacer" />
+          <button className="btn btn-primary">+ Quick Action</button>
+        </div>
         {error && <div className="error" role="alert">{error}</div>}
         {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" />}
       </Card>

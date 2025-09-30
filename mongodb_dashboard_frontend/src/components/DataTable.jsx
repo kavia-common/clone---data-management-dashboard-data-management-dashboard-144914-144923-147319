@@ -59,18 +59,20 @@ export default function DataTable({ columns, data, loading, onEdit, onDelete }) 
         </thead>
         <tbody>
           {loading && (
-            <tr><td colSpan={columns.length + 1}><div className="table-empty">Loading...</div></td></tr>
+            <tr className="tr"><td colSpan={columns.length + 1}><div className="table-empty">Loading...</div></td></tr>
           )}
           {!loading && (!sorted || sorted.length === 0) && (
-            <tr><td colSpan={columns.length + 1}><div className="table-empty">No data</div></td></tr>
+            <tr className="tr"><td colSpan={columns.length + 1}><div className="table-empty">No data</div></td></tr>
           )}
           {!loading && sorted && sorted.map((row) => (
-            <tr key={row._id || row.id || JSON.stringify(row)}>
+            <tr className="tr" key={row._id || row.id || JSON.stringify(row)}>
               {columns.map((c) => {
                 const value = getValue(row, c.key);
+                const content = c.render ? c.render(value, row) : (value ?? "");
+                const isNumber = typeof value === "number";
                 return (
-                  <td key={c.key} className="td">
-                    {c.render ? c.render(value, row) : String(value ?? "")}
+                  <td key={c.key} className={`td ${isNumber ? "num" : ""}`}>
+                    {content === null || content === undefined || content === "" ? "—" : content}
                   </td>
                 );
               })}
