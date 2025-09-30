@@ -303,3 +303,43 @@ export async function listLlmCosts(params = {}) {
   const res = await api.get("/llm-costs", { params: withStringifiedFilter(params) });
   return normalizeListResponse(res);
 }
+
+/* Tenants, Projects, and Usage APIs (new) */
+
+// PUBLIC_INTERFACE
+export async function getTenantNavigation(tenantId) {
+  /** Returns navigation hierarchy for a tenant: groups, users, projects. */
+  const res = await api.get(`/tenants/${encodeURIComponent(tenantId)}/navigation`);
+  return res.data?.data ?? res.data;
+}
+
+// PUBLIC_INTERFACE
+export async function getTenantCreditsSummary(tenantId) {
+  /** Tenant-level credit summary and breakdowns by user/project. */
+  const res = await api.get(`/tenants/${encodeURIComponent(tenantId)}/credits-summary`);
+  return res.data?.data ?? res.data;
+}
+
+// PUBLIC_INTERFACE
+export async function getTenantUsersUsage(tenantId, params = {}) {
+  /** Per-user usage summary for a tenant: total_cost, total_minutes, project splits if available. */
+  const res = await api.get(`/tenants/${encodeURIComponent(tenantId)}/users/usage`, {
+    params: withStringifiedFilter(params),
+  });
+  // Could be array or envelope
+  return Array.isArray(res.data) ? res.data : res.data?.data ?? res.data;
+}
+
+// PUBLIC_INTERFACE
+export async function getProjectOverview(projectId) {
+  /** Project overview: ownership, access rights, credits allocated/used/balance, and aggregations. */
+  const res = await api.get(`/projects/${encodeURIComponent(projectId)}/overview`);
+  return res.data?.data ?? res.data;
+}
+
+// PUBLIC_INTERFACE
+export async function getProjectUsersUsage(projectId) {
+  /** Per-user usage summary within a project. */
+  const res = await api.get(`/projects/${encodeURIComponent(projectId)}/users/usage`);
+  return Array.isArray(res.data) ? res.data : res.data?.data ?? res.data;
+}
