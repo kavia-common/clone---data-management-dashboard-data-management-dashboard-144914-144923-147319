@@ -37,24 +37,34 @@ Key features:
   ```
 
 2) Configure CORS
-- By default, the backend now explicitly allows the frontend origin:
-  ```
-  https://vscode-internal-28199-beta.beta01.cloud.kavia.ai:4000
-  ```
-- To customize:
+- The backend includes a robust CORS middleware that:
+  - Reads allowed origins from:
+    - `CORS_ORIGIN` (single origin) and/or
+    - `CORS_ORIGINS` (comma-separated list)
+  - Auto-allows the origin derived from `REACT_APP_API_BASE_URL` if provided (commonly set in the frontend).
+    - Example: if `REACT_APP_API_BASE_URL=https://host:3001/api`, backend will allow `https://host:3000` and the exact origin derived from the API base URL.
+  - Adds sensible defaults for local development: `http://localhost:3000`, `https://localhost:3000`.
+  - Honors `CORS_CREDENTIALS=true` to enable credentialed requests.
+
+- Typical configurations:
   - Single origin:
     ```
-    CORS_ORIGIN=https://your-frontend.example.com
+    CORS_ORIGIN=https://vscode-internal-13427-beta.beta01.cloud.kavia.ai:3000
     ```
-  - Multiple origins (comma-separated):
+  - Multiple origins:
     ```
-    CORS_ORIGINS=https://app.example.com,https://admin.example.com
+    CORS_ORIGINS=https://vscode-internal-13427-beta.beta01.cloud.kavia.ai:3000,https://admin.example.com
     ```
-  - If your frontend sends cookies or uses `credentials: 'include'` (or axios `withCredentials: true`):
+  - Derive from frontend API base:
+    ```
+    REACT_APP_API_BASE_URL=https://vscode-internal-13427-beta.beta01.cloud.kavia.ai:3001/api
+    ```
+  - Enable cookies/credentials:
     ```
     CORS_CREDENTIALS=true
     ```
-    Note: Credentialed requests cannot work with `Access-Control-Allow-Origin: *`; an explicit origin is required (the middleware handles this).
+
+- On startup, backend logs the computed CORS whitelist to help diagnose mismatches.
 - See `.env.example` for all options.
 
 3) Install dependencies:
