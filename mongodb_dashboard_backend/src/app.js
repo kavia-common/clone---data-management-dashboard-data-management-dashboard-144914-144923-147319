@@ -111,10 +111,16 @@ app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
  // Sample data endpoint (demonstration): /api/data
 app.use('/api/data', require('./routes/data.routes'));
 
-// LLM costs endpoints (CRUD/list/get)
+  // LLM costs endpoints (CRUD/list/get)
 app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
 app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
 
+// Tenants and Projects (mapping, hierarchy, credits, usage)
+app.use('/api/tenants', require('./routes/tenants.routes'));
+app.use('/api/projects', require('./routes/projects.routes'));
+// Tenants and Projects (mapping, hierarchy, credits, usage)
+app.use('/api/tenants', require('./routes/tenants.routes'));
+app.use('/api/projects', require('./routes/projects.routes'));
 // JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
 app.use((req, res) => {
   return res.status(404).json({

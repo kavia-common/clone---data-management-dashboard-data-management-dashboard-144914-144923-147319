@@ -5,6 +5,8 @@ const SessionTracking = require('../models/sessionTracking.model');
 const AppDeployment = require('../models/appDeployments.model');
 const User = require('../models/user.model');
 const Sample = require('../models/sample.model');
+const Tenant = require('../models/tenant.model');
+const Project = require('../models/project.model');
 
 const router = express.Router();
 
@@ -51,13 +53,17 @@ router.get('/seed', asyncHandler(async (req, res) => {
     Sample.countDocuments({}),
     SessionTracking.countDocuments({}),
     AppDeployment.countDocuments({}),
+    Tenant.countDocuments({}),
+    Project.countDocuments({}),
   ]);
-  const [usersBefore, sampleBefore, sessionBefore, appBefore] = countsBefore;
+  const [usersBefore, sampleBefore, sessionBefore, appBefore, tenantsBefore, projectsBefore] = countsBefore;
 
   let usersInserted = 0;
   let sampleInserted = 0;
   let sessionInserted = 0;
   let appInserted = 0;
+  let tenantsInserted = 0;
+  let projectsInserted = 0;
 
   // Seed users if empty
   if (usersBefore === 0) {
@@ -96,6 +102,98 @@ router.get('/seed', asyncHandler(async (req, res) => {
     ];
     const resSample = await Sample.insertMany(docs);
     sampleInserted = resSample.length;
+  }
+
+  // Seed tenants if empty
+  if (tenantsBefore === 0) {
+    const now = new Date();
+    const tenants = [
+      {
+        tenant_id: 'org-1',
+        tenant_name: 'Org One',
+        description: 'Demo tenant one',
+        allocated_credits: 100,
+        credits_unit: 'USD',
+        groups: ['Engineering', 'QA'],
+        users: [
+          { user_id: 'user-123', role: 'admin', groups: ['Engineering'] },
+          { user_id: 'user-789', role: 'member', groups: ['QA'] },
+        ],
+        projects: ['proj-001', 'proj-003'],
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+      },
+      {
+        tenant_id: 'org-2',
+        tenant_name: 'Org Two',
+        description: 'Demo tenant two',
+        allocated_credits: 250,
+        credits_unit: 'USD',
+        groups: ['Platform'],
+        users: [{ user_id: 'user-456', role: 'owner', groups: ['Platform'] }],
+        projects: ['proj-002'],
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+      },
+    ];
+    const resTenants = await Tenant.insertMany(tenants);
+    tenantsInserted = resTenants.length;
+  }
+
+  // Seed projects if empty
+  if (projectsBefore === 0) {
+    const now = new Date();
+    const projects = [
+      {
+        tenant_id: 'org-1',
+        project_id: 'proj-001',
+        project_name: 'Project One',
+        description: 'Demo project 1',
+        owner_user_id: 'user-123',
+        access_users: [
+          { user_id: 'user-123', role: 'owner', access_level: 'admin' },
+          { user_id: 'user-789', role: 'member', access_level: 'read' },
+        ],
+        allocated_credits: 60,
+        credits_unit: 'USD',
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+        tags: ['demo', 'web'],
+      },
+      {
+        tenant_id: 'org-2',
+        project_id: 'proj-002',
+        project_name: 'Project Two',
+        description: 'Demo project 2',
+        owner_user_id: 'user-456',
+        access_users: [{ user_id: 'user-456', role: 'owner', access_level: 'admin' }],
+        allocated_credits: 150,
+        credits_unit: 'USD',
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+        tags: ['maintenance'],
+      },
+      {
+        tenant_id: 'org-1',
+        project_id: 'proj-003',
+        project_name: 'Project Three',
+        description: 'Demo project 3',
+        owner_user_id: 'user-789',
+        access_users: [{ user_id: 'user-789', role: 'owner', access_level: 'admin' }],
+        allocated_credits: 40,
+        credits_unit: 'USD',
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+        tags: ['experimental'],
+      },
+    ];
+    const resProjects = await Project.insertMany(projects);
+    projectsInserted = resProjects.length;
   }
 
   // Seed session_tracking if empty
@@ -222,11 +320,13 @@ router.get('/seed', asyncHandler(async (req, res) => {
     appInserted = result.length;
   }
 
-  const [usersAfter, sampleAfter, sessionAfter, appAfter] = await Promise.all([
+  const [usersAfter, sampleAfter, sessionAfter, appAfter, tenantsAfter, projectsAfter] = await Promise.all([
     User.countDocuments({}),
     Sample.countDocuments({}),
     SessionTracking.countDocuments({}),
     AppDeployment.countDocuments({}),
+    Tenant.countDocuments({}),
+    Project.countDocuments({}),
   ]);
 
   const samples = await Promise.all([
@@ -234,6 +334,8 @@ router.get('/seed', asyncHandler(async (req, res) => {
     Sample.findOne({}).sort({ _id: -1 }).lean(),
     SessionTracking.findOne({}).sort({ _id: -1 }).lean(),
     AppDeployment.findOne({}).sort({ _id: -1 }).lean(),
+    Tenant.findOne({}).sort({ _id: -1 }).lean(),
+    Project.findOne({}).sort({ _id: -1 }).lean(),
   ]);
 
   return res.status(200).json({
@@ -242,6 +344,8 @@ router.get('/seed', asyncHandler(async (req, res) => {
     sample: { before: sampleBefore, inserted: sampleInserted, after: sampleAfter, sample: samples[1] || null },
     sessionTracking: { before: sessionBefore, inserted: sessionInserted, after: sessionAfter, sample: samples[2] || null },
     appDeployments: { before: appBefore, inserted: appInserted, after: appAfter, sample: samples[3] || null },
+    tenants: { before: tenantsBefore, inserted: tenantsInserted, after: tenantsAfter, sample: samples[4] || null },
+    projects: { before: projectsBefore, inserted: projectsInserted, after: projectsAfter, sample: samples[5] || null },
   });
 }));
 
@@ -252,17 +356,21 @@ router.get('/seed', asyncHandler(async (req, res) => {
  * Returns counts and the first 3 documents for each collection.
  */
 router.get('/verify', asyncHandler(async (req, res) => {
-  const [users, sample, sessions, apps] = await Promise.all([
+  const [users, sample, sessions, apps, tenants, projects] = await Promise.all([
     User.find({}).limit(3).lean(),
     Sample.find({}).limit(3).lean(),
     SessionTracking.find({}).limit(3).lean(),
     AppDeployment.find({}).limit(3).lean(),
+    Tenant.find({}).limit(3).lean(),
+    Project.find({}).limit(3).lean(),
   ]);
-  const [usersCount, sampleCount, sessionsCount, appsCount] = await Promise.all([
+  const [usersCount, sampleCount, sessionsCount, appsCount, tenantsCount, projectsCount] = await Promise.all([
     User.countDocuments({}),
     Sample.countDocuments({}),
     SessionTracking.countDocuments({}),
     AppDeployment.countDocuments({}),
+    Tenant.countDocuments({}),
+    Project.countDocuments({}),
   ]);
 
   return res.status(200).json({
@@ -271,6 +379,8 @@ router.get('/verify', asyncHandler(async (req, res) => {
     sample: { count: sampleCount, data: sample },
     sessionTracking: { count: sessionsCount, data: sessions },
     appDeployments: { count: appsCount, data: apps },
+    tenants: { count: tenantsCount, data: tenants },
+    projects: { count: projectsCount, data: projects },
   });
 }));
 
