@@ -22,6 +22,7 @@ function toOriginMaybe(urlLike) {
  * - Supports:
  *    - CORS_ORIGIN as a single origin string
  *    - CORS_ORIGINS as a comma-separated whitelist
+ *    - FRONTEND_ORIGIN as a convenience alias for a single origin
  *    - REACT_APP_API_BASE_URL: will be parsed to infer and allow the frontend origin automatically
  * - Adds sensible fallbacks for local/dev usage
  * - Allows toggling credentials via CORS_CREDENTIALS
@@ -32,6 +33,7 @@ function corsMiddleware() {
 
   // Read envs
   const singleOrigin = toOriginMaybe((process.env.CORS_ORIGIN || '').trim());
+  const frontendOrigin = toOriginMaybe((process.env.FRONTEND_ORIGIN || '').trim());
   const listOrigins = (process.env.CORS_ORIGINS || '')
     .split(',')
     .map((o) => toOriginMaybe(o.trim()))
@@ -43,18 +45,29 @@ function corsMiddleware() {
   // 1) Explicit list first
   listOrigins.forEach((o) => whitelist.add(o));
   if (singleOrigin) whitelist.add(singleOrigin);
+  if (frontendOrigin) whitelist.add(frontendOrigin);
 
   // 2) From API base URL (common in frontend .env)
-  if (inferredFromApiBase) whitelist.add(inferredFromApiBase);
+  if (inferredFromApiBase) {
+    whitelist.add(inferredFromApiBase);
+
+    // If API base is https://host:3001/api, also add a sibling frontend default
+    // such as https://host:3000 and https://host:4000 for common dev/preview ports.
+    try {
+      const u = new URL(inferredFromApiBase);
+      const protoHost = `${u.protocol}//${u.hostname}`;
+      whitelist.add(`${protoHost}:3000`);
+      whitelist.add(`${protoHost}:4000`);
+    } catch {
+      // ignore parse errors
+    }
+  }
 
   // 3) Localhost defaults
   whitelist.add('http://localhost:3000');
   whitelist.add('https://localhost:3000');
 
-  // 4) Dynamic same-host dev fallback will be handled in originFn if no Origin header matches
-
-  // If none were configured beyond defaults and we are in a hosted environment,
-  // do not keep an incorrect hardcoded origin. We'll match dynamically below.
+  // Allow credentialed requests when enabled
   const allowCredentials =
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
 
@@ -82,13 +95,15 @@ function corsMiddleware() {
     });
     if (wildcardAllowed) return callback(null, true);
 
-    // As a last resort, allow sibling port 3000 for same host (common for frontend dev),
-    // when the backend is accessed at https://host:3001 and frontend at https://host:3000
+    // As a last resort, allow sibling port 3000 or 4000 for same host (common for frontend dev/preview),
+    // when the backend is accessed at https://host:3001 and frontend at https://host:3000 or :4000
     try {
       const o = new URL(origin);
       const sibling3000 = `${o.protocol}//${o.hostname}:3000`;
-      if (whitelist.has(sibling3000)) return callback(null, true);
-      // If whitelist contains the host without explicit port 3000, add and allow
+      const sibling4000 = `${o.protocol}//${o.hostname}:4000`;
+      if (whitelist.has(sibling3000) || whitelist.has(sibling4000)) return callback(null, true);
+
+      // If whitelist contains the same hostname (regardless of port), allow it
       if (
         Array.from(whitelist).some((w) => {
           try {
@@ -110,7 +125,7 @@ function corsMiddleware() {
 
   // Log the effective whitelist once for diagnostics
   // eslint-disable-next-line no-console
-  console.log('[CORS] Whitelist:', Array.from(whitelist));
+  console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
 
   const corsInstance = cors({
     origin: originFn,
