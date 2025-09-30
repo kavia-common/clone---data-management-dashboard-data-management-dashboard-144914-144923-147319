@@ -31,7 +31,7 @@ export default function AppLayout({ children }) {
   const handleToggle = useCallback(() => setSidebarOpen((o) => !o), []);
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
-  // Close on outside click when mobile
+  // Close on outside click when mobile and when clicking anywhere not in sidebar
   useEffect(() => {
     if (!isMobile || !sidebarOpen) return;
     function onDocClick(e) {
@@ -45,7 +45,7 @@ export default function AppLayout({ children }) {
 
   return (
     <div className="app-shell">
-      <Topbar onToggleSidebar={handleToggle} />
+      <Topbar onToggleSidebar={handleToggle} sidebarOpen={sidebarOpen} />
       <div className="shell-body">
         {/* Backdrop overlay for mobile only, ensures content never shifts */}
         {isMobile && (

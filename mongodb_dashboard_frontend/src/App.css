@@ -29,17 +29,18 @@
 
 /* Shell and layout */
 .app-shell {
+  --topbar-h: 64px;
   min-height: 100vh;
   color: var(--text-primary);
   background: var(--bg-canvas);
   display: grid;
-  grid-template-rows: 64px 1fr;
+  grid-template-rows: var(--topbar-h) 1fr;
 }
 
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 30;
+  z-index: 70; /* ensure above sidebar (60) and overlay (40) */
   height: 64px;
   background: var(--bg-surface);
   display: flex;
@@ -48,6 +49,7 @@
   padding: 0 24px;
   border-bottom: 1px solid var(--border-subtle);
   gap: 8px;
+  min-width: 0; /* allow children to shrink */
 }
 
 .topbar-left {
@@ -55,6 +57,7 @@
   align-items: center;
   gap: 10px;
   min-width: 0; /* allow ellipsis when needed */
+  flex: 1 1 auto;
 }
 
 .topbar .brand {
@@ -83,6 +86,13 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 40vw;
+}
+@media (max-width: 600px) {
+  .brand-title { max-width: 28vw; }
+}
+@media (max-width: 375px) {
+  .brand-title { display: none; }
 }
 
 .hamburger {
@@ -92,6 +102,16 @@
   font-size: 22px;
   cursor: pointer;
   margin-right: 8px;
+  width: 40px;
+  height: 40px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+}
+.hamburger:focus-visible {
+  outline: 2px solid #FDE68A;
+  outline-offset: 2px;
 }
 
 .topbar-actions {
@@ -99,10 +119,17 @@
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.user-chip { cursor: pointer; }
+.user-name { max-width: 24vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) {
+  .user-name { display: none; }
 }
 @media (max-width: 375px) {
   .topbar-actions { gap: 8px; }
-  .user-chip { padding: 6px 8px; }
+  .user-chip { padding: 8px 10px; min-height: 40px; }
 }
 
 /* Role badge example (if used) */
@@ -140,6 +167,7 @@
   grid-template-columns: 240px 1fr;
   min-height: calc(100vh - 64px);
   position: relative; /* anchor overlay stacking context */
+  z-index: 0; /* baseline for stacking contexts */
 }
 
 /* Base sidebar: acts as a static column on >=768px, off-canvas on <768px */
@@ -149,9 +177,13 @@
   padding: 16px 12px;
   transition: width .25s ease, transform .25s ease, opacity .2s ease;
   will-change: transform, width;
-  z-index: 60; /* above overlay (40), below topbar (30) but enough to overlay content */
+  z-index: 60; /* below topbar (70), above overlay (40) */
   width: 240px;
   min-width: 240px;
+  outline: none;
+}
+.sidebar:focus-visible {
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
 }
 
 .sidebar .sidebar-group {
@@ -165,7 +197,7 @@
 
 .nav-link {
   display: block;
-  padding: 10px 12px;
+  padding: 12px 14px; /* larger tap target */
   border-radius: 8px;
   margin: 6px 6px;
   color: var(--text-secondary);
@@ -455,14 +487,15 @@ input:focus, select:focus, textarea:focus {
   .sidebar .sidebar-group { display: none; }
   .nav-link { margin: 6px 4px; text-align: center; }
   .grid { grid-template-columns: repeat(12, minmax(0,1fr)); }
+  .nav-link { padding: 12px 8px; }
 }
 
 /* Backdrop overlay (defined globally; visible/interactive only on mobile) */
 .sidebar-overlay {
   position: fixed;
-  inset: 64px 0 0 0; /* below sticky topbar */
+  inset: var(--topbar-h) 0 0 0; /* start under topbar height */
   background: rgba(15,23,42,0.45);
-  z-index: 40;
+  z-index: 40; /* below sidebar(60), below topbar(70), above content */
   opacity: 0;
   pointer-events: none;
   transition: opacity .2s ease;
@@ -477,13 +510,14 @@ input:focus, select:focus, textarea:focus {
   .shell-body { grid-template-columns: 1fr; }
   .sidebar {
     position: fixed;
-    top: 64px; left: 0; right: auto; bottom: 0;
+    top: var(--topbar-h); left: 0; right: auto; bottom: 0;
     width: 280px;
-    max-width: min(85vw, 320px);
+    max-width: min(88vw, 320px);
     transform: translateX(-100%);
     box-shadow: 0 8px 24px rgba(0,0,0,0.12);
     display: block;
     background: var(--bg-surface);
+    touch-action: pan-y; /* prevent rubber-band on horizontal gesture */
   }
   .sidebar.open { transform: translateX(0); }
 
@@ -495,6 +529,9 @@ input:focus, select:focus, textarea:focus {
   .table { display: block; overflow-x: auto; }
 }
 @media (max-width: 375px) {
-  .hamburger { font-size: 20px; }
+  .hamburger { font-size: 20px; width: 40px; height: 40px; }
   .brand-title { font-size: 14px; }
+}
+@media (max-width: 320px) {
+  .content { padding: 12px; }
 }

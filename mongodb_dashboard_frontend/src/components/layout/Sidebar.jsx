@@ -14,9 +14,11 @@ export default function Sidebar({ open, sidebarRef }) {
   /** Collapsible and responsive sidebar with primary navigation links. */
   return (
     <aside
+      id="app-sidebar"
       ref={sidebarRef}
       className={`sidebar ${open ? "open" : ""}`}
       aria-label="Primary navigation"
+      role="navigation"
     >
       <nav>
         <NavLink to="/dashboard" end className="nav-link">Overview</NavLink>
