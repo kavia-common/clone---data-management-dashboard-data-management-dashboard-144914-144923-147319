@@ -11,7 +11,7 @@ import { NavLink } from "react-router-dom";
  */
 // PUBLIC_INTERFACE
 export default function Sidebar({ open, sidebarRef }) {
-  /** Collapsible and responsive sidebar with primary navigation links. */
+  /** Collapsible and responsive sidebar with primary navigation links only (no extra text/blocks). */
   return (
     <aside
       id="app-sidebar"
@@ -20,11 +20,11 @@ export default function Sidebar({ open, sidebarRef }) {
       aria-label="Primary navigation"
       role="navigation"
     >
-      <nav>
+      <nav aria-label="Main">
         <NavLink to="/dashboard" end className="nav-link">
           <span className="nav-label">Overview</span>
         </NavLink>
-        <div className="sidebar-group">Collections</div>
+        {/* Only navigation links should appear; remove non-nav group labels or placeholders */}
         <NavLink to="/dashboard/users" className="nav-link">
           <span className="nav-label">Users</span>
         </NavLink>
