@@ -1,0 +1,54 @@
+const mongoose = require('mongoose');
+
+/**
+ * LLM Costs model
+ * This schema is permissive to accommodate varied cost records from different agents/models.
+ * Common fields are indexed to support filtering and sorting in list endpoints.
+ */
+const CostBreakdownSchema = new mongoose.Schema(
+  {
+    // Arbitrary key-value pairs for cost components (e.g., prompt_tokens, completion_tokens, input_cost, output_cost)
+  },
+  { _id: false, strict: false }
+);
+
+const LLMCostsSchema = new mongoose.Schema(
+  {
+    task_id: { type: String, index: true },
+    session_id: { type: String, index: true }, // if linked with session_tracking
+    tenant_id: { type: String, index: true },
+    project_id: { type: String, index: true },
+    user_id: { type: mongoose.Schema.Types.Mixed, index: true },
+    organization_name: { type: String },
+    llm_model: { type: String, index: true },
+    provider: { type: String }, // openai, anthropic, etc.
+    service_type: { type: String }, // code generation, query, etc.
+    operation: { type: String }, // e.g., "chat.completions"
+    total_cost: { type: Number, index: true },
+    currency: { type: String, default: 'USD' },
+    breakdown: { type: CostBreakdownSchema, default: () => ({}) },
+    metadata: { type: mongoose.Schema.Types.Mixed }, // free-form
+    timestamp: { type: Date, index: true, default: Date.now },
+    created_at: { type: Date, index: true, default: Date.now },
+    updated_at: { type: Date, index: true, default: Date.now },
+  },
+  {
+    timestamps: false,
+    collection: 'llm_costs',
+    strict: false, // allow additional fields that may exist in real documents
+  }
+);
+
+// Useful indexes for common filter/sort combos
+LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 });
+LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
+LLMCostsSchema.index({ session_id: 1, timestamp: -1 });
+LLMCostsSchema.index({ llm_model: 1, timestamp: -1 });
+LLMCostsSchema.index({ task_id: 1 });
+
+LLMCostsSchema.pre('findOneAndUpdate', function (next) {
+  this.set({ updated_at: new Date() });
+  next();
+});
+
+module.exports = mongoose.model('LLMCost', LLMCostsSchema);
