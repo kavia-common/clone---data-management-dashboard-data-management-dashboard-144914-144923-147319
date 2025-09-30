@@ -14,15 +14,17 @@ function inferBackendBase() {
     if (typeof window === "undefined") return "";
     const { protocol, hostname } = window.location;
     const backendPort = process.env.REACT_APP_BACKEND_PORT || "3001";
-    return `${protocol}//${hostname}:${backendPort}`;
+    // return `${protocol}//${hostname}:${backendPort}`;
+    return `https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:${backendPort}`;
+
   } catch {
     return "";
   }
 }
 const RAW_BASE_URL =
+inferBackendBase() ||
   process.env.REACT_APP_API_URL || // allow REACT_APP_API_URL as requested
   process.env.REACT_APP_API_BASE_URL || // backward compatibility with README
-  inferBackendBase() ||
   "";
 const API_PREFIX = process.env.REACT_APP_API_PREFIX || "/api";
 
