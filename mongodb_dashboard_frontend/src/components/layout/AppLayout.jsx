@@ -39,8 +39,15 @@ export default function AppLayout({ children }) {
         setSidebarOpen(false);
       }
     }
+    function onKey(e) {
+      if (e.key === "Escape") setSidebarOpen(false);
+    }
     document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [isMobile, sidebarOpen]);
 
   return (
@@ -56,7 +63,7 @@ export default function AppLayout({ children }) {
             aria-label="Navigation overlay"
           />
         )}
-        <Sidebar open={sidebarOpen} sidebarRef={sidebarRef} />
+        <Sidebar open={sidebarOpen} sidebarRef={sidebarRef} onClose={closeSidebar} />
         <main className="content" role="main">
           {children}
         </main>

@@ -198,6 +198,11 @@
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.28);
 }
 
+/* Hide the mobile close button by default; shown only within mobile breakpoint */
+.sidebar-mobile-close { 
+  display: none; 
+}
+
 .sidebar .sidebar-group {
   margin: 16px 10px 8px;
   font-size: 12px;
@@ -700,6 +705,17 @@ input:focus, select:focus, textarea:focus {
   .topbar { padding: 0 12px; }
   .topbar-actions { gap: 8px; }
   .user-chip { padding: 6px 10px; }
+
+  /* Sidebar mobile header & close control */
+  .sidebar-header { 
+    display: flex; 
+    justify-content: flex-end; 
+    align-items: center; 
+    padding: 8px 6px 12px; 
+  }
+  .sidebar-mobile-close { 
+    display: grid; /* override base hide on mobile */
+  }
 }
 @media (max-width: 375px) {
   .hamburger { font-size: 20px; width: 40px; height: 40px; }

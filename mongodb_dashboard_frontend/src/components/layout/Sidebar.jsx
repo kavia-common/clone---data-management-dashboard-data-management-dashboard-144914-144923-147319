@@ -8,9 +8,10 @@ import { NavLink } from "react-router-dom";
  * - Desktop: fixed 240px
  * - Tablet: compact 72px rail (labels hidden via CSS)
  * - Mobile: off-canvas with slide-in and overlay when open
+ * Includes a mobile-only close button at the top to explicitly close the menu.
  */
 // PUBLIC_INTERFACE
-export default function Sidebar({ open, sidebarRef }) {
+export default function Sidebar({ open, sidebarRef, onClose }) {
   /** Collapsible and responsive sidebar with primary navigation links only (no extra text/blocks). */
   return (
     <aside
@@ -20,6 +21,19 @@ export default function Sidebar({ open, sidebarRef }) {
       aria-label="Primary navigation"
       role="navigation"
     >
+      {/* Mobile-only header with explicit close button */}
+      <div className="sidebar-header" aria-hidden={!open}>
+        <button
+          type="button"
+          className="hamburger sidebar-mobile-close"
+          aria-label="Close navigation"
+          title="Close menu"
+          onClick={onClose}
+        >
+          ✕
+        </button>
+      </div>
+
       <nav aria-label="Main">
         <NavLink to="/dashboard" end className="nav-link">
           <span className="nav-label">Overview</span>
