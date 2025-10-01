@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
-import { getApiClient, listUsers } from "../api/client";
+import { listUsers } from "../api/client";
 
 /**
  * PUBLIC_INTERFACE
@@ -145,28 +145,12 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setConfirmDelete(null);
   }
 
-  // Dev-only: render a small environment helper block
-  function EnvHint() {
-    if (process.env.NODE_ENV === "production") return null;
-    try {
-      const api = getApiClient();
-      const base = api?.defaults?.baseURL || "/api";
-      const raw = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_BASE_URL || "(same-origin)";
-      const prefix = process.env.REACT_APP_API_PREFIX || "/api";
-      return (
-        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-          <span>API base: {base}</span> • <span>RAW: {raw}</span> • <span>PREFIX: {prefix}</span>
-        </div>
-      );
-    } catch {
-      return null;
-    }
-  }
+  // Env hint removed to keep Users section clean and minimal
 
   return (
     <div>
       <Card title={title} subtitle={subtitle}>
-        <EnvHint />
+        
         <div className="toolbar" aria-label="Users toolbar">
           <input
             className="input-search"

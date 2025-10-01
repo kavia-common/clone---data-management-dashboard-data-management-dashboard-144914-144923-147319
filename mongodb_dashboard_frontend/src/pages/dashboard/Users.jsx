@@ -12,7 +12,7 @@ export default function Users() {
     <div>
       <UsersList
         title="Users"
-        subtitle="List of users from /api/users — columns auto-sync to actual MongoDB fields (no referral code)."
+        subtitle="All users"
         showActions={false}
       />
     </div>
