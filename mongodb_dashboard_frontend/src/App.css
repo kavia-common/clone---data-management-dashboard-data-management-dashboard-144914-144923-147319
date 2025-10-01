@@ -348,12 +348,13 @@
   max-width: 100%;
   /* Make sure wrapper itself doesn't scroll; only .table-scroll does */
   contain: layout paint;
+  position: relative; /* allow internal sticky and shadows to position correctly */
 }
 
-/* A container dedicated to vertically scrollable table content */
+/* A container dedicated to vertically and horizontally scrollable table content */
 .table-scroll {
   overflow-y: auto;
-  overflow-x: auto; /* still allow horizontal scroll on narrow screens */
+  overflow-x: auto; /* always allow horizontal scroll for wide data */
   max-height: 520px; /* default sensible max-height */
   /* Maintain a stable body height so header/footer never shift on pagination */
   /* Each data row is approximately var(--table-row-h); min-height fits exactly 10 rows by default. */
@@ -399,13 +400,21 @@
   text-overflow: ellipsis;
 }
 
-/* Sticky looking header area above scroller */
+/* Sticky header bar that remains visible (grid keeps it at the top) */
 .table-header {
   background: var(--bg-surface);
   position: sticky; /* relative to wrapper's grid row behavior */
   top: 0;
-  z-index: 1;
+  z-index: 2;
   border-bottom: 1px solid var(--border-subtle);
+  /* gradient masks to hint horizontal overflow when applicable */
+  --mask-size: 24px;
+  mask-image: linear-gradient(to right, transparent 0, black var(--mask-size), black calc(100% - var(--mask-size)), transparent 100%);
+}
+
+/* Subtle shadow appears when body is vertically scrolled */
+.table-header--scrolled {
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
 }
 
 /* Pagination/footer bar stays visible below the scroller */
@@ -414,7 +423,7 @@
   border-top: 1px solid var(--border-subtle);
   /* sticky not required; wrapper grid ensures visibility */
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 8px;

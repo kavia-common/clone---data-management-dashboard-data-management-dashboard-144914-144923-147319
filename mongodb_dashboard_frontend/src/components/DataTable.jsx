@@ -31,16 +31,24 @@ export default function DataTable({
   maxColWidth = 420,
   // Optional override for scroll height
   maxBodyHeight, // if provided, will override CSS default via inline style
+  // PUBLIC_INTERFACE
+  // forceHorizontalScroll: when true, ensures a min table width larger than wrapper to always show an X scrollbar.
+  forceHorizontalScroll = false,
 }) {
   /**
    * DataTable with sticky header and always-visible pagination.
    * Body is contained in a scrollable region with vertical and horizontal scroll as needed.
+   * Improvements in this version:
+   * - Ensures horizontal scroll is always available when columns exceed wrapper width or when forceHorizontalScroll is true.
+   * - Pagination area is outside of the scrollable body and remains visible regardless of scroll position.
+   * - Slight visual affordances (shadow) appear on the header when the body content is scrolled.
    */
   const [sortKey, setSortKey] = useState("");
   const [sortDir, setSortDir] = useState("asc");
   const [page, setPage] = useState(Math.max(1, initialPage || 1));
 
   const bodyRef = useRef(null);
+  const headerRef = useRef(null);
 
   function getValue(row, path) {
     if (!row || !path) return undefined;
@@ -83,8 +91,8 @@ export default function DataTable({
     if (typeof onPageChange === "function") onPageChange(next);
     if (bodyRef.current) {
       bodyRef.current.scrollTop = 0;
-      // If horizontally scrolled, keep pagination visible while user scrolls body
-      bodyRef.current.scrollLeft = 0;
+      // Keep pagination visible; do not auto-reset horizontal scroll as users may be inspecting right-most columns.
+      // bodyRef.current.scrollLeft = 0;
     }
   }
 
@@ -96,6 +104,16 @@ export default function DataTable({
       setSortDir("asc");
     }
     setPageAndNotify(1);
+  }
+
+  // Add a small shadow class to header when body is scrolled vertically to provide context separation.
+  function onBodyScroll(e) {
+    const target = e.currentTarget;
+    const scrolled = target.scrollTop > 0;
+    if (headerRef.current) {
+      if (scrolled) headerRef.current.classList.add("table-header--scrolled");
+      else headerRef.current.classList.remove("table-header--scrolled");
+    }
   }
 
   function PaginationControls() {
@@ -222,11 +240,14 @@ export default function DataTable({
     return widths;
   }, [columns, pageRows, autoWidth, minColWidth, maxColWidth, actionColIncluded]);
 
+  // If forced, set a minWidth on tables to ensure horizontal scrollbar appears even with a few columns.
+  const forcedMinWidth = forceHorizontalScroll ? Math.max(960, (columns?.length || 1) * 160 + (actionColIncluded ? 160 : 0)) : undefined;
+
   return (
     <div className="table-wrapper" role="region" aria-label="Data table">
       {/* Header area */}
-      <div className="table-header">
-        <table className="table" aria-hidden="true">
+      <div className="table-header" ref={headerRef}>
+        <table className="table" aria-hidden="true" style={forcedMinWidth ? { minWidth: forcedMinWidth } : undefined}>
           <colgroup>
             {(columns || []).map((c) => (
               <col key={c.key} style={autoWidth ? { width: columnWidths[c.key] } : undefined} />
@@ -270,9 +291,10 @@ export default function DataTable({
         role="grid"
         aria-rowcount={total}
         ref={bodyRef}
+        onScroll={onBodyScroll}
         style={maxBodyHeight ? { maxHeight: maxBodyHeight } : undefined}
       >
-        <table className="table">
+        <table className="table" style={forcedMinWidth ? { minWidth: forcedMinWidth } : undefined}>
           <colgroup>
             {(columns || []).map((c) => (
               <col key={c.key} style={autoWidth ? { width: columnWidths[c.key] } : undefined} />
