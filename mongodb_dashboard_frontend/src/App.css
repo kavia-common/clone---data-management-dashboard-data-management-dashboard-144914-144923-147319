@@ -724,3 +724,46 @@ input:focus, select:focus, textarea:focus {
 @media (max-width: 320px) {
   .content { padding: 12px; }
 }
+
+/* Sidebar collapse behavior (desktop/tablet) */
+.shell-body.is-collapsed {
+  /* Override grid to remove sidebar column entirely */
+  grid-template-columns: 0 1fr !important;
+}
+.sidebar.collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  border-right: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Sidebar header + close controls (desktop and mobile) */
+.sidebar-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 6px 6px 12px;
+}
+/* Desktop/tablet collapse button visible; hidden on mobile */
+.sidebar-desktop-close { display: grid; }
+@media (max-width: 767px) {
+  .sidebar-desktop-close { display: none; }
+}
+
+/* When collapsed, allow content area to span full width */
+.shell-body.is-collapsed .content {
+  max-width: none;
+}
+
+/* Center pagination controls across table width */
+.table-pagination {
+  justify-content: center !important;
+  align-items: center;
+  flex-direction: column;
+}
+.table-pagination .muted {
+  width: 100%;
+  text-align: center;
+  margin-bottom: 4px;
+}

@@ -11,27 +11,47 @@ export default function AppLayout({ children }) {
   /**
    * Shell layout with topbar, sidebar, and main content area.
    * Behavior:
-   * - Desktop/tablet: sidebar rail remains visible and does not push content vertically.
+   * - Desktop/tablet: sidebar can be collapsed to allow full-width content.
    * - Mobile (<768px): sidebar becomes off-canvas and overlays content with a semi-transparent backdrop.
-   * - Clicking outside the sidebar (on the backdrop) closes it.
+   * - Clicking outside the sidebar (on the backdrop) closes it (mobile).
    * - Route changes also close the sidebar on mobile for a clean UX.
    */
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // for mobile off-canvas
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // for tablet/desktop collapse
   const sidebarRef = useRef(null);
   const location = useLocation();
 
-  // Close sidebar on route change (esp. for mobile)
+  // Close mobile off-canvas sidebar on route change (desktop collapsed state persists)
   useEffect(() => {
     setSidebarOpen(false);
   }, [location]);
 
-  // Compute if mobile to decide overlay/backdrop render; keep pure CSS for position
+  // Track mobile breakpoint consistent with CSS (<768px)
   const isMobile = useIsMobile();
 
-  const handleToggle = useCallback(() => setSidebarOpen((o) => !o), []);
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  // Toggle via topbar hamburger:
+  // - mobile: open/close the off-canvas
+  // - desktop/tablet: collapse/expand the static rail
+  const handleToggle = useCallback(() => {
+    if (isMobile) {
+      setSidebarOpen((o) => !o);
+    } else {
+      setSidebarCollapsed((c) => !c);
+    }
+  }, [isMobile]);
 
-  // Close on outside click when mobile and when clicking anywhere not in sidebar
+  // Close action from inside the sidebar:
+  // - mobile: close overlay
+  // - desktop/tablet: collapse rail and expand content
+  const handleSidebarClose = useCallback(() => {
+    if (isMobile) {
+      setSidebarOpen(false);
+    } else {
+      setSidebarCollapsed(true);
+    }
+  }, [isMobile]);
+
+  // Close on outside click (mobile only) and Esc
   useEffect(() => {
     if (!isMobile || !sidebarOpen) return;
     function onDocClick(e) {
@@ -50,20 +70,28 @@ export default function AppLayout({ children }) {
     };
   }, [isMobile, sidebarOpen]);
 
+  // For a11y: reflect nav active state appropriately per device
+  const navActive = isMobile ? sidebarOpen : !sidebarCollapsed;
+
   return (
     <div className="app-shell">
-      <Topbar onToggleSidebar={handleToggle} sidebarOpen={sidebarOpen} />
-      <div className="shell-body">
-        {/* Backdrop overlay for mobile only, ensures content never shifts */}
+      <Topbar onToggleSidebar={handleToggle} sidebarOpen={navActive} />
+      <div className={`shell-body ${!isMobile && sidebarCollapsed ? "is-collapsed" : ""}`}>
+        {/* Backdrop overlay for mobile only */}
         {isMobile && (
           <div
             className={`sidebar-overlay ${sidebarOpen ? "open" : ""}`}
-            onClick={closeSidebar}
+            onClick={() => setSidebarOpen(false)}
             aria-hidden={!sidebarOpen}
             aria-label="Navigation overlay"
           />
         )}
-        <Sidebar open={sidebarOpen} sidebarRef={sidebarRef} onClose={closeSidebar} />
+        <Sidebar
+          open={sidebarOpen}
+          sidebarRef={sidebarRef}
+          onClose={handleSidebarClose}
+          collapsed={!isMobile && sidebarCollapsed}
+        />
         <main className="content" role="main">
           {children}
         </main>
