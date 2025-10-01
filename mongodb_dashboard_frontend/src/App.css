@@ -10,6 +10,9 @@
   /* Brand: primary orange + secondary blue (per style system) */
   --brand-primary: #FF6A3D;      /* brand orange */
   --brand-secondary: #0EA5E9;    /* brand blue */
+  --brand-secondary-hover: #0284C7; /* darker blue for hover */
+  --brand-secondary-active: #0369A1; /* even darker for active */
+  --brand-primary-tint: #FFF6F2; /* light orange tint for active backgrounds */
   --success: #10B981;
   --danger: #EF4444;
   --warning: #F59E0B;
@@ -219,7 +222,7 @@
   text-overflow: ellipsis;
 }
 .nav-link.active {
-  background: #FFF6F2; /* orange tint */
+  background: var(--brand-primary-tint);
   color: var(--brand-primary);
   font-weight: 600;
   box-shadow: inset 3px 0 0 0 var(--brand-primary);
@@ -286,7 +289,11 @@
   .btn { min-height: 36px; }
 }
 .btn:active { transform: translateY(1px); }
-.btn-primary { background: var(--brand-secondary); color: white; height: 36px; }
+.btn-primary { background: var(--brand-secondary); color: #fff; height: 36px; }
+.btn-primary:hover { background: var(--brand-secondary-hover); }
+.btn-primary:active { background: var(--brand-secondary-active); }
+.btn-primary:focus-visible { outline: 3px solid rgba(14, 165, 233, 0.45); outline-offset: 2px; }
+.btn-primary:disabled, .btn-primary[aria-disabled="true"] { background: #7DD3FC; color: #f8fafc; cursor: not-allowed; opacity: .85; }
 .btn-secondary { background: #E2E8F0; color: var(--text-primary); }
 .btn-danger { background: var(--danger); color: white; }
 .btn-ghost { background: transparent; color: var(--text-primary); }
