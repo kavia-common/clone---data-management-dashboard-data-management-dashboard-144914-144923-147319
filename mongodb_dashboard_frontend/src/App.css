@@ -417,19 +417,32 @@
   box-shadow: 0 2px 6px rgba(0,0,0,0.06);
 }
 
-/* Pagination/footer bar stays visible below the scroller */
+/* Pagination/footer bar stays visible below the scroller (prominent and always visible) */
 .table-pagination {
   background: var(--bg-surface);
   border-top: 1px solid var(--border-subtle);
-  /* sticky not required; wrapper grid ensures visibility */
+  /* wrapper grid ensures visibility */
   position: relative;
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 12px 14px;
   justify-content: space-between;
   flex-wrap: wrap;
+}
+.table-pagination .btn-ghost[aria-current="page"] {
+  /* Guard: if any case assigns aria-current on ghost, ensure visibility */
+  background: #FFF7ED;
+  color: var(--brand-primary);
+  font-weight: 700;
+}
+.table-pagination .btn.btn-ghost {
+  border: 1px solid var(--border-subtle);
+}
+.table-pagination .btn.btn-secondary {
+  background: #E2E8F0;
+  color: var(--text-primary);
 }
 
 /* Pagination buttons: consistent sizing and spacing */

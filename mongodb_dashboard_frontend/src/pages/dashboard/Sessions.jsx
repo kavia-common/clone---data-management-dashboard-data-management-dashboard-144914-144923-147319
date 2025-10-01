@@ -14,6 +14,7 @@ export default function Sessions() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // Allowed fields for the session-tracking collection
   const allowed = useMemo(
@@ -36,15 +37,15 @@ export default function Sessions() {
 
   const [columns, setColumns] = useState([{ key: "_id", label: "ID" }]);
 
-  async function load() {
+  async function load(page = 1, limit = meta.limit || 10) {
     setLoading(true);
     setError("");
     try {
-      // listSessions uses normalizeListResponse and returns { items, total, meta }
-      const res = await listSessions();
+      const res = await listSessions({ page, limit });
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
+      setMeta({ page: res?.meta?.page || page, limit: res?.meta?.limit || limit, total: res?.meta?.total ?? arr.length });
       setColumns(
         inferColumns(arr, allowed, { dateFields: ["session_start", "session_end", "created_at", "updated_at"] }).map(
           (c) =>
@@ -126,7 +127,13 @@ export default function Sessions() {
           data={items}
           loading={loading}
           onDelete={onDelete}
-          pageSize={10}
+          pageSize={meta.limit || 10}
+          initialPage={meta.page || 1}
+          serverTotal={meta.total}
+          fetchPage={async (page, limit) => {
+            await load(page, limit);
+          }}
+          paginationTitle="Sessions pages"
         />
       </Card>
 

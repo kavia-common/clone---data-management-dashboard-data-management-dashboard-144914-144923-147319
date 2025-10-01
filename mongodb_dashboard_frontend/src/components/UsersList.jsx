@@ -24,6 +24,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [query, setQuery] = useState("");
+  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // Allowed users fields per request (strict schema alignment)
   const allowedFields = useMemo(
@@ -88,20 +89,25 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setColumns(cols);
   }
 
-  async function load() {
+  async function load(page = 1, limit = meta.limit || 10) {
     setLoading(true);
     setError("");
     try {
-      // listUsers uses normalization to accommodate array or envelope.
-      const res = await listUsers();
+      const res = await listUsers({ page, limit });
       const arr = Array.isArray(res) ? res : res?.items || [];
       setAllItems(arr);
       setItems(arr);
+      if (res && res.meta) {
+        setMeta({ page: res.meta.page || page, limit: res.meta.limit || limit, total: res.meta.total || arr.length });
+      } else {
+        setMeta({ page: 1, limit, total: arr.length });
+      }
       inferColumnsFromData(arr);
     } catch (e) {
       setAllItems([]);
       setItems([]);
       setColumns([{ key: "_id", label: "ID" }]);
+      setMeta({ page: 1, limit: 10, total: 0 });
       setError(e?.response?.data?.message || e?.message || "Failed to load users.");
     } finally {
       setLoading(false);
@@ -182,7 +188,15 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           data={items}
           loading={loading}
           onDelete={showActions ? onDelete : undefined}
-          pageSize={10}
+          pageSize={meta.limit || 10}
+          initialPage={meta.page || 1}
+          serverTotal={meta.total}
+          fetchPage={async (page, limit) => {
+            const q = (query || "").trim();
+            // Forward filter to API only if desired; here we retain client search, so refresh full page from server.
+            await load(page, limit);
+          }}
+          paginationTitle="Users pages"
         />
       </Card>
 

@@ -34,6 +34,12 @@ export default function DataTable({
   // PUBLIC_INTERFACE
   // forceHorizontalScroll: when true, ensures a min table width larger than wrapper to always show an X scrollbar.
   forceHorizontalScroll = false,
+  // PUBLIC_INTERFACE
+  serverTotal, // optional: pass total item count from server to compute total pages in server mode
+  // PUBLIC_INTERFACE
+  fetchPage, // optional: async function (page, pageSize, sortKey, sortDir) => void to load data from server on page change
+  // PUBLIC_INTERFACE
+  paginationTitle = "Pages", // optional title beside pagination controls to improve visibility
 }) {
   /**
    * DataTable with sticky header and always-visible pagination.
@@ -78,17 +84,32 @@ export default function DataTable({
     return copy;
   }, [data, sortDir, sortKey]);
 
-  const total = sorted?.length || 0;
+  // Determine total and pagination mode
+  const clientTotal = sorted?.length || 0;
+  const isServerMode = typeof fetchPage === "function" && typeof serverTotal === "number";
+  const total = isServerMode ? Math.max(0, serverTotal) : clientTotal;
+
   const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
   const currentPage = Math.min(Math.max(1, page), totalPages);
+
+  // In client mode slice locally; in server mode assume data already corresponds to current page
   const start = (currentPage - 1) * Math.max(1, pageSize);
   const end = start + Math.max(1, pageSize);
-  const pageRows = sorted.slice(start, end);
+  const pageRows = isServerMode ? (sorted || []) : sorted.slice(start, end);
 
-  function setPageAndNotify(p) {
+  async function setPageAndNotify(p) {
     const next = Math.min(Math.max(1, p), totalPages);
     setPage(next);
     if (typeof onPageChange === "function") onPageChange(next);
+
+    // If in server mode, ask parent to load data for the new page
+    if (typeof fetchPage === "function") {
+      try {
+        await fetchPage(next, Math.max(1, pageSize), sortKey, sortDir);
+      } catch {
+        // swallow; parent can own error UI
+      }
+    }
     if (bodyRef.current) {
       bodyRef.current.scrollTop = 0;
       // Keep pagination visible; do not auto-reset horizontal scroll as users may be inspecting right-most columns.
@@ -96,12 +117,23 @@ export default function DataTable({
     }
   }
 
-  function toggleSort(key) {
+  async function toggleSort(key) {
+    let nextDir = "asc";
     if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      nextDir = sortDir === "asc" ? "desc" : "asc";
+      setSortDir(nextDir);
     } else {
       setSortKey(key);
+      nextDir = "asc";
       setSortDir("asc");
+    }
+    // Reset to first page
+    if (typeof fetchPage === "function") {
+      try {
+        await fetchPage(1, Math.max(1, pageSize), key, nextDir);
+      } catch {
+        // ignore errors; parent handles UI
+      }
     }
     setPageAndNotify(1);
   }
@@ -132,8 +164,11 @@ export default function DataTable({
 
     return (
       <div className="table-pagination" role="navigation" aria-label="Table pagination">
-        <div className="muted">
-          Showing {total ? start + 1 : 0}–{Math.min(end, total)} of {total}
+        <div className="muted" style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
+          {paginationTitle}
+          <span style={{ fontWeight: 400, marginLeft: 8 }}>
+            Showing {total ? start + 1 : 0}–{Math.min(end, total)} of {total}
+          </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <button
@@ -203,6 +238,32 @@ export default function DataTable({
           >
             »
           </button>
+          <div style={{ marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <label htmlFor="page-jump" className="muted" style={{ fontSize: 12 }}>Go to</label>
+            <input
+              id="page-jump"
+              type="number"
+              min={1}
+              max={totalPages}
+              defaultValue={currentPage}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const val = parseInt(e.currentTarget.value, 10);
+                  if (!Number.isNaN(val)) setPageAndNotify(val);
+                }
+              }}
+              style={{
+                width: 64,
+                height: 32,
+                border: "1px solid var(--input-border)",
+                borderRadius: 8,
+                padding: "0 8px",
+                background: "var(--bg-surface)",
+              }}
+              aria-label="Go to page"
+            />
+            <span className="muted" style={{ fontSize: 12 }}>/ {totalPages}</span>
+          </div>
         </div>
       </div>
     );

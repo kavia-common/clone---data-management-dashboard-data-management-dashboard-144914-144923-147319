@@ -19,6 +19,7 @@ export default function Costs() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // Modal state for inspecting large arrays/objects without breaking table layout
   const [inspectOpen, setInspectOpen] = useState(false);
@@ -249,14 +250,15 @@ export default function Costs() {
     return cols.length ? cols : [{ key: "_id", label: "ID" }];
   }
 
-  async function load() {
+  async function load(page = 1, limit = meta.limit || 10) {
     setLoading(true);
     setError("");
     try {
-      const res = await listLlmCosts();
+      const res = await listLlmCosts({ page, limit });
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
+      setMeta({ page: res?.meta?.page || page, limit: res?.meta?.limit || limit, total: res?.meta?.total ?? arr.length });
     } catch (e) {
       setAllItems([]);
       setItems([]);
@@ -319,7 +321,13 @@ export default function Costs() {
           columns={columns}
           data={items}
           loading={loading}
-          pageSize={10}
+          pageSize={meta.limit || 10}
+          initialPage={meta.page || 1}
+          serverTotal={meta.total}
+          fetchPage={async (page, limit) => {
+            await load(page, limit);
+          }}
+          paginationTitle="Cost records pages"
         />
       </Card>
 

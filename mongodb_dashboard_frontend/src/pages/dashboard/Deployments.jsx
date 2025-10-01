@@ -13,6 +13,7 @@ export default function Deployments() {
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [error, setError] = useState("");
+  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   const allowed = useMemo(
     () => [
@@ -31,14 +32,14 @@ export default function Deployments() {
     []
   );
 
-  async function load() {
+  async function load(page = 1, limit = meta.limit || 10) {
     setLoading(true);
     setError("");
     try {
-      // listDeployments uses normalizeListResponse and returns { items, total, meta }
-      const res = await listDeployments();
+      const res = await listDeployments({ page, limit });
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setItems(arr);
+      setMeta({ page: res?.meta?.page || page, limit: res?.meta?.limit || limit, total: res?.meta?.total ?? arr.length });
       const cols = inferColumns(arr, allowed, {
         dateFields: ["created_at", "updated_at", "domain_checked_at"],
       }).map((c) => {
