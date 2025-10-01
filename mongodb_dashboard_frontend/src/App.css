@@ -324,7 +324,7 @@
   height: 36px;
   width: min(420px, 50vw);
   max-width: 100%;
-  padding: 0 12px 0 12px;
+  padding: 0 12px;
   color: var(--text-primary);
   flex: 1 1 260px; /* grow/shrink with toolbar */
 }
@@ -369,17 +369,15 @@
   border-collapse: separate;
   border-spacing: 0;
   background: var(--bg-surface);
+  table-layout: fixed; /* Ensures header and body cells share identical column widths */
 }
 
-/* Set a reasonable min width so columns don’t collapse on small screens */
-.table {
-  width: 100%;
-  min-width: 640px; /* slightly smaller to better fit tablet split view */
-  border-collapse: separate;
-  border-spacing: 0;
-  background: var(--bg-surface);
+/* Ensure header and body align perfectly through colgroup widths set inline */
+.table colgroup col {
+  width: auto;
 }
 
+/* Header/Cell base styles */
 .th, .td {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border-subtle);
@@ -387,7 +385,6 @@
   vertical-align: middle;
   white-space: nowrap; /* prevent labels from breaking awkwardly */
   height: var(--table-row-h, 48px); /* stabilize row heights to prevent lurches */
-  /* Remove fixed hard cap so auto-width can govern sizing via colgroup */
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -398,6 +395,7 @@
   position: sticky; /* relative to wrapper's grid row behavior */
   top: 0;
   z-index: 1;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 /* Pagination/footer bar stays visible below the scroller */
@@ -407,6 +405,24 @@
   position: sticky;
   bottom: 0;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+/* Pagination buttons: consistent sizing and spacing */
+.table-pagination .btn {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+}
+
+/* Keep the summary text subtle and aligned */
+.table-pagination .muted {
+  font-size: 12px;
 }
 .th {
   text-transform: uppercase;
@@ -433,7 +449,7 @@
 /* Priority-based column visibility helpers for smaller screens */
 @media (max-width: 767px) {
   .th, .td { padding: 10px 12px; }
-  .table { min-width: 560px; } /* allow slightly tighter table */
+  .table { min-width: 560px; table-layout: fixed; } /* fixed layout aids alignment on small screens */
   /* Keep truncation friendly on small screens but avoid fighting colgroup width */
   .td, .th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
   .td .status-badge { white-space: nowrap; }

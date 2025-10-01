@@ -115,16 +115,8 @@ export default function DataTable({
         className="table-pagination"
         role="navigation"
         aria-label="Table pagination"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "10px 12px",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-        }}
       >
-        <div className="muted" style={{ fontSize: 12 }}>
+        <div className="muted">
           Showing {total ? start + 1 : 0}–{Math.min(end, total)} of {total}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
