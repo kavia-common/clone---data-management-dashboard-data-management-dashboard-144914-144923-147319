@@ -1,5 +1,9 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
+html, body {
+  /* Prevent page/body scrolling; app shell manages internal scroll areas (e.g., table-scroll) */
+  overflow: hidden;
+}
 body {
   margin: 0;
   color: var(--text-primary, #0F172A);

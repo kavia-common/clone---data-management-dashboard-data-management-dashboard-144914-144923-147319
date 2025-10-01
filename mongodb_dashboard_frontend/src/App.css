@@ -30,11 +30,13 @@
 /* Shell and layout */
 .app-shell {
   --topbar-h: 64px;
+  height: 100vh; /* occupy full viewport height */
   min-height: 100vh;
   color: var(--text-primary);
   background: var(--bg-canvas);
   display: grid;
   grid-template-rows: var(--topbar-h) 1fr;
+  overflow: hidden; /* prevent page-level scroll; inner regions manage their own overflow */
 }
 
 .topbar {
@@ -169,9 +171,11 @@
 .shell-body {
   display: grid;
   grid-template-columns: 240px 1fr;
-  min-height: calc(100vh - 64px);
+  min-height: 0; /* allow the grid to size within app-shell height */
+  height: calc(100vh - 64px); /* fill remaining space under topbar */
   position: relative; /* anchor overlay stacking context */
   z-index: 0; /* baseline for stacking contexts */
+  overflow: hidden; /* prevent body scroll, let content area scroll if needed */
 }
 
 /* Base sidebar: acts as a static column on >=768px, off-canvas on <768px */
@@ -231,6 +235,8 @@
   max-width: 1400px;
   width: 100%;
   margin: 0 auto;
+  height: 100%;
+  overflow: auto; /* enable content area scroll if needed (e.g., long dashboards), body remains fixed */
 }
 
 .grid {
@@ -339,6 +345,7 @@
   border: 1px solid #EEF2F6;
   background: var(--bg-surface);
   overflow: hidden; /* clip inner scroller rounded corners */
+  max-width: 100%;
 }
 
 /* A container dedicated to vertically scrollable table content */
@@ -355,6 +362,7 @@
   scrollbar-gutter: stable both-edges;
   border-top: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
+  overscroll-behavior: contain; /* prevent scroll chaining to body or parent containers */
 }
 
 /* Optional tighter variant for smaller tables if a card wants a different height */
@@ -402,8 +410,8 @@
 .table-pagination {
   background: var(--bg-surface);
   border-top: 1px solid var(--border-subtle);
-  position: sticky;
-  bottom: 0;
+  /* sticky not required; wrapper grid ensures visibility */
+  position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
@@ -624,6 +632,7 @@ input:focus, select:focus, textarea:focus {
 
   /* Keep table area scroll confined to the table-scroll container on mobile too */
   .table-scroll { max-height: 60vh; }
+  .table-wrapper { max-width: 100%; }
 
   .table { display: block; overflow-x: auto; }
   /* refine topbar spacing for 414–600 widths */
