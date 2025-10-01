@@ -124,6 +124,7 @@ export default function Sessions() {
           data={items}
           loading={loading}
           onDelete={onDelete}
+          pageSize={10}
         />
       </Card>
 

@@ -142,6 +142,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           data={items}
           loading={loading}
           onDelete={showActions ? onDelete : undefined}
+          pageSize={10}
         />
       </Card>
 

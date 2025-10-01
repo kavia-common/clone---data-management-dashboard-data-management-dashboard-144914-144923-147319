@@ -123,7 +123,7 @@ export default function Costs() {
           {/* No Add button required */}
         </div>
         {error && <div className="error" role="alert">{error}</div>}
-        <DataTable columns={columns} data={items} loading={loading} />
+        <DataTable columns={columns} data={items} loading={loading} pageSize={10} />
       </Card>
     </div>
   );
