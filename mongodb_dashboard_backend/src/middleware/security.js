@@ -52,7 +52,7 @@ function corsMiddleware() {
   whitelist.add('https://localhost:3000');
 
   // Preview environment frontend
-  whitelist.add('https://vscode-internal-17802-beta.beta01.cloud.kavia.ai:3000');
+  whitelist.add('https://vscode-internal-14820-beta.beta01.cloud.kavia.ai:3000');
 
 
   const allowCredentials =
