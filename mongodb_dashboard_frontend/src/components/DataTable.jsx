@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 // PUBLIC_INTERFACE
 export default function DataTable({
@@ -11,10 +11,15 @@ export default function DataTable({
   initialPage = 1,
   onPageChange,
 }) {
-  /** A simple data grid component with client-side sorting and action column, with pagination (default 10 per page). */
+  /** A simple data grid component with client-side sorting and action column, with pagination (default 10 per page).
+   * Pagination updates only tbody; header and pagination remain fixed with no layout shift.
+   */
   const [sortKey, setSortKey] = useState("");
   const [sortDir, setSortDir] = useState("asc");
   const [page, setPage] = useState(Math.max(1, initialPage || 1));
+
+  // Keep a stable key for tbody to avoid remounting header/footer on page changes.
+  const bodyRef = useRef(null);
 
   function getValue(row, path) {
     if (!row || !path) return undefined;
@@ -54,8 +59,11 @@ export default function DataTable({
 
   function setPageAndNotify(p) {
     const next = Math.min(Math.max(1, p), totalPages);
+    // Update page only; header/footer are outside tbody so no shift
     setPage(next);
     if (typeof onPageChange === "function") onPageChange(next);
+    // Keep scroll position at top of body for consistent UX
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }
 
   function toggleSort(key) {
@@ -176,6 +184,9 @@ export default function DataTable({
 
   const actionColIncluded = (onEdit || onDelete) ? 1 : 0;
 
+  // Compute number of filler rows to keep the tbody height constant for a pageSize
+  const fillerCount = Math.max(0, Math.max(1, pageSize) - (loading ? 0 : pageRows.length));
+
   return (
     <div className="table-wrapper" role="region" aria-label="Data table">
       {/* Header area: table column headers remain visible */}
@@ -203,8 +214,9 @@ export default function DataTable({
         </table>
       </div>
 
-      {/* Scrollable content area: only rows scroll vertically */}
-      <div className="table-scroll" role="grid" aria-rowcount={total}>
+      {/* Scrollable content area: only rows scroll vertically.
+          Fixed min-height to fit exactly pageSize rows to eliminate layout shift. */}
+      <div className="table-scroll" role="grid" aria-rowcount={total} ref={bodyRef}>
         <table className="table">
           <tbody>
             {loading && (
@@ -242,6 +254,17 @@ export default function DataTable({
                 ) : null}
               </tr>
             ))}
+            {/* Render filler rows to maintain fixed body height even on short last page */}
+            {!loading &&
+              fillerCount > 0 &&
+              Array.from({ length: fillerCount }).map((_, idx) => (
+                <tr className="tr tr--filler" key={`filler-${idx}`} aria-hidden="true">
+                  <td className="td" colSpan={columns.length + actionColIncluded}>
+                    {/* Non-breaking space to preserve row height without visual noise */}
+                    &nbsp;
+                  </td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </div>

@@ -346,6 +346,10 @@
   overflow-y: auto;
   overflow-x: auto; /* still allow horizontal scroll on narrow screens */
   max-height: 520px; /* default sensible max-height */
+  /* Maintain a stable body height so header/footer never shift on pagination */
+  /* Each data row is approximately var(--table-row-h); min-height fits exactly 10 rows by default. */
+  --table-row-h: 48px;
+  min-height: calc(var(--table-row-h) * 10);
   /* Smooth scroll experience for touch devices */
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable both-edges;
@@ -382,6 +386,7 @@
   text-align: left;
   vertical-align: middle;
   white-space: nowrap; /* prevent labels from breaking awkwardly */
+  height: var(--table-row-h, 48px); /* stabilize row heights to prevent lurches */
 }
 
 /* Sticky looking header area above scroller */
@@ -413,6 +418,14 @@
 .td.actions { display: flex; gap: 8px; align-items: center; justify-content: flex-start; flex-wrap: wrap; }
 .td.num { text-align: right; }
 .amount-positive { color: var(--success); font-weight: 600; }
+
+/* Filler rows keep body height constant on short pages without drawing attention */
+.tr--filler .td {
+  border-bottom-color: transparent;
+  background: transparent;
+  padding-top: 0;
+  padding-bottom: 0;
+}
 
 /* Priority-based column visibility helpers for smaller screens */
 @media (max-width: 767px) {
