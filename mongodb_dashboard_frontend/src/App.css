@@ -496,6 +496,11 @@
   color: var(--text-tertiary);
   user-select: none;
 }
+
+/* Emphasis for 'name' column cells in tables to align with UI style system */
+.td--emphasis-name {
+  font-weight: 500;
+}
 .tr:hover .td { background: #F8FAFC; }
 .table-empty { padding: 16px; color: var(--text-tertiary); text-align: center; }
 .td.actions { display: flex; gap: 8px; align-items: center; justify-content: flex-start; flex-wrap: wrap; }

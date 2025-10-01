@@ -388,7 +388,7 @@ export default function DataTable({
                     return (
                       <td
                         key={c.key}
-                        className={`td ${isNumber ? "num" : ""} ${priorityClass}`.trim()}
+                        className={`td ${isNumber ? "num" : ""} ${priorityClass} ${c.key === "name" ? "td--emphasis-name" : ""}`.trim()}
                         style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
                         title={typeof content === "string" ? content : undefined}
                       >
