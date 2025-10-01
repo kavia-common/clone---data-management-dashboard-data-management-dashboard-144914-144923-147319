@@ -4,13 +4,6 @@ const jsConfig = {
   languageOptions: {
     ecmaVersion: 'latest',
     sourceType: 'commonjs',
-    globals: {
-      process: 'readonly',
-      module: 'readonly',
-      __dirname: 'readonly',
-      require: 'readonly',
-      console: 'readonly',
-    },
   },
   rules: {
     semi: ['error', 'always'],
