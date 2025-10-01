@@ -221,15 +221,33 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.nav-link.active {
-  background: var(--brand-primary-tint);
-  color: var(--brand-primary);
+/* Active state — support both explicit .active class and aria-current (React Router v6) */
+.nav-link.active,
+.nav-link[aria-current="page"] {
+  background: var(--brand-primary-tint); /* #FFF6F2 light orange tint */
+  color: var(--brand-primary);           /* #FF6A3D brand orange for text/icon */
   font-weight: 600;
+  /* Left rail accent to match style system */
   box-shadow: inset 3px 0 0 0 var(--brand-primary);
 }
+
+/* Hover for non-active links */
 .nav-link:hover {
   background: #F8FAFC;
   color: var(--text-primary);
+}
+
+/* Keep active look on hover as well */
+.nav-link.active:hover,
+.nav-link[aria-current="page"]:hover {
+  background: var(--brand-primary-tint);
+  color: var(--brand-primary);
+}
+
+/* Focus-visible ring for keyboard users */
+.nav-link:focus-visible {
+  outline: 3px solid rgba(14, 165, 233, 0.35);
+  outline-offset: 2px;
 }
 
 .content {
