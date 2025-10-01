@@ -402,13 +402,43 @@ export default function DataTable({
                       style={{ width: columnWidths.__actions, minWidth: columnWidths.__actions }}
                     >
                       {onEdit && (
-                        <button className="btn btn-ghost" onClick={() => onEdit(row)}>
-                          Edit
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() => onEdit(row)}
+                          aria-label="Edit row"
+                          title="Edit"
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            aria-hidden="true"
+                          >
+                            <circle cx="12" cy="5" r="2" />
+                            <circle cx="12" cy="12" r="2" />
+                            <circle cx="12" cy="19" r="2" />
+                          </svg>
                         </button>
                       )}
                       {onDelete && (
-                        <button className="btn btn-danger" onClick={() => onDelete(row)}>
-                          Delete
+                        <button
+                          className="btn btn-danger"
+                          onClick={() => onDelete(row)}
+                          aria-label="Delete row"
+                          title="Delete"
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            aria-hidden="true"
+                          >
+                            <circle cx="12" cy="5" r="2" />
+                            <circle cx="12" cy="12" r="2" />
+                            <circle cx="12" cy="19" r="2" />
+                          </svg>
                         </button>
                       )}
                     </td>
