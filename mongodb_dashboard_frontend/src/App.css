@@ -387,7 +387,7 @@
   vertical-align: middle;
   white-space: nowrap; /* prevent labels from breaking awkwardly */
   height: var(--table-row-h, 48px); /* stabilize row heights to prevent lurches */
-  max-width: 320px; /* cap to prevent overflow from very long inline content */
+  /* Remove fixed hard cap so auto-width can govern sizing via colgroup */
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -434,7 +434,8 @@
 @media (max-width: 767px) {
   .th, .td { padding: 10px 12px; }
   .table { min-width: 560px; } /* allow slightly tighter table */
-  .td, .th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+  /* Keep truncation friendly on small screens but avoid fighting colgroup width */
+  .td, .th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
   .td .status-badge { white-space: nowrap; }
   .td.actions { gap: 6px; }
   /* hide very low priority metadata columns if authors opt-in via classnames */
