@@ -10,6 +10,7 @@ import { listLlmCosts } from "../../api/client";
  * - Array-of-objects fields become expandable mini-tables within the cell.
  * - Object fields render key-value mini-tables inline.
  * - Primitive arrays show first N entries, with a "see more" to expand full list.
+ * - For arrays-of-objects like users/projects/agents, also expose first N element subfields as flat columns per row.
  */
 export default function Costs() {
   const [allItems, setAllItems] = useState([]);
@@ -20,6 +21,9 @@ export default function Costs() {
   const [query, setQuery] = useState("");
   // local expanded state per row and field
   const [expandedCells, setExpandedCells] = useState({}); // { [rowId]: { [fieldKey]: true } }
+
+  // Config: how many array elements to flatten into top-level columns
+  const FLATTEN_PREVIEW_COUNT = 2;
 
   // Heuristics for special formatting
   const dateFieldHints = useMemo(
@@ -35,12 +39,12 @@ export default function Costs() {
     []
   );
   const currencyFieldHints = useMemo(
-    () =>
-      new Set(["total_cost", "cost", "organization_cost"]),
+    () => new Set(["total_cost", "cost", "organization_cost"]),
     []
   );
   const numericPrettyHints = useMemo(
-    () => new Set(["total_tokens", "input_tokens", "output_tokens", "tokens", "count"]),
+    () =>
+      new Set(["total_tokens", "input_tokens", "output_tokens", "tokens", "count"]),
     []
   );
 
@@ -107,7 +111,8 @@ export default function Costs() {
     if (!Array.isArray(arr)) return "—";
     if (arr.length === 0) return "0 items";
 
-    const isObjArray = arr[0] && typeof arr[0] === "object" && !Array.isArray(arr[0]);
+    const isObjArray =
+      arr[0] && typeof arr[0] === "object" && !Array.isArray(arr[0]);
 
     const isExpanded = !!(expandedCells[rowId] && expandedCells[rowId][fieldKey]);
 
@@ -118,7 +123,11 @@ export default function Costs() {
         <div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {shown.map((v, idx) => (
-              <span key={idx} className="status-badge" style={{ whiteSpace: "nowrap" }}>
+              <span
+                key={idx}
+                className="status-badge"
+                style={{ whiteSpace: "nowrap" }}
+              >
                 {String(v)}
               </span>
             ))}
@@ -144,7 +153,10 @@ export default function Costs() {
       <div>
         <div className="table-wrapper" style={{ border: "0", boxShadow: "none" }}>
           <div className="table-scroll sm" style={{ maxHeight: 220 }}>
-            <table className="table" style={{ minWidth: Math.min(960, 160 + common.length * 140) }}>
+            <table
+              className="table"
+              style={{ minWidth: Math.min(960, 160 + common.length * 140) }}
+            >
               <thead>
                 <tr>
                   {common.map((k) => (
@@ -186,56 +198,148 @@ export default function Costs() {
     );
   }
 
-  // Build dynamic columns from data keys and attach rendering
+  /**
+   * Analyze dataset to generate base columns plus flattened preview columns
+   * for array-of-object fields (users, projects, agents, etc.).
+   */
   function deriveColumns(rows = []) {
     const keys = new Set();
     (rows || []).forEach((doc) => {
       Object.keys(doc || {}).forEach((k) => keys.add(k));
     });
 
+    // Identify array-of-objects fields to flatten first N elements into columns
+    const arrayObjFields = [];
+    const sample = rows?.[0] || {};
+    Object.entries(sample || {}).forEach(([k, v]) => {
+      if (Array.isArray(v) && v[0] && typeof v[0] === "object" && !Array.isArray(v[0])) {
+        arrayObjFields.push(k);
+      }
+    });
+
+    // Build base ordered keys: keep _id first, then the rest alphabetically
     const orderedKeys = [
       ...(["_id"].filter((k) => keys.has(k))),
-      ...Array.from(keys).filter((k) => k !== "_id").sort((a, b) => a.localeCompare(b)),
+      ...Array.from(keys)
+        .filter((k) => k !== "_id")
+        .sort((a, b) => a.localeCompare(b)),
     ];
 
-    const cols = orderedKeys.map((k) => {
-      const renderer = (value, row) => {
-        const v = value ?? row?.[k];
-        const rowId = row?._id || row?.id || JSON.stringify(row).slice(0, 32);
+    // Helper renderer for primitives/dates/currency/objects/arrays
+    const baseRenderer = (k) => (value, row) => {
+      const v = value ?? row?.[k];
+      const rowId = row?._id || row?.id || JSON.stringify(row).slice(0, 32);
 
-        // Arrays
-        if (Array.isArray(v)) {
-          return renderArrayField(rowId, k, v, 3);
+      if (Array.isArray(v)) {
+        return renderArrayField(rowId, k, v, 3);
+      }
+      if (v && typeof v === "object") {
+        return renderObjectKV(v);
+      }
+      if (dateFieldHints.has(k)) {
+        return v ? new Date(v).toLocaleString() : "—";
+      }
+      if (currencyFieldHints.has(k) && typeof v === "number") {
+        return (
+          <span className="amount-positive">
+            {v.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+          </span>
+        );
+      }
+      if (
+        typeof v === "number" &&
+        (numericPrettyHints.has(k) || /token|count|total/i.test(k))
+      ) {
+        return v.toLocaleString();
+      }
+      return v === null || v === undefined || v === "" ? "—" : String(v);
+    };
+
+    // Start with base columns
+    let cols = orderedKeys.map((k) => ({
+      key: k,
+      label: toLabel(k),
+      render: baseRenderer(k),
+    }));
+
+    // For each array-of-objects field, add flat preview columns for first N elements and a "more" indicator
+    arrayObjFields.forEach((field) => {
+      // Determine common subkeys across all items for consistent columns
+      const allArrayItems = [];
+      (rows || []).forEach((r) => {
+        const arr = r?.[field];
+        if (Array.isArray(arr)) {
+          allArrayItems.push(...arr.slice(0, FLATTEN_PREVIEW_COUNT));
         }
+      });
+      const subKeys = getCommonKeys(allArrayItems);
 
-        // Objects: render kv mini-table (useful for costs_by_date, tokens_by_date)
-        if (v && typeof v === "object") {
-          return renderObjectKV(v);
-        }
+      for (let i = 0; i < FLATTEN_PREVIEW_COUNT; i += 1) {
+        subKeys.forEach((subKey) => {
+          const flatKey = `${field}_${i + 1}_${subKey}`;
+          const label = `${toLabel(field)} ${i + 1} ${toLabel(subKey)}`;
+          cols.push({
+            key: flatKey,
+            label,
+            render: (_unused, row) => {
+              const arr = row?.[field];
+              const el = Array.isArray(arr) ? arr[i] : undefined;
+              const val = el ? el[subKey] : undefined;
+              if (val && typeof val === "object") return JSON.stringify(val);
+              if (typeof val === "number" && (numericPrettyHints.has(subKey) || /token|count|total/i.test(subKey))) {
+                return val.toLocaleString();
+              }
+              if (typeof val === "number" && /cost/i.test(subKey)) {
+                return (
+                  <span className="amount-positive">
+                    {val.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                  </span>
+                );
+              }
+              return val ?? "—";
+            },
+            priority: 4,
+          });
+        });
+      }
 
-        // Date-like
-        if (dateFieldHints.has(k)) {
-          return v ? new Date(v).toLocaleString() : "—";
-        }
-
-        // Currency-like
-        if (currencyFieldHints.has(k) && typeof v === "number") {
+      // Add a final compact column with an expandable mini-table toggle if more elements exist
+      const moreKey = `${field}_more`;
+      cols.push({
+        key: moreKey,
+        label: `${toLabel(field)} More`,
+        render: (_unused, row) => {
+          const arr = row?.[field];
+          const rowId = row?._id || row?.id || JSON.stringify(row).slice(0, 32);
+          if (!Array.isArray(arr)) return "—";
+          const extra = Math.max(0, arr.length - FLATTEN_PREVIEW_COUNT);
+          if (extra <= 0) return "—";
+          const isExpanded =
+            expandedCells[rowId] && expandedCells[rowId][`${field}__more`];
           return (
-            <span className="amount-positive">
-              {v.toLocaleString(undefined, { style: "currency", currency: "USD" })}
-            </span>
+            <div>
+              <button
+                className="btn btn-ghost"
+                style={{ padding: "4px 8px", height: 28 }}
+                onClick={() => toggleExpand(rowId, `${field}__more`)}
+              >
+                {isExpanded ? "Hide" : `See ${extra} more`}
+              </button>
+              {isExpanded && (
+                <div style={{ marginTop: 6 }}>
+                  {renderArrayField(
+                    rowId,
+                    `${field}__expandedTable`,
+                    arr.slice(FLATTEN_PREVIEW_COUNT),
+                    5
+                  )}
+                </div>
+              )}
+            </div>
           );
-        }
-
-        // Large numbers (tokens)
-        if (typeof v === "number" && (numericPrettyHints.has(k) || /token|count|total/i.test(k))) {
-          return v.toLocaleString();
-        }
-
-        return v === null || v === undefined || v === "" ? "—" : String(v);
-      };
-
-      return { key: k, label: toLabel(k), render: renderer };
+        },
+        priority: 4,
+      });
     });
 
     setColumns(cols.length ? cols : [{ key: "_id", label: "ID" }]);
@@ -254,7 +358,9 @@ export default function Costs() {
       setAllItems([]);
       setItems([]);
       setColumns([{ key: "_id", label: "ID" }]);
-      setError(e?.response?.data?.message || e?.message || "Failed to load LLM costs.");
+      setError(
+        e?.response?.data?.message || e?.message || "Failed to load LLM costs."
+      );
     } finally {
       setLoading(false);
     }
@@ -297,7 +403,10 @@ export default function Costs() {
 
   return (
     <div>
-      <Card title="Costs" subtitle="LLM usage cost records (expanded nested fields)">
+      <Card
+        title="Costs"
+        subtitle="LLM usage cost records (expanded nested fields and flattened previews)"
+      >
         <div className="toolbar" aria-label="Costs toolbar">
           <input
             className="input-search"
