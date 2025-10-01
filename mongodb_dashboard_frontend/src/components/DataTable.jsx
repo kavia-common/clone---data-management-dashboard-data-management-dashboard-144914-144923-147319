@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 /**
  * Measure text width using an off-screen canvas for robust auto-width calculation.
@@ -10,10 +10,8 @@ function measureTextWidth(text, font = "14px Helvetica, Arial, sans-serif") {
     const context = canvas.getContext("2d");
     context.font = font;
     const metrics = context.measureText(String(text ?? ""));
-    // Add some padding for cell left/right padding and sort icon
     return Math.ceil(metrics.width);
   } catch {
-    // Conservative fallback
     return String(text ?? "").length * 8;
   }
 }
@@ -28,19 +26,20 @@ export default function DataTable({
   pageSize = 10,
   initialPage = 1,
   onPageChange,
-  autoWidth = true, // new: allow disabling auto width if ever needed
+  autoWidth = true,
   minColWidth = 56,
   maxColWidth = 420,
+  // Optional override for scroll height
+  maxBodyHeight, // if provided, will override CSS default via inline style
 }) {
-  /** A simple data grid component with client-side sorting and action column, with pagination (default 10 per page).
-   * Pagination updates only tbody; header and pagination remain fixed with no layout shift.
-   * Auto width logic computes per-column widths based on header label and visible page content.
+  /**
+   * DataTable with sticky header and always-visible pagination.
+   * Body is contained in a scrollable region with vertical and horizontal scroll as needed.
    */
   const [sortKey, setSortKey] = useState("");
   const [sortDir, setSortDir] = useState("asc");
   const [page, setPage] = useState(Math.max(1, initialPage || 1));
 
-  // Keep a stable ref for tbody scroller and table header for width syncing.
   const bodyRef = useRef(null);
 
   function getValue(row, path) {
@@ -71,7 +70,6 @@ export default function DataTable({
     return copy;
   }, [data, sortDir, sortKey]);
 
-  // Pagination calculations
   const total = sorted?.length || 0;
   const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
   const currentPage = Math.min(Math.max(1, page), totalPages);
@@ -83,7 +81,11 @@ export default function DataTable({
     const next = Math.min(Math.max(1, p), totalPages);
     setPage(next);
     if (typeof onPageChange === "function") onPageChange(next);
-    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+    if (bodyRef.current) {
+      bodyRef.current.scrollTop = 0;
+      // If horizontally scrolled, keep pagination visible while user scrolls body
+      bodyRef.current.scrollLeft = 0;
+    }
   }
 
   function toggleSort(key) {
@@ -111,11 +113,7 @@ export default function DataTable({
     for (let p = startPage; p <= endPage; p += 1) pages.push(p);
 
     return (
-      <div
-        className="table-pagination"
-        role="navigation"
-        aria-label="Table pagination"
-      >
+      <div className="table-pagination" role="navigation" aria-label="Table pagination">
         <div className="muted">
           Showing {total ? start + 1 : 0}–{Math.min(end, total)} of {total}
         </div>
@@ -193,52 +191,40 @@ export default function DataTable({
   }
 
   const actionColIncluded = (onEdit || onDelete) ? 1 : 0;
-
-  // Compute number of filler rows to keep the tbody height constant for a pageSize
   const fillerCount = Math.max(0, Math.max(1, pageSize) - (loading ? 0 : pageRows.length));
 
-  // Compute content-based widths for each column (header + current page cells).
   const columnWidths = useMemo(() => {
     if (!autoWidth) return {};
-    const fontHeader = "600 12px Helvetica, Arial, sans-serif"; // matches header font-weight/size
+    const fontHeader = "600 12px Helvetica, Arial, sans-serif";
     const fontCell = "14px Helvetica, Arial, sans-serif";
 
     const widths = {};
     (columns || []).forEach((c) => {
       const headerW = measureTextWidth(c.label ?? c.key, fontHeader);
       let maxW = headerW;
-      // consider visible rows for performance; ensures header stays directly above matching data widths
       (pageRows || []).forEach((row) => {
         const v = c.render ? c.render(getValue(row, c.key), row) : getValue(row, c.key);
-        // Render might return React nodes; try to derive text for measurement
         let text = "";
         if (typeof v === "number") text = v.toLocaleString();
         else if (typeof v === "string") text = v;
         else if (v === null || v === undefined || v === "") text = "—";
-        else if (typeof v === "object") {
-          // If a simple node with text, skip; fallback to generic width
-          text = "";
-        }
+        else text = "";
         const w = text ? measureTextWidth(text, fontCell) : headerW;
         if (w > maxW) maxW = w;
       });
-      // Add padding for cell paddings and sort icon space
-      maxW += 24 + 16; // left/right padding + small buffer
+      maxW += 24 + 16;
       widths[c.key] = Math.min(Math.max(maxW, minColWidth), maxColWidth);
     });
 
-    // Account for Actions column if present
     if (actionColIncluded) {
-      // Typical min width enough for two buttons without wrapping
       widths.__actions = 160;
     }
     return widths;
   }, [columns, pageRows, autoWidth, minColWidth, maxColWidth, actionColIncluded]);
 
-  // Keep the header directly above body columns by rendering single column structure and applying inline widths
   return (
     <div className="table-wrapper" role="region" aria-label="Data table">
-      {/* Header area: column headers remain visible (sticky) */}
+      {/* Header area */}
       <div className="table-header">
         <table className="table" aria-hidden="true">
           <colgroup>
@@ -278,8 +264,14 @@ export default function DataTable({
         </table>
       </div>
 
-      {/* Scrollable content area */}
-      <div className="table-scroll" role="grid" aria-rowcount={total} ref={bodyRef}>
+      {/* Scrollable body */}
+      <div
+        className="table-scroll"
+        role="grid"
+        aria-rowcount={total}
+        ref={bodyRef}
+        style={maxBodyHeight ? { maxHeight: maxBodyHeight } : undefined}
+      >
         <table className="table">
           <colgroup>
             {(columns || []).map((c) => (
@@ -315,10 +307,7 @@ export default function DataTable({
                         key={c.key}
                         className={`td ${isNumber ? "num" : ""} ${priorityClass}`.trim()}
                         style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
-                        title={
-                          // Provide a helpful tooltip if content is truncated
-                          typeof content === "string" ? content : undefined
-                        }
+                        title={typeof content === "string" ? content : undefined}
                       >
                         {content === null || content === undefined || content === "" ? "—" : content}
                       </td>
@@ -343,7 +332,6 @@ export default function DataTable({
                   ) : null}
                 </tr>
               ))}
-            {/* Filler rows to keep body height constant */}
             {!loading &&
               fillerCount > 0 &&
               Array.from({ length: fillerCount }).map((_, idx) => (
@@ -357,6 +345,7 @@ export default function DataTable({
         </table>
       </div>
 
+      {/* Always visible pagination controls */}
       <PaginationControls />
     </div>
   );

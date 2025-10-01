@@ -346,6 +346,8 @@
   background: var(--bg-surface);
   overflow: hidden; /* clip inner scroller rounded corners */
   max-width: 100%;
+  /* Make sure wrapper itself doesn't scroll; only .table-scroll does */
+  contain: layout paint;
 }
 
 /* A container dedicated to vertically scrollable table content */
