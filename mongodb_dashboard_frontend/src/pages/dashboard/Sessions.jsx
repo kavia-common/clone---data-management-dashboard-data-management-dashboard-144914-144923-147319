@@ -3,6 +3,7 @@ import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import { deleteSession, listSessions } from "../../api/client";
+import { inferColumns } from "../../components/schemaUtils";
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
@@ -14,33 +15,26 @@ export default function Sessions() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
 
-  const columns = useMemo(
+  // Allowed fields for the session-tracking collection
+  const allowed = useMemo(
     () => [
-      { key: "task_id", label: "Task ID" },
-      { key: "tenant_id", label: "Tenant ID" },
-      { key: "organization_name", label: "Organization" },
-      { key: "user_name", label: "User Name" },
-      { key: "service_type", label: "Service Type" },
-      {
-        key: "session_start",
-        label: "Started",
-        render: (v) => (v ? new Date(v).toLocaleString() : "—")
-      },
-      {
-        key: "session_end",
-        label: "Ended",
-        render: (v) => (v ? new Date(v).toLocaleString() : "—")
-      },
-      { key: "status", label: "Status", render: (v) => (v ? <span className="status-badge">{v}</span> : "—") },
-      { key: "total_cost", label: "Total Cost", render: (v) => (typeof v === "number" ? <span className="amount-positive">{v.toLocaleString()}</span> : "—") },
-      {
-        key: "created_at",
-        label: "Created",
-        render: (v) => (v ? new Date(v).toLocaleString() : "—")
-      },
+      "_id",
+      "task_id",
+      "tenant_id",
+      "organization_name",
+      "user_name",
+      "service_type",
+      "session_start",
+      "session_end",
+      "status",
+      "total_cost",
+      "created_at",
+      "updated_at",
     ],
     []
   );
+
+  const [columns, setColumns] = useState([{ key: "_id", label: "ID" }]);
 
   async function load() {
     setLoading(true);
@@ -51,9 +45,24 @@ export default function Sessions() {
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
+      setColumns(
+        inferColumns(arr, allowed, { dateFields: ["session_start", "session_end", "created_at", "updated_at"] }).map(
+          (c) =>
+            c.key === "status"
+              ? { ...c, render: (v) => (v ? <span className="status-badge">{v}</span> : "—") }
+              : c.key === "total_cost"
+                ? {
+                    ...c,
+                    render: (v) =>
+                      typeof v === "number" ? <span className="amount-positive">{v.toLocaleString()}</span> : "—",
+                  }
+                : c
+        )
+      );
     } catch (e) {
       setAllItems([]);
       setItems([]);
+      setColumns([{ key: "_id", label: "ID" }]);
       setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
     } finally {
       setLoading(false);
@@ -69,22 +78,15 @@ export default function Sessions() {
       return;
     }
     const filtered = (allItems || []).filter((s) => {
-      const vals = [
-        s?.task_id,
-        s?.tenant_id,
-        s?.organization_name,
-        s?.user_name,
-        s?.service_type,
-        s?.status,
-        s?._id,
-        s?.id,
-      ]
-        .filter(Boolean)
+      const vals = allowed
+        .map((f) => s?.[f])
+        .concat([s?.id])
+        .filter((v) => v !== undefined && v !== null)
         .map((v) => String(v).toLowerCase());
       return vals.some((v) => v.includes(q));
     });
     setItems(filtered);
-  }, [query, allItems]);
+  }, [query, allItems, allowed]);
 
   function onDelete(row) {
     setConfirmDelete(row);
@@ -111,8 +113,8 @@ export default function Sessions() {
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
             className="input-search"
-            placeholder="Search sessions or tenants..."
-            aria-label="Search sessions or tenants"
+            placeholder="Search sessions..."
+            aria-label="Search sessions"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />

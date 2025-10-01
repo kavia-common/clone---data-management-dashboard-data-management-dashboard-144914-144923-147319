@@ -12,6 +12,10 @@ import { getApiClient, listUsers } from "../api/client";
  * - Handles both paginated envelope { success, data: [...], meta } and non-paginated array responses
  * - Displays records in a table styled per Ocean Professional theme
  * - Shows environment hints for API connectivity/debugging in development
+ *
+ * Column syncing strategy:
+ * - Only show fields that exist in the live data.
+ * - Constrain to the collection's allowed fields to avoid rendering unknown or deprecated fields.
  */
 export default function UsersList({ title = "Users", subtitle = "All users", showActions = true }) {
   const [allItems, setAllItems] = useState([]);
@@ -21,27 +25,68 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [query, setQuery] = useState("");
 
-  // Columns chosen to be resilient across variable schemas, matching Swagger GenericDocument flexibility.
-  const columns = useMemo(
+  // Allowed users fields per request (strict schema alignment)
+  const allowedFields = useMemo(
     () => [
-      { key: "referral_code", label: "Referral Code" },
-      { key: "name", label: "Name" },
-      { key: "email", label: "Email" },
-      {
-        key: "created_at",
-        label: "Created",
-        render: (v, row) => (v || row?.createdAt ? new Date(v || row?.createdAt).toLocaleString() : "—"),
-      },
-      {
-        key: "updated_at",
-        label: "Updated",
-        render: (v, row) => (v || row?.updatedAt ? new Date(v || row?.updatedAt).toLocaleString() : "—"),
-      },
-      // Always show some form of ID for clarity
-      { key: "_id", label: "ID", render: (v, row) => v || row?.id || "—" },
+      "_id",
+      "name",
+      "email",
+      "contact_number",
+      "department",
+      "organization_id",
+      "is_admin",
+      "group_ids",
+      "status",
+      "created_at",
+      "updated_at",
     ],
     []
   );
+
+  // Build columns by intersecting allowedFields with the keys found in data
+  const [columns, setColumns] = useState([
+    // initial minimal placeholder; will be replaced after data load
+    { key: "_id", label: "ID" },
+  ]);
+
+  function inferColumnsFromData(rows) {
+    // Derive all keys present in the dataset
+    const keys = new Set();
+    (rows || []).forEach((doc) => {
+      Object.keys(doc || {}).forEach((k) => keys.add(k));
+    });
+
+    // Compute intersection with allowed fields (order as allowedFields order)
+    const presentAllowed = allowedFields.filter((f) => keys.has(f));
+
+    // Always include _id for clarity if present
+    const finalKeys = presentAllowed.length ? presentAllowed : ["_id"];
+
+    const toLabel = (k) =>
+      k === "_id"
+        ? "ID"
+        : k
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, (m) => m.toUpperCase());
+
+    // Render helpers for dates; otherwise default
+    const cols = finalKeys.map((k) => {
+      if (k === "created_at" || k === "updated_at") {
+        return {
+          key: k,
+          label: toLabel(k),
+          render: (v) => (v ? new Date(v).toLocaleString() : "—"),
+          priority: 3,
+        };
+      }
+      return { key: k, label: toLabel(k) };
+    });
+
+    // Preserve stable ID column at end if not already last
+    // Not necessary but helps UX; keep order per allowedFields already places _id first, so leave as-is.
+
+    setColumns(cols);
+  }
 
   async function load() {
     setLoading(true);
@@ -52,9 +97,11 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       const arr = Array.isArray(res) ? res : res?.items || [];
       setAllItems(arr);
       setItems(arr);
+      inferColumnsFromData(arr);
     } catch (e) {
       setAllItems([]);
       setItems([]);
+      setColumns([{ key: "_id", label: "ID" }]);
       setError(e?.response?.data?.message || e?.message || "Failed to load users.");
     } finally {
       setLoading(false);
@@ -65,7 +112,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     load();
   }, []);
 
-  // Client-side filter across common user fields and potential tenant-like identifiers in user object
+  // Client-side filter across known user fields
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) {
@@ -73,22 +120,15 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       return;
     }
     const filtered = (allItems || []).filter((u) => {
-      const vals = [
-        u?.referral_code,
-        u?.name,
-        u?.email,
-        u?._id,
-        u?.id,
-        u?.tenant_id,
-        u?.tenant_name,
-        u?.organization_name,
-      ]
-        .filter(Boolean)
+      const vals = allowedFields
+        .map((f) => u?.[f])
+        .concat([u?.id]) // friendly id if present
+        .filter((v) => v !== undefined && v !== null)
         .map((v) => String(v).toLowerCase());
       return vals.some((v) => v.includes(q));
     });
     setItems(filtered);
-  }, [query, allItems]);
+  }, [query, allItems, allowedFields]);
 
   // Optional: delete action stub; actual delete handled by page-level component if passed.
   function onDelete(row) {
@@ -124,13 +164,13 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
         <div className="toolbar" aria-label="Users toolbar">
           <input
             className="input-search"
-            placeholder="Search users or tenants..."
-            aria-label="Search users or tenants"
+            placeholder="Search users..."
+            aria-label="Search users"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
           <div className="spacer" />
-          {/* Removed Add User button as requested */}
+          {/* No Add button */}
         </div>
         {error && (
           <div className="error" role="alert" style={{ marginBottom: 12 }}>
