@@ -15,8 +15,8 @@ body {
 }
 
 /* Links should use the orange accent and a darker hover */
-a { color: var(--link, #F59E0B); text-decoration: none; }
-a:hover { text-decoration: underline; color: #d97706; }
+a { color: var(--link, #2563EB); text-decoration: none; }
+a:hover { text-decoration: underline; color: #1D4ED8; }
 
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;

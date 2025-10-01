@@ -1,5 +1,5 @@
 :root {
-  /* Brand and semantic tokens updated to orange-only scheme */
+  /* Ocean Professional — blue primary with amber accents */
   --bg-canvas: #F3F6F9;
   --bg-surface: #FFFFFF;
   --border-subtle: #E6EAF0;
@@ -7,17 +7,17 @@
   --text-secondary: #475569;
   --text-tertiary: #64748B;
 
-  /* Primary/interactive and accents use the designated orange */
-  --brand-primary: #F59E0B;      /* primary orange */
-  --brand-secondary: #F59E0B;    /* align secondary to orange */
+  /* Primary (blue) and accent (amber) */
+  --brand-primary: #2563EB;      /* primary blue */
+  --brand-secondary: #F59E0B;    /* amber accent */
   --success: #10B981;
   --danger: #EF4444;
   --warning: #F59E0B;
-  --link: #F59E0B;
+  --link: #2563EB;
 
-  /* Badge background/text adapted to neutral/orange */
-  --badge-bg: #FFF7ED;  /* light orange tint */
-  --badge-text: #B45309; /* dark amber */
+  /* Badges — pale blue per Ocean Professional */
+  --badge-bg: #E6F2FE;  /* light blue tint */
+  --badge-text: #0B74D0; /* dark blue */
 
   --input-bg: #F8FAFC;
   --input-border: #E2E8F0;
@@ -114,7 +114,7 @@
   border-radius: 8px;
 }
 .hamburger:focus-visible {
-  outline: 2px solid #FDE68A;
+  outline: 2px solid #BFDBFE; /* blue-200 */
   outline-offset: 2px;
 }
 
@@ -191,7 +191,7 @@
   outline: none;
 }
 .sidebar:focus-visible {
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.28);
 }
 
 .sidebar .sidebar-group {
@@ -219,7 +219,7 @@
   text-overflow: ellipsis;
 }
 .nav-link.active {
-  background: #FFF7ED; /* orange tint */
+  background: #EFF6FF; /* blue tint */
   color: var(--brand-primary);
   font-weight: 600;
   box-shadow: inset 3px 0 0 0 var(--brand-primary);
@@ -290,7 +290,7 @@
 .btn-secondary { background: #E2E8F0; color: var(--text-primary); }
 .btn-danger { background: var(--danger); color: white; }
 .btn-ghost { background: transparent; color: var(--text-primary); }
-.btn:focus { outline: 2px solid #FDE68A; outline-offset: 2px; }
+.btn:focus { outline: 2px solid #BFDBFE; outline-offset: 2px; }
 .w-full { width: 100%; }
 
 /* Cards */
@@ -433,7 +433,7 @@
 }
 .table-pagination .btn-ghost[aria-current="page"] {
   /* Guard: if any case assigns aria-current on ghost, ensure visibility */
-  background: #FFF7ED;
+  background: #EFF6FF;
   color: var(--brand-primary);
   font-weight: 700;
 }
@@ -464,7 +464,7 @@
   color: var(--text-tertiary);
   user-select: none;
 }
-.tr:hover .td { background: #FFF7ED; }
+.tr:hover .td { background: #F8FAFC; }
 .table-empty { padding: 16px; color: var(--text-tertiary); text-align: center; }
 .td.actions { display: flex; gap: 8px; align-items: center; justify-content: flex-start; flex-wrap: wrap; }
 .td.num { text-align: right; }
@@ -551,7 +551,7 @@ textarea { height: auto; min-height: 80px; }
 }
 input:focus, select:focus, textarea:focus {
   border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.28);
 }
 .error { background: rgba(239,68,68,0.07); color: #991b1b; padding: 10px 12px; border-radius: 8px; border: 1px solid #fecaca; }
 
@@ -586,9 +586,9 @@ input:focus, select:focus, textarea:focus {
 .fab {
   position: fixed; bottom: 24px; right: 24px;
   width: 48px; height: 48px; border-radius: 50%;
-  background: var(--brand-primary); color: #fff;
+  background: var(--brand-secondary); color: #fff; /* amber accent */
   display: grid; place-items: center;
-  box-shadow: 0 10px 20px rgba(255,106,61,0.3);
+  box-shadow: 0 10px 20px rgba(245, 158, 11, 0.3);
   cursor: pointer;
 }
 .fab:hover { background: #d97706; }
