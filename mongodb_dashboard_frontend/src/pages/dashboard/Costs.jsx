@@ -1,31 +1,31 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
+import Modal from "../../components/ui/Modal.jsx";
 import { listLlmCosts } from "../../api/client";
 
 /**
  * PUBLIC_INTERFACE
  * Costs page
- * Displays LLM usage cost records with full visibility of nested structures:
- * - Array-of-objects fields become expandable mini-tables within the cell.
- * - Object fields render key-value mini-tables inline.
- * - Primitive arrays show first N entries, with a "see more" to expand full list.
- * - For arrays-of-objects like users/projects/agents, also expose first N element subfields as flat columns per row.
+ * Refactored to avoid table breaking by:
+ * - Limiting columns to main fields only (no auto-expanding to hundreds of columns).
+ * - Summarizing arrays/objects inline with a compact preview (first 1–2 items) and a “View All” modal for details.
+ * - Capping cell width with ellipsis and adding title-based tooltips for long content.
+ * - Keeping responsive behavior aligned with Users/Sessions modules.
  */
 export default function Costs() {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
-  const [columns, setColumns] = useState([{ key: "_id", label: "ID" }]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  // local expanded state per row and field
-  const [expandedCells, setExpandedCells] = useState({}); // { [rowId]: { [fieldKey]: true } }
 
-  // Config: how many array elements to flatten into top-level columns
-  const FLATTEN_PREVIEW_COUNT = 2;
+  // Modal state for inspecting large arrays/objects without breaking table layout
+  const [inspectOpen, setInspectOpen] = useState(false);
+  const [inspectTitle, setInspectTitle] = useState("Details");
+  const [inspectPayload, setInspectPayload] = useState(null);
 
-  // Heuristics for special formatting
+  // Field hints
   const dateFieldHints = useMemo(
     () =>
       new Set([
@@ -54,295 +54,199 @@ export default function Costs() {
       : k.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
   }
 
-  function toggleExpand(rowId, key) {
-    setExpandedCells((prev) => {
-      const rowMap = prev[rowId] || {};
-      return {
-        ...prev,
-        [rowId]: { ...rowMap, [key]: !rowMap[key] },
-      };
-    });
+  // Open modal inspector with pretty JSON
+  function openInspector(title, payload) {
+    setInspectTitle(title);
+    setInspectPayload(payload);
+    setInspectOpen(true);
+  }
+  function closeInspector() {
+    setInspectOpen(false);
+    setInspectPayload(null);
   }
 
-  // Render a small key-value mini table for plain objects
-  function renderObjectKV(obj) {
-    if (!obj || typeof obj !== "object") return "—";
-    const entries = Object.entries(obj);
-    if (!entries.length) return "—";
+  // Renderers with capped width and tooltips
+  const renderText = (value) => {
+    const text = value == null || value === "" ? "—" : String(value);
     return (
-      <div className="table-wrapper" style={{ border: "0", boxShadow: "none" }}>
-        <div className="table-scroll sm" style={{ maxHeight: 180 }}>
-          <table className="table" style={{ minWidth: 360 }}>
-            <thead>
-              <tr>
-                <th className="th">Key</th>
-                <th className="th">Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map(([k, v]) => (
-                <tr className="tr" key={k}>
-                  <td className="td">{k}</td>
-                  <td className="td">
-                    {v && typeof v === "object" ? JSON.stringify(v) : String(v)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <span
+        title={text}
+        style={{
+          display: "inline-block",
+          maxWidth: 280,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          verticalAlign: "middle",
+        }}
+      >
+        {text}
+      </span>
     );
-  }
+  };
 
-  // Compute common keys across array-of-objects
-  function getCommonKeys(arr) {
-    const keySet = new Set();
-    arr.forEach((it) => {
-      if (it && typeof it === "object" && !Array.isArray(it)) {
-        Object.keys(it).forEach((k) => keySet.add(k));
-      }
-    });
-    return Array.from(keySet);
-  }
-
-  // Render array-of-objects as mini-table (expandable), or primitive array with preview
-  function renderArrayField(rowId, fieldKey, arr, previewCount = 3) {
-    if (!Array.isArray(arr)) return "—";
-    if (arr.length === 0) return "0 items";
-
-    const isObjArray =
-      arr[0] && typeof arr[0] === "object" && !Array.isArray(arr[0]);
-
-    const isExpanded = !!(expandedCells[rowId] && expandedCells[rowId][fieldKey]);
-
-    if (!isObjArray) {
-      // Primitive array: preview first N entries with "see more"
-      const shown = isExpanded ? arr : arr.slice(0, previewCount);
+  const renderNumber = (value, key) => {
+    if (value == null || value === "") return "—";
+    if (currencyFieldHints.has(key) && typeof value === "number") {
+      const txt = value.toLocaleString(undefined, { style: "currency", currency: "USD" });
       return (
-        <div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {shown.map((v, idx) => (
-              <span
-                key={idx}
-                className="status-badge"
-                style={{ whiteSpace: "nowrap" }}
-              >
-                {String(v)}
-              </span>
-            ))}
-          </div>
-          {arr.length > previewCount && (
-            <button
-              className="btn btn-ghost"
-              style={{ marginTop: 6, padding: "4px 8px", height: 28 }}
-              onClick={() => toggleExpand(rowId, fieldKey)}
-            >
-              {isExpanded ? "See less" : `See ${arr.length - previewCount} more`}
-            </button>
-          )}
+        <span className="amount-positive" title={txt} style={{ whiteSpace: "nowrap" }}>
+          {txt}
+        </span>
+      );
+    }
+    if (typeof value === "number" && (numericPrettyHints.has(key) || /token|count|total/i.test(key))) {
+      const txt = value.toLocaleString();
+      return (
+        <span title={txt} style={{ whiteSpace: "nowrap" }}>
+          {txt}
+        </span>
+      );
+    }
+    return renderText(value);
+  };
+
+  const renderDate = (value) => {
+    if (!value) return "—";
+    try {
+      const txt = new Date(value).toLocaleString();
+      return <span title={txt}>{txt}</span>;
+    } catch {
+      return renderText(value);
+    }
+  };
+
+  // Compact preview for arrays/objects with modal "View All"
+  function renderCompact(value, fieldLabel = "Details") {
+    if (Array.isArray(value)) {
+      const len = value.length;
+      if (len === 0) return "0 items";
+      const previewMax = 2;
+      const shown = value.slice(0, previewMax);
+      const previewText = shown
+        .map((v) => {
+          if (v && typeof v === "object") {
+            // prefer a name/id if present
+            return v.name || v.id || v._id || JSON.stringify(v);
+          }
+          return String(v);
+        })
+        .join(", ");
+      const overflow = len > previewMax ? ` +${len - previewMax} more` : "";
+      const summary = `${previewText}${overflow}`;
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span
+            title={summary}
+            style={{
+              display: "inline-block",
+              maxWidth: 320,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {summary}
+          </span>
+          <button
+            className="btn btn-ghost"
+            style={{ padding: "4px 8px", height: 28 }}
+            onClick={() => openInspector(fieldLabel, value)}
+            aria-label={`View all ${fieldLabel}`}
+            title={`View all ${fieldLabel}`}
+          >
+            View All
+          </button>
         </div>
       );
     }
-
-    // Array of objects: mini-table with common keys, preview first N rows and expand
-    const common = getCommonKeys(arr);
-    const shownRows = isExpanded ? arr : arr.slice(0, previewCount);
-
-    return (
-      <div>
-        <div className="table-wrapper" style={{ border: "0", boxShadow: "none" }}>
-          <div className="table-scroll sm" style={{ maxHeight: 220 }}>
-            <table
-              className="table"
-              style={{ minWidth: Math.min(960, 160 + common.length * 140) }}
-            >
-              <thead>
-                <tr>
-                  {common.map((k) => (
-                    <th key={k} className="th">
-                      {toLabel(k)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {shownRows.map((obj, idx) => (
-                  <tr className="tr" key={idx}>
-                    {common.map((k) => {
-                      const v = obj?.[k];
-                      const isNum = typeof v === "number";
-                      const isObj = v && typeof v === "object";
-                      return (
-                        <td key={k} className={`td ${isNum ? "num" : ""}`}>
-                          {isObj ? JSON.stringify(v) : v ?? "—"}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        {arr.length > previewCount && (
+    if (value && typeof value === "object") {
+      // summarize object keys
+      const keys = Object.keys(value);
+      const shown = keys.slice(0, 2);
+      const summary = `${shown.join(", ")}${keys.length > 2 ? ` +${keys.length - 2} more` : ""}`;
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span title={summary} style={{ maxWidth: 320, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "inline-block" }}>
+            {summary || "—"}
+          </span>
           <button
             className="btn btn-ghost"
-            style={{ marginTop: 6, padding: "4px 8px", height: 28 }}
-            onClick={() => toggleExpand(rowId, fieldKey)}
+            style={{ padding: "4px 8px", height: 28 }}
+            onClick={() => openInspector(fieldLabel, value)}
+            aria-label={`View ${fieldLabel}`}
+            title={`View ${fieldLabel}`}
           >
-            {isExpanded ? "See less" : `See ${arr.length - previewCount} more`}
+            View
           </button>
-        )}
-      </div>
-    );
+        </div>
+      );
+    }
+    return renderText(value);
   }
 
-  /**
-   * Analyze dataset to generate base columns plus flattened preview columns
-   * for array-of-object fields (users, projects, agents, etc.).
-   */
-  function deriveColumns(rows = []) {
-    const keys = new Set();
-    (rows || []).forEach((doc) => {
-      Object.keys(doc || {}).forEach((k) => keys.add(k));
-    });
-
-    // Identify array-of-objects fields to flatten first N elements into columns
-    const arrayObjFields = [];
-    const sample = rows?.[0] || {};
-    Object.entries(sample || {}).forEach(([k, v]) => {
-      if (Array.isArray(v) && v[0] && typeof v[0] === "object" && !Array.isArray(v[0])) {
-        arrayObjFields.push(k);
-      }
-    });
-
-    // Build base ordered keys: keep _id first, then the rest alphabetically
-    const orderedKeys = [
-      ...(["_id"].filter((k) => keys.has(k))),
-      ...Array.from(keys)
-        .filter((k) => k !== "_id")
-        .sort((a, b) => a.localeCompare(b)),
+  // Derive a stable, minimal set of main fields (no exploding columns)
+  function buildColumnsFromSample(rows = []) {
+    const sample = rows[0] || {};
+    // Choose a conservative main field set to mirror Users/Sessions style
+    // We pick commonly expected cost fields if present; otherwise fall back to a few safe keys.
+    const preferredOrder = [
+      "_id",
+      "tenant_id",
+      "project_id",
+      "user_id",
+      "llm_model",
+      "total_cost",
+      "total_tokens",
+      "timestamp",
+      "created_at",
+      "updated_at",
     ];
 
-    // Helper renderer for primitives/dates/currency/objects/arrays
-    const baseRenderer = (k) => (value, row) => {
-      const v = value ?? row?.[k];
-      const rowId = row?._id || row?.id || JSON.stringify(row).slice(0, 32);
+    // Detect nested heavy fields to summarize into a single column each
+    const nestedCandidates = ["users", "projects", "agents", "details", "metadata", "params", "prompt", "response"];
 
-      if (Array.isArray(v)) {
-        return renderArrayField(rowId, k, v, 3);
-      }
-      if (v && typeof v === "object") {
-        return renderObjectKV(v);
-      }
-      if (dateFieldHints.has(k)) {
-        return v ? new Date(v).toLocaleString() : "—";
-      }
-      if (currencyFieldHints.has(k) && typeof v === "number") {
-        return (
-          <span className="amount-positive">
-            {v.toLocaleString(undefined, { style: "currency", currency: "USD" })}
-          </span>
-        );
-      }
-      if (
-        typeof v === "number" &&
-        (numericPrettyHints.has(k) || /token|count|total/i.test(k))
-      ) {
-        return v.toLocaleString();
-      }
-      return v === null || v === undefined || v === "" ? "—" : String(v);
-    };
+    // Gather present main fields
+    const presentMain = preferredOrder.filter((k) => Object.prototype.hasOwnProperty.call(sample, k));
 
-    // Start with base columns
-    let cols = orderedKeys.map((k) => ({
-      key: k,
-      label: toLabel(k),
-      render: baseRenderer(k),
-    }));
+    // Always include _id if present; ensure at least ID + one more field if exists
+    const mainFields = presentMain.length ? presentMain : Object.keys(sample).slice(0, 5);
 
-    // For each array-of-objects field, add flat preview columns for first N elements and a "more" indicator
-    arrayObjFields.forEach((field) => {
-      // Determine common subkeys across all items for consistent columns
-      const allArrayItems = [];
-      (rows || []).forEach((r) => {
-        const arr = r?.[field];
-        if (Array.isArray(arr)) {
-          allArrayItems.push(...arr.slice(0, FLATTEN_PREVIEW_COUNT));
-        }
-      });
-      const subKeys = getCommonKeys(allArrayItems);
+    const cols = [];
 
-      for (let i = 0; i < FLATTEN_PREVIEW_COUNT; i += 1) {
-        subKeys.forEach((subKey) => {
-          const flatKey = `${field}_${i + 1}_${subKey}`;
-          const label = `${toLabel(field)} ${i + 1} ${toLabel(subKey)}`;
-          cols.push({
-            key: flatKey,
-            label,
-            render: (_unused, row) => {
-              const arr = row?.[field];
-              const el = Array.isArray(arr) ? arr[i] : undefined;
-              const val = el ? el[subKey] : undefined;
-              if (val && typeof val === "object") return JSON.stringify(val);
-              if (typeof val === "number" && (numericPrettyHints.has(subKey) || /token|count|total/i.test(subKey))) {
-                return val.toLocaleString();
-              }
-              if (typeof val === "number" && /cost/i.test(subKey)) {
-                return (
-                  <span className="amount-positive">
-                    {val.toLocaleString(undefined, { style: "currency", currency: "USD" })}
-                  </span>
-                );
-              }
-              return val ?? "—";
-            },
-            priority: 4,
-          });
-        });
-      }
-
-      // Add a final compact column with an expandable mini-table toggle if more elements exist
-      const moreKey = `${field}_more`;
+    mainFields.forEach((k) => {
       cols.push({
-        key: moreKey,
-        label: `${toLabel(field)} More`,
-        render: (_unused, row) => {
-          const arr = row?.[field];
-          const rowId = row?._id || row?.id || JSON.stringify(row).slice(0, 32);
-          if (!Array.isArray(arr)) return "—";
-          const extra = Math.max(0, arr.length - FLATTEN_PREVIEW_COUNT);
-          if (extra <= 0) return "—";
-          const isExpanded =
-            expandedCells[rowId] && expandedCells[rowId][`${field}__more`];
-          return (
-            <div>
-              <button
-                className="btn btn-ghost"
-                style={{ padding: "4px 8px", height: 28 }}
-                onClick={() => toggleExpand(rowId, `${field}__more`)}
-              >
-                {isExpanded ? "Hide" : `See ${extra} more`}
-              </button>
-              {isExpanded && (
-                <div style={{ marginTop: 6 }}>
-                  {renderArrayField(
-                    rowId,
-                    `${field}__expandedTable`,
-                    arr.slice(FLATTEN_PREVIEW_COUNT),
-                    5
-                  )}
-                </div>
-              )}
-            </div>
-          );
+        key: k,
+        label: toLabel(k),
+        render: (v, row) => {
+          const val = v ?? row?.[k];
+          if (val == null) return "—";
+          if (dateFieldHints.has(k)) return renderDate(val);
+          if (typeof val === "number") return renderNumber(val, k);
+          return renderText(val);
         },
-        priority: 4,
+        // Assign priorities to allow responsive hiding if needed
+        priority: ["_id", "llm_model", "total_cost"].includes(k) ? 1 : 2,
       });
     });
 
-    setColumns(cols.length ? cols : [{ key: "_id", label: "ID" }]);
+    // Add compact columns for nested candidates that exist on sample; do not add more than 3 nested columns
+    const nestedCols = [];
+    nestedCandidates.forEach((name) => {
+      if (Object.prototype.hasOwnProperty.call(sample, name)) {
+        nestedCols.push({
+          key: name,
+          label: toLabel(name),
+          render: (v) => renderCompact(v, toLabel(name)),
+          priority: 3,
+        });
+      }
+    });
+
+    // Limit nested columns to avoid width blow-up
+    cols.push(...nestedCols.slice(0, 3));
+
+    return cols.length ? cols : [{ key: "_id", label: "ID" }];
   }
 
   async function load() {
@@ -353,14 +257,10 @@ export default function Costs() {
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
-      deriveColumns(arr);
     } catch (e) {
       setAllItems([]);
       setItems([]);
-      setColumns([{ key: "_id", label: "ID" }]);
-      setError(
-        e?.response?.data?.message || e?.message || "Failed to load LLM costs."
-      );
+      setError(e?.response?.data?.message || e?.message || "Failed to load LLM costs.");
     } finally {
       setLoading(false);
     }
@@ -370,7 +270,7 @@ export default function Costs() {
     load();
   }, []);
 
-  // Text search across all top-level fields with deeper serialization for objects/arrays
+  // Text search across selected fields (safe and simple)
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) {
@@ -379,33 +279,29 @@ export default function Costs() {
     }
     const filtered = (allItems || []).filter((doc) => {
       return Object.entries(doc || {}).some(([k, v]) => {
-        let s = "";
-        if (Array.isArray(v)) {
-          try {
-            s = JSON.stringify(v);
-          } catch {
-            s = `${v.length} items`;
-          }
-        } else if (v && typeof v === "object") {
-          try {
-            s = JSON.stringify(v);
-          } catch {
-            s = "";
-          }
-        } else if (v !== null && v !== undefined) {
-          s = String(v);
+        if (v == null) return false;
+        try {
+          const s =
+            typeof v === "object"
+              ? JSON.stringify(v)
+              : String(v);
+          return s.toLowerCase().includes(q);
+        } catch {
+          return false;
         }
-        return s.toLowerCase().includes(q);
       });
     });
     setItems(filtered);
   }, [query, allItems]);
 
+  // Build columns once data is present
+  const columns = useMemo(() => buildColumnsFromSample(items || []), [items]);
+
   return (
     <div>
       <Card
         title="Costs"
-        subtitle="LLM usage cost records (expanded nested fields and flattened previews)"
+        subtitle="LLM usage cost records — compact view with expandable details"
       >
         <div className="toolbar" aria-label="Costs toolbar">
           <input
@@ -418,8 +314,47 @@ export default function Costs() {
           <div className="spacer" />
         </div>
         {error && <div className="error" role="alert">{error}</div>}
-        <DataTable columns={columns} data={items} loading={loading} pageSize={10} />
+        {/* DataTable cells already respect ellipsis on small screens via CSS; we cap content and add title tooltips here */}
+        <DataTable
+          columns={columns}
+          data={items}
+          loading={loading}
+          pageSize={10}
+        />
       </Card>
+
+      {/* Modal inspector for arrays/objects to avoid expanding inside table cells */}
+      <Modal
+        title={inspectTitle}
+        open={inspectOpen}
+        onClose={closeInspector}
+        footer={
+          <div className="modal-actions">
+            <button className="btn btn-ghost" onClick={closeInspector}>Close</button>
+          </div>
+        }
+      >
+        <div style={{ whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 12 }}>
+          {inspectPayload == null ? "—" : safePretty(inspectPayload)}
+        </div>
+      </Modal>
     </div>
   );
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Pretty print helper for modal payload display.
+ */
+function safePretty(payload) {
+  try {
+    if (typeof payload === "string") return payload;
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    try {
+      return String(payload);
+    } catch {
+      return "Unable to render payload";
+    }
+  }
 }
