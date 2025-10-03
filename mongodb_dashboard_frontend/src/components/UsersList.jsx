@@ -60,20 +60,13 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [allItems]);
 
-  // Fixed 5-column configuration, Ocean Professional compliant.
-  // Order: Name | Tenant Id | Organization | Mail | Department
+  // Fixed 4-column configuration, Ocean Professional compliant.
   const columns = useMemo(() => {
-    const renderOrganization = (v, row) =>
-      row?.organization_name || row?.organization || "—";
-    const renderTenantId = (v, row) =>
-      row?.tenant_id || row?.organization_id || row?.organization || "—";
-
+    const renderOrg = (v, row) =>
+      row?.organization_name || row?.organization || row?.organization_id || "—";
     return [
       { key: "name", label: "Name", priority: 1 },
-      // Rename existing "Organization" (which showed tenant id) to "Tenant Id"
-      { key: "__tenant_id", label: "Tenant Id", render: renderTenantId, priority: 2 },
-      // New "Organization" column (organization name)
-      { key: "__organization_name", label: "Organization", render: renderOrganization, priority: 2 },
+      { key: "__organization", label: "Organization", render: renderOrg, priority: 2 },
       { key: "email", label: "Mail", priority: 2 },
       { key: "department", label: "Department", priority: 3 },
     ];
