@@ -4,31 +4,39 @@ import DataTable from "../../components/DataTable.jsx";
 import Button from "../../components/ui/Button.jsx";
 import { listSessions } from "../../api/client";
 
+/**
+ * PUBLIC_INTERFACE
+ * Sessions
+ * Session Tracking table restricted to the following columns (in this exact order):
+ * - Task Id
+ * - Tenant Id
+ * - Organization Name
+ * - Service Type
+ * - Total Cost
+ *
+ * Filters are applied to the FULL dataset before pagination:
+ * - The page loads all sessions (no backend pagination) to allow global client-side filtering.
+ * - Tenant filter and text search both apply to the entire dataset.
+ * - Pagination/counts reflect only the filtered subset.
+ */
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
-   * Session Tracking table restricted to show only the following columns (in this exact order):
-   * - Task Id
-   * - Tenant Id
-   * - Organization Name
-   * - Service Type
-   * - Total Cost
-   *
-   * Adds a tenant filter consistent with the Users tab:
-   * - Dropdown lists unique tenant IDs from loaded data with default "All Tenant".
-   * - Applying the filter updates the visible rows (client-side) and resets pagination to page 1.
+   * Session Tracking page: client-side filtering over the full dataset, then client-side pagination.
+   * This ensures filtered results appear across all pages and counts are accurate for the filtered subset.
    */
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  // Keep a local page-size setting for DataTable
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // New: Tenant filter state (mirrors Users tab behavior/labeling)
+  // Tenant filter state
   const [tenantFilter, setTenantFilter] = useState("");
 
-  // Allowed and ordered fields per requirement (User Name removed)
+  // Allowed and ordered fields per requirement
   const allowedOrdered = useMemo(
     () => [
       "task_id",
@@ -40,7 +48,7 @@ export default function Sessions() {
     []
   );
 
-  // Build tenant options from loaded data (unique, sorted)
+  // Unique tenant options built from the full dataset
   const tenantOptions = useMemo(() => {
     const set = new Set();
     (allItems || []).forEach((s) => {
@@ -89,24 +97,29 @@ export default function Sessions() {
 
   const [columns, setColumns] = useState(buildRestrictedColumns([]));
 
-  async function load(page = 1, limit = meta.limit || 10) {
+  /**
+   * Load ALL sessions without server-side pagination so filters can be applied globally.
+   * This aligns with the requirement: apply tenant filters to the whole dataset before pagination.
+   */
+  async function loadAll() {
     setLoading(true);
     setError("");
     try {
-      const res = await listSessions({ page, limit });
+      const res = await listSessions({}); // no page/limit => expect full array or normalized items
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
-      setMeta({
-        page: res?.meta?.page || page,
-        limit: res?.meta?.limit || limit,
-        total: res?.meta?.total ?? arr.length,
-      });
+      setMeta((m) => ({
+        page: 1,
+        limit: m.limit || 10,
+        total: arr.length,
+      }));
       setColumns(buildRestrictedColumns(arr));
     } catch (e) {
       setAllItems([]);
       setItems([]);
       setColumns(buildRestrictedColumns([]));
+      setMeta({ page: 1, limit: 10, total: 0 });
       setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
     } finally {
       setLoading(false);
@@ -114,11 +127,16 @@ export default function Sessions() {
   }
 
   useEffect(() => {
-    load();
+    loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Client-side filter to match Users tab: text search over visible fields + tenant filter
+  /**
+   * Client-side filtering applied to the full dataset:
+   * - text search across the visible/allowed fields
+   * - exact tenant match filter (using tenant_id or organization fallbacks)
+   * After filtering, update items and total; reset page to 1 for DataTable.
+   */
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     let filtered = allItems || [];
@@ -152,7 +170,7 @@ export default function Sessions() {
     setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
   }
 
-  // Force DataTable to re-init pagination when filters change
+  // Force DataTable to re-init pagination when filters change by keying on filter states and current length
   const tableKey = useMemo(
     () => `${(query || "").trim().toLowerCase()}|${tenantFilter}|${items.length}`,
     [query, tenantFilter, items.length]
@@ -160,7 +178,7 @@ export default function Sessions() {
 
   return (
     <div>
-      <Card title="Session Tracking" subtitle="Selected columns only">
+      <Card title="Session Tracking" subtitle="Selected columns only — filters apply to all data">
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
             className="input-search"
@@ -206,10 +224,7 @@ export default function Sessions() {
           // No actions (edit/delete) per requirement to remove actions column from UI
           pageSize={meta.limit || 10}
           initialPage={1}
-          serverTotal={meta.total}
-          fetchPage={async (page, limit) => {
-            await load(page, limit);
-          }}
+          // Client-side mode: no serverTotal or fetchPage; pagination/counts reflect filtered results
           paginationTitle="Sessions pages"
         />
       </Card>
