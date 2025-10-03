@@ -21,37 +21,40 @@ export default function CreditBreakdownModal({ open, onClose, title = "Credit Br
       }
     >
       <div className="table-wrapper">
-        <table className="table">
-          <thead>
-            <tr>
-              <th className="th">Project</th>
-              <th className="th">Total Cost</th>
-              <th className="th">Total Minutes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {!breakdown?.length && (
-              <tr className="tr">
-                <td className="td" colSpan={3}>
-                  <div className="table-empty">No breakdown available</div>
-                </td>
+        {/* Ensure both vertical and horizontal scrolling are available for wide tables */}
+        <div className="table-scroll" role="region" aria-label="Credit breakdown table">
+          <table className="table">
+            <thead>
+              <tr>
+                <th className="th">Project</th>
+                <th className="th">Total Cost</th>
+                <th className="th">Total Minutes</th>
               </tr>
-            )}
-            {breakdown?.map((b, idx) => (
-              <tr className="tr" key={b.projectId || b.project_id || idx}>
-                <td className="td">{b.projectName || b.project_name || b.projectId || b.project_id || "—"}</td>
-                <td className="td num">
-                  {typeof b.totalCost === "number"
-                    ? b.totalCost.toLocaleString(undefined, { style: "currency", currency: "USD" })
-                    : "—"}
-                </td>
-                <td className="td num">
-                  {typeof b.totalMinutes === "number" ? b.totalMinutes.toLocaleString() : "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {!breakdown?.length && (
+                <tr className="tr">
+                  <td className="td" colSpan={3}>
+                    <div className="table-empty">No breakdown available</div>
+                  </td>
+                </tr>
+              )}
+              {breakdown?.map((b, idx) => (
+                <tr className="tr" key={b.projectId || b.project_id || idx}>
+                  <td className="td">{b.projectName || b.project_name || b.projectId || b.project_id || "—"}</td>
+                  <td className="td num">
+                    {typeof b.totalCost === "number"
+                      ? b.totalCost.toLocaleString(undefined, { style: "currency", currency: "USD" })
+                      : "—"}
+                  </td>
+                  <td className="td num">
+                    {typeof b.totalMinutes === "number" ? b.totalMinutes.toLocaleString() : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </Modal>
   );
