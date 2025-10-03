@@ -18,9 +18,8 @@ import { listUsers } from "../api/client";
  * - All other fields are hidden from the UI.
  * - Search covers these fields only to stay aligned with visible columns.
  *
- * Enhancements:
- * - Adds an instant "Department" filter with a "Reset" button to clear all filters and show all users.
- * - The reset button sits immediately to the right of the filter select, per style/spec.
+ * Enhancement:
+ * - Changes filter control to Organization (replacing Department). Includes a "Reset" button to clear filters.
  */
 export default function UsersList({ title = "Users", subtitle = "All users", showActions = false }) {
   const [allItems, setAllItems] = useState([]);
@@ -30,8 +29,8 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   const [confirmDelete, setConfirmDelete] = useState(null); // kept for parity; actions disabled by default
   const [query, setQuery] = useState("");
 
-  // New: Department filter (instant)
-  const [departmentFilter, setDepartmentFilter] = useState("");
+  // New: Organization filter (instant)
+  const [organizationFilter, setOrganizationFilter] = useState("");
 
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
@@ -48,13 +47,13 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     []
   );
 
-  // Unique department options derived from the loaded data (kept stable via useMemo)
-  const departmentOptions = useMemo(() => {
+  // Unique organization options derived from the loaded data (kept stable via useMemo)
+  const organizationOptions = useMemo(() => {
     const set = new Set();
     (allItems || []).forEach((u) => {
-      const d = u?.department;
-      if (d !== undefined && d !== null) {
-        const s = String(d).trim();
+      const orgVal = u?.organization_name || u?.organization || u?.organization_id;
+      if (orgVal !== undefined && orgVal !== null) {
+        const s = String(orgVal).trim();
         if (s) set.add(s);
       }
     });
@@ -106,7 +105,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   }, []);
 
   // Client-side filter across only the fields that correspond to visible columns.
-  // Applies both text search and department filter instantly.
+  // Applies both text search and organization filter instantly.
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     let filtered = allItems || [];
@@ -121,12 +120,16 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       });
     }
 
-    if (departmentFilter) {
-      filtered = filtered.filter((u) => String(u?.department ?? "").trim() === departmentFilter);
+    if (organizationFilter) {
+      filtered = filtered.filter((u) => {
+        const org = u?.organization_name || u?.organization || u?.organization_id;
+        return String(org ?? "").trim() === organizationFilter;
+        }
+      );
     }
 
     setItems(filtered);
-  }, [query, allItems, allowedFields, departmentFilter]);
+  }, [query, allItems, allowedFields, organizationFilter]);
 
   // Optional: delete action stub; no actions shown by default.
   function onDelete(row) {
@@ -140,7 +143,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   // Reset all filters to show full user list instantly
   function resetFilters() {
     setQuery("");
-    setDepartmentFilter("");
+    setOrganizationFilter("");
     setItems(allItems);
   }
 
@@ -156,18 +159,18 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
             onChange={(e) => setQuery(e.target.value)}
           />
 
-          {/* New: Department filter + Reset button (immediately to the right) */}
+          {/* Organization filter + Reset button (immediately to the right) */}
           <select
-            aria-label="Filter by department"
-            title="Filter by department"
-            value={departmentFilter}
-            onChange={(e) => setDepartmentFilter(e.target.value)}
+            aria-label="Filter by organization"
+            title="Filter by organization"
+            value={organizationFilter}
+            onChange={(e) => setOrganizationFilter(e.target.value)}
             style={{ width: 220 }}
           >
-            <option value="">All Departments</option>
-            {departmentOptions.map((dep) => (
-              <option key={dep} value={dep}>
-                {dep}
+            <option value="">All Organizations</option>
+            {organizationOptions.map((org) => (
+              <option key={org} value={org}>
+                {org}
               </option>
             ))}
           </select>
