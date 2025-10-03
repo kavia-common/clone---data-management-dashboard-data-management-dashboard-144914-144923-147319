@@ -9,12 +9,12 @@ import { listUsers } from "../api/client";
  * UsersList
  * A reusable users list component configured to show ONLY these columns:
  * - Name
- * - Organization
+ * - Tenant Id
  * - Mail
  * - Department
  *
  * Notes:
- * - Organization column resolves in priority: organization_name -> organization -> organization_id.
+ * - Tenant Id column resolves in priority: tenant_id -> organization_name -> organization -> organization_id.
  * - All other fields are hidden from the UI.
  * - Search covers these fields only to stay aligned with visible columns.
  *
@@ -29,7 +29,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   const [confirmDelete, setConfirmDelete] = useState(null); // kept for parity; actions disabled by default
   const [query, setQuery] = useState("");
 
-  // New: Organization filter (instant)
+  // New: Tenant filter (instant)
   const [organizationFilter, setOrganizationFilter] = useState("");
 
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
@@ -40,6 +40,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       "name",
       "email",
       "department",
+      "tenant_id",
       "organization_name",
       "organization",
       "organization_id",
@@ -47,11 +48,11 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     []
   );
 
-  // Unique organization options derived from the loaded data (kept stable via useMemo)
+  // Unique tenant options derived from the loaded data (kept stable via useMemo)
   const organizationOptions = useMemo(() => {
     const set = new Set();
     (allItems || []).forEach((u) => {
-      const orgVal = u?.organization_name || u?.organization || u?.organization_id;
+      const orgVal = u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id;
       if (orgVal !== undefined && orgVal !== null) {
         const s = String(orgVal).trim();
         if (s) set.add(s);
@@ -62,11 +63,11 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
 
   // Fixed 4-column configuration, Ocean Professional compliant.
   const columns = useMemo(() => {
-    const renderOrg = (v, row) =>
-      row?.organization_name || row?.organization || row?.organization_id || "—";
+    const renderTenant = (v, row) =>
+      row?.tenant_id || row?.organization_name || row?.organization || row?.organization_id || "—";
     return [
       { key: "name", label: "Name", priority: 1 },
-      { key: "__organization", label: "Organization", render: renderOrg, priority: 2 },
+      { key: "__tenant", label: "Tenant Id", render: renderTenant, priority: 2 },
       { key: "email", label: "Mail", priority: 2 },
       { key: "department", label: "Department", priority: 3 },
     ];
@@ -114,7 +115,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
 
     if (organizationFilter) {
       filtered = filtered.filter((u) => {
-        const org = u?.organization_name || u?.organization || u?.organization_id;
+        const org = u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id;
         return String(org ?? "").trim() === organizationFilter;
       });
     }
@@ -158,15 +159,15 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
             onChange={(e) => setQuery(e.target.value)}
           />
 
-          {/* Organization filter + Reset button (immediately to the right) */}
+          {/* Tenant filter + Reset button (immediately to the right) */}
           <select
-            aria-label="Filter by organization"
-            title="Filter by organization"
+            aria-label="Filter by tenant"
+            title="Filter by tenant"
             value={organizationFilter}
             onChange={(e) => setOrganizationFilter(e.target.value)}
             style={{ width: 220 }}
           >
-            <option value="">All Organizations</option>
+            <option value="">All Tenant</option>
             {organizationOptions.map((org) => (
               <option key={org} value={org}>
                 {org}
