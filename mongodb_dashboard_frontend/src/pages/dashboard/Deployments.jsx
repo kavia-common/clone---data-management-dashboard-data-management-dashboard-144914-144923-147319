@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
-import Button from "../../components/ui/Button.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { deleteDeployment, listDeployments } from "../../api/client";
+import { listDeployments } from "../../api/client";
 
 /**
  * PUBLIC_INTERFACE
@@ -14,9 +13,11 @@ import { deleteDeployment, listDeployments } from "../../api/client";
  * - Created At
  * - Updated At
  * All other columns are removed.
+ *
+ * Note: Actions column has been removed. No edit/delete handlers are passed to DataTable.
  */
 export default function Deployments() {
-  /** App deployments viewer: list and delete only (no create/update). */
+  /** App deployments viewer: read-only list; no actions column. */
   const [items, setItems] = useState([]);
   const [columns, setColumns] = useState([
     { key: "deployment_id", label: "Deployment Id" },
@@ -26,7 +27,6 @@ export default function Deployments() {
     { key: "updated_at", label: "Updated At" },
   ]);
   const [loading, setLoading] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(null);
   const [error, setError] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
@@ -54,7 +54,6 @@ export default function Deployments() {
       e.stopPropagation();
       try {
         await navigator.clipboard.writeText(String(full));
-        // Optional: brief visual feedback (native title provides hover view)
       } catch {
         // ignore if clipboard not available
       }
@@ -96,7 +95,6 @@ export default function Deployments() {
     try {
       const res = await listDeployments({ page, limit });
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      // Keep only allowed fields in UI
       setItems(arr);
       setMeta({
         page: res?.meta?.page || page,
@@ -118,22 +116,6 @@ export default function Deployments() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function onDelete(row) {
-    setConfirmDelete(row);
-  }
-
-  async function confirmDeleteAction() {
-    if (confirmDelete?._id) {
-      try {
-        await deleteDeployment(confirmDelete._id);
-        setConfirmDelete(null);
-        await load();
-      } catch (e) {
-        setError(e?.response?.data?.message || e?.message || "Failed to delete deployment.");
-      }
-    }
-  }
-
   return (
     <div>
       <Card title="App Deployments" subtitle="Selected columns only">
@@ -142,7 +124,6 @@ export default function Deployments() {
           columns={columns}
           data={items}
           loading={loading}
-          onDelete={onDelete}
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
@@ -152,26 +133,6 @@ export default function Deployments() {
           paginationTitle="Deployment pages"
         />
       </Card>
-
-      {confirmDelete && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete deployment">
-          <div className="modal-card">
-            <div className="modal-header">
-              <h3>Delete deployment</h3>
-              <Button variant="ghost" aria-label="Close" onClick={() => setConfirmDelete(null)}>✕</Button>
-            </div>
-            <div className="modal-body">
-              <p>Are you sure you want to delete this deployment?</p>
-            </div>
-            <div className="modal-footer">
-              <div className="modal-actions">
-                <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-                <Button variant="danger" onClick={confirmDeleteAction}>Delete</Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
