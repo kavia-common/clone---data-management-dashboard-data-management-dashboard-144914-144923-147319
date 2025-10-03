@@ -103,24 +103,7 @@
   .brand-title { display: none; }
 }
 
-.hamburger {
-  appearance: none;
-  border: none;
-  background: transparent;
-  font-size: 22px;
-  cursor: pointer;
-  margin-right: 8px;
-  width: 40px;
-  height: 40px;
-  line-height: 1;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-}
-.hamburger:focus-visible {
-  outline: 2px solid #BFDBFE; /* blue-200 */
-  outline-offset: 2px;
-}
+/* removed: hamburger toggle styles — sidebar is permanently open */
 
 .topbar-actions {
   display: flex;
@@ -198,10 +181,7 @@
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.28);
 }
 
-/* Hide the mobile close button by default; shown only within mobile breakpoint */
-.sidebar-mobile-close { 
-  display: none; 
-}
+/* removed: .sidebar-mobile-close — no sidebar close control in the UI */
 
 .sidebar .sidebar-group {
   margin: 16px 10px 8px;
@@ -658,20 +638,7 @@ input:focus, select:focus, textarea:focus {
   .brand-title { max-width: 32vw; }
 }
 
-/* Backdrop overlay (defined globally; visible/interactive only on mobile) */
-.sidebar-overlay {
-  position: fixed;
-  inset: var(--topbar-h) 0 0 0; /* start under topbar height */
-  background: rgba(15,23,42,0.45);
-  z-index: 40; /* below sidebar(60), below topbar(70), above content */
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .2s ease;
-}
-.sidebar-overlay.open {
-  opacity: 1;
-  pointer-events: auto;
-}
+/* removed: .sidebar-overlay — no overlay since sidebar is always open */
 
 /* Mobile: keep the sidebar always visible as a fixed grid column (no off-canvas/overlay) */
 @media (max-width: 767px) {
@@ -724,36 +691,7 @@ input:focus, select:focus, textarea:focus {
   .content { padding: 12px; }
 }
 
-/* Sidebar collapse behavior (desktop/tablet) */
-.shell-body.is-collapsed {
-  /* Override grid to remove sidebar column entirely */
-  grid-template-columns: 0 1fr !important;
-}
-.sidebar.collapsed {
-  width: 0 !important;
-  min-width: 0 !important;
-  padding: 0 !important;
-  border-right: 0 !important;
-  overflow: hidden !important;
-}
-
-/* Sidebar header + close controls (desktop and mobile) */
-.sidebar-header {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding: 6px 6px 12px;
-}
-/* Desktop/tablet collapse button visible; hidden on mobile */
-.sidebar-desktop-close { display: grid; }
-@media (max-width: 767px) {
-  .sidebar-desktop-close { display: none; }
-}
-
-/* When collapsed, allow content area to span full width */
-.shell-body.is-collapsed .content {
-  max-width: none;
-}
+/* removed: collapse-related styles — sidebar cannot be collapsed */
 
 /* Center pagination controls across table width */
 .table-pagination {
