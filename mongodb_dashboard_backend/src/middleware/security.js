@@ -3,7 +3,8 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
 /**
- * Normalize a URL/string to origin (scheme://host:port)
+ * Normalize a URL-like string to an origin (scheme://host[:port]).
+ * Returns null if it cannot be interpreted as an origin.
  */
 function toOriginMaybe(urlLike) {
   if (!urlLike) return null;
@@ -16,6 +17,28 @@ function toOriginMaybe(urlLike) {
   }
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Build a CORS middleware with a computed whitelist derived from env configuration.
+ *
+ * Env vars supported:
+ * - REACT_APP_API_BASE_URL: If set, its origin is allowed (e.g., https://api.example.com/api -> https://api.example.com).
+ * - CORS_ORIGIN: A single explicit origin to allow.
+ * - CORS_ORIGINS: Comma-separated list of origins to allow.
+ * - FRONTEND_ORIGIN: Convenience single origin for the frontend host.
+ * - CORS_CREDENTIALS: "true" to enable credentialed requests.
+ *
+ * Default allowances:
+ * - http://localhost:3000
+ * - https://localhost:3000
+ * - A known preview environment origin (cloud preview).
+ *
+ * Behavior:
+ * - Allows exact whitelisted origins.
+ * - If not an exact match, allows same-host across different ports (helps dev/proxy scenarios).
+ * - Returns 403 JSON on CORS rejection with a clear message.
+ * - Handles OPTIONS preflight with 204 status.
+ */
 function corsMiddleware() {
   const inferredFromApiBase = toOriginMaybe(process.env.REACT_APP_API_BASE_URL);
 
@@ -47,17 +70,16 @@ function corsMiddleware() {
   }
 
   // Localhost defaults
-  // Localhost defaults
   whitelist.add('http://localhost:3000');
   whitelist.add('https://localhost:3000');
 
   // Preview environment frontend
-  whitelist.add('https://vscode-internal-29616-beta.beta01.cloud.kavia.ai:3000');
-
+  whitelist.add('https://vscode-internal-34582-beta.beta01.cloud.kavia.ai:3000');
 
   const allowCredentials =
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
 
+  // eslint-disable-next-line no-console
   console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
 
   const corsInstance = cors({
@@ -83,7 +105,7 @@ function corsMiddleware() {
         // ignore
       }
 
-      // ❌ Explicitly reject with proper CORS message
+      // Explicitly reject with proper CORS message
       return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -96,6 +118,7 @@ function corsMiddleware() {
   return (req, res, next) => {
     corsInstance(req, res, (err) => {
       if (err) {
+        // eslint-disable-next-line no-console
         console.warn(`[CORS] Blocked origin: ${req.headers.origin}`);
         return res.status(403).json({
           success: false,
@@ -110,6 +133,11 @@ function corsMiddleware() {
   };
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Build a Helmet middleware with relaxed CSP (disabled) to avoid conflicts
+ * with Swagger UI and dynamic content, while keeping CORP permissive for cross-origin resources.
+ */
 function helmetMiddleware() {
   return helmet({
     contentSecurityPolicy: false,
@@ -117,6 +145,14 @@ function helmetMiddleware() {
   });
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Build a rate limiter middleware.
+ *
+ * Env vars:
+ * - RATE_LIMIT_WINDOW_MS: Window in ms (default: 900000 -> 15 minutes)
+ * - RATE_LIMIT_MAX: Max requests per IP per window (default: 200)
+ */
 function rateLimiter() {
   const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10);
   const max = parseInt(process.env.RATE_LIMIT_MAX || '200', 10);
