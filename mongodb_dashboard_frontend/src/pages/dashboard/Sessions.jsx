@@ -1,41 +1,81 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
-import Button from "../../components/ui/Button.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { deleteSession, listSessions } from "../../api/client";
-import { inferColumns } from "../../components/schemaUtils";
+import { listSessions } from "../../api/client";
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
-  /** Session tracking viewer: list and delete only (no create/update). */
+  /**
+   * Session Tracking table restricted to show only the following columns (in this exact order):
+   * - Task Id
+   * - Tenant Id
+   * - Organization Name
+   * - User Name
+   * - Service Type
+   * - Total Cost
+   *
+   * All other columns (ID, session start/end, status, created/updated at, actions) are removed from both configuration and UI.
+   */
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Allowed fields for the session-tracking collection
-  const allowed = useMemo(
+  // Allowed and ordered fields per requirement
+  const allowedOrdered = useMemo(
     () => [
-      "_id",
       "task_id",
       "tenant_id",
       "organization_name",
       "user_name",
       "service_type",
-      "session_start",
-      "session_end",
-      "status",
       "total_cost",
-      "created_at",
-      "updated_at",
     ],
     []
   );
 
-  const [columns, setColumns] = useState([{ key: "_id", label: "ID" }]);
+  // PUBLIC_INTERFACE
+  function toLabel(key) {
+    /** Convert snake_case to Title Case label. */
+    return String(key || "")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (m) => m.toUpperCase());
+  }
+
+  // PUBLIC_INTERFACE
+  function buildRestrictedColumns(rows = []) {
+    /** Build DataTable columns strictly from the allowed list, preserving order, with appropriate renderers. */
+    const presentKeys = new Set();
+    (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
+
+    return allowedOrdered.map((k) => {
+      // total_cost: currency-like formatting if number
+      if (k === "total_cost") {
+        return {
+          key: k,
+          label: toLabel(k),
+          render: (v) =>
+            typeof v === "number" ? (
+              <span className="amount-positive">
+                {v.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+              </span>
+            ) : v == null || v === "" ? "—" : String(v),
+          priority: 2,
+        };
+      }
+      // Regular text cells
+      return {
+        key: k,
+        label: toLabel(k),
+        render: (v) => (v == null || v === "" ? "—" : String(v)),
+        priority: 2,
+      };
+    });
+  }
+
+  const [columns, setColumns] = useState(buildRestrictedColumns([]));
 
   async function load(page = 1, limit = meta.limit || 10) {
     setLoading(true);
@@ -45,33 +85,28 @@ export default function Sessions() {
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
-      setMeta({ page: res?.meta?.page || page, limit: res?.meta?.limit || limit, total: res?.meta?.total ?? arr.length });
-      setColumns(
-        inferColumns(arr, allowed, { dateFields: ["session_start", "session_end", "created_at", "updated_at"] }).map(
-          (c) =>
-            c.key === "status"
-              ? { ...c, render: (v) => (v ? <span className="status-badge">{v}</span> : "—") }
-              : c.key === "total_cost"
-                ? {
-                    ...c,
-                    render: (v) =>
-                      typeof v === "number" ? <span className="amount-positive">{v.toLocaleString()}</span> : "—",
-                  }
-                : c
-        )
-      );
+      setMeta({
+        page: res?.meta?.page || page,
+        limit: res?.meta?.limit || limit,
+        total: res?.meta?.total ?? arr.length,
+      });
+      setColumns(buildRestrictedColumns(arr));
     } catch (e) {
       setAllItems([]);
       setItems([]);
-      setColumns([{ key: "_id", label: "ID" }]);
+      setColumns(buildRestrictedColumns([]));
       setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // Client-side search limited to the visible fields only
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) {
@@ -79,42 +114,22 @@ export default function Sessions() {
       return;
     }
     const filtered = (allItems || []).filter((s) => {
-      const vals = allowed
+      const vals = allowedOrdered
         .map((f) => s?.[f])
-        .concat([s?.id])
         .filter((v) => v !== undefined && v !== null)
         .map((v) => String(v).toLowerCase());
       return vals.some((v) => v.includes(q));
     });
     setItems(filtered);
-  }, [query, allItems, allowed]);
-
-  function onDelete(row) {
-    setConfirmDelete(row);
-  }
-
-  async function confirmDeleteAction() {
-    if (confirmDelete?._id) {
-      try {
-        await deleteSession(confirmDelete._id);
-        setConfirmDelete(null);
-        await load();
-      } catch (e) {
-        setError(e?.response?.data?.message || e?.message || "Failed to delete session.");
-      }
-    }
-  }
+  }, [query, allItems, allowedOrdered]);
 
   return (
     <div>
-      <Card
-        title="Session Tracking"
-        subtitle="View and delete session records"
-      >
+      <Card title="Session Tracking" subtitle="Selected columns only">
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
             className="input-search"
-            placeholder="Search sessions..."
+            placeholder="Search by visible fields..."
             aria-label="Search sessions"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -126,7 +141,7 @@ export default function Sessions() {
           columns={columns}
           data={items}
           loading={loading}
-          onDelete={onDelete}
+          // No actions (edit/delete) per requirement to remove actions column from UI
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
@@ -136,26 +151,6 @@ export default function Sessions() {
           paginationTitle="Sessions pages"
         />
       </Card>
-
-      {confirmDelete && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete session">
-          <div className="modal-card">
-            <div className="modal-header">
-              <h3>Delete session</h3>
-              <Button variant="ghost" aria-label="Close" onClick={() => setConfirmDelete(null)}>✕</Button>
-            </div>
-            <div className="modal-body">
-              <p>Are you sure you want to delete this session?</p>
-            </div>
-            <div className="modal-footer">
-              <div className="modal-actions">
-                <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-                <Button variant="danger" onClick={confirmDeleteAction}>Delete</Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
