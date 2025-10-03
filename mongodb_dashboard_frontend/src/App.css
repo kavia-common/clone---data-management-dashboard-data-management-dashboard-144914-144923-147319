@@ -402,7 +402,7 @@
   scrollbar-gutter: stable both-edges;
   border-top: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
-  overscroll-behavior: contain; /* prevent scroll chaining to body or parent containers */
+  overscroll-behavior: auto; /* allow parent (page) scroll when table can't scroll; fixes non-scrollable tables when hovered */
 }
 
 /* Optional tighter variant for smaller tables if a card wants a different height */
