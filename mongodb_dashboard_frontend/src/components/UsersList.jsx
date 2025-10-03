@@ -72,23 +72,16 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     ];
   }, []);
 
-  async function load(page = 1, limit = meta.limit || 10) {
+  // Load ALL users once (no server pagination) so filters are applied globally before pagination.
+  async function load() {
     setLoading(true);
     setError("");
     try {
-      const res = await listUsers({ page, limit });
-      const arr = Array.isArray(res) ? res : res?.items || [];
+      const res = await listUsers({});
+      const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
-      if (res && res.meta) {
-        setMeta({
-          page: res.meta.page || page,
-          limit: res.meta.limit || limit,
-          total: res.meta.total || arr.length,
-        });
-      } else {
-        setMeta({ page: 1, limit, total: arr.length });
-      }
+      setMeta((prev) => ({ page: 1, limit: prev.limit || 10, total: arr.length }));
     } catch (e) {
       setAllItems([]);
       setItems([]);
@@ -101,11 +94,10 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Client-side filter across only the fields that correspond to visible columns.
-  // Applies both text search and organization filter instantly.
+  // Applies both text search and organization filter instantly, then updates total to reflect filtered count.
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     let filtered = allItems || [];
@@ -124,11 +116,11 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       filtered = filtered.filter((u) => {
         const org = u?.organization_name || u?.organization || u?.organization_id;
         return String(org ?? "").trim() === organizationFilter;
-        }
-      );
+      });
     }
 
     setItems(filtered);
+    setMeta((m) => ({ ...m, total: filtered.length, page: 1 }));
   }, [query, allItems, allowedFields, organizationFilter]);
 
   // Optional: delete action stub; no actions shown by default.
@@ -145,7 +137,14 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setQuery("");
     setOrganizationFilter("");
     setItems(allItems);
+    setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
   }
+
+  // Force DataTable to reset pagination to page 1 whenever filters or search change
+  const tableKey = useMemo(
+    () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${items.length}`,
+    [query, organizationFilter, items.length]
+  );
 
   return (
     <div>
@@ -193,18 +192,13 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           </div>
         )}
         <DataTable
+          key={tableKey}
           columns={columns}
           data={items}
           loading={loading}
           onDelete={showActions ? onDelete : undefined}
           pageSize={meta.limit || 10}
-          initialPage={meta.page || 1}
-          serverTotal={meta.total}
-          fetchPage={async (page, limit) => {
-            const q = (query || "").trim();
-            // Keeping client search/filtering, refresh page from server.
-            await load(page, limit);
-          }}
+          initialPage={1}
           paginationTitle="Users pages"
         />
       </Card>
