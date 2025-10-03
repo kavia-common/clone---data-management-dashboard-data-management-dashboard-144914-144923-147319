@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
-import { useDataContext } from "../context/DataContext.jsx";
+import { listUsers } from "../api/client";
 
 /**
  * PUBLIC_INTERFACE
@@ -14,18 +14,25 @@ import { useDataContext } from "../context/DataContext.jsx";
  * - Department
  *
  * Notes:
- * - Data is sourced exclusively from the centralized DataContext and cached at app mount.
  * - Tenant Id column resolves in priority: tenant_id -> organization_name -> organization -> organization_id.
+ * - All other fields are hidden from the UI.
  * - Search covers these fields only to stay aligned with visible columns.
- * - Includes a Refresh control that triggers DataContext refreshUsers.
+ *
+ * Enhancement:
+ * - Changes filter control to Organization (replacing Department). Includes a "Reset" button to clear filters.
  */
 export default function UsersList({ title = "Users", subtitle = "All users", showActions = false }) {
-  // Centralized cached data from DataContext
-  const { users, usersLoading, usersError, refreshUsers } = useDataContext();
-
-  // Local UI state for client-side filtering
+  const [allItems, setAllItems] = useState([]);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null); // kept for parity; actions disabled by default
   const [query, setQuery] = useState("");
+
+  // New: Tenant filter (instant)
   const [organizationFilter, setOrganizationFilter] = useState("");
+
+  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // Limit searchable fields to the visible columns (and their most likely underlying keys).
   const allowedFields = useMemo(
@@ -41,10 +48,10 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     []
   );
 
-  // Unique tenant options derived from context users (kept stable via useMemo)
+  // Unique tenant options derived from the loaded data (kept stable via useMemo)
   const organizationOptions = useMemo(() => {
     const set = new Set();
-    (users || []).forEach((u) => {
+    (allItems || []).forEach((u) => {
       const orgVal = u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id;
       if (orgVal !== undefined && orgVal !== null) {
         const s = String(orgVal).trim();
@@ -52,7 +59,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [users]);
+  }, [allItems]);
 
   // Fixed 4-column configuration, Ocean Professional compliant.
   const columns = useMemo(() => {
@@ -66,10 +73,35 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     ];
   }, []);
 
-  // Apply search and tenant filter instantly on cached users
-  const filteredItems = useMemo(() => {
+  // Load ALL users once (no server pagination) so filters are applied globally before pagination.
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await listUsers({});
+      const arr = res?.items ?? (Array.isArray(res) ? res : []);
+      setAllItems(arr);
+      setItems(arr);
+      setMeta((prev) => ({ page: 1, limit: prev.limit || 10, total: arr.length }));
+    } catch (e) {
+      setAllItems([]);
+      setItems([]);
+      setMeta({ page: 1, limit: 10, total: 0 });
+      setError(e?.response?.data?.message || e?.message || "Failed to load users.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  // Client-side filter across only the fields that correspond to visible columns.
+  // Applies both text search and organization filter instantly, then updates total to reflect filtered count.
+  useEffect(() => {
     const q = (query || "").trim().toLowerCase();
-    let filtered = users || [];
+    let filtered = allItems || [];
 
     if (q) {
       filtered = filtered.filter((u) => {
@@ -88,48 +120,36 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       });
     }
 
-    return filtered;
-  }, [users, query, allowedFields, organizationFilter]);
+    setItems(filtered);
+    setMeta((m) => ({ ...m, total: filtered.length, page: 1 }));
+  }, [query, allItems, allowedFields, organizationFilter]);
 
-  // Reset filters to show full list
+  // Optional: delete action stub; no actions shown by default.
+  function onDelete(row) {
+    setConfirmDelete(row);
+  }
+
+  function closeDelete() {
+    setConfirmDelete(null);
+  }
+
+  // Reset all filters to show full user list instantly
   function resetFilters() {
     setQuery("");
     setOrganizationFilter("");
+    setItems(allItems);
+    setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
   }
 
   // Force DataTable to reset pagination to page 1 whenever filters or search change
   const tableKey = useMemo(
-    () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${filteredItems.length}`,
-    [query, organizationFilter, filteredItems.length]
+    () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${items.length}`,
+    [query, organizationFilter, items.length]
   );
 
   return (
     <div>
-      <Card
-        title={title}
-        subtitle={subtitle}
-        actions={
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <Button
-              variant="secondary"
-              onClick={resetFilters}
-              aria-label="Reset filters"
-              title="Reset filters"
-            >
-              Reset
-            </Button>
-            <Button
-              variant="primary"
-              onClick={refreshUsers}
-              aria-label="Refresh users"
-              title="Refresh users"
-              disabled={usersLoading}
-            >
-              Refresh
-            </Button>
-          </div>
-        }
-      >
+      <Card title={title} subtitle={subtitle}>
         <div className="toolbar" aria-label="Users toolbar">
           <input
             className="input-search"
@@ -139,7 +159,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
             onChange={(e) => setQuery(e.target.value)}
           />
 
-          {/* Tenant filter */}
+          {/* Tenant filter + Reset button (immediately to the right) */}
           <select
             aria-label="Filter by tenant"
             title="Filter by tenant"
@@ -155,25 +175,60 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
             ))}
           </select>
 
-          <div className="spacer" />
-        </div>
+          <Button
+            variant="secondary"
+            onClick={resetFilters}
+            aria-label="Reset filters"
+            title="Reset filters"
+          >
+            Reset
+          </Button>
 
-        {usersError && (
+          <div className="spacer" />
+          {/* No Add button */}
+        </div>
+        {error && (
           <div className="error" role="alert" style={{ marginBottom: 12 }}>
-            {usersError}
+            {error}
           </div>
         )}
         <DataTable
           key={tableKey}
           columns={columns}
-          data={filteredItems}
-          loading={usersLoading}
-          onDelete={showActions ? () => {} : undefined}
-          pageSize={10}
+          data={items}
+          loading={loading}
+          onDelete={showActions ? onDelete : undefined}
+          pageSize={meta.limit || 10}
           initialPage={1}
           paginationTitle="Users pages"
         />
       </Card>
+
+      {confirmDelete && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete user">
+          <div className="modal-card">
+            <div className="modal-header">
+              <h3>Delete user</h3>
+              <Button variant="ghost" aria-label="Close" onClick={closeDelete}>
+                ✕
+              </Button>
+            </div>
+            <div className="modal-body">
+              <p>
+                This is a preview-only delete dialog for the shared UsersList component.
+                Implement actual deletion in the parent page if required.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <div className="modal-actions">
+                <Button variant="ghost" onClick={closeDelete}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
