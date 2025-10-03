@@ -17,6 +17,10 @@ import { listUsers } from "../api/client";
  * - Organization column resolves in priority: organization_name -> organization -> organization_id.
  * - All other fields are hidden from the UI.
  * - Search covers these fields only to stay aligned with visible columns.
+ *
+ * Enhancements:
+ * - Adds an instant "Department" filter with a "Reset" button to clear all filters and show all users.
+ * - The reset button sits immediately to the right of the filter select, per style/spec.
  */
 export default function UsersList({ title = "Users", subtitle = "All users", showActions = false }) {
   const [allItems, setAllItems] = useState([]);
@@ -25,6 +29,10 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null); // kept for parity; actions disabled by default
   const [query, setQuery] = useState("");
+
+  // New: Department filter (instant)
+  const [departmentFilter, setDepartmentFilter] = useState("");
+
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // Limit searchable fields to the visible columns (and their most likely underlying keys).
@@ -39,6 +47,19 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     ],
     []
   );
+
+  // Unique department options derived from the loaded data (kept stable via useMemo)
+  const departmentOptions = useMemo(() => {
+    const set = new Set();
+    (allItems || []).forEach((u) => {
+      const d = u?.department;
+      if (d !== undefined && d !== null) {
+        const s = String(d).trim();
+        if (s) set.add(s);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [allItems]);
 
   // Fixed 4-column configuration, Ocean Professional compliant.
   const columns = useMemo(() => {
@@ -81,24 +102,31 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Client-side filter across only the fields that correspond to visible columns.
+  // Applies both text search and department filter instantly.
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
-    if (!q) {
-      setItems(allItems);
-      return;
+    let filtered = allItems || [];
+
+    if (q) {
+      filtered = filtered.filter((u) => {
+        const vals = allowedFields
+          .map((f) => u?.[f])
+          .filter((v) => v !== undefined && v !== null)
+          .map((v) => String(v).toLowerCase());
+        return vals.some((v) => v.includes(q));
+      });
     }
-    const filtered = (allItems || []).filter((u) => {
-      const vals = allowedFields
-        .map((f) => u?.[f])
-        .filter((v) => v !== undefined && v !== null)
-        .map((v) => String(v).toLowerCase());
-      return vals.some((v) => v.includes(q));
-    });
+
+    if (departmentFilter) {
+      filtered = filtered.filter((u) => String(u?.department ?? "").trim() === departmentFilter);
+    }
+
     setItems(filtered);
-  }, [query, allItems, allowedFields]);
+  }, [query, allItems, allowedFields, departmentFilter]);
 
   // Optional: delete action stub; no actions shown by default.
   function onDelete(row) {
@@ -107,6 +135,13 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
 
   function closeDelete() {
     setConfirmDelete(null);
+  }
+
+  // Reset all filters to show full user list instantly
+  function resetFilters() {
+    setQuery("");
+    setDepartmentFilter("");
+    setItems(allItems);
   }
 
   return (
@@ -120,6 +155,32 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+
+          {/* New: Department filter + Reset button (immediately to the right) */}
+          <select
+            aria-label="Filter by department"
+            title="Filter by department"
+            value={departmentFilter}
+            onChange={(e) => setDepartmentFilter(e.target.value)}
+            style={{ width: 220 }}
+          >
+            <option value="">All Departments</option>
+            {departmentOptions.map((dep) => (
+              <option key={dep} value={dep}>
+                {dep}
+              </option>
+            ))}
+          </select>
+
+          <Button
+            variant="secondary"
+            onClick={resetFilters}
+            aria-label="Reset filters"
+            title="Reset filters"
+          >
+            Reset
+          </Button>
+
           <div className="spacer" />
           {/* No Add button */}
         </div>
@@ -138,7 +199,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           serverTotal={meta.total}
           fetchPage={async (page, limit) => {
             const q = (query || "").trim();
-            // Keeping client search, refresh page from server.
+            // Keeping client search/filtering, refresh page from server.
             await load(page, limit);
           }}
           paginationTitle="Users pages"
