@@ -729,3 +729,56 @@ input:focus, select:focus, textarea:focus {
   .nav-link .nav-label { display: inline !important; }
   .nav-link { justify-content: flex-start; }
 }
+
+/* Desktop-only blocker overlay */
+.device-blocker {
+  position: fixed;
+  inset: 0;
+  z-index: 1000; /* above header/sidebar/modal */
+  background: linear-gradient(180deg, rgba(14,165,233,0.06), rgba(255,255,255,0.9));
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.device-blocker-card {
+  max-width: 720px;
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 24px;
+  text-align: center;
+}
+
+.device-blocker-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: var(--brand-primary);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 22px;
+  margin: 0 auto 12px;
+}
+
+.device-blocker h1 {
+  margin: 0 0 6px 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.device-blocker p {
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+.device-blocker .required {
+  margin-top: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
