@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
-import { listUsers } from "../api/client";
+import { useDataContext } from "../context/DataContext.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -14,27 +14,23 @@ import { listUsers } from "../api/client";
  * - Department
  *
  * Notes:
+ * - Data is sourced exclusively from the centralized DataContext and cached at app mount.
  * - Tenant Id column resolves in priority: tenant_id -> organization_name -> organization -> organization_id.
- * - All other fields are hidden from the UI.
- * - Search covers these fields only to stay aligned with visible columns.
- *
- * Enhancement:
- * - Changes filter control to Organization (replacing Department). Includes a "Reset" button to clear filters.
+ * - Search covers only the visible columns.
+ * - Includes Reset and Refresh (context-level reload only).
  */
+// PUBLIC_INTERFACE
 export default function UsersList({ title = "Users", subtitle = "All users", showActions = false }) {
-  const [allItems, setAllItems] = useState([]);
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(null); // kept for parity; actions disabled by default
-  const [query, setQuery] = useState("");
+  /** Users list that reads from DataContext; no direct API calls here. */
 
-  // New: Tenant filter (instant)
+  // Consume centralized data
+  const { users, usersLoading, usersError, refreshUsers } = useDataContext();
+
+  // Local UI state for filter/search
+  const [query, setQuery] = useState("");
   const [organizationFilter, setOrganizationFilter] = useState("");
 
-  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
-
-  // Limit searchable fields to the visible columns (and their most likely underlying keys).
+  // Limit searchable fields to visible columns (and their likely underlying keys)
   const allowedFields = useMemo(
     () => [
       "name",
@@ -48,10 +44,10 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     []
   );
 
-  // Unique tenant options derived from the loaded data (kept stable via useMemo)
+  // Unique tenant options derived from the context data
   const organizationOptions = useMemo(() => {
     const set = new Set();
-    (allItems || []).forEach((u) => {
+    (users || []).forEach((u) => {
       const orgVal = u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id;
       if (orgVal !== undefined && orgVal !== null) {
         const s = String(orgVal).trim();
@@ -59,7 +55,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [allItems]);
+  }, [users]);
 
   // Fixed 4-column configuration, Ocean Professional compliant.
   const columns = useMemo(() => {
@@ -73,38 +69,14 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     ];
   }, []);
 
-  // Load ALL users once (no server pagination) so filters are applied globally before pagination.
-  async function load() {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await listUsers({});
-      const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      setAllItems(arr);
-      setItems(arr);
-      setMeta((prev) => ({ page: 1, limit: prev.limit || 10, total: arr.length }));
-    } catch (e) {
-      setAllItems([]);
-      setItems([]);
-      setMeta({ page: 1, limit: 10, total: 0 });
-      setError(e?.response?.data?.message || e?.message || "Failed to load users.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  // Client-side filter across only the fields that correspond to visible columns.
-  // Applies both text search and organization filter instantly, then updates total to reflect filtered count.
-  useEffect(() => {
+  // Client-side filter using the cached users
+  const filteredItems = useMemo(() => {
+    const source = users || [];
     const q = (query || "").trim().toLowerCase();
-    let filtered = allItems || [];
 
+    let results = source;
     if (q) {
-      filtered = filtered.filter((u) => {
+      results = results.filter((u) => {
         const vals = allowedFields
           .map((f) => u?.[f])
           .filter((v) => v !== undefined && v !== null)
@@ -114,42 +86,54 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     }
 
     if (organizationFilter) {
-      filtered = filtered.filter((u) => {
+      results = results.filter((u) => {
         const org = u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id;
         return String(org ?? "").trim() === organizationFilter;
       });
     }
 
-    setItems(filtered);
-    setMeta((m) => ({ ...m, total: filtered.length, page: 1 }));
-  }, [query, allItems, allowedFields, organizationFilter]);
+    return results;
+  }, [users, query, organizationFilter, allowedFields]);
 
-  // Optional: delete action stub; no actions shown by default.
-  function onDelete(row) {
-    setConfirmDelete(row);
-  }
-
-  function closeDelete() {
-    setConfirmDelete(null);
-  }
-
-  // Reset all filters to show full user list instantly
+  // Reset filters/search
   function resetFilters() {
     setQuery("");
     setOrganizationFilter("");
-    setItems(allItems);
-    setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
   }
 
-  // Force DataTable to reset pagination to page 1 whenever filters or search change
+  // Force DataTable to reset pagination to page 1 whenever filters/search change
   const tableKey = useMemo(
-    () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${items.length}`,
-    [query, organizationFilter, items.length]
+    () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${filteredItems.length}`,
+    [query, organizationFilter, filteredItems.length]
   );
 
   return (
     <div>
-      <Card title={title} subtitle={subtitle}>
+      <Card
+        title={title}
+        subtitle={subtitle}
+        actions={
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Button
+              variant="secondary"
+              onClick={resetFilters}
+              aria-label="Reset filters"
+              title="Reset filters"
+            >
+              Reset
+            </Button>
+            <Button
+              variant="primary"
+              onClick={refreshUsers}
+              disabled={usersLoading}
+              aria-label="Refresh users"
+              title="Refresh users"
+            >
+              Refresh
+            </Button>
+          </div>
+        }
+      >
         <div className="toolbar" aria-label="Users toolbar">
           <input
             className="input-search"
@@ -159,7 +143,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
             onChange={(e) => setQuery(e.target.value)}
           />
 
-          {/* Tenant filter + Reset button (immediately to the right) */}
+          {/* Tenant filter + Reset button (kept near search) */}
           <select
             aria-label="Filter by tenant"
             title="Filter by tenant"
@@ -175,60 +159,26 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
             ))}
           </select>
 
-          <Button
-            variant="secondary"
-            onClick={resetFilters}
-            aria-label="Reset filters"
-            title="Reset filters"
-          >
-            Reset
-          </Button>
-
           <div className="spacer" />
           {/* No Add button */}
         </div>
-        {error && (
+
+        {usersError && (
           <div className="error" role="alert" style={{ marginBottom: 12 }}>
-            {error}
+            {usersError}
           </div>
         )}
+
         <DataTable
           key={tableKey}
           columns={columns}
-          data={items}
-          loading={loading}
-          onDelete={showActions ? onDelete : undefined}
-          pageSize={meta.limit || 10}
+          data={filteredItems}
+          loading={usersLoading}
+          pageSize={10}
           initialPage={1}
           paginationTitle="Users pages"
         />
       </Card>
-
-      {confirmDelete && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete user">
-          <div className="modal-card">
-            <div className="modal-header">
-              <h3>Delete user</h3>
-              <Button variant="ghost" aria-label="Close" onClick={closeDelete}>
-                ✕
-              </Button>
-            </div>
-            <div className="modal-body">
-              <p>
-                This is a preview-only delete dialog for the shared UsersList component.
-                Implement actual deletion in the parent page if required.
-              </p>
-            </div>
-            <div className="modal-footer">
-              <div className="modal-actions">
-                <Button variant="ghost" onClick={closeDelete}>
-                  Close
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
