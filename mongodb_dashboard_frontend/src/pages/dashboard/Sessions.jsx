@@ -75,7 +75,7 @@ export default function Sessions() {
 
   const [columns, setColumns] = useState(buildRestrictedColumns([]));
 
-  async function load(page = 1, limit = meta.limit || 10) {
+  async function load(page = 1, limit = meta.limit || 6) {
     setLoading(true);
     setError("");
     try {

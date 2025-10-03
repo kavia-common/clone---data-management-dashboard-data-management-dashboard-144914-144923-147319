@@ -243,7 +243,11 @@
   width: 100%;
   margin: 0 auto;
   height: 100%;
-  overflow: auto; /* enable content area scroll if needed (e.g., long dashboards), body remains fixed */
+  /* Desktop: prevent page/main content scroll; children should fit via flex */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .grid {
@@ -310,6 +314,10 @@
   border: 1px solid #EEF2F6;
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  /* Allow card to participate in flex layout for viewport fitting */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .card-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -318,7 +326,13 @@
 }
 .card-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--text-primary); }
 .card-subtitle { color: var(--text-tertiary); font-size: 12px; margin-top: 2px; }
-.card-content { padding: 16px; }
+.card-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0; /* prevent overflow; allow inner wrappers to size */
+}
 
 /* KPI */
 .kpi-card .kpi { display: grid; gap: 6px; }
@@ -355,34 +369,30 @@
 
 /* Table (screenshot-based) */
 .table-wrapper {
-  /* Wrapper keeps header and footer visible while table content scrolls */
+  /* Fit the table neatly inside cards without introducing scrollbars */
   display: grid;
-  grid-template-rows: auto 1fr auto; /* header row, scroll body, pagination/footer */
+  grid-template-rows: auto 1fr auto; /* header row, body, pagination/footer */
   border-radius: 12px;
   border: 1px solid #EEF2F6;
   background: var(--bg-surface);
-  overflow: hidden; /* clip inner scroller rounded corners */
+  overflow: hidden;
   max-width: 100%;
-  /* Make sure wrapper itself doesn't scroll; only .table-scroll does */
   contain: layout paint;
-  position: relative; /* allow internal sticky and shadows to position correctly */
+  position: relative;
+  /* Allow wrapper to expand within card-content flex column */
+  align-self: stretch;
 }
 
 /* A container dedicated to vertically and horizontally scrollable table content */
 .table-scroll {
-  overflow-y: auto;
-  overflow-x: auto; /* always allow horizontal scroll for wide data */
-  max-height: 520px; /* default sensible max-height */
-  /* Maintain a stable body height so header/footer never shift on pagination */
-  /* Each data row is approximately var(--table-row-h); min-height fits exactly 10 rows by default. */
-  /* using root --table-row-h to control row height (56px) */
-  min-height: calc(var(--table-row-h) * 10);
-  /* Smooth scroll experience for touch devices */
-  -webkit-overflow-scrolling: touch;
-  scrollbar-gutter: stable both-edges;
+  /* Desktop: avoid any scrollbars by fitting to available wrapper height */
+  overflow-y: hidden;
+  overflow-x: hidden;
+  max-height: none;
+  /* Allow the scroller to shrink/grow based on parent (wrapper) */
+  min-height: 0;
   border-top: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
-  overscroll-behavior: auto; /* allow parent (page) scroll when table can't scroll; fixes non-scrollable tables when hovered */
 }
 
 /* Optional tighter variant for smaller tables if a card wants a different height */
@@ -705,10 +715,10 @@ input:focus, select:focus, textarea:focus {
   margin-bottom: 4px;
 }
 
-/* Sidebar horizontal scrolling & visibility: ensure no component is hidden */
+/* Sidebar: avoid scrollbars on desktop; contents should fit or wrap responsibly */
 .sidebar {
-  overflow-x: auto; /* enable left/right scroll when contents overflow width */
-  overflow-y: auto; /* keep vertical scroll for long menus */
+  overflow-x: hidden;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable both-edges;
 }

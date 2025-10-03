@@ -33,7 +33,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   // New: Tenant filter (instant)
   const [organizationFilter, setOrganizationFilter] = useState("");
 
-  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+  const [meta, setMeta] = useState({ page: 1, limit: 6, total: 0 });
 
   // Modal: user profile
   const [selectedUser, setSelectedUser] = useState(null);
@@ -125,7 +125,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
-      setMeta((prev) => ({ page: 1, limit: prev.limit || 10, total: arr.length }));
+      setMeta((prev) => ({ page: 1, limit: prev.limit || 6, total: arr.length }));
     } catch (e) {
       setAllItems([]);
       setItems([]);
