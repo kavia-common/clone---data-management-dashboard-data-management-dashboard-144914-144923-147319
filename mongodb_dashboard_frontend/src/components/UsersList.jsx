@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
-import Tabs from "./ui/Tabs.jsx";
 import { listUsers } from "../api/client";
 
 /**
@@ -18,15 +17,7 @@ import { listUsers } from "../api/client";
  * - Only show fields that exist in the live data.
  * - Constrain to the collection's allowed fields to avoid rendering unknown or deprecated fields.
  */
-export default function UsersList({
-  title = "Users",
-  subtitle = "All users",
-  showActions = true,
-  // Optional Tabs config: [{ key:'all', label:'All' }, ...]
-  tabs,
-  initialTabKey = "all",
-  onTabChange,
-}) {
+export default function UsersList({ title = "Users", subtitle = "All users", showActions = true }) {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -34,7 +25,6 @@ export default function UsersList({
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
-  const [activeTab, setActiveTab] = useState(initialTabKey || (Array.isArray(tabs) && tabs[0]?.key) || "all");
 
   // Allowed users fields per request (strict schema alignment)
   const allowedFields = useMemo(
@@ -131,20 +121,11 @@ export default function UsersList({
   // Client-side filter across known user fields
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
-
-    // First apply tab-based filtering if activeTab is not "all"
-    let base = allItems || [];
-    const tabKey = String(activeTab || "").toLowerCase();
-    if (tabKey && tabKey !== "all") {
-      base = base.filter((u) => String(u?.status ?? "").toLowerCase().includes(tabKey));
-    }
-
-    // Then apply text search across allowed fields
     if (!q) {
-      setItems(base);
+      setItems(allItems);
       return;
     }
-    const filtered = (base || []).filter((u) => {
+    const filtered = (allItems || []).filter((u) => {
       const vals = allowedFields
         .map((f) => u?.[f])
         .concat([u?.id]) // friendly id if present
@@ -153,7 +134,7 @@ export default function UsersList({
       return vals.some((v) => v.includes(q));
     });
     setItems(filtered);
-  }, [query, allItems, allowedFields, activeTab]);
+  }, [query, allItems, allowedFields]);
 
   // Optional: delete action stub; actual delete handled by page-level component if passed.
   function onDelete(row) {
@@ -169,20 +150,7 @@ export default function UsersList({
   return (
     <div>
       <Card title={title} subtitle={subtitle}>
-        {Array.isArray(tabs) && tabs.length > 0 && (
-          <div style={{ marginBottom: 8 }}>
-            <Tabs
-              tabs={tabs}
-              activeKey={activeTab}
-              onChange={(k) => {
-                setActiveTab(k);
-                if (typeof onTabChange === "function") onTabChange(k);
-              }}
-              aria-label="Users tabs"
-            />
-          </div>
-        )}
-
+        
         <div className="toolbar" aria-label="Users toolbar">
           <input
             className="input-search"

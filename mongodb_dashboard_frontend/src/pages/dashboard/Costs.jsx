@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
-import Tabs from "../../components/ui/Tabs.jsx";
 import { listLlmCosts } from "../../api/client";
 
 /**
@@ -26,7 +25,6 @@ export default function Costs() {
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectTitle, setInspectTitle] = useState("Details");
   const [inspectPayload, setInspectPayload] = useState(null);
-  const [activeTab, setActiveTab] = useState("all");
 
   // Field hints
   const dateFieldHints = useMemo(
@@ -307,15 +305,6 @@ export default function Costs() {
         title="Costs"
         subtitle="LLM usage cost records — compact view with expandable details"
       >
-        <Tabs
-          tabs={[
-            { key: "all", label: "All" },
-            { key: "latest", label: "Latest" }
-          ]}
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          aria-label="Costs tabs"
-        />
         <div className="toolbar" aria-label="Costs toolbar">
           <input
             className="input-search"

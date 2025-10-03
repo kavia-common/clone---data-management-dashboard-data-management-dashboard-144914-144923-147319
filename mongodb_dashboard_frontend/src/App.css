@@ -28,10 +28,7 @@
 
   --radius: 12px;
   --shadow: 0 1px 2px rgba(16,24,40,0.04);
-  --table-row-h: 48px; /* global table row height per style system (refined per design) */
-  --icon-muted: #9CA3AF;
-  --icon-active: #111827;
-  --row-hover: #F9FAFB;
+  --table-row-h: 56px; /* global table row height per style system */
 }
 
 /* Shell and layout */
@@ -177,7 +174,7 @@
 
 .shell-body {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 240px 1fr;
   min-height: 0; /* allow the grid to size within app-shell height */
   height: calc(100vh - 64px); /* fill remaining space under topbar */
   position: relative; /* anchor overlay stacking context */
@@ -189,12 +186,12 @@
 .sidebar {
   background: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
-  padding: 12px 6px;
+  padding: 16px 12px;
   transition: width .25s ease, transform .25s ease, opacity .2s ease;
   will-change: transform, width;
   z-index: 60; /* below topbar (70), above overlay (40) */
-  width: 72px;
-  min-width: 72px;
+  width: 240px;
+  min-width: 240px;
   outline: none;
 }
 .sidebar:focus-visible {
@@ -216,36 +213,41 @@
 }
 
 .nav-link {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
+  display: flex; /* align icon + label horizontally */
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px; /* larger tap target */
   border-radius: 8px;
   margin: 6px 6px;
-  color: var(--icon-muted);
+  color: var(--text-secondary);
   text-decoration: none;
-  transition: background .15s ease, color .15s ease;
+  transition: background .2s ease, color .2s ease;
+  min-height: 40px; /* ensure minimum tap target on touch devices */
+  white-space: nowrap; /* avoid wrapping labels that cause height growth */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Active state — support both explicit .active class and aria-current (React Router v6) */
 .nav-link.active,
 .nav-link[aria-current="page"] {
-  background: var(--row-hover);
-  color: var(--icon-active);
+  background: var(--brand-primary-tint); /* #FFF6F2 light orange tint */
+  color: var(--brand-primary);           /* #FF6A3D brand orange for text/icon */
   font-weight: 600;
-  box-shadow: none;
+  /* Left rail accent to match style system */
+  box-shadow: inset 3px 0 0 0 var(--brand-primary);
 }
 
 /* Hover for non-active links */
 .nav-link:hover {
-  background: var(--row-hover);
-  color: var(--icon-active);
+  background: #F8FAFC;
+  color: var(--text-primary);
 }
 
 /* Keep active look on hover as well */
 .nav-link.active:hover,
 .nav-link[aria-current="page"]:hover {
-  background: var(--row-hover);
-  color: var(--icon-active);
+  background: var(--brand-primary-tint);
+  color: var(--brand-primary);
 }
 
 /* Focus-visible ring for keyboard users */
@@ -342,46 +344,6 @@
 .kpi-card .kpi { display: grid; gap: 6px; }
 .kpi-value { font-size: 28px; font-weight: 800; color: var(--brand-primary); }
 .kpi-label { color: var(--text-tertiary); }
-
-/* Tabs (subtle underline bar with active indicator) */
-.tabs {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 0 0 8px 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.tab {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  position: relative;
-  transition: color .15s ease, background .15s ease;
-}
-.tab:hover { color: var(--text-primary); background: #F8FAFC; }
-.tab.active,
-.tab[aria-selected="true"] {
-  color: var(--text-primary);
-}
-.tab.active::after,
-.tab[aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  left: 8px; right: 8px; bottom: -9px;
-  height: 2px;
-  background: var(--brand-primary); /* underline indicator in brand */
-  border-radius: 1px;
-}
-.tab:focus-visible {
-  outline: 3px solid rgba(14, 165, 233, 0.35);
-  outline-offset: 2px;
-}
 
 /* Toolbar (above tables) */
 .toolbar {
@@ -728,11 +690,6 @@ input:focus, select:focus, textarea:focus {
   }
   .sidebar.open { transform: translateX(0); }
 
-  /* Mobile: show labels and left align */
-  .nav-link { width: auto; height: 40px; justify-content: flex-start; padding: 10px 12px; gap: 10px; }
-  .nav-link .nav-label { display: inline; }
-  .nav-icon { margin-right: 8px; }
-
   .content { padding: 16px; }
   .grid { grid-template-columns: repeat(12, minmax(0,1fr)); }
   .form-grid { grid-template-columns: 1fr; }
@@ -830,8 +787,8 @@ input:focus, select:focus, textarea:focus {
   text-overflow: initial;  /* remove ellipsis so content can be scrolled into view */
 }
 
-/* On tablet and up to 1023px, keep minimal icon rail (labels hidden) */
+/* On tablet, keep labels visible and align left; rely on horizontal scroll for overflow */
 @media (max-width: 1023px) {
-  .nav-link .nav-label { display: none !important; }
-  .nav-link { justify-content: center; }
+  .nav-link .nav-label { display: inline !important; }
+  .nav-link { justify-content: flex-start; }
 }
