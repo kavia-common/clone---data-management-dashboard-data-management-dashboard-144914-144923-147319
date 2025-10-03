@@ -193,7 +193,6 @@
   width: 240px;
   min-width: 240px;
   outline: none;
-  overflow: hidden; /* prevent scrollbars on sidebar */
 }
 .sidebar:focus-visible {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.28);
@@ -225,7 +224,7 @@
   transition: background .2s ease, color .2s ease;
   min-height: 40px; /* ensure minimum tap target on touch devices */
   white-space: nowrap; /* avoid wrapping labels that cause height growth */
-  overflow: hidden;    /* keep within width */
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 /* Active state — support both explicit .active class and aria-current (React Router v6) */
@@ -264,7 +263,7 @@
   width: 100%;
   margin: 0 auto;
   height: 100%;
-  overflow: hidden; /* prevent scrollbars in content */
+  overflow: auto; /* enable content area scroll if needed (e.g., long dashboards), body remains fixed */
 }
 
 .grid {
@@ -376,36 +375,45 @@
 
 /* Table (screenshot-based) */
 .table-wrapper {
-  /* Wrapper keeps header and footer visible while table content is not scrollable */
+  /* Wrapper keeps header and footer visible while table content scrolls */
   display: grid;
-  grid-template-rows: auto 1fr auto; /* header row, content body, pagination/footer */
+  grid-template-rows: auto 1fr auto; /* header row, scroll body, pagination/footer */
   border-radius: 12px;
   border: 1px solid #EEF2F6;
   background: var(--bg-surface);
-  overflow: hidden; /* clip inner corners */
+  overflow: hidden; /* clip inner scroller rounded corners */
   max-width: 100%;
+  /* Make sure wrapper itself doesn't scroll; only .table-scroll does */
   contain: layout paint;
   position: relative; /* allow internal sticky and shadows to position correctly */
 }
 
-/* Non-scrollable table body container to avoid scrollbars */
+/* A container dedicated to vertically and horizontally scrollable table content */
 .table-scroll {
-  overflow: hidden;      /* remove vertical and horizontal scrollbars */
-  max-height: none;      /* let content size naturally */
-  min-height: 0;         /* no enforced minimum */
+  overflow-y: auto;
+  overflow-x: auto; /* always allow horizontal scroll for wide data */
+  max-height: 520px; /* default sensible max-height */
+  /* Maintain a stable body height so header/footer never shift on pagination */
+  /* Each data row is approximately var(--table-row-h); min-height fits exactly 10 rows by default. */
+  /* using root --table-row-h to control row height (56px) */
+  min-height: calc(var(--table-row-h) * 10);
+  /* Smooth scroll experience for touch devices */
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable both-edges;
   border-top: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
+  overscroll-behavior: auto; /* allow parent (page) scroll when table can't scroll; fixes non-scrollable tables when hovered */
 }
 
-/* Optional tighter variant, kept non-scrollable as well */
+/* Optional tighter variant for smaller tables if a card wants a different height */
 .table-scroll.sm {
-  max-height: none;
+  max-height: 360px;
 }
 
-/* The semantic table element stays full-width; avoid min-width that forces horizontal scroll */
+/* The semantic table element stays full-width; thead will be visually kept in header area */
 .table {
   width: 100%;
-  min-width: 0; /* ensure no forced horizontal scroll */
+  min-width: 640px; /* slightly smaller to better fit tablet split view */
   border-collapse: separate;
   border-spacing: 0;
   background: var(--bg-surface);
@@ -423,9 +431,10 @@
   border-bottom: 1px solid var(--border-subtle);
   text-align: left;
   vertical-align: middle;
-  white-space: normal;        /* allow wrapping to prevent overflow */
-  overflow: hidden;           /* hide spillover */
-  word-break: break-word;     /* wrap long tokens/words */
+  white-space: nowrap; /* prevent labels from breaking awkwardly */
+  height: var(--table-row-h, 56px); /* stabilize row heights to prevent lurches */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Sticky header bar that remains visible (grid keeps it at the top) */
@@ -440,15 +449,16 @@
   mask-image: linear-gradient(to right, transparent 0, black var(--mask-size), black calc(100% - var(--mask-size)), transparent 100%);
 }
 
-/* Subtle shadow appears when body is vertically scrolled (kept for consistency; no inner scroll) */
+/* Subtle shadow appears when body is vertically scrolled */
 .table-header--scrolled {
   box-shadow: 0 2px 6px rgba(0,0,0,0.06);
 }
 
-/* Pagination/footer bar stays visible below the body */
+/* Pagination/footer bar stays visible below the scroller (prominent and always visible) */
 .table-pagination {
   background: var(--bg-surface);
   border-top: 1px solid var(--border-subtle);
+  /* wrapper grid ensures visibility */
   position: relative;
   z-index: 2;
   display: flex;
@@ -512,12 +522,10 @@
 
 /* Priority-based column visibility helpers for smaller screens */
 @media (max-width: 767px) {
-  .th, .td {
-    padding: 10px 12px;
-    white-space: normal;      /* allow wrapping on mobile */
-    word-break: break-word;
-  }
-  .table { min-width: 0; table-layout: fixed; } /* no forced horizontal scroll on small screens */
+  .th, .td { padding: 10px 12px; }
+  .table { min-width: 560px; table-layout: fixed; } /* fixed layout aids alignment on small screens */
+  /* Keep truncation friendly on small screens but avoid fighting colgroup width */
+  .td, .th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
   .td .status-badge { white-space: nowrap; }
   .td.actions { gap: 6px; }
   /* hide very low priority metadata columns if authors opt-in via classnames */
@@ -525,7 +533,7 @@
 }
 
 @media (max-width: 375px) {
-  .table { min-width: 0; }
+  .table { min-width: 520px; }
   .th, .td { padding: 8px 10px; }
 }
 .status-badge {
@@ -642,7 +650,7 @@ input:focus, select:focus, textarea:focus {
   .sidebar { width: 72px; min-width: 72px; padding: 12px 6px; }
   .sidebar .sidebar-group { display: none; }
   .nav-link { margin: 6px 4px; text-align: center; padding: 10px 6px; justify-content: center; }
-  .nav-link .nav-label { display: none; } /* hide labels to prevent overflow */
+  .nav-link .nav-label { display: none; }
   .grid { grid-template-columns: repeat(12, minmax(0,1fr)); }
   /* tighten topbar spacing to avoid wrapping */
   .topbar { padding: 0 16px; }
@@ -678,7 +686,7 @@ input:focus, select:focus, textarea:focus {
     display: block;
     background: var(--bg-surface);
     touch-action: pan-y; /* prevent rubber-band on horizontal gesture */
-    overflow-y: hidden;  /* remove vertical scrollbar on mobile drawer */
+    overflow-y: auto;
   }
   .sidebar.open { transform: translateX(0); }
 
@@ -688,11 +696,11 @@ input:focus, select:focus, textarea:focus {
   .toolbar { flex-direction: column; align-items: stretch; gap: 10px; padding: 8px 0; }
   .input-search { width: 100%; }
 
-  /* Keep table area non-scrollable on mobile */
-  .table-scroll { max-height: none; }
+  /* Keep table area scroll confined to the table-scroll container on mobile too */
+  .table-scroll { max-height: 60vh; }
   .table-wrapper { max-width: 100%; }
 
-  .table { display: table; overflow: visible; min-width: 0; }
+  .table { display: block; overflow-x: auto; }
   /* refine topbar spacing for 414–600 widths */
   .topbar { padding: 0 12px; }
   .topbar-actions { gap: 8px; }
@@ -760,21 +768,27 @@ input:focus, select:focus, textarea:focus {
   margin-bottom: 4px;
 }
 
-/* Enforce no scrollbars in sidebar and ensure no overflow/truncation beyond width */
+/* Sidebar horizontal scrolling & visibility: ensure no component is hidden */
 .sidebar {
-  overflow-x: hidden;  /* no horizontal scrollbar */
-  overflow-y: hidden;  /* no vertical scrollbar */
+  overflow-x: auto; /* enable left/right scroll when contents overflow width */
+  overflow-y: auto; /* keep vertical scroll for long menus */
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable both-edges;
 }
 
-/* Keep nav within sidebar width (no horizontal scroll), use ellipsis */
+/* Let the nav expand to fit its content so horizontal scrollbar appears when needed */
 .sidebar nav {
-  min-width: 0; /* do not expand beyond container */
+  min-width: max-content; /* grow to natural width of links instead of wrapping/ellipsis */
 }
 
-/* Ensure nav-links truncate within width instead of overflowing */
+/* Do not clip nav items; allow horizontal scrolling instead of ellipsis */
 .nav-link {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;       /* override earlier overflow: hidden */
+  text-overflow: initial;  /* remove ellipsis so content can be scrolled into view */
 }
 
-/* Remove the earlier tablet override that forced labels visible; maintain compact rail */
+/* On tablet, keep labels visible and align left; rely on horizontal scroll for overflow */
+@media (max-width: 1023px) {
+  .nav-link .nav-label { display: inline !important; }
+  .nav-link { justify-content: flex-start; }
+}
