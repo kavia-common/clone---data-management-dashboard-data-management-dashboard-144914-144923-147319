@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
-import { listUsers } from "../api/client";
+import { useDataContext } from "../context/DataContext.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -14,18 +14,14 @@ import { listUsers } from "../api/client";
  * - Department
  *
  * Notes:
+ * - Data is sourced from DataContext (cached at app load). No network calls here.
  * - Tenant Id column resolves in priority: tenant_id -> organization_name -> organization -> organization_id.
- * - All other fields are hidden from the UI.
- * - Search covers these fields only to stay aligned with visible columns.
- *
- * Enhancement:
- * - Changes filter control to Organization (replacing Department). Includes a "Reset" button to clear filters.
  */
 export default function UsersList({ title = "Users", subtitle = "All users", showActions = false }) {
+  const { users, usersLoading, usersError } = useDataContext();
+
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null); // kept for parity; actions disabled by default
   const [query, setQuery] = useState("");
 
@@ -47,6 +43,14 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     ],
     []
   );
+
+  // Seed local state from context when users data changes.
+  useEffect(() => {
+    const arr = Array.isArray(users) ? users : [];
+    setAllItems(arr);
+    setItems(arr);
+    setMeta((m) => ({ ...m, page: 1, total: arr.length }));
+  }, [users]);
 
   // Unique tenant options derived from the loaded data (kept stable via useMemo)
   const organizationOptions = useMemo(() => {
@@ -73,32 +77,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     ];
   }, []);
 
-  // Load ALL users once (no server pagination) so filters are applied globally before pagination.
-  async function load() {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await listUsers({});
-      const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      setAllItems(arr);
-      setItems(arr);
-      setMeta((prev) => ({ page: 1, limit: prev.limit || 10, total: arr.length }));
-    } catch (e) {
-      setAllItems([]);
-      setItems([]);
-      setMeta({ page: 1, limit: 10, total: 0 });
-      setError(e?.response?.data?.message || e?.message || "Failed to load users.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
-
   // Client-side filter across only the fields that correspond to visible columns.
-  // Applies both text search and organization filter instantly, then updates total to reflect filtered count.
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     let filtered = allItems || [];
@@ -124,7 +103,6 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setMeta((m) => ({ ...m, total: filtered.length, page: 1 }));
   }, [query, allItems, allowedFields, organizationFilter]);
 
-  // Optional: delete action stub; no actions shown by default.
   function onDelete(row) {
     setConfirmDelete(row);
   }
@@ -133,7 +111,6 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setConfirmDelete(null);
   }
 
-  // Reset all filters to show full user list instantly
   function resetFilters() {
     setQuery("");
     setOrganizationFilter("");
@@ -187,16 +164,16 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           <div className="spacer" />
           {/* No Add button */}
         </div>
-        {error && (
+        {usersError && (
           <div className="error" role="alert" style={{ marginBottom: 12 }}>
-            {error}
+            {usersError}
           </div>
         )}
         <DataTable
           key={tableKey}
           columns={columns}
           data={items}
-          loading={loading}
+          loading={!!usersLoading}
           onDelete={showActions ? onDelete : undefined}
           pageSize={meta.limit || 10}
           initialPage={1}
