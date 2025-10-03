@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
+import { formatUsdUpTo8 } from "../../components/utils/numberFormat";
 import { listLlmCosts } from "../../api/client";
 
 /**
@@ -89,7 +90,7 @@ export default function Costs() {
   const renderNumber = (value, key) => {
     if (value == null || value === "") return "—";
     if (currencyFieldHints.has(key) && typeof value === "number") {
-      const txt = value.toLocaleString(undefined, { style: "currency", currency: "USD" });
+      const txt = formatUsdUpTo8(value);
       return (
         <span className="amount-positive" title={txt} style={{ whiteSpace: "nowrap" }}>
           {txt}

@@ -1,5 +1,6 @@
 import React from "react";
 import Modal from "./ui/Modal.jsx";
+import { formatUsdUpTo8 } from "./utils/numberFormat";
 
 /**
  * PUBLIC_INTERFACE
@@ -43,9 +44,7 @@ export default function CreditBreakdownModal({ open, onClose, title = "Credit Br
                 <tr className="tr" key={b.projectId || b.project_id || idx}>
                   <td className="td">{b.projectName || b.project_name || b.projectId || b.project_id || "—"}</td>
                   <td className="td num">
-                    {typeof b.totalCost === "number"
-                      ? b.totalCost.toLocaleString(undefined, { style: "currency", currency: "USD" })
-                      : "—"}
+                    {typeof b.totalCost === "number" ? formatUsdUpTo8(b.totalCost) : "—"}
                   </td>
                   <td className="td num">
                     {typeof b.totalMinutes === "number" ? b.totalMinutes.toLocaleString() : "—"}

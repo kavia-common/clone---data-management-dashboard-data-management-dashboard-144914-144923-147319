@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
+import { formatUsdUpTo8 } from "../../components/utils/numberFormat";
 import { listSessions } from "../../api/client";
 
 // PUBLIC_INTERFACE
@@ -56,8 +57,8 @@ export default function Sessions() {
           label: toLabel(k),
           render: (v) =>
             typeof v === "number" ? (
-              <span className="amount-positive">
-                {v.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+              <span className="amount-positive" title={formatUsdUpTo8(v)}>
+                {formatUsdUpTo8(v)}
               </span>
             ) : v == null || v === "" ? "—" : String(v),
           priority: 2,
