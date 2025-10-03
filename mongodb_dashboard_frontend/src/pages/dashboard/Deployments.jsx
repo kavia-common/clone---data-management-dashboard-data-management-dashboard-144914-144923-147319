@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import DataTable from "../../components/DataTable.jsx";
+import Tabs from "../../components/ui/Tabs.jsx";
 import { deleteDeployment, listDeployments } from "../../api/client";
 import { inferColumns } from "../../components/schemaUtils";
 
@@ -11,6 +12,7 @@ export default function Deployments() {
   const [items, setItems] = useState([]);
   const [columns, setColumns] = useState([{ key: "_id", label: "ID" }]);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("all");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [error, setError] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
@@ -85,6 +87,16 @@ export default function Deployments() {
         title="App Deployments"
         subtitle="View and delete application deployments"
       >
+        <Tabs
+          tabs={[
+            { key: "all", label: "All" },
+            { key: "success", label: "Success" },
+            { key: "failed", label: "Failed" }
+          ]}
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          aria-label="Deployments tabs"
+        />
         {error && <div className="error" role="alert">{error}</div>}
         <DataTable
           columns={columns}

@@ -14,6 +14,12 @@ export default function Users() {
         title="Users"
         subtitle="All users"
         showActions={false}
+        tabs={[
+          { key: "all", label: "All" },
+          { key: "active", label: "Active" },
+          { key: "suspended", label: "Suspended" }
+        ]}
+        initialTabKey="all"
       />
     </div>
   );

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Button from "../../components/ui/Button.jsx";
 import DataTable from "../../components/DataTable.jsx";
+import Tabs from "../../components/ui/Tabs.jsx";
 import { deleteSession, listSessions } from "../../api/client";
 import { inferColumns } from "../../components/schemaUtils";
 
@@ -36,6 +37,7 @@ export default function Sessions() {
   );
 
   const [columns, setColumns] = useState([{ key: "_id", label: "ID" }]);
+  const [activeTab, setActiveTab] = useState("all");
 
   async function load(page = 1, limit = meta.limit || 10) {
     setLoading(true);
@@ -111,6 +113,16 @@ export default function Sessions() {
         title="Session Tracking"
         subtitle="View and delete session records"
       >
+        <Tabs
+          tabs={[
+            { key: "all", label: "All" },
+            { key: "active", label: "Active" },
+            { key: "completed", label: "Completed" }
+          ]}
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          aria-label="Sessions tabs"
+        />
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
             className="input-search"
