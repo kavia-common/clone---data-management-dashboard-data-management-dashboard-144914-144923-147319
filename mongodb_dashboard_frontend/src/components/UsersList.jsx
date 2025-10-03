@@ -39,6 +39,44 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   const [selectedUser, setSelectedUser] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
 
+  // While the profile modal is open, make the global header (Topbar) inaccessible:
+  // - inert: prevents focus and interaction in supported browsers
+  // - aria-hidden: hide from assistive tech
+  // - topbar--dimmed: visual dim and pointer-events disabled as a fallback
+  useEffect(() => {
+    const header = document.querySelector(".topbar");
+    if (!header) return;
+
+    if (profileOpen) {
+      try {
+        header.setAttribute("inert", "");
+        header.setAttribute("aria-hidden", "true");
+        header.classList.add("topbar--dimmed");
+      } catch {
+        // no-op
+      }
+    } else {
+      try {
+        header.removeAttribute("inert");
+        header.removeAttribute("aria-hidden");
+        header.classList.remove("topbar--dimmed");
+      } catch {
+        // no-op
+      }
+    }
+
+    // Cleanup to ensure header is restored if component unmounts while modal is open
+    return () => {
+      try {
+        header.removeAttribute("inert");
+        header.removeAttribute("aria-hidden");
+        header.classList.remove("topbar--dimmed");
+      } catch {
+        // no-op
+      }
+    };
+  }, [profileOpen]);
+
   // Limit searchable fields to the visible columns (and their most likely underlying keys).
   const allowedFields = useMemo(
     () => [

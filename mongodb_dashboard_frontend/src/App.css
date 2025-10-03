@@ -730,6 +730,14 @@ input:focus, select:focus, textarea:focus {
   .nav-link { justify-content: flex-start; }
 }
 
+/* Header unavailable state when a modal is open on the Users tab */
+.topbar--dimmed {
+  pointer-events: none;          /* prevent mouse interaction */
+  opacity: 0.5;                  /* visually indicate it's disabled */
+  filter: saturate(0.8) brightness(0.96);
+  transition: opacity .2s ease, filter .2s ease;
+}
+
 /* Desktop-only blocker overlay */
 .device-blocker {
   position: fixed;
