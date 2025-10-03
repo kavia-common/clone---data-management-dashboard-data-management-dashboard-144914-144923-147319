@@ -10,7 +10,6 @@ export default function Sessions() {
    * - Task Id
    * - Tenant Id
    * - Organization Name
-   * - User Name
    * - Service Type
    * - Total Cost
    *
@@ -23,13 +22,12 @@ export default function Sessions() {
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Allowed and ordered fields per requirement
+  // Allowed and ordered fields per requirement (User Name removed)
   const allowedOrdered = useMemo(
     () => [
       "task_id",
       "tenant_id",
       "organization_name",
-      "user_name",
       "service_type",
       "total_cost",
     ],
