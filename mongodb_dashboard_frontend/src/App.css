@@ -673,22 +673,28 @@ input:focus, select:focus, textarea:focus {
   pointer-events: auto;
 }
 
-/* Mobile: off-canvas sidebar with overlay and slide-in animation */
+/* Mobile: keep the sidebar always visible as a fixed grid column (no off-canvas/overlay) */
 @media (max-width: 767px) {
-  .shell-body { grid-template-columns: 1fr; }
+  /* Two-column grid with a compact sidebar rail */
+  .shell-body { grid-template-columns: 72px 1fr; }
+
+  /* Sidebar remains part of the normal flow, compact 72px rail */
   .sidebar {
-    position: fixed;
-    top: var(--topbar-h); left: 0; right: auto; bottom: 0;
-    width: 280px;
-    max-width: min(88vw, 320px);
-    transform: translateX(-100%);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    position: static;
+    top: auto; left: auto; right: auto; bottom: auto;
+    width: 72px;
+    min-width: 72px;
+    max-width: none;
+    transform: none;
+    box-shadow: none;
     display: block;
     background: var(--bg-surface);
-    touch-action: pan-y; /* prevent rubber-band on horizontal gesture */
     overflow-y: auto;
+    touch-action: auto;
+    padding: 12px 6px;
   }
-  .sidebar.open { transform: translateX(0); }
+  /* No sliding behavior on mobile */
+  .sidebar.open { transform: none; }
 
   .content { padding: 16px; }
   .grid { grid-template-columns: repeat(12, minmax(0,1fr)); }
@@ -706,16 +712,9 @@ input:focus, select:focus, textarea:focus {
   .topbar-actions { gap: 8px; }
   .user-chip { padding: 6px 10px; }
 
-  /* Sidebar mobile header & close control */
-  .sidebar-header { 
-    display: flex; 
-    justify-content: flex-end; 
-    align-items: center; 
-    padding: 8px 6px 12px; 
-  }
-  .sidebar-mobile-close { 
-    display: grid; /* override base hide on mobile */
-  }
+  /* Remove any mobile-only close controls (sidebar has no close button now) */
+  .sidebar-header { display: none; }
+  .sidebar-mobile-close { display: none; }
 }
 @media (max-width: 375px) {
   .hamburger { font-size: 20px; width: 40px; height: 40px; }

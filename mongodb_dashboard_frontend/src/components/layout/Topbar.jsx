@@ -3,26 +3,14 @@ import React from "react";
 /**
  * PUBLIC_INTERFACE
  * Topbar
- * Header with responsive controls. Hamburger is always visible but emphasized on mobile.
+ * Header with brand and user info. No sidebar toggle controls (sidebar is fixed and always visible).
  */
 // PUBLIC_INTERFACE
-export default function Topbar({ onToggleSidebar, sidebarOpen }) {
+export default function Topbar() {
   /** Top navigation bar with brand mark/wordmark and user chip. */
   return (
     <header className="topbar" role="banner">
       <div className="topbar-left">
-        <button
-          type="button"
-          className="hamburger"
-          aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
-          aria-controls="app-sidebar"
-          aria-expanded={!!sidebarOpen}
-          onClick={onToggleSidebar}
-          title={sidebarOpen ? "Close menu" : "Open menu"}
-        >
-          {/* Using text icon ensures good contrast without external assets */}
-          ☰
-        </button>
         <a className="brand" href="/dashboard" aria-label="Go to dashboard home">
           <span className="brand-badge" aria-hidden="true">★</span>
           <span className="brand-title">Kavia Dashboard</span>
