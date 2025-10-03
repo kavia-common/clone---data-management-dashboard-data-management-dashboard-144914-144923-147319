@@ -7,87 +7,50 @@ import { listUsers } from "../api/client";
 /**
  * PUBLIC_INTERFACE
  * UsersList
- * A reusable users list component that:
- * - Fetches GET /api/users from the configured Axios client (REACT_APP_API_BASE_URL + REACT_APP_API_PREFIX)
- * - Handles both paginated envelope { success, data: [...], meta } and non-paginated array responses
- * - Displays records in a table styled per Ocean Professional theme
- * - Shows environment hints for API connectivity/debugging in development
+ * A reusable users list component configured to show ONLY these columns:
+ * - Name
+ * - Organization
+ * - Mail
+ * - Department
  *
- * Column syncing strategy:
- * - Only show fields that exist in the live data.
- * - Constrain to the collection's allowed fields to avoid rendering unknown or deprecated fields.
+ * Notes:
+ * - Organization column resolves in priority: organization_name -> organization -> organization_id.
+ * - All other fields are hidden from the UI.
+ * - Search covers these fields only to stay aligned with visible columns.
  */
-export default function UsersList({ title = "Users", subtitle = "All users", showActions = true }) {
+export default function UsersList({ title = "Users", subtitle = "All users", showActions = false }) {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null); // kept for parity; actions disabled by default
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Allowed users fields per request (strict schema alignment)
+  // Limit searchable fields to the visible columns (and their most likely underlying keys).
   const allowedFields = useMemo(
     () => [
-      "_id",
       "name",
       "email",
-      "contact_number",
       "department",
+      "organization_name",
+      "organization",
       "organization_id",
-      "is_admin",
-      "group_ids",
-      "status",
-      "created_at",
-      "updated_at",
     ],
     []
   );
 
-  // Build columns by intersecting allowedFields with the keys found in data
-  const [columns, setColumns] = useState([
-    // initial minimal placeholder; will be replaced after data load
-    { key: "_id", label: "ID" },
-  ]);
-
-  function inferColumnsFromData(rows) {
-    // Derive all keys present in the dataset
-    const keys = new Set();
-    (rows || []).forEach((doc) => {
-      Object.keys(doc || {}).forEach((k) => keys.add(k));
-    });
-
-    // Compute intersection with allowed fields (order as allowedFields order)
-    const presentAllowed = allowedFields.filter((f) => keys.has(f));
-
-    // Always include _id for clarity if present
-    const finalKeys = presentAllowed.length ? presentAllowed : ["_id"];
-
-    const toLabel = (k) =>
-      k === "_id"
-        ? "ID"
-        : k
-            .replace(/_/g, " ")
-            .replace(/\b\w/g, (m) => m.toUpperCase());
-
-    // Render helpers for dates; otherwise default
-    const cols = finalKeys.map((k) => {
-      if (k === "created_at" || k === "updated_at") {
-        return {
-          key: k,
-          label: toLabel(k),
-          render: (v) => (v ? new Date(v).toLocaleString() : "—"),
-          priority: 3,
-        };
-      }
-      return { key: k, label: toLabel(k) };
-    });
-
-    // Preserve stable ID column at end if not already last
-    // Not necessary but helps UX; keep order per allowedFields already places _id first, so leave as-is.
-
-    setColumns(cols);
-  }
+  // Fixed 4-column configuration, Ocean Professional compliant.
+  const columns = useMemo(() => {
+    const renderOrg = (v, row) =>
+      row?.organization_name || row?.organization || row?.organization_id || "—";
+    return [
+      { key: "name", label: "Name", priority: 1 },
+      { key: "__organization", label: "Organization", render: renderOrg, priority: 2 },
+      { key: "email", label: "Mail", priority: 2 },
+      { key: "department", label: "Department", priority: 3 },
+    ];
+  }, []);
 
   async function load(page = 1, limit = meta.limit || 10) {
     setLoading(true);
@@ -98,15 +61,17 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       setAllItems(arr);
       setItems(arr);
       if (res && res.meta) {
-        setMeta({ page: res.meta.page || page, limit: res.meta.limit || limit, total: res.meta.total || arr.length });
+        setMeta({
+          page: res.meta.page || page,
+          limit: res.meta.limit || limit,
+          total: res.meta.total || arr.length,
+        });
       } else {
         setMeta({ page: 1, limit, total: arr.length });
       }
-      inferColumnsFromData(arr);
     } catch (e) {
       setAllItems([]);
       setItems([]);
-      setColumns([{ key: "_id", label: "ID" }]);
       setMeta({ page: 1, limit: 10, total: 0 });
       setError(e?.response?.data?.message || e?.message || "Failed to load users.");
     } finally {
@@ -118,7 +83,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     load();
   }, []);
 
-  // Client-side filter across known user fields
+  // Client-side filter across only the fields that correspond to visible columns.
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) {
@@ -128,7 +93,6 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     const filtered = (allItems || []).filter((u) => {
       const vals = allowedFields
         .map((f) => u?.[f])
-        .concat([u?.id]) // friendly id if present
         .filter((v) => v !== undefined && v !== null)
         .map((v) => String(v).toLowerCase());
       return vals.some((v) => v.includes(q));
@@ -136,7 +100,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setItems(filtered);
   }, [query, allItems, allowedFields]);
 
-  // Optional: delete action stub; actual delete handled by page-level component if passed.
+  // Optional: delete action stub; no actions shown by default.
   function onDelete(row) {
     setConfirmDelete(row);
   }
@@ -145,12 +109,9 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setConfirmDelete(null);
   }
 
-  // Env hint removed to keep Users section clean and minimal
-
   return (
     <div>
       <Card title={title} subtitle={subtitle}>
-        
         <div className="toolbar" aria-label="Users toolbar">
           <input
             className="input-search"
@@ -177,7 +138,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           serverTotal={meta.total}
           fetchPage={async (page, limit) => {
             const q = (query || "").trim();
-            // Forward filter to API only if desired; here we retain client search, so refresh full page from server.
+            // Keeping client search, refresh page from server.
             await load(page, limit);
           }}
           paginationTitle="Users pages"
