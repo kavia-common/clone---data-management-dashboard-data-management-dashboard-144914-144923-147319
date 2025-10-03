@@ -12,7 +12,7 @@ import axios from "axios";
 // Build base URLs from environment variables. Avoid hardcoding.
 function resolveBackendBase() {
   try {
-    const envUrl = "https://vscode-internal-29616-beta.beta01.cloud.kavia.ai:3001" || process.env.REACT_APP_API_BASE_URL;
+    const envUrl = "https://vscode-internal-34582-beta.beta01.cloud.kavia.ai:3001" || process.env.REACT_APP_API_BASE_URL;
     if (envUrl) return envUrl;
 
     // As a safe fallback, use same-origin (e.g., when a reverse proxy serves /api on the same host).
