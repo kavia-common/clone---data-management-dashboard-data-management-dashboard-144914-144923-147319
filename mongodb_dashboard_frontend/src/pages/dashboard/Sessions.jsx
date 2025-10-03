@@ -4,43 +4,42 @@ import DataTable from "../../components/DataTable.jsx";
 import Button from "../../components/ui/Button.jsx";
 import { listSessions } from "../../api/client";
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * Sessions
+ * Session Tracking page that:
+ * - Loads the entire sessions dataset initially, so client-side filters (tenant + search) are applied across ALL records before pagination.
+ * - Ensures pagination and counts reflect only the filtered data.
+ * - Keeps a restricted, predictable set of columns and consistent Ocean Professional UX.
+ */
 export default function Sessions() {
   /**
-   * Session Tracking table restricted to show only the following columns (in this exact order):
+   * Restricted columns (exact order):
    * - Task Id
    * - Tenant Id
    * - Organization Name
    * - Service Type
    * - Total Cost
-   *
-   * Adds a tenant filter consistent with the Users tab:
-   * - Dropdown lists unique tenant IDs from loaded data with default "All Tenant".
-   * - Applying the filter updates the visible rows (client-side) and resets pagination to page 1.
    */
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+
+  // Pagination state (client-side): only used to define page size for DataTable; DataTable slices client-side.
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // New: Tenant filter state (mirrors Users tab behavior/labeling)
+  // Tenant filter state
   const [tenantFilter, setTenantFilter] = useState("");
 
-  // Allowed and ordered fields per requirement (User Name removed)
+  // Allowed and ordered fields per requirement
   const allowedOrdered = useMemo(
-    () => [
-      "task_id",
-      "tenant_id",
-      "organization_name",
-      "service_type",
-      "total_cost",
-    ],
+    () => ["task_id", "tenant_id", "organization_name", "service_type", "total_cost"],
     []
   );
 
-  // Build tenant options from loaded data (unique, sorted)
+  // Build tenant options from the entire dataset
   const tenantOptions = useMemo(() => {
     const set = new Set();
     (allItems || []).forEach((s) => {
@@ -62,8 +61,8 @@ export default function Sessions() {
   }
 
   // PUBLIC_INTERFACE
-  function buildRestrictedColumns(rows = []) {
-    /** Build DataTable columns strictly from the allowed list, preserving order, with appropriate renderers. */
+  function buildRestrictedColumns() {
+    /** Build DataTable columns from the allowed list, preserving order. */
     return allowedOrdered.map((k) => {
       if (k === "total_cost") {
         return {
@@ -87,38 +86,41 @@ export default function Sessions() {
     });
   }
 
-  const [columns, setColumns] = useState(buildRestrictedColumns([]));
+  const [columns] = useState(buildRestrictedColumns());
 
-  async function load(page = 1, limit = meta.limit || 10) {
+  /**
+   * Load ALL sessions once so client-side filters are applied globally before pagination.
+   * We intentionally do not pass page/limit to the API here to encourage a full dataset return where feasible.
+   * If the backend enforces pagination, normalize and still apply client-side filters on the items we have.
+   */
+  async function loadAll() {
     setLoading(true);
     setError("");
     try {
-      const res = await listSessions({ page, limit });
+      // Intentionally request without page/limit to get all if backend supports raw array response.
+      const res = await listSessions({});
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
-      setMeta({
-        page: res?.meta?.page || page,
-        limit: res?.meta?.limit || limit,
-        total: res?.meta?.total ?? arr.length,
-      });
-      setColumns(buildRestrictedColumns(arr));
+      setMeta((m) => ({ ...m, page: 1, total: arr.length }));
     } catch (e) {
       setAllItems([]);
       setItems([]);
-      setColumns(buildRestrictedColumns([]));
       setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
+      setMeta({ page: 1, limit: 10, total: 0 });
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    loadAll();
   }, []);
 
-  // Client-side filter to match Users tab: text search over visible fields + tenant filter
+  /**
+   * Apply text search + tenant filter across the entire dataset BEFORE pagination.
+   * We then update items (the client-side dataset given to the table) and refresh total/page=1.
+   */
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     let filtered = allItems || [];
@@ -144,7 +146,7 @@ export default function Sessions() {
     setMeta((m) => ({ ...m, total: filtered.length, page: 1 }));
   }, [query, allItems, allowedOrdered, tenantFilter]);
 
-  // Reset both filters to show all sessions
+  // Reset both filters to show all sessions from the complete dataset
   function resetFilters() {
     setQuery("");
     setTenantFilter("");
@@ -152,7 +154,7 @@ export default function Sessions() {
     setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
   }
 
-  // Force DataTable to re-init pagination when filters change
+  // Force DataTable to reset pagination to page 1 when filters change by altering key
   const tableKey = useMemo(
     () => `${(query || "").trim().toLowerCase()}|${tenantFilter}|${items.length}`,
     [query, tenantFilter, items.length]
@@ -170,7 +172,7 @@ export default function Sessions() {
             onChange={(e) => setQuery(e.target.value)}
           />
 
-          {/* Tenant filter (consistent with Users tab UI) */}
+          {/* Tenant filter (applies to full dataset before pagination) */}
           <select
             aria-label="Filter by tenant"
             title="Filter by tenant"
@@ -198,18 +200,17 @@ export default function Sessions() {
           <div className="spacer" />
         </div>
         {error && <div className="error" role="alert">{error}</div>}
+
+        {/* Client-side pagination; counts reflect filtered data via meta.total */}
         <DataTable
           key={tableKey}
           columns={columns}
           data={items}
           loading={loading}
-          // No actions (edit/delete) per requirement to remove actions column from UI
+          // We intentionally do not pass fetchPage here to keep client-side mode,
+          // ensuring pagination applies only to the filtered dataset.
           pageSize={meta.limit || 10}
           initialPage={1}
-          serverTotal={meta.total}
-          fetchPage={async (page, limit) => {
-            await load(page, limit);
-          }}
           paginationTitle="Sessions pages"
         />
       </Card>
