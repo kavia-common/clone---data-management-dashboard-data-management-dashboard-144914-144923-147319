@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
+import UserProfileModal from "./UserProfileModal.jsx";
 import { listUsers } from "../api/client";
 
 /**
@@ -33,6 +34,10 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   const [organizationFilter, setOrganizationFilter] = useState("");
 
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+
+  // Modal: user profile
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   // Limit searchable fields to the visible columns (and their most likely underlying keys).
   const allowedFields = useMemo(
@@ -141,6 +146,16 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
   }
 
+  function onRowClick(user) {
+    setSelectedUser(user);
+    setProfileOpen(true);
+  }
+
+  function closeProfile() {
+    setProfileOpen(false);
+    setSelectedUser(null);
+  }
+
   // Force DataTable to reset pagination to page 1 whenever filters or search change
   const tableKey = useMemo(
     () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${items.length}`,
@@ -198,6 +213,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           data={items}
           loading={loading}
           onDelete={showActions ? onDelete : undefined}
+          onRowClick={onRowClick}
           pageSize={meta.limit || 10}
           initialPage={1}
           paginationTitle="Users pages"
@@ -229,6 +245,12 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           </div>
         </div>
       )}
+
+      <UserProfileModal
+        open={profileOpen}
+        onClose={closeProfile}
+        user={selectedUser}
+      />
     </div>
   );
 }

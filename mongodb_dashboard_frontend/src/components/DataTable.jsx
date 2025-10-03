@@ -23,6 +23,7 @@ export default function DataTable({
   loading,
   onEdit,
   onDelete,
+  onRowClick,
   pageSize = 10,
   initialPage = 1,
   onPageChange,
@@ -379,7 +380,20 @@ export default function DataTable({
             )}
             {!loading &&
               (pageRows || []).map((row) => (
-                <tr className="tr" key={row._id || row.id || JSON.stringify(row)}>
+                <tr
+                  className="tr"
+                  key={row._id || row.id || JSON.stringify(row)}
+                  onClick={() => { if (typeof onRowClick === "function") onRowClick(row); }}
+                  onKeyDown={(e) => {
+                    if (!onRowClick) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onRowClick(row);
+                    }
+                  }}
+                  tabIndex={typeof onRowClick === "function" ? 0 : undefined}
+                  style={typeof onRowClick === "function" ? { cursor: "pointer" } : undefined}
+                >
                   {columns.map((c) => {
                     const value = getValue(row, c.key);
                     const content = c.render ? c.render(value, row) : value ?? "";
@@ -404,7 +418,7 @@ export default function DataTable({
                       {onEdit && (
                         <button
                           className="btn btn-ghost"
-                          onClick={() => onEdit(row)}
+                          onClick={(e) => { e.stopPropagation(); onEdit(row); }}
                           aria-label="Edit row"
                           title="Edit"
                         >
@@ -424,7 +438,7 @@ export default function DataTable({
                       {onDelete && (
                         <button
                           className="btn btn-danger"
-                          onClick={() => onDelete(row)}
+                          onClick={(e) => { e.stopPropagation(); onDelete(row); }}
                           aria-label="Delete row"
                           title="Delete"
                         >
