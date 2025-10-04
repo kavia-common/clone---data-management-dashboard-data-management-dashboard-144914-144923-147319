@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getProjectLlmCost, getProjectCostHistorySum, getProjectCost } from '../api/projects';
+import { getProjectCostHistorySum, getProjectCost } from '../api/projects';
 
 /**
  * PUBLIC_INTERFACE
@@ -67,45 +67,35 @@ export function useProjectCostHistorySum(projectId, options = {}) {
     setLoading(true);
     setError(null);
     try {
-      // 1) Preferred: LLM cost aggregate
-      const llm = await getProjectLlmCost(normalizedId);
-      const llmCost = Number(llm?.cost);
-      if (Number.isFinite(llmCost)) {
-        setCost(llmCost);
-        setError(null);
-        return;
-      }
-    } catch (e) {
-      // swallow and move to next fallback
-    }
-
-    try {
-      // 2) Fallback: cost-history-sum endpoint (sum of cost_history.delta_total_cost)
+      // First try the cost-history-sum endpoint (sum of cost_history.delta_total_cost)
       const sum = await getProjectCostHistorySum(normalizedId);
+      // If endpoint returns a numeric cost, use it. If null/undefined or NaN, try fallback.
       const sumCost = Number(sum?.cost);
       if (Number.isFinite(sumCost)) {
         setCost(sumCost);
         setError(null);
-        return;
+      } else {
+        // Fallback: legacy /cost endpoint (sum of total_cost across sessions)
+        const legacy = await getProjectCost(normalizedId);
+        const legacyCost = Number(legacy?.cost);
+        setCost(Number.isFinite(legacyCost) ? legacyCost : null);
+        if (!Number.isFinite(legacyCost)) {
+          setError('Cost data unavailable');
+        }
       }
     } catch (e) {
-      // swallow and move to next fallback
-    }
-
-    try {
-      // 3) Final fallback: legacy /cost endpoint (sum of total_cost across sessions)
-      const legacy = await getProjectCost(normalizedId);
-      const legacyCost = Number(legacy?.cost);
-      if (Number.isFinite(legacyCost)) {
-        setCost(legacyCost);
-        setError(null);
-        return;
+      // If sum endpoint fails, try legacy as fallback
+      try {
+        const legacy = await getProjectCost(normalizedId);
+        const legacyCost = Number(legacy?.cost);
+        setCost(Number.isFinite(legacyCost) ? legacyCost : null);
+        if (!Number.isFinite(legacyCost)) {
+          setError(e?.message || 'Failed to load project cost');
+        }
+      } catch (e2) {
+        setCost(null);
+        setError(e2?.message || e?.message || 'Failed to load project cost');
       }
-      setCost(null);
-      setError('Cost data unavailable');
-    } catch (e3) {
-      setCost(null);
-      setError(e3?.message || 'Failed to load project cost');
     } finally {
       setLoading(false);
     }
