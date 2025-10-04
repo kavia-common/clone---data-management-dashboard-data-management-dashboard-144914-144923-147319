@@ -67,13 +67,10 @@ SessionTrackingSchema.index({ user_id: 1, session_start: -1 });
 SessionTrackingSchema.index({ project_id: 1, service_type: 1 });
 SessionTrackingSchema.index({ task_id: 1 });
 SessionTrackingSchema.index({ last_updated: -1 });
-/**
- * Ensure fast project-level aggregations on project_id field.
- * Duplicate declarations are safe; Mongoose de-duplicates identical specs.
- */
-SessionTrackingSchema.index({ project_id: 1 });
-
 // Added index to support user projects aggregation by tenant_id + user_id with recency
 SessionTrackingSchema.index({ tenant_id: 1, user_id: 1, last_updated: -1 });
+
+// Ensure fast project-level aggregations; if already declared above, Mongoose de-duplicates identical specs.
+SessionTrackingSchema.index({ project_id: 1 });
 
 module.exports = mongoose.model('SessionTracking', SessionTrackingSchema);
