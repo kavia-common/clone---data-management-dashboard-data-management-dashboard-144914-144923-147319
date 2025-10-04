@@ -199,58 +199,194 @@ function UserProjectsView({ userId, tenantId, from, to }) {
   }
 
   const list = projects || [];
-  return (
-    <div className="space-y-4">
-      {list.length === 0 && <div className="text-gray-500">No projects found.</div>}
-      {/* Table/list wrapper with horizontal overflow safety */}
-      <div style={{ overflowX: 'auto', overflowY: 'visible' }}>
-        <div style={{ display: 'grid', gap: 12, minWidth: 360 }}>
-          {list.map((p, idx) => {
-            const key = p.project_id || p.projectId || idx;
-            const name =
-              p.name ||
-              p.project_name ||
-              p.projectName ||
-              p.project_id ||
-              p.projectId ||
-              '—';
-            const desc = p.description || p.project_description || '';
-            const last = p.last_activity || p.lastActivity || null;
-            return (
-              <div
-                key={key}
-                className="border rounded p-3"
-                style={{ background: '#fff' }}
-              >
-                <div
-                  className="font-medium"
-                  title={String(name)}
-                  style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+
+  // Small presentational component to render each project card
+  const ProjectCard = ({ project }) => {
+    const id = project?.project_id || project?.projectId || project?._id || project?.id || '—';
+    const name =
+      project?.name ||
+      project?.project_name ||
+      project?.projectName ||
+      '—';
+    const status = project?.status || project?.state || '';
+    const desc = project?.description || project?.project_description || '';
+    const created = project?.createdAt || project?.created_at || '';
+    const updated = project?.updatedAt || project?.updated_at || '';
+    const last = project?.last_activity || project?.lastActivity || updated || created || '';
+
+    const safeDate = (val) => {
+      if (!val) return '—';
+      try { return new Date(val).toLocaleString(); } catch { return String(val); }
+    };
+
+    // Card styles matching Ocean Professional theme
+    const cardStyle = {
+      background: 'var(--bg-surface, #ffffff)',
+      border: '1px solid var(--border-subtle, #e5e7eb)',
+      borderRadius: 12,
+      boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
+      padding: 16,
+      transition: 'box-shadow .2s ease, transform .06s ease',
+    };
+
+    const gridStyle = {
+      display: 'grid',
+      gridTemplateColumns: '220px 1fr', // left fixed, right flexible
+      gap: 16,
+    };
+
+    const gridStyleMobile = {
+      display: 'grid',
+      gridTemplateColumns: '1fr',
+      gap: 12,
+    };
+
+    return (
+      <div
+        role="article"
+        aria-label={`Project ${id}`}
+        tabIndex={0}
+        style={cardStyle}
+        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))'; }}
+        onMouseDown={(e) => { e.currentTarget.style.transform = 'translateY(1px)'; }}
+        onMouseUp={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+        onFocus={(e) => { e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.28)'; }}
+        onBlur={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))'; }}
+      >
+        {/* Responsive two-column layout: switch to 1-col on small screens via inline match */}
+        <div
+          style={window?.matchMedia && window.matchMedia('(max-width: 640px)').matches ? gridStyleMobile : gridStyle}
+        >
+          {/* Left column: Project ID pill with label */}
+          <div>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: 'var(--text-tertiary, #64748B)',
+                letterSpacing: '.02em',
+                marginBottom: 6,
+                textTransform: 'none',
+              }}
+            >
+              Project ID
+            </div>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                background: '#F8FAFC',
+                color: 'var(--text-primary, #111827)',
+                border: '1px solid var(--border-subtle, #E6EAF0)',
+                borderRadius: 9999,
+                padding: '6px 10px',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                fontWeight: 600,
+                maxWidth: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={String(id)}
+              aria-label={`Project ID ${id}`}
+            >
+              {String(id)}
+            </div>
+          </div>
+
+          {/* Right column: key fields as labeled rows */}
+          <dl
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'max-content 1fr',
+              rowGap: 8,
+              columnGap: 12,
+              alignItems: 'center',
+              minWidth: 0,
+            }}
+          >
+            <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Name</dt>
+            <dd
+              style={{
+                margin: 0,
+                color: 'var(--text-primary, #111827)',
+                fontWeight: 600,
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={name || undefined}
+            >
+              {name || '—'}
+            </dd>
+
+            {status ? (
+              <>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Status</dt>
+                <dd style={{ margin: 0 }}>
+                  <span className="status-badge" aria-label={`Status ${status}`}>{String(status)}</span>
+                </dd>
+              </>
+            ) : null}
+
+            {desc ? (
+              <>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Description</dt>
+                <dd
+                  style={{
+                    margin: 0,
+                    color: 'var(--text-secondary, #475569)',
+                    whiteSpace: 'normal',
+                    overflowWrap: 'anywhere',
+                  }}
                 >
-                  {name}
-                </div>
-                {desc ? (
-                  <div
-                    className="text-sm text-gray-600"
-                    title={String(desc)}
-                    style={{ marginTop: 4 }}
-                  >
-                    {desc}
-                  </div>
-                ) : null}
-                {last ? (
-                  <div
-                    className="text-sm text-gray-500"
-                    title={String(last)}
-                    style={{ marginTop: 6, whiteSpace: 'nowrap' }}
-                  >
-                    Last activity: {(() => { try { return new Date(last).toLocaleString(); } catch { return String(last); } })()}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
+                  {String(desc)}
+                </dd>
+              </>
+            ) : null}
+
+            {created ? (
+              <>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Created</dt>
+                <dd style={{ margin: 0, color: 'var(--text-secondary, #475569)' }}>{safeDate(created)}</dd>
+              </>
+            ) : null}
+
+            {(updated || last) ? (
+              <>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Updated</dt>
+                <dd style={{ margin: 0, color: 'var(--text-secondary, #475569)' }}>
+                  {safeDate(updated || last)}
+                </dd>
+              </>
+            ) : null}
+          </dl>
         </div>
+      </div>
+    );
+  };
+
+  return (
+    <div role="list" aria-label="User projects list" style={{ display: 'grid', gap: 12 }}>
+      {list.length === 0 && (
+        <div
+          className="table-empty"
+          role="note"
+          style={{ color: 'var(--text-tertiary)', background: 'transparent' }}
+        >
+          No projects found for this user.
+        </div>
+      )}
+
+      {/* Scroll safety is provided by the modal's content area; ensure min width for inner layout */}
+      <div style={{ display: 'grid', gap: 12, minWidth: 320 }}>
+        {list.map((p, idx) => {
+          const key = p?.project_id || p?.projectId || p?._id || idx;
+          return <ProjectCard key={key} project={p} />;
+        })}
       </div>
     </div>
   );
