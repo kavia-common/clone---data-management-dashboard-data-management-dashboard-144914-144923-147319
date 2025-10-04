@@ -179,6 +179,10 @@ router.get(
   })
 );
 
+
+
+
+
 /**
  * @swagger
  * /api/projects/{projectId}/users/usage:
@@ -415,71 +419,6 @@ router.get(
     return res.status(200).json({
       projectId: projectIdStr,
       cost: projectCost,
-    });
-  })
-);
-
-/**
- * @swagger
- * /api/projects/{projectId}/llm-cost:
- *   get:
- *     summary: Project total LLM cost (from llm_cost)
- *     description: Aggregates LLM cost for a project by summing total_cost or amount across llm_cost documents that match the given projectId. Returns 0 if none found. Currency is taken from the project document if available (credits_unit, default USD).
- *     tags: [Projects]
- *     parameters:
- *       - in: path
- *         name: projectId
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: LLM cost total for the project
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 projectId: { type: string, description: "Project identifier" }
- *                 cost: { type: number, description: "Sum of total_cost/amount across LLM cost records" }
- *                 currency: { type: string, description: "Currency code, defaults to USD" }
- */
-/**
- * PUBLIC_INTERFACE
- * GET /api/projects/:projectId/llm-cost
- * Aggregates total LLM cost for a project from llm_cost collection.
- */
-router.get(
-  '/:projectId/llm-cost',
-  asyncHandler(async (req, res) => {
-    const projectId = String(req.params.projectId);
-
-    // Determine currency from project if available; do not 404 if project missing
-    let currency = 'USD';
-    try {
-      const project = await Project.findOne({ project_id: projectId }).lean();
-      if (project?.credits_unit) currency = project.credits_unit;
-    } catch (e) {
-      // ignore errors, stick to default currency
-    }
-
-    // Prefer reusing analytics.getCosts so logic is centralized and tested
-    let agg = { total_cost: 0 };
-    try {
-      agg = (await getCosts({ project_id: projectId })) || { total_cost: 0 };
-    } catch (err) {
-      if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.error(`Error aggregating llm-cost for projectId=${projectId}`, err?.message || err);
-      }
-      agg = { total_cost: 0 };
-    }
-
-    const cost = Number(agg.total_cost || 0);
-    return res.status(200).json({
-      success: true,
-      projectId,
-      cost,
-      currency,
     });
   })
 );
