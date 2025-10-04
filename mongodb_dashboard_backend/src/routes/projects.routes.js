@@ -5,6 +5,7 @@ const Project = require('../models/project.model');
 const Tenant = require('../models/tenant.model');
 const SessionTracking = require('../models/sessionTracking.model');
 const { getSessionDurations, getCosts } = require('../services/analytics');
+const LlmCost = require('../models/llmCosts.model');
 
 const router = express.Router();
 const controller = buildCrudController(Project, '-created_at');
@@ -178,6 +179,10 @@ router.get(
   })
 );
 
+
+
+
+
 /**
  * @swagger
  * /api/projects/{projectId}/users/usage:
@@ -268,94 +273,152 @@ router.get(
 router.get(
   '/:projectId/cost',
   asyncHandler(async (req, res) => {
-    const { projectId } = req.params;
+    // Ensure projectId is treated strictly as a string for matching
+    const projectId = String(req.params.projectId);
 
-    // Ensure the project exists
-    const project = await Project.findOne({ project_id: projectId }).lean();
-    if (!project) {
-      return res.status(404).json({ success: false, message: 'Project not found' });
+    // We do not 404 when computing cost-only per new requirement. If project not found, still return cost=0.
+    // However, we will attempt to read currency from project if available.
+    let currency = 'USD';
+    try {
+      const project = await Project.findOne({ project_id: projectId }).lean();
+      if (project && project.credits_unit) {
+        currency = project.credits_unit;
+      }
+    } catch (e) {
+      // ignore project lookup errors, default currency remains USD
     }
 
-    // Aggregation pipeline to sum total_cost across sessions for this projectId
-    // Coerce total_cost to number safely (handles Number, String, Decimal128) then sum
+    // Aggregation pipeline:
+    // - Match by project_id string
+    // - Group by project_id and sum with numeric coercion
+    // - Coerce total_cost using $ifNull -> $toDouble to handle Number, String, Decimal128 and null
     const pipeline = [
       { $match: { project_id: projectId } },
       {
-        $addFields: {
-          total_cost_num: {
-            $cond: [
-              { $ne: ['$total_cost', null] },
-              {
-                $let: {
-                  vars: {
-                    asString: {
-                      $cond: [
-                        { $isNumber: '$total_cost' },
-                        { $toString: '$total_cost' },
-                        {
-                          $cond: [
-                            { $eq: [{ $type: '$total_cost' }, 'decimal'] },
-                            { $toString: '$total_cost' },
-                            { $toString: '$total_cost' }, // string or other convertible types
-                          ],
-                        },
-                      ],
-                    },
-                  },
-                  in: {
-                    $cond: [
-                      {
-                        $or: [
-                          { $eq: ['$$asString', ''] },
-                          { $eq: ['$$asString', null] },
-                        ],
-                      },
-                      0,
-                      {
-                        $convert: {
-                          input: '$$asString',
-                          to: 'double',
-                          onError: 0,
-                          onNull: 0,
-                        },
-                      },
-                    ],
-                  },
-                },
+        $group: {
+          _id: '$project_id',
+          cost: {
+            $sum: {
+              $toDouble: {
+                $ifNull: ['$total_cost', 0],
               },
-              0,
-            ],
+            },
           },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          projectId: '$_id',
+          cost: 1,
+        },
+      },
+    ];
+
+    let projectCost = 0;
+    try {
+      const result = await SessionTracking.aggregate(pipeline);
+      // If no records found, default to 0 as per requirement
+      projectCost = Number(result?.[0]?.cost ?? 0);
+      if (!Number.isFinite(projectCost)) projectCost = 0;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`Error aggregating session tracking cost for projectId=${projectId}`, err?.message || err);
+      projectCost = 0;
+    }
+
+    // Always return 200 with { projectId, cost } even if not found in sessions
+    return res.status(200).json({
+      projectId,
+      cost: projectCost,
+      currency,
+    });
+  })
+);
+
+/**
+ * @swagger
+ * /api/projects/{projectId}/cost-history-sum:
+ *   get:
+ *     summary: Project total cost from cost_history deltas (session tracking)
+ *     description: >
+ *       Aggregates project cost as the sum of all cost_history.delta_total_cost across session_tracking documents where project_id matches the given projectId.
+ *       Handles missing or empty cost_history gracefully and coerces delta_total_cost values to numbers.
+ *     tags: [Projects]
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Project cost aggregated from cost_history deltas
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 projectId:
+ *                   type: string
+ *                 cost:
+ *                   type: number
+ */
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/projects/:projectId/cost-history-sum
+ * Sums cost_history.delta_total_cost across all session_tracking documents for the given project.
+ */
+router.get(
+  '/:projectId/cost-history-sum',
+  asyncHandler(async (req, res) => {
+    const projectIdStr = String(req.params.projectId);
+
+    // Aggregation pipeline as specified in requirements
+    const pipeline = [
+      { $match: { project_id: projectIdStr } },
+      {
+        $project: {
+          deltas: {
+            $map: {
+              input: { $ifNull: ['$cost_history', []] },
+              as: 'ch',
+              in: {
+                $toDouble: { $ifNull: ['$$ch.delta_total_cost', 0] },
+              },
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          sumDeltas: { $sum: '$deltas' },
         },
       },
       {
         $group: {
           _id: null,
-          totalCost: { $sum: '$total_cost_num' },
+          projectCost: { $sum: '$sumDeltas' },
         },
       },
     ];
 
-    let totalCost = 0;
+    let projectCost = 0;
     try {
       const result = await SessionTracking.aggregate(pipeline);
-      totalCost = Number(result?.[0]?.totalCost || 0);
-      if (!Number.isFinite(totalCost)) totalCost = 0;
+      projectCost = Number(result?.[0]?.projectCost ?? 0);
+      if (!Number.isFinite(projectCost)) projectCost = 0;
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(
-        `Error aggregating project cost from session_tracking for projectId=${projectId}:`,
+        `Error aggregating cost_history deltas for projectId=${projectIdStr}`,
         err?.message || err
       );
-      // Fall back to zero on aggregation error
-      totalCost = 0;
+      projectCost = 0;
     }
 
-    const currency = project?.credits_unit || 'USD';
     return res.status(200).json({
-      projectId,
-      cost: totalCost,
-      currency,
+      projectId: projectIdStr,
+      cost: projectCost,
     });
   })
 );
