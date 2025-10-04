@@ -1,23 +1,22 @@
-# Manual Verification - Session Details Modal (Last Updated At)
+# Manual Verification - Session Details Modal (Five Required Fields)
 
 Steps:
 1. Open the Sessions page in the frontend.
 2. Click any row to open the Session Details modal.
 3. Confirm the modal title shows "Session Details - <sessionId>".
-4. In the details grid, verify:
-   - "Started At" shows a formatted local date-time or — if missing.
-   - "Last Updated At" shows a formatted local date-time or — if missing.
-   - "Duration" is computed between Started At and Last Updated At (e.g., "1h 22m 5s") or — if either endpoint is missing.
-5. Open the browser console (DevTools):
-   - In development builds, you should see a debug log "[SessionDetailsModal] session received" showing the raw object.
-   - If either timestamp is missing, there will be a warning indicating which field could not be resolved.
-
-Notes:
-- The modal now normalizes many backend field variants:
-  lastUpdatedAt, updatedAt, updated_at, modifiedAt, modified_at, lastModified, last_modified,
-  lastActivityAt, last_activity_at, finishedAt, finished_at, endedAt, ended_at, end_time, endTime,
-  last_activity, lastActivity, timestamp_updated, modified, lastUpdate, last_update, meta.updatedAt, metadata.updatedAt.
-- For Started At, it normalizes: startedAt, start_time, startTime, created_at, createdAt, created, timestamp, session_start, sessionStart, begin_time, beginTime.
+4. In the details grid, verify the presence of these fields with correct values or graceful fallbacks:
+   - "Created At" (aliases: createdAt, created_at, startedAt, started_at, start_time, startTime, etc.) displayed in local date-time or —.
+   - "Last Updated At" (broad aliases normalized) displayed in local date-time or —.
+   - "Project ID" (aliases: project_id, projectId, project, projectSlug; falls back to projectName/project_name when id missing).
+   - "Service Type" (aliases: service_type, serviceType, provider, modelProvider).
+   - "User Name" resolved via DataContext users by id or from embedded fields; shows a friendly name (displayName/fullName/name/username/email) or "Unknown User".
+5. Also verify:
+   - "Session ID" is shown.
+   - "Tenant" remains visible.
+   - "Duration" computes from Created At to Last Updated At when both present; else shows —.
+6. Open the browser console (DevTools):
+   - In development builds, you should see a debug log "[SessionDetailsModal] session received" and "normalized fields".
+   - From the Sessions table click, you should also see "[Sessions] Row clicked ..." with keys and sample values for tracing.
 
 Expected outcome:
-- If any of the above fields are present, "Last Updated At" renders a date-time correctly and "Duration" is computed using it.
+- All five fields are present with values or fallbacks, no runtime errors, layout remains responsive 2-column.

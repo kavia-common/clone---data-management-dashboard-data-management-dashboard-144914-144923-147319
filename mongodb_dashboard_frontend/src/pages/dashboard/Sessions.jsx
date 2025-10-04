@@ -123,8 +123,21 @@ export default function Sessions() {
   // Row click -> open modal (with dev-only logging to verify payload)
   const handleRowClick = (row) => {
     if (process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
-      console.debug("[Sessions] Row clicked -> opening details modal with session:", row);
+      try {
+        const keys = Object.keys(row || {});
+        // eslint-disable-next-line no-console
+        console.debug("[Sessions] Row clicked -> opening details modal with keys:", keys);
+        // eslint-disable-next-line no-console
+        console.debug("[Sessions] Sample field values:", {
+          created_at_like: row?.created_at || row?.createdAt || row?.startedAt || row?.start_time || row?.startTime,
+          last_updated_like: row?.updated_at || row?.updatedAt || row?.lastUpdatedAt || row?.endedAt || row?.finishedAt || row?.lastActivityAt,
+          project_like: row?.project_id || row?.projectId || row?.project || row?.projectName || row?.projectSlug,
+          service_type_like: row?.service_type || row?.serviceType || row?.provider || row?.modelProvider,
+          user_like: row?.user || row?.userId || row?.user_id || row?.username || row?.user_name || row?.email,
+        });
+      } catch {
+        // ignore logging errors
+      }
     }
     setSelectedSession(row);
     setDetailsOpen(true);

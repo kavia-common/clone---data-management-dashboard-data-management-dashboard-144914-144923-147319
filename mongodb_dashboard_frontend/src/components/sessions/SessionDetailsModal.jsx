@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import Modal from '../ui/Modal.jsx';
+import { useDataContext } from '../../context/DataContext.jsx';
 
 /**
  * PUBLIC_INTERFACE
@@ -21,6 +22,7 @@ import Modal from '../ui/Modal.jsx';
 function SessionDetailsModal({ open, onClose, session }) {
   const headerId = 'session-details-title';
   const contentRef = useRef(null);
+  const { users } = useDataContext?.() || { users: [] };
 
   // Focus modal content when opened for accessibility
   useEffect(() => {
@@ -65,7 +67,63 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
   };
 
-  // Collect required details only; hide disallowed fields.
+  // PUBLIC_INTERFACE
+  const resolveUserName = (userRef) => {
+    /**
+     * Resolve a user-friendly name from user reference:
+     * - If an object with name/displayName/fullName/email exists, pick appropriately
+     * - If an id, search DataContext users for a matching _id/id/userId and prefer displayName/fullName/name/username/email
+     */
+    if (!userRef) return 'Unknown User';
+    // If already a descriptive string (e.g., username/email)
+    if (typeof userRef === 'string') {
+      const candidate = users?.find?.(
+        (u) => u?._id === userRef || u?.id === userRef || u?.userId === userRef
+      );
+      if (candidate) {
+        return (
+          candidate.displayName ||
+          candidate.fullName ||
+          candidate.name ||
+          candidate.username ||
+          candidate.email ||
+          'Unknown User'
+        );
+      }
+      return userRef || 'Unknown User';
+    }
+    if (typeof userRef === 'object') {
+      // If the object has an id-like, try to match a richer record
+      const candidateId = userRef._id || userRef.id || userRef.userId || userRef.user_id;
+      if (candidateId) {
+        const candidate = users?.find?.(
+          (u) => u?._id === candidateId || u?.id === candidateId || u?.userId === candidateId
+        );
+        if (candidate) {
+          return (
+            candidate.displayName ||
+            candidate.fullName ||
+            candidate.name ||
+            candidate.username ||
+            candidate.email ||
+            'Unknown User'
+          );
+        }
+      }
+      return (
+        userRef.displayName ||
+        userRef.fullName ||
+        userRef.name ||
+        userRef.username ||
+        userRef.email ||
+        userRef.user_name ||
+        'Unknown User'
+      );
+    }
+    return 'Unknown User';
+  };
+
+  // Collect required and requested details; preserve previously approved fields.
   const coreDetails = useMemo(() => {
     if (!session || typeof session !== 'object') return {};
 
@@ -95,14 +153,12 @@ function SessionDetailsModal({ open, onClose, session }) {
       return undefined;
     };
 
-    // Normalize timestamps with broad alias coverage
-    const startedAtRaw = pick([
-      'startedAt', 'start_time', 'startTime', 'created_at', 'createdAt', 'created', 'timestamp', 'session_start', 'sessionStart',
-      // sometimes "begin" variants
-      'begin_time', 'beginTime'
+    // Normalize created_at (startedAt aliases)
+    const createdAtRaw = pick([
+      'created_at', 'createdAt', 'startedAt', 'started_at', 'start_time', 'startTime', 'created', 'timestamp', 'session_start', 'sessionStart', 'begin_time', 'beginTime'
     ]);
 
-    // Cover all listed backend variants for last update / end markers
+    // Normalize last_updated
     const lastUpdatedAtRaw = pick([
       'lastUpdatedAt', 'updatedAt', 'updated_at',
       'modifiedAt', 'modified_at',
@@ -113,11 +169,10 @@ function SessionDetailsModal({ open, onClose, session }) {
       'end_time', 'endTime',
       'last_activity', 'lastActivity',
       'timestamp_updated', 'modified', 'lastUpdate', 'last_update',
-      // Some APIs track Mongoose-style updated path inside metadata
       'meta.updatedAt', 'metadata.updatedAt',
     ]);
 
-    // Fallbacks: if we have an explicit "ended" field prefer that as lastUpdated; else updated; else activity; else undefined
+    // Fallback cascade for last_updated
     let normalizedLastUpdatedAt = lastUpdatedAtRaw;
     if (!normalizedLastUpdatedAt) {
       const ended = pick(['endedAt','ended_at','end_time','endTime','finishedAt','finished_at']);
@@ -126,40 +181,48 @@ function SessionDetailsModal({ open, onClose, session }) {
       normalizedLastUpdatedAt = ended || updated || activity || undefined;
     }
 
-    const normalizedStartedAt = startedAtRaw || undefined;
+    const normalizedCreatedAt = createdAtRaw || undefined;
 
     const sessionId = pick(['sessionId', '_id', 'id']);
-    const user = pick(['user', 'userId', 'user_id', 'username', 'user_name', 'email', 'owner', 'ownerEmail']);
-    const project = pick(['project', 'projectId', 'project_id', 'projectName', 'project_name']);
+    const userRef = pick(['user', 'userId', 'user_id', 'username', 'user_name', 'email', 'owner', 'ownerEmail']);
+    const projectId = pick(['project_id', 'projectId', 'project', 'projectSlug']);
+    const projectName = pick(['projectName', 'project_name', 'projectLabel', 'project_label']);
+    const serviceType = pick(['serviceType', 'service_type', 'provider', 'modelProvider']);
     const tenant = pick(['tenant', 'tenantId', 'tenant_id', 'organization', 'organization_id', 'organizationId', 'tenantName', 'tenant_name']);
 
-    const durationStr = computeDuration(normalizedStartedAt, normalizedLastUpdatedAt);
+    const durationStr = computeDuration(normalizedCreatedAt, normalizedLastUpdatedAt);
+
+    // Resolve user display name
+    const userName = resolveUserName(userRef) || 'Unknown User';
 
     // Dev-only diagnostics to help trace missing fields during development
     if (process.env.NODE_ENV !== 'production') {
       // eslint-disable-next-line no-console
       console.debug('[SessionDetailsModal] session received:', { session });
-      if (!normalizedStartedAt) {
-        // eslint-disable-next-line no-console
-        console.warn('[SessionDetailsModal] Started At not found in session. Probed keys did not resolve.');
-      }
-      if (!normalizedLastUpdatedAt) {
-        // eslint-disable-next-line no-console
-        console.warn('[SessionDetailsModal] Last Updated At not found in session. Probed keys did not resolve.');
-      }
+      // eslint-disable-next-line no-console
+      console.debug('[SessionDetailsModal] normalized fields:', {
+        created_at: normalizedCreatedAt,
+        last_updated: normalizedLastUpdatedAt,
+        project_id: projectId || projectName,
+        service_type: serviceType,
+        user_name: userName,
+      });
     }
 
-    // Only include the approved labels and order
-    return {
-      User: user ?? '—',
+    // Build detail fields ensuring the five required are present
+    const details = {
+      'User Name': userName || 'Unknown User',                  // user_name
       'Session ID': sessionId ?? '—',
-      Project: project ?? '—',
+      'Project ID': projectId ?? projectName ?? '—',            // project_id with name fallback
+      'Service Type': serviceType ?? '—',                       // service_type
       Tenant: tenant ?? '—',
-      'Started At': formatDate(normalizedStartedAt),
-      'Last Updated At': formatDate(normalizedLastUpdatedAt),
-      Duration: durationStr,
+      'Created At': formatDate(normalizedCreatedAt),            // created_at
+      'Last Updated At': formatDate(normalizedLastUpdatedAt),   // last_updated
+      Duration: durationStr,                                    // computed if both present
     };
-  }, [session]);
+
+    return details;
+  }, [session, users]);
 
   // Title must be "Session Details - <sessionId>"
   const title = useMemo(() => {
@@ -234,7 +297,7 @@ function SessionDetailsModal({ open, onClose, session }) {
             }}
           >
             {Object.entries(coreDetails).map(([label, value]) => {
-              const isPlaceholder = value === '—';
+              const isPlaceholder = value === '—' || value === 'Unknown User';
               return (
                 <div key={label} style={{ minWidth: 0 }}>
                   <div
