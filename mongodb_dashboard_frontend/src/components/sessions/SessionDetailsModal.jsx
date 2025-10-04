@@ -15,7 +15,6 @@ import Modal from '../ui/Modal.jsx';
  * - Subtle overlay provided by Modal component
  * - Sticky header with title; content area scrolls internally
  * - Core details section rendered as a 2-column responsive grid (1-column on small screens)
- * - Dedicated Metadata section separated by a divider and spacing
  * - Labels are muted with medium weight; values wrap to avoid horizontal scrolling
  * - Prominent full-width Close button in error color (#EF4444) with hover/focus states
  * - Ocean Professional theme: primary #2563EB, accent #F59E0B, error #EF4444
@@ -84,13 +83,7 @@ function SessionDetailsModal({ open, onClose, session }) {
     };
   }, [session]);
 
-  const metadataValue = useMemo(() => {
-    if (!session || typeof session !== 'object') return '—';
-    const meta = session?.metadata ?? session?.meta;
-    if (!meta && meta !== 0) return '—';
-    if (typeof meta === 'object') return JSON.stringify(meta, null, 2);
-    return String(meta);
-  }, [session]);
+
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -109,7 +102,7 @@ function SessionDetailsModal({ open, onClose, session }) {
             Session Details
           </h2>
           <p className="mt-1 text-xs text-gray-500">
-            Review core information and metadata for the selected session.
+            Review core information for the selected session.
           </p>
         </div>
 
@@ -145,25 +138,7 @@ function SessionDetailsModal({ open, onClose, session }) {
             </div>
           </section>
 
-          {/* Divider and Metadata */}
-          <section aria-label="Metadata" className="mt-6">
-            <hr className="border-gray-200" />
-            <div className="mt-4 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">
-                Metadata
-              </h3>
-              <span className="text-[11px] text-amber-600/80">
-                Ocean Professional
-              </span>
-            </div>
-            {metadataValue !== '—' ? (
-              <pre className="mt-2 text-sm text-gray-900 bg-gray-50 rounded-md p-4 whitespace-pre-wrap break-words overflow-x-auto">
-                {metadataValue}
-              </pre>
-            ) : (
-              <div className="mt-2 text-sm text-gray-500">—</div>
-            )}
-          </section>
+
         </div>
 
         {/* Footer with full-width prominent Close button */}
