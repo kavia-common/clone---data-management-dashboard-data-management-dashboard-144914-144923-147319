@@ -83,9 +83,17 @@ app.use('/docs', swaggerUi.serve, (req, res, next) => {
   swaggerUi.setup(dynamicSpec)(req, res, next);
 });
 
-// Health and base routes
+/**
+ * Health and base routes
+ */
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
+
+/**
+ * Dev utilities (seed data / db status) - non-auth, for debugging only.
+ * Mount under /api/dev
+ */
+app.use('/api/dev', require('./routes/dev.routes'));
 
 /**
  * Public API routes (no authentication middleware).
@@ -100,6 +108,19 @@ app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
 
+ // Sample data endpoint (demonstration): /api/data
+app.use('/api/data', require('./routes/data.routes'));
+
+  // LLM costs endpoints (CRUD/list/get)
+app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
+app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
+
+// Tenants and Projects (mapping, hierarchy, credits, usage)
+app.use('/api/tenants', require('./routes/tenants.routes'));
+app.use('/api/projects', require('./routes/projects.routes'));
+// Tenants and Projects (mapping, hierarchy, credits, usage)
+app.use('/api/tenants', require('./routes/tenants.routes'));
+app.use('/api/projects', require('./routes/projects.routes'));
 // JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
 app.use((req, res) => {
   return res.status(404).json({

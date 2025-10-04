@@ -6,8 +6,10 @@ Key features:
 - Express.js with Helmet, CORS, Rate Limiting
 - MongoDB via Mongoose with indexes per schema guidance
 - Public CRUD for:
+  - users
   - session_tracking
   - app_deployments
+  - sample (demo)
 - Swagger docs at /docs with dynamic server URL
 
 ## Setup
@@ -35,6 +37,52 @@ Key features:
   MONGOOSE_AUTO_INDEX=true   # optional
   ```
 
+<<<<<<< HEAD
+=======
+2) Configure CORS
+- The backend includes a robust CORS middleware that:
+  - Reads allowed origins from:
+    - `CORS_ORIGIN` (single origin) and/or
+    - `CORS_ORIGINS` (comma-separated list)
+  - Auto-allows the origin derived from `REACT_APP_API_BASE_URL` if provided (commonly set in the frontend).
+    - Example: if `REACT_APP_API_BASE_URL=https://host:3001/api`, backend will allow `https://host:3000` and the exact origin derived from the API base URL.
+  - Adds sensible defaults for local development: `http://localhost:3000`, `https://localhost:3000`.
+  - Honors `CORS_CREDENTIALS=true` to enable credentialed requests.
+
+- Local development (recommended):
+  - Backend runs on 3001 and frontend on 3000.
+  - Frontend must set:
+    ```
+    REACT_APP_API_BASE_URL=http://localhost:3001/api
+    ```
+  - Backend already allows `http://localhost:3000` by default. No additional CORS envs are required for this pairing.
+  - If your frontend uses credentialed requests (cookies), also set:
+    ```
+    CORS_CREDENTIALS=true
+    ```
+
+- Typical configurations (hosted/prod):
+  - Single origin:
+    ```
+    CORS_ORIGIN=https://app.example.com
+    ```
+  - Multiple origins:
+    ```
+    CORS_ORIGINS=https://app.example.com,https://admin.example.com
+    ```
+  - Derive from frontend API base (when frontend build injects this):
+    ```
+    REACT_APP_API_BASE_URL=https://api.example.com/api
+    ```
+  - Enable cookies/credentials:
+    ```
+    CORS_CREDENTIALS=true
+    ```
+
+- On startup, backend logs the computed CORS whitelist to help diagnose mismatches.
+- See `.env.example` for all options and copy it as a starting point.
+
+>>>>>>> cga-cg9d6f2ee8
 3) Install dependencies:
 ```
 npm install
@@ -107,25 +155,61 @@ To confirm the backend is connected to the correct MongoDB cluster and the dashb
   ```
   MONGODB_URI not set in environment. Falling back to built-in default MongoDB URI.
   ```
-- Call any data endpoint to verify live results (no auth required). Both kebab-case and camelCase paths are supported to match various frontends:
+- Call any data endpoint to verify live results (no auth required). Both kebab-case and camelCase paths are supported to match frontend calls:
   ```
+  GET /api/users
   GET /api/session-tracking   OR  /api/sessionTracking
   GET /api/app-deployments    OR  /api/appDeployments
-  GET /api/users
+  GET /api/data               # Sample endpoint backed by the "sample" collection
+  ```
+<<<<<<< HEAD
+=======
+
+- Seed demo data if your collections are empty:
+  ```
+  GET /api/dev/seed
+  ```
+  This will insert minimal demo records into users, sample, session_tracking and app_deployments if empty.
+
+- Quick verification endpoint:
+  ```
+  GET /api/dev/verify
+  ```
+  Returns counts and a few sample documents from each collection to confirm data presence.
+
+- DB connection status:
+  ```
+  GET /api/dev/db-status
   ```
 
-## Collections
+Notes:
+- The frontend should only call these backend APIs. It should not connect directly to MongoDB.
+- The backend uses `process.env.MONGODB_URI` if set, otherwise the provided default.
+>>>>>>> cga-cg9d6f2ee8
 
+## Collections & Query Hints
+
+- Users: /api/users
 - Session Tracking: /api/session-tracking
 - App Deployments: /api/app-deployments
+- Sample: /api/data
 
 List supports:
-- ?page=1&limit=20
+- ?page=1&limit=20  -> returns { success, data, meta }
+- Without page/limit -> returns raw array
 - ?sort=-created_at
-- ?filter={"status":"active"}
+- ?filter={"status":"active"}   (use valid JSON)
 
-## Notes
+## Troubleshooting
 
+- Empty arrays in responses usually mean:
+  - The collection has no data (use /api/dev/seed)
+  - The filter JSON excludes all documents (remove or adjust `filter`)
+  - Connected to a different database (check logs and /api/dev/db-status)
+- Invalid filter JSON returns 400 with message "Invalid filter JSON".
+- If you need indexes for performance, enable `MONGOOSE_AUTO_INDEX=true` temporarily or manage indexes directly in MongoDB.
+
+<<<<<<< HEAD
 - Endpoints are public and do not require authentication.
 - Schema comes from SCHEMA.md and schema.summary.json.
 - Validate URLs and dates when sending data.
@@ -165,3 +249,5 @@ Tip: You can also retrieve a single record to verify connectivity:
 ```
 GET /api/session-tracking?limit=1
 ```
+=======
+>>>>>>> cga-cg9d6f2ee8

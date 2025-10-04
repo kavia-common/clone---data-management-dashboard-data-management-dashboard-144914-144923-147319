@@ -1,26 +1,29 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
-const AppDeployment = require('../models/appDeployments.model');
 const { buildCrudController } = require('../controllers/crudFactory');
-const { validateAppDeployment } = require('../middleware/validators');
+const LLMCost = require('../models/llmCosts.model');
 
 const router = express.Router();
-const controller = buildCrudController(AppDeployment, '-created_at');
+// Default sort by most recent cost first
+const controller = buildCrudController(LLMCost, '-timestamp');
 
 /**
  * @swagger
  * tags:
- *   name: AppDeployments
- *   description: Application deployments endpoints
+ *   name: LLMCosts
+ *   description: LLM usage cost records endpoints
  */
 
 /**
  * @swagger
- * /api/app-deployments:
+ * /api/llm-costs:
  *   get:
- *     summary: List application deployments
- *     description: Paginated list with optional filter and sort.
- *     tags: [AppDeployments]
+ *     summary: List LLM cost records
+ *     description: >
+ *       Returns a list of LLM cost documents. Supports optional JSON filter, sorting and pagination.
+ *       If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }.
+ *       Otherwise a raw array is returned.
+ *     tags: [LLMCosts]
  *     parameters:
  *       - in: query
  *         name: page
@@ -31,13 +34,14 @@ const controller = buildCrudController(AppDeployment, '-created_at');
  *       - in: query
  *         name: sort
  *         schema: { type: string }
+ *         description: Sort string (e.g., -timestamp or total_cost)
  *       - in: query
  *         name: filter
  *         schema: { type: string }
- *         description: JSON filter (e.g., {"project_id":"p1","status":"success"})
+ *         description: JSON filter (e.g., {"tenant_id":"org1","llm_model":"gpt-4o"})
  *     responses:
  *       200:
- *         description: OK (array or envelope based on pagination params)
+ *         description: Successful response (array or envelope based on pagination params)
  *         content:
  *           application/json:
  *             schema:
@@ -45,16 +49,17 @@ const controller = buildCrudController(AppDeployment, '-created_at');
  *                 - type: array
  *                   items: { $ref: '#/components/schemas/GenericDocument' }
  *                 - $ref: '#/components/schemas/ListEnvelope'
- *       400: { description: Invalid filter }
+ *       400:
+ *         description: Invalid filter
  */
 router.get('/', asyncHandler(controller.list));
 
 /**
  * @swagger
- * /api/app-deployments/{id}:
+ * /api/llm-costs/{id}:
  *   get:
- *     summary: Get app deployment by ID
- *     tags: [AppDeployments]
+ *     summary: Get an LLM cost record by ID
+ *     tags: [LLMCosts]
  *     parameters:
  *       - in: path
  *         name: id
@@ -69,10 +74,10 @@ router.get('/:id', asyncHandler(controller.getById));
 
 /**
  * @swagger
- * /api/app-deployments:
+ * /api/llm-costs:
  *   post:
- *     summary: Create app deployment
- *     tags: [AppDeployments]
+ *     summary: Create LLM cost record
+ *     tags: [LLMCosts]
  *     requestBody:
  *       required: true
  *       content:
@@ -83,14 +88,14 @@ router.get('/:id', asyncHandler(controller.getById));
  *       422: { description: Validation failed }
  *       400: { description: Bad request }
  */
-router.post('/', validateAppDeployment, asyncHandler(controller.create));
+router.post('/', asyncHandler(controller.create));
 
 /**
  * @swagger
- * /api/app-deployments/{id}:
+ * /api/llm-costs/{id}:
  *   put:
- *     summary: Update app deployment
- *     tags: [AppDeployments]
+ *     summary: Update LLM cost record
+ *     tags: [LLMCosts]
  *     parameters:
  *       - in: path
  *         name: id
@@ -107,14 +112,14 @@ router.post('/', validateAppDeployment, asyncHandler(controller.create));
  *       400: { description: Invalid id or payload }
  *       422: { description: Validation failed }
  */
-router.put('/:id', validateAppDeployment, asyncHandler(controller.update));
+router.put('/:id', asyncHandler(controller.update));
 
 /**
  * @swagger
- * /api/app-deployments/{id}:
+ * /api/llm-costs/{id}:
  *   delete:
- *     summary: Delete app deployment
- *     tags: [AppDeployments]
+ *     summary: Delete LLM cost record
+ *     tags: [LLMCosts]
  *     parameters:
  *       - in: path
  *         name: id
