@@ -3,6 +3,7 @@ const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const Project = require('../models/project.model');
 const Tenant = require('../models/tenant.model');
+const SessionTracking = require('../models/sessionTracking.model');
 const { getSessionDurations, getCosts } = require('../services/analytics');
 
 const router = express.Router();
@@ -227,6 +228,82 @@ router.get(
       project_id: projectId,
       tenant_id: project.tenant_id,
       users,
+    });
+  })
+);
+
+/**
+ * @swagger
+ * /api/projects/{projectId}/cost:
+ *   get:
+ *     summary: Project total cost (from session tracking)
+ *     description: >
+ *       Aggregates cost for a project by summing total_cost across session tracking documents that match the given projectId.
+ *       Returns 0 if no sessions are found. Currency is taken from the project document if available (credits_unit, default USD).
+ *     tags: [Projects]
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Cost total for the project
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 projectId: { type: string, description: "Project identifier" }
+ *                 cost: { type: number, description: "Sum of total_cost across sessions" }
+ *                 currency: { type: string, description: "Currency code, defaults to USD" }
+ *       404:
+ *         description: Project not found
+ */
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/projects/:projectId/cost
+ * Aggregates total cost for a project from session_tracking collection.
+ */
+router.get(
+  '/:projectId/cost',
+  asyncHandler(async (req, res) => {
+    const { projectId } = req.params;
+
+    // Ensure the project exists
+    const project = await Project.findOne({ project_id: projectId }).lean();
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    // Aggregation pipeline to sum total_cost across sessions for this projectId
+    const pipeline = [
+      { $match: { project_id: projectId } },
+      {
+        $group: {
+          _id: null,
+          totalCost: { $sum: { $ifNull: ['$total_cost', 0] } },
+        },
+      },
+    ];
+
+    let totalCost = 0;
+    try {
+      const result = await SessionTracking.aggregate(pipeline);
+      totalCost = Number(result?.[0]?.totalCost || 0);
+      if (!Number.isFinite(totalCost)) totalCost = 0;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Error aggregating project cost from session_tracking:', err?.message || err);
+      // Fall back to zero on aggregation error
+      totalCost = 0;
+    }
+
+    const currency = project?.credits_unit || 'USD';
+    return res.status(200).json({
+      projectId,
+      cost: totalCost,
+      currency,
     });
   })
 );
