@@ -26,6 +26,18 @@ const controller = buildCrudController(LLMCost, '-timestamp');
  *     tags: [LLMCosts]
  *     parameters:
  *       - in: query
+ *         name: projectId
+ *         schema: { type: string }
+ *         description: Optional project identifier to filter costs (maps to project_id)
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO date-time lower bound (applied to timestamp)
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO date-time upper bound (applied to timestamp)
+ *       - in: query
  *         name: page
  *         schema: { type: integer, minimum: 1 }
  *       - in: query
@@ -50,9 +62,66 @@ const controller = buildCrudController(LLMCost, '-timestamp');
  *                   items: { $ref: '#/components/schemas/GenericDocument' }
  *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400:
- *         description: Invalid filter
+ *         description: Invalid filter or date
+ *       500:
+ *         description: Internal server error
  */
-router.get('/', asyncHandler(controller.list));
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/llm-costs
+ * Supports optional filters: projectId (string), from (ISO date-time), to (ISO date-time)
+ * Falls back to generic list behavior if no specific filters are provided.
+ */
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    // Extend generic list with projectId + date range filtering.
+    const filter = {};
+
+    // projectId filter support (maps to project_id in db)
+    const { projectId, from, to } = req.query;
+    if (projectId) {
+      filter.project_id = projectId.toString();
+    }
+
+    // Prefer timestamp; if collection uses createdAt/ts in some docs, they will still be returned
+    // since we do not omit fields; here we filter only when timestamp exists.
+    if (from || to) {
+      const range = {};
+      if (from) {
+        const d = new Date(from);
+        if (isNaN(d.getTime())) {
+          return res.status(400).json({ success: false, message: 'Invalid from date' });
+        }
+        range.$gte = d;
+      }
+      if (to) {
+        const d = new Date(to);
+        if (isNaN(d.getTime())) {
+          return res.status(400).json({ success: false, message: 'Invalid to date' });
+        }
+        range.$lte = d;
+      }
+      filter.timestamp = range;
+    }
+
+    // Inject composed filter via existing generic list flow using req.query.filter
+    const originalFilter = req.query.filter;
+    try {
+      const merged =
+        originalFilter && typeof originalFilter === 'string'
+          ? { ...JSON.parse(originalFilter), ...filter }
+          : { ...(originalFilter || {}), ...filter };
+
+      req.query.filter = JSON.stringify(merged);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+    }
+
+    // Defer to generic list to respect pagination/envelope and sort behaviors
+    return controller.list(req, res);
+  })
+);
 
 /**
  * @swagger
@@ -69,6 +138,40 @@ router.get('/', asyncHandler(controller.list));
  *       200: { description: OK }
  *       404: { description: Not found }
  *       400: { description: Invalid id }
+ */
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/projects/:projectId/llm-costs
+ * Reuses logic from GET /api/llm-costs with projectId pre-applied from path param.
+ */
+router.get(
+  '/projects/:projectId/llm-costs',
+  asyncHandler(async (req, res) => {
+    // Map path param into query for unified handling
+    req.query.projectId = req.params.projectId;
+    return router.handle({ ...req, url: '/', method: 'GET' }, res);
+  })
+);
+
+/**
+ * Keep the record-by-id route after custom routes
+ */
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/projects/:projectId/llm-costs
+ * Reuses logic from GET /api/llm-costs with projectId pre-applied from path param.
+ */
+router.get(
+  '/projects/:projectId/llm-costs',
+  asyncHandler(async (req, res) => {
+    // Map path param into query for unified handling
+    req.query.projectId = req.params.projectId;
+    return router.handle({ ...req, url: '/', method: 'GET' }, res);
+  })
+);
+
+/**
+ * Keep the record-by-id route after custom routes
  */
 router.get('/:id', asyncHandler(controller.getById));
 
@@ -87,6 +190,46 @@ router.get('/:id', asyncHandler(controller.getById));
  *       201: { description: Created }
  *       422: { description: Validation failed }
  *       400: { description: Bad request }
+ */
+/**
+ * @swagger
+ * /api/projects/{projectId}/llm-costs:
+ *   get:
+ *     summary: List LLM cost records for a project
+ *     description: Returns LLM cost documents filtered by projectId. Supports optional from/to date range and pagination.
+ *     tags: [LLMCosts]
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, minimum: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 200 }
+ *       - in: query
+ *         name: sort
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response (array or envelope based on pagination params)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - type: array
+ *                   items: { $ref: '#/components/schemas/GenericDocument' }
+ *                 - $ref: '#/components/schemas/ListEnvelope'
+ *       400: { description: Invalid input }
+ *       500: { description: Internal server error }
  */
 router.post('/', asyncHandler(controller.create));
 
