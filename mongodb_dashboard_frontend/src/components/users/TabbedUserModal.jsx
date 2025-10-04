@@ -6,7 +6,6 @@ import Modal from '../ui/Modal.jsx';
 
 // Views
 import { useUserProjects } from '../../hooks/useUserProjects';
-import { useProjectCostHistorySum } from '../../hooks/useProjectCostHistorySum';
 
 /**
  * Internal presentational view for user details
@@ -173,109 +172,6 @@ function UserDetailsView({ user }) {
 
 UserDetailsView.propTypes = {
   user: PropTypes.object,
-};
-
-/**
- * Renders the Project Details header section showing aggregate cost if a project is provided.
- * Prefers sum of cost_history.delta_total_cost; falls back to legacy total cost internally via hook.
- * Always renders the card so Project ID and Updated are visible; shows '—' for cost when projectId is missing.
- */
-function ProjectCostSummaryCard({ project }) {
-  // Resolve projectId from various possible shapes; log for diagnostics in development.
-  const projectIdStr = useMemo(() => {
-    if (!project) return '';
-    const id =
-      project.project_id ??
-      project.projectId ??
-      project.id ??
-      project._id ??
-      '';
-    const s = String(id || '').trim();
-    return s.length > 0 && s !== '—' ? s : '';
-  }, [project]);
-
-  if (process.env.NODE_ENV !== 'production') {
-    try {
-      // eslint-disable-next-line no-console
-      console.log('[ProjectCostSummaryCard] projectIdStr:', projectIdStr, 'project:', project);
-    } catch {
-      /* noop */
-    }
-  }
-
-  const enabled = Boolean(projectIdStr);
-  const { formattedCost, loading, error } = useProjectCostHistorySum(projectIdStr, { enabled });
-
-  if (process.env.NODE_ENV !== 'production' && enabled) {
-    try {
-      // eslint-disable-next-line no-console
-      console.log('[ProjectCostSummaryCard] enabled fetch for projectId:', projectIdStr);
-    } catch {
-      /* noop */
-    }
-  }
-
-  const updated = project?.updatedAt || project?.updated_at || project?.last_activity || null;
-  const updatedLabel = (() => {
-    if (!updated) return '—';
-    try { return new Date(updated).toLocaleString(); } catch { return String(updated); }
-  })();
-
-  // Always render the card to show ID and Updated; show '—' for cost if no projectId
-  return (
-    <section
-      aria-label="Project aggregate cost"
-      style={{
-        background: "var(--bg-surface, #ffffff)",
-        border: "1px solid var(--border-subtle, #E6EAF0)",
-        borderRadius: 12,
-        boxShadow: "var(--shadow, 0 1px 2px rgba(16,24,40,0.04))",
-        padding: 16,
-        display: 'grid',
-        gap: 8,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary, #64748B)', letterSpacing: '.02em' }}>
-          Project Details
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
-          ID: {projectIdStr || '—'}
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary, #64748B)', marginBottom: 4 }}>
-            Total Cost
-          </div>
-          <div style={{ fontWeight: 700, color: 'var(--text-primary, #111827)' }}>
-            {!enabled
-              ? '—'
-              : loading
-                ? 'Loading…'
-                : error
-                  ? <span title={error} style={{ color: '#EF4444', fontWeight: 600 }}>Error</span>
-                  : (formattedCost ?? '—')}
-          </div>
-          {/* Prefer sum of cost_history.delta_total_cost; fall back handled in the hook if needed. */}
-        </div>
-
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary, #64748B)', marginBottom: 4 }}>
-            Updated
-          </div>
-          <div style={{ color: 'var(--text-secondary, #475569)' }}>
-            {updatedLabel}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-ProjectCostSummaryCard.propTypes = {
-  project: PropTypes.object,
 };
 
 /**
@@ -618,9 +514,6 @@ export default function TabbedUserModal({
 
           {activeTab === 'projects' && (
             <div style={{ display: "grid", gap: 16 }}>
-              {/* Project aggregate cost card using hook at component level to follow rules-of-hooks */}
-              <ProjectCostSummaryCard project={user?.current_project} />
-
               <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
             </div>
           )}
