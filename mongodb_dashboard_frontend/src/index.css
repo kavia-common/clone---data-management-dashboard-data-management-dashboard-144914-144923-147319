@@ -91,3 +91,25 @@ body.modal-open--dim-header .topbar {
   font-weight: 700;
   font-size: 12px;
 }
+
+/* Modal-specific overrides to ensure no unintended blue lines appear */
+.session-details-modal hr,
+.tabbed-user-modal hr,
+.modal-card hr,
+.modal-body hr {
+  display: none !important;
+  border: 0 !important;
+  height: 0 !important;
+}
+
+/* Remove any primary-colored borders used as rails or dividers inside these modals */
+.session-details-modal *,
+.tabbed-user-modal * {
+  border-color: transparent !important;
+}
+
+/* Allow only subtle neutral separators where explicitly set by components */
+.session-details-modal .neutral-divider,
+.tabbed-user-modal .neutral-divider {
+  border-color: var(--border-subtle, #E5E7EB) !important;
+}

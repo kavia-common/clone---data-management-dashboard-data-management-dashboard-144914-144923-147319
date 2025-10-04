@@ -52,6 +52,7 @@ export default function Modal({ title, open, onClose, children }) {
           background: 'transparent',
           borderRadius: 0,
           boxShadow: 'none',
+          border: 'none',
         }}
       >
         {children}

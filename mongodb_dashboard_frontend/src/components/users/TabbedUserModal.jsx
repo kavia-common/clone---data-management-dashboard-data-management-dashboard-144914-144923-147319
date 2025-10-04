@@ -10,7 +10,7 @@ import { useUserProjects } from '../../hooks/useUserProjects';
 
 /**
  * Internal presentational view for user details
- * 2x2 responsive grid with Ocean Professional styling and amber accent border.
+ * 2x2 responsive grid with Ocean Professional styling and neutral divider.
  * Fields: Name | Email (row 1), Role | Tenant (row 2).
  */
 function UserDetailsView({ user }) {
@@ -41,8 +41,8 @@ function UserDetailsView({ user }) {
         borderRadius: 12,
         boxShadow: "var(--shadow, 0 1px 2px rgba(16,24,40,0.04))",
         padding: 24, // comfortable padding
-        // subtle amber accent on the left
-        borderLeft: "4px solid #F59E0B",
+        // neutral subtle divider instead of colored accent to avoid unintended lines
+        borderLeft: "1px solid var(--border-subtle, #E5E7EB)",
       }}
     >
       <div
@@ -387,7 +387,7 @@ UserProjectsView.propTypes = {
  * PUBLIC_INTERFACE
  * TabbedUserModal
  * A single modal that combines user details and user projects into two tabs.
- * - Styled tabs with Ocean Professional colors and active underline
+ * - Styled tabs with Ocean Professional colors and active underline (neutral)
  * - Sticky header and tab bar; scroll only the content
  * - Comfortable padding and full-width red Close button
  * - Semi-transparent backdrop to focus attention
@@ -450,8 +450,8 @@ export default function TabbedUserModal({
               style={{
                 appearance: "none",
                 border: "none",
-                background: isActive ? "rgba(37, 99, 235, 0.10)" : "transparent", // #2563EB1A
-                color: isActive ? "#2563EB" : "var(--text-secondary, #475569)",
+                background: isActive ? "rgba(15, 23, 42, 0.04)" : "transparent", // neutral subtle tint
+                color: isActive ? "var(--text-primary, #111827)" : "var(--text-secondary, #475569)",
                 fontWeight: isActive ? 700 : 600,
                 padding: "8px 12px",
                 borderRadius: 8,
@@ -461,12 +461,12 @@ export default function TabbedUserModal({
                 transition: "background .15s ease, color .15s ease",
               }}
               onMouseEnter={(e) => {
-                if (!isActive) e.currentTarget.style.background = "rgba(37,99,235,0.06)";
-                e.currentTarget.style.color = "#2563EB";
+                if (!isActive) e.currentTarget.style.background = "rgba(15,23,42,0.05)";
+                e.currentTarget.style.color = "var(--text-primary, #111827)";
               }}
               onMouseLeave={(e) => {
                 if (!isActive) e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = isActive ? "#2563EB" : "var(--text-secondary, #475569)";
+                e.currentTarget.style.color = isActive ? "var(--text-primary, #111827)" : "var(--text-secondary, #475569)";
               }}
             >
               {t.label}
@@ -478,7 +478,7 @@ export default function TabbedUserModal({
                   right: 8,
                   bottom: -5,
                   height: 2,
-                  background: isActive ? "#2563EB" : "transparent",
+                  background: isActive ? "var(--border-subtle, #E5E7EB)" : "transparent",
                   borderRadius: 2,
                   transition: "background .15s ease",
                 }}
@@ -493,6 +493,7 @@ export default function TabbedUserModal({
   return (
     // Apply subtle overlay via wrapper as Modal already provides a baseline; reinforce to ensure requirement
     <div
+      className="tabbed-user-modal"
       style={{
         position: open ? "fixed" : "hidden",
         inset: 0,

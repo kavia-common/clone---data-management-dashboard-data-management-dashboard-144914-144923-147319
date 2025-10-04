@@ -98,7 +98,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         aria-modal="true"
         aria-labelledby={headerId}
         aria-describedby={`${headerId}-content`}
-        className="w-full"
+        className="w-full session-details-modal"
         onClick={(e) => e.stopPropagation()}
         style={{
           // Card visuals aligned with Ocean Professional
@@ -174,31 +174,7 @@ function SessionDetailsModal({ open, onClose, session }) {
               padding: 16,
             }}
           >
-            {/* Accent Rail and optional warm dot */}
-            <div
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                left: 8,
-                top: 8,
-                bottom: 8,
-                width: 6,
-                background: 'var(--brand-200, #BFDBFE)',
-                borderRadius: 8,
-              }}
-            />
-            <span
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                top: 8,
-                left: 6,
-                width: 8,
-                height: 8,
-                background: 'var(--accent-warm, #F59E0B)',
-                borderRadius: 9999,
-              }}
-            />
+
 
             {/* Inner grid: two columns desktop, one column on small screens */}
             <div
