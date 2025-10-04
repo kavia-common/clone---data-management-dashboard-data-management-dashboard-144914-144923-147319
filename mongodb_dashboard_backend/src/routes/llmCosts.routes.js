@@ -18,25 +18,39 @@ const controller = buildCrudController(LLMCost, '-timestamp');
  * @swagger
  * /api/llm-costs:
  *   get:
- *     summary: List all LLM cost records
+ *     summary: List LLM cost records
  *     description: >
- *       Returns all documents from the llm_costs collection without requiring any filters.
+ *       Returns a list of LLM cost documents. Supports optional JSON filter, sorting and pagination.
  *       If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }.
- *       Otherwise a raw array is returned. All fields present in the database are returned (no projection).
+ *       Otherwise a raw array is returned.
  *     tags: [LLMCosts]
  *     parameters:
  *       - in: query
+ *         name: projectId
+ *         schema: { type: string }
+ *         description: Optional project identifier to filter costs (maps to project_id)
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO date-time lower bound (applied to timestamp)
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO date-time upper bound (applied to timestamp)
+ *       - in: query
  *         name: page
  *         schema: { type: integer, minimum: 1 }
- *         description: Optional page number to enable envelope response
  *       - in: query
  *         name: limit
  *         schema: { type: integer, minimum: 1, maximum: 200 }
- *         description: Optional page size to enable envelope response
  *       - in: query
  *         name: sort
  *         schema: { type: string }
- *         description: Optional sort string (e.g., -timestamp or total_cost)
+ *         description: Sort string (e.g., -timestamp or total_cost)
+ *       - in: query
+ *         name: filter
+ *         schema: { type: string }
+ *         description: JSON filter (e.g., {"tenant_id":"org1","llm_model":"gpt-4o"})
  *     responses:
  *       200:
  *         description: Successful response (array or envelope based on pagination params)
@@ -47,6 +61,8 @@ const controller = buildCrudController(LLMCost, '-timestamp');
  *                 - type: array
  *                   items: { $ref: '#/components/schemas/GenericDocument' }
  *                 - $ref: '#/components/schemas/ListEnvelope'
+ *       400:
+ *         description: Invalid filter or date
  *       500:
  *         description: Internal server error
  */
