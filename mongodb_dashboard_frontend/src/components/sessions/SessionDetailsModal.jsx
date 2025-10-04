@@ -177,7 +177,7 @@ function SessionDetailsModal({ open, onClose, session }) {
 
     // Strict user display: session.user_name first, then resolved user name, then Unknown
     const resolvedUserName = resolveUserName(pick(['user', 'userId', 'user_id', 'username', 'email', 'owner', 'ownerEmail']));
-    const displayUser = s?.user_name ?? resolvedUserName ?? 'Unknown User';
+    const displayUser = s?.User_name ?? resolvedUserName ?? 'Unknown User'; // Note: source uses 'User_name' (capital U)
 
     const projectId = pick(['project_id', 'projectId', 'project', 'projectSlug']);
     const projectName = pick(['projectName', 'project_name', 'projectLabel', 'project_label']);
