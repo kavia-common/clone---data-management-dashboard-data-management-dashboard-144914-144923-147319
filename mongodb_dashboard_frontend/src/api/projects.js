@@ -1,60 +1,42 @@
-import { getApiBaseUrl } from './util';
+import { getApiClient } from './client';
 
-/**
- * PUBLIC_INTERFACE
- * getProjectLlmCost
- * Fetch total LLM cost for a project from the backend.
- * Returns shape: { projectId, cost, currency }
- */
+// PUBLIC_INTERFACE
 export async function getProjectLlmCost(projectId) {
+  /** Fetch total LLM cost for a project from the backend.
+   * Returns shape: { projectId, cost, currency }
+   */
   if (!projectId) throw new Error('projectId is required');
-  const base = getApiBaseUrl();
-  const url = `${base}/projects/${encodeURIComponent(projectId)}/llm-cost`;
-
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch LLM cost (${res.status})`);
-  }
-  const data = await res.json();
-  return data;
-}
-
-/**
- * PUBLIC_INTERFACE
- * getProjectCost
- * Fetch total project cost aggregated from session tracking (/api/projects/:projectId/cost).
- * Returns shape: { projectId, cost, currency }
- */
-export async function getProjectCost(projectId) {
-  if (!projectId) throw new Error('projectId is required');
-  const base = getApiBaseUrl();
-  const url = `${base}/projects/${encodeURIComponent(projectId)}/cost`;
-
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch project cost (${res.status})`);
-  }
-  return res.json();
+  const api = getApiClient();
+  const res = await api.get(`/projects/${encodeURIComponent(projectId)}/llm-cost`);
+  return res.data?.data ?? res.data;
 }
 
 /**
  * PUBLIC_INTERFACE
  * getProjectCostHistorySum
- * Fetch project cost aggregated from cost_history deltas (/api/projects/:projectId/cost-history-sum).
- * Returns shape: { projectId, cost }
+ * Calls GET /api/projects/:projectId/cost-history-sum
+ * Returns: { projectId, cost }
  */
 export async function getProjectCostHistorySum(projectId) {
   if (!projectId) throw new Error('projectId is required');
-  const base = getApiBaseUrl();
-  const url = `${base}/projects/${encodeURIComponent(projectId)}/cost-history-sum`;
+  const api = getApiClient();
+  const res = await api.get(`/projects/${encodeURIComponent(projectId)}/cost-history-sum`);
+  return res.data?.data ?? res.data;
+}
 
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch project cost history sum (${res.status})`);
-  }
-  return res.json();
+/**
+ * PUBLIC_INTERFACE
+ * getProjectCost
+ * Calls GET /api/projects/:projectId/cost
+ * Returns: { projectId, cost, currency }
+ */
+export async function getProjectCost(projectId) {
+  if (!projectId) throw new Error('projectId is required');
+  const api = getApiClient();
+  const res = await api.get(`/projects/${encodeURIComponent(projectId)}/cost`);
+  return res.data?.data ?? res.data;
 }
 
 // Keep default export object if callers expect consolidated API
-const api = { getProjectLlmCost, getProjectCost, getProjectCostHistorySum };
+const api = { getProjectLlmCost, getProjectCostHistorySum, getProjectCost };
 export default api;
