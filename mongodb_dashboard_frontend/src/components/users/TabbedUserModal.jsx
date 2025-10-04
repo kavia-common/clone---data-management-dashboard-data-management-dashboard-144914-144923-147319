@@ -3,7 +3,6 @@ import PropTypes from 'prop-types';
 
 // Prefer existing UI primitives if available
 import Modal from '../ui/Modal.jsx';
-import Tabs from '../ui/Tabs.jsx';
 
 // Views
 import { useUserProjects } from '../../hooks/useUserProjects';
@@ -23,7 +22,12 @@ function UserDetailsView({ user }) {
     `${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim() ||
     '';
   const email = user?.email || '';
-  const role = user?.role || user?.user_role || '';
+  const department =
+    user?.department ??
+    user?.Department ??
+    user?.dept ??
+    user?.user?.department ??
+    '';
   const tenant =
     user?.tenant_id ??
     user?.organization_name ??
@@ -108,7 +112,7 @@ function UserDetailsView({ user }) {
           </div>
         </div>
 
-        {/* Role */}
+        {/* Department */}
         <div>
           <span
             style={{
@@ -120,7 +124,7 @@ function UserDetailsView({ user }) {
               marginBottom: 6,
             }}
           >
-            Role
+            Department
           </span>
           <div
             style={{
@@ -129,9 +133,9 @@ function UserDetailsView({ user }) {
               fontWeight: 600,
               wordBreak: "break-word",
             }}
-            title={role || undefined}
+            title={department || undefined}
           >
-            {role || "—"}
+            {department || "—"}
           </div>
         </div>
 
@@ -413,8 +417,8 @@ export default function TabbedUserModal({
   // Tabs with theme-aware labels
   const tabs = useMemo(
     () => [
-      { key: 'details', label: 'Details' },
-      { key: 'projects', label: 'Projects' },
+      { key: 'details', label: 'User Details' },
+      { key: 'projects', label: 'Project Details' },
     ],
     []
   );
