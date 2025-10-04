@@ -277,12 +277,61 @@ router.get(
     }
 
     // Aggregation pipeline to sum total_cost across sessions for this projectId
+    // Coerce total_cost to number safely (handles Number, String, Decimal128) then sum
     const pipeline = [
       { $match: { project_id: projectId } },
       {
+        $addFields: {
+          total_cost_num: {
+            $cond: [
+              { $ne: ['$total_cost', null] },
+              {
+                $let: {
+                  vars: {
+                    asString: {
+                      $cond: [
+                        { $isNumber: '$total_cost' },
+                        { $toString: '$total_cost' },
+                        {
+                          $cond: [
+                            { $eq: [{ $type: '$total_cost' }, 'decimal'] },
+                            { $toString: '$total_cost' },
+                            { $toString: '$total_cost' }, // string or other convertible types
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                  in: {
+                    $cond: [
+                      {
+                        $or: [
+                          { $eq: ['$$asString', ''] },
+                          { $eq: ['$$asString', null] },
+                        ],
+                      },
+                      0,
+                      {
+                        $convert: {
+                          input: '$$asString',
+                          to: 'double',
+                          onError: 0,
+                          onNull: 0,
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+              0,
+            ],
+          },
+        },
+      },
+      {
         $group: {
           _id: null,
-          totalCost: { $sum: { $ifNull: ['$total_cost', 0] } },
+          totalCost: { $sum: '$total_cost_num' },
         },
       },
     ];
@@ -294,7 +343,10 @@ router.get(
       if (!Number.isFinite(totalCost)) totalCost = 0;
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('Error aggregating project cost from session_tracking:', err?.message || err);
+      console.error(
+        `Error aggregating project cost from session_tracking for projectId=${projectId}:`,
+        err?.message || err
+      );
       // Fall back to zero on aggregation error
       totalCost = 0;
     }
