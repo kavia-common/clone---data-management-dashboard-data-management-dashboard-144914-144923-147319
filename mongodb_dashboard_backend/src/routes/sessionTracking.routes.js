@@ -97,12 +97,23 @@ function normalizeSessionDoc(doc) {
  *         name: limit
  *         schema: { type: integer, minimum: 1, maximum: 200 }
  *       - in: query
+ *         name: pageSize
+ *         schema: { type: integer, minimum: 1, maximum: 200 }
+ *         description: Alias for "limit" (page size)
+ *       - in: query
  *         name: sort
  *         schema: { type: string }
  *       - in: query
  *         name: filter
  *         schema: { type: string }
  *         description: JSON filter (e.g., {"tenant_id":"org1","status":"active"})
+ *       - in: query
+ *         name: q
+ *         schema: { type: string }
+ *         description: >
+ *           Case-insensitive text search applied across multiple fields:
+ *           task_id, tenant_id, organization_name, user_name, project_id, container_id,
+ *           service_type, status, and session_data fields (session_name, description, llm_model).
  *     responses:
  *       200:
  *         description: Successful response (array or envelope based on pagination params)
@@ -120,9 +131,37 @@ function normalizeSessionDoc(doc) {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Parse pagination and filter
-    const { page, limit, skip, explicit } = parsePagination(req.query);
+    // Parse pagination and filter (support pageSize alias for limit)
+    const rawQuery = { ...req.query };
+    if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
+    const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
+
+    // Optional text query
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    let qFilter = {};
+    if (q) {
+      const regex = new RegExp(q, 'i');
+      qFilter = {
+        $or: [
+          { task_id: regex },
+          { tenant_id: regex },
+          { organization_name: regex },
+          { user_name: regex }, // actual field in schema
+          { User_name: regex }, // alias supported by mongoose for compatibility
+          { project_id: regex },
+          { container_id: regex },
+          { service_type: regex },
+          { status: regex },
+          { user_id: regex },
+          { 'session_data.session_name': regex },
+          { 'session_data.description': regex },
+          { 'session_data.llm_model': regex },
+        ],
+      };
+      // TODO: Consider adding dedicated text or compound indexes for large datasets
+      // e.g., db.session_tracking.createIndex({ user_name: "text", organization_name: "text", ... })
+    }
 
     const filterRaw = req.query.filter ? req.query.filter : '{}';
     let filter = {};
@@ -132,18 +171,22 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
+    // Combine filters
+    const finalFilter =
+      q && qFilter.$or && qFilter.$or.length > 0 ? { $and: [filter, qFilter] } : filter;
+
     try {
       if (explicit) {
         const [docs, total] = await Promise.all([
           // Use model documents (no lean) so Mongoose applies basic casting; still normalize to be safe
-          SessionTracking.find(filter).sort(sort).skip(skip).limit(limit),
-          SessionTracking.countDocuments(filter),
+          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
+          SessionTracking.countDocuments(finalFilter),
         ]);
         const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
         return res.status(200).json({ success: true, data: items, meta: { page, limit, total } });
       }
 
-      const docs = await SessionTracking.find(filter).sort(sort);
+      const docs = await SessionTracking.find(finalFilter).sort(sort);
       const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
       return res.status(200).json(items);
     } catch (err) {
