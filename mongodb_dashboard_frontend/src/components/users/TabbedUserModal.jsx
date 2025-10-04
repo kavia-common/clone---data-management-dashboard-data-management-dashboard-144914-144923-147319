@@ -245,6 +245,20 @@ function UserProjectsView({ userId, tenantId, from, to }) {
       gap: 12,
     };
 
+    // Fetch usage for this project
+    // Lazy import to avoid top-level circular dependencies – hook is simple
+    // eslint-disable-next-line global-require
+    const { useProjectUsage } = require('../../hooks/useProjectUsage');
+    const { data: usage, loading: usageLoading, error: usageError } = useProjectUsage(id, { enabled: Boolean(id && id !== '—') });
+
+    const formatCost = (c, curr) => {
+      if (c == null) return '—';
+      const num = Number(c);
+      if (Number.isNaN(num)) return '—';
+      const symbol = curr === 'USD' ? '$' : '';
+      return `${symbol}${num.toFixed(4)}${symbol ? '' : ` ${curr || ''}`}`.trim();
+    };
+
     return (
       <div
         role="article"
@@ -351,8 +365,31 @@ function UserProjectsView({ userId, tenantId, from, to }) {
                 </dd>
               </>
             ) : null}
+
+            {/* Credits Consumed */}
+            <>
+              <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Credits Consumed</dt>
+              <dd style={{ margin: 0, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
+                {usageLoading ? 'Loading…' : usageError ? '—' : (usage?.creditsUsed ?? '—')}
+              </dd>
+            </>
+
+            {/* Cost */}
+            <>
+              <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Cost</dt>
+              <dd style={{ margin: 0, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
+                {usageLoading ? 'Loading…' : usageError ? '—' : formatCost(usage?.cost, usage?.currency)}
+              </dd>
+            </>
           </dl>
         </div>
+
+        {/* Inline minimal error notice if fetch failed */}
+        {usageError ? (
+          <div role="alert" style={{ marginTop: 8, fontSize: 12, color: '#b91c1c' }}>
+            Unable to load usage for this project.
+          </div>
+        ) : null}
       </div>
     );
   };
