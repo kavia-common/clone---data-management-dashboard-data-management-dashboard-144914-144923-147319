@@ -141,16 +141,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-/**
- * Startup: Connect to MongoDB
- * Logs non-sensitive details including whether MONGODB_URI and MONGODB_DB are set.
- */
-(() => {
-  // eslint-disable-next-line no-console
-  console.log(
-    `[Startup] Initializing DB connection. Env set: MONGODB_URI=${process.env.MONGODB_URI ? 'yes' : 'no'}, MONGODB_DB=${process.env.MONGODB_DB || '(not-set)'}`
-  );
-})();
+// Kick off DB connection once on app startup
 connectDB().catch((err) => {
   // eslint-disable-next-line no-console
   console.error('Failed to connect to MongoDB on startup:', err.message);

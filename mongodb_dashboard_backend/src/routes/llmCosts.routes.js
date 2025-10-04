@@ -5,7 +5,6 @@ const LLMCost = require('../models/llmCosts.model');
 
 const router = express.Router();
 // Default sort by most recent cost first
-// PUBLIC_INTERFACE: CRUD list/get/post/put/delete for llm_costs collection via Mongoose model mapping
 const controller = buildCrudController(LLMCost, '-timestamp');
 
 /**

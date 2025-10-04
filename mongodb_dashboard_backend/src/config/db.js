@@ -56,31 +56,12 @@ async function connectDB() {
     console.log(
       `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
     );
-    const resolvedDbName = mongoose.connection?.name || dbName || 'default';
     if (dbName) {
       // eslint-disable-next-line no-console
       console.log(`MongoDB dbName selected via env: ${dbName}`);
     }
     // eslint-disable-next-line no-console
     console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
-
-    // Diagnostics: log key model -> collection mappings to confirm collection names
-    try {
-      const models = mongoose.models || {};
-      const mappings = Object.keys(models).map((m) => {
-        const coll = models[m]?.collection?.name;
-        return `${m} -> ${coll || 'unknown'}`;
-      });
-      // eslint-disable-next-line no-console
-      console.log(
-        `[DB Diagnostics] Resolved dbName=${resolvedDbName}; Model collection bindings: ${mappings.join(
-          ', '
-        )}`
-      );
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn('[DB Diagnostics] Unable to list model mappings:', e?.message);
-    }
   });
 
   mongoose.connection.on('error', (err) => {
