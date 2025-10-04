@@ -5,6 +5,12 @@ import React from "react";
  * Modal
  * A simple overlay container that centers its children and closes on backdrop click.
  * Consumers are responsible for rendering header/body/footer within children.
+ *
+ * Behavior:
+ * - Uses a fixed, full-screen overlay with flex centering so the modal stays centered on scroll/resize.
+ * - Backdrop is a semi-transparent black rgba(0,0,0,0.3) per requirement (with CSS var fallback).
+ * - Content wrapper enforces max-width and max-height with internal scroll.
+ * - Backdrop click-to-close remains intact; children control internal focus/scrolling.
  */
 export default function Modal({ title, open, onClose, children }) {
   if (!open) return null;
@@ -27,35 +33,38 @@ export default function Modal({ title, open, onClose, children }) {
         justifyContent: 'center',
         // Responsive padding including safe-area insets for mobile
         padding: '16px',
-        // Ocean Professional semi-transparent backdrop (use CSS var with fallback)
-        backgroundColor: 'var(--modal-backdrop, rgba(17,24,39,0.5))',
+        // Semi-transparent backdrop per request; allow CSS var override
+        background: 'var(--modal-backdrop, rgba(0,0,0,0.3))',
         // Ensure overlay is above app header/other content
         zIndex: 1100,
-        // When content is taller than viewport, allow the overall overlay to scroll
+        // Allow overlay to scroll if an extremely tall modal is rendered
         overflowY: 'auto',
       }}
     >
-      {/* Content wrapper: full-width within padding, no absolute positioning.
-          Constrain height to viewport and enable internal scrolling via children. */}
+      {/* Content wrapper:
+          - Fill available width within overlay padding
+          - Constrain size and allow internal scroll to keep header/footer visible
+      */}
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '100%',
-          // Cap width to a comfortable reading width while keeping responsiveness
           maxWidth: 'min(960px, 100%)',
-          // Ensure any direct content that needs to fill height can do so responsibly
-          // Consumers should still manage their internal scroll areas.
           maxHeight: 'calc(100vh - 32px)',
-          // No overflow hidden here to allow inner components to manage their own scroll,
-          // but keep the wrapper visually unobtrusive.
-          // Visual defaults aligned with Ocean Professional for modals that do not set their own styles.
-          background: 'transparent',
-          borderRadius: 0,
-          boxShadow: 'none',
+          // Provide a default card surface if children don't set one
+          background: 'var(--bg-surface, #ffffff)',
+          borderRadius: 12,
+          boxShadow: '0 8px 20px rgba(16,24,40,0.12)',
           border: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
         }}
       >
-        {children}
+        {/* Inner scroll region: wrap children in a flex column to allow content to scroll if needed */}
+        <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+          {children}
+        </div>
       </div>
 
       {/* Responsive padding refinement for very small viewports with safe-area insets */}

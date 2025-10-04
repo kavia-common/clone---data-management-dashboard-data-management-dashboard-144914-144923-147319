@@ -40,8 +40,8 @@ body.modal-open--lock-scroll {
 
   --link: #2563EB;
 
-  /* Modal backdrop token for Ocean Professional */
-  --modal-backdrop: rgba(17,24,39,0.5);
+  /* Modal backdrop token for Ocean Professional (default to rgba(0,0,0,0.3) per requirement) */
+  --modal-backdrop: rgba(0,0,0,0.3);
 }
 
 body {
@@ -112,4 +112,28 @@ body.modal-open--dim-header .topbar {
 .session-details-modal .neutral-divider,
 .tabbed-user-modal .neutral-divider {
   border-color: var(--border-subtle, #E5E7EB) !important;
+}
+
+/* Fallback utility: fixed transform centering for any element needing precise center without flex wrapper */
+.center-fixed-transform {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  z-index: 1100 !important;
+  max-width: min(960px, 100vw - 32px) !important;
+  max-height: calc(100vh - 32px) !important;
+  width: 100% !important;
+}
+
+/* Fallback utility: fixed transform centering for any element needing precise center without flex wrapper */
+.center-fixed-transform {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  z-index: 1100 !important;
+  max-width: min(960px, 100vw - 32px) !important;
+  max-height: calc(100vh - 32px) !important;
+  width: 100% !important;
 }

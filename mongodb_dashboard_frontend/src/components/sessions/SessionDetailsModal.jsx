@@ -98,7 +98,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         aria-modal="true"
         aria-labelledby={headerId}
         aria-describedby={`${headerId}-content`}
-        className="w-full session-details-modal"
+        className="w-full session-details-modal modal-content-constraints"
         onClick={(e) => e.stopPropagation()}
         style={{
           // Card visuals aligned with Ocean Professional
