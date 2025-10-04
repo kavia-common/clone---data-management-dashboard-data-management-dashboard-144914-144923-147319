@@ -307,22 +307,6 @@ function UserProjectsView({ userId, tenantId, from, to }) {
               minWidth: 0,
             }}
           >
-            <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Name</dt>
-            <dd
-              style={{
-                margin: 0,
-                color: 'var(--text-primary, #111827)',
-                fontWeight: 600,
-                minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-              title={name || undefined}
-            >
-              {name || '—'}
-            </dd>
-
             {status ? (
               <>
                 <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Status</dt>
