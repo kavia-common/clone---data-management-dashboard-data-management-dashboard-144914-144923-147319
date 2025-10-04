@@ -70,7 +70,6 @@ export default function Users() {
 
   return (
     <div>
-      {/* Pagination: UsersList standardizes page size to 8 rows per page */}
       <UsersList
         title="Users"
         subtitle="All users"
