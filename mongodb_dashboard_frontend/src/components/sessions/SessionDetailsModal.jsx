@@ -41,7 +41,30 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
   };
 
-  // Collect core details using tolerant key extraction.
+  // PUBLIC_INTERFACE
+  const computeDuration = (start, end) => {
+    /** Compute human-readable duration given start and end timestamps (ms or ISO). */
+    if (!start || !end) return '—';
+    try {
+      const s = new Date(start).getTime();
+      const e = new Date(end).getTime();
+      if (isNaN(s) || isNaN(e)) return '—';
+      let ms = Math.max(0, e - s);
+      const secs = Math.floor(ms / 1000);
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const sRem = secs % 60;
+      const parts = [];
+      if (h) parts.push(`${h}h`);
+      if (m || h) parts.push(`${m}m`);
+      parts.push(`${sRem}s`);
+      return parts.join(' ');
+    } catch {
+      return '—';
+    }
+  };
+
+  // Collect required details only; hide disallowed fields.
   const coreDetails = useMemo(() => {
     if (!session || typeof session !== 'object') return {};
 
@@ -54,44 +77,34 @@ function SessionDetailsModal({ open, onClose, session }) {
     };
 
     const startedAt = get(['startedAt', 'start_time', 'startTime', 'created_at', 'createdAt']);
-    const endedAt = get(['endedAt', 'end_time', 'endTime', 'updated_at', 'updatedAt']);
-    const duration = get(['duration', 'durationMs', 'duration_ms', 'elapsed']);
-    const userId = get(['userId', 'user_id', 'user']);
-    const tenantId = get(['tenantId', 'tenant_id', 'tenant']);
-    const status = get(['status', 'state']);
-    const requestCount = get(['requestCount', 'requests', 'numRequests']);
-    const tokensUsed = get(['tokensUsed', 'tokenUsage', 'tokens', 'totalTokens']);
-    const model = get(['model', 'llm_model', 'llmModel']);
-    const source = get(['source', 'ip', 'ipAddress', 'client_ip']);
+    const lastUpdatedAt = get(['lastUpdatedAt', 'updatedAt', 'updated_at', 'end_time', 'endTime']);
     const sessionId = get(['sessionId', '_id', 'id']);
-    const projectId = get(['projectId', 'project_id', 'project']);
+    const user = get(['user', 'userId', 'user_id', 'username', 'user_name', 'email']);
+    const project = get(['project', 'projectId', 'project_id']);
+    const tenant = get(['tenant', 'tenantId', 'tenant_id']);
 
+    const durationStr = computeDuration(startedAt, lastUpdatedAt);
+
+    // Only include the approved labels and order
     return {
+      User: user ?? '—',
       'Session ID': sessionId ?? '—',
-      Status: status ?? '—',
+      Project: project ?? '—',
+      Tenant: tenant ?? '—',
       'Started At': formatDate(startedAt),
-      'Ended At': formatDate(endedAt),
-      Duration: duration !== undefined ? String(duration) : '—',
-      User: userId ?? '—',
-      Tenant: tenantId ?? '—',
-      Project: projectId ?? '—',
-      Requests: requestCount !== undefined ? String(requestCount) : '—',
-      'Tokens Used': tokensUsed !== undefined ? String(tokensUsed) : '—',
-      Model: model ?? '—',
-      'Source / IP': source ?? '—',
+      'Last Updated At': formatDate(lastUpdatedAt),
+      Duration: durationStr,
     };
   }, [session]);
 
-  // Derive a presentable title using primary identifiers (user or session)
-  const derivedTitle = useMemo(() => {
-    const nameLike = session?.user_name || session?.username || session?.user || '';
-    const email = session?.email || '';
+  // Title must be "Session Details - <sessionId>"
+  const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';
-    return (nameLike || email || id || 'Session Details');
+    return `Session Details - ${id || '—'}`;
   }, [session]);
 
   return (
-    <Modal open={open} onClose={onClose}>
+    <Modal open={open} onClose={onClose} title={title}>
       {/* Sticky Header with subtle shadow */}
       <div
         className="sticky-header"
@@ -111,9 +124,9 @@ function SessionDetailsModal({ open, onClose, session }) {
             fontWeight: 600,
             color: 'var(--text-strong, #0F172A)',
           }}
-          title={typeof derivedTitle === 'string' ? derivedTitle : undefined}
+          title={title}
         >
-          {derivedTitle}
+          {title}
         </h2>
       </div>
 
