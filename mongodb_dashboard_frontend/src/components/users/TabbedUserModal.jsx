@@ -10,8 +10,8 @@ import { useUserProjects } from '../../hooks/useUserProjects';
 
 /**
  * Internal presentational view for user details
- * Responsive grid, safe text wrapping and truncation.
- * Shows ONLY: Name, Email, Role, and Tenant in a 2x2 grid with Ocean Professional styling.
+ * 2x2 responsive grid with Ocean Professional styling and amber accent border.
+ * Fields: Name | Email (row 1), Role | Tenant (row 2).
  */
 function UserDetailsView({ user }) {
   if (!user) return <div className="text-gray-500">No user selected</div>;
@@ -40,17 +40,23 @@ function UserDetailsView({ user }) {
         border: "1px solid var(--border-subtle, #E6EAF0)",
         borderRadius: 12,
         boxShadow: "var(--shadow, 0 1px 2px rgba(16,24,40,0.04))",
-        padding: 16,
+        padding: 24, // comfortable padding
+        // subtle amber accent on the left
+        borderLeft: "4px solid #F59E0B",
       }}
     >
       <div
-        className="grid grid-cols-1 sm:grid-cols-2 gap-4"
         role="group"
         aria-label="Details grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+          gap: 16,
+        }}
       >
         {/* Name */}
         <div>
-          <label
+          <span
             style={{
               display: "block",
               fontSize: 12,
@@ -61,8 +67,8 @@ function UserDetailsView({ user }) {
             }}
           >
             Name
-          </label>
-          <p
+          </span>
+          <div
             style={{
               margin: 0,
               color: "var(--text-primary, #111827)",
@@ -72,12 +78,12 @@ function UserDetailsView({ user }) {
             title={name || undefined}
           >
             {name || "—"}
-          </p>
+          </div>
         </div>
 
         {/* Email */}
         <div>
-          <label
+          <span
             style={{
               display: "block",
               fontSize: 12,
@@ -88,8 +94,8 @@ function UserDetailsView({ user }) {
             }}
           >
             Email
-          </label>
-          <p
+          </span>
+          <div
             style={{
               margin: 0,
               color: "var(--text-primary, #111827)",
@@ -99,12 +105,12 @@ function UserDetailsView({ user }) {
             title={email || undefined}
           >
             {email || "—"}
-          </p>
+          </div>
         </div>
 
         {/* Role */}
         <div>
-          <label
+          <span
             style={{
               display: "block",
               fontSize: 12,
@@ -115,8 +121,8 @@ function UserDetailsView({ user }) {
             }}
           >
             Role
-          </label>
-          <p
+          </span>
+          <div
             style={{
               margin: 0,
               color: "var(--text-primary, #111827)",
@@ -126,12 +132,12 @@ function UserDetailsView({ user }) {
             title={role || undefined}
           >
             {role || "—"}
-          </p>
+          </div>
         </div>
 
         {/* Tenant */}
         <div>
-          <label
+          <span
             style={{
               display: "block",
               fontSize: 12,
@@ -142,8 +148,8 @@ function UserDetailsView({ user }) {
             }}
           >
             Tenant
-          </label>
-          <p
+          </span>
+          <div
             style={{
               margin: 0,
               color: "var(--text-primary, #111827)",
@@ -153,7 +159,7 @@ function UserDetailsView({ user }) {
             title={(tenant && String(tenant)) || undefined}
           >
             {tenant ? String(tenant) : "—"}
-          </p>
+          </div>
         </div>
       </div>
     </section>
@@ -167,6 +173,7 @@ UserDetailsView.propTypes = {
 /**
  * Internal presentational view for user projects
  * Wraps lists/tables with horizontal scrolling when needed.
+ * Fits the new padding and scrollable panel constraints.
  */
 function UserProjectsView({ userId, tenantId, from, to }) {
   const enabled = Boolean(userId && tenantId);
@@ -260,10 +267,10 @@ UserProjectsView.propTypes = {
  * PUBLIC_INTERFACE
  * TabbedUserModal
  * A single modal that combines user details and user projects into two tabs.
- * Structure optimized to avoid content overlap:
- * - Modal body becomes a flex column container with max-height and overflow hidden
- * - Sticky tablist header
- * - Scrollable panels area with min-h-0 and overflow-y-auto
+ * - Styled tabs with Ocean Professional colors and active underline
+ * - Sticky header and tab bar; scroll only the content
+ * - Comfortable padding and full-width red Close button
+ * - Semi-transparent backdrop to focus attention
  */
 // PUBLIC_INTERFACE
 export default function TabbedUserModal({
@@ -283,6 +290,7 @@ export default function TabbedUserModal({
 
   const userId = useMemo(() => user?._id || user?.id || '', [user]);
 
+  // Tabs with theme-aware labels
   const tabs = useMemo(
     () => [
       { key: 'details', label: 'Details' },
@@ -293,88 +301,195 @@ export default function TabbedUserModal({
 
   const title = useMemo(() => {
     if (!user) return 'User';
-    return user.name || user.full_name || user.email || 'User';
+    return user?.name || user?.full_name || user?.email || 'User';
   }, [user]);
 
-  return (
-    <Modal
-      title={title}
-      open={open}
-      onClose={onClose}
-      footer={
-        <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={onClose}>Close</button>
-        </div>
-      }
-    >
-      {/* Modal content container:
-          - flex column
-          - capped height to avoid viewport overflow
-          - internal scroll only in the panels section
-       */}
+  // Custom tab renderer to apply requested theme (active/inactive/hover)
+  function ThemedTabs({ activeKey, onChange }) {
+    return (
       <div
+        role="tablist"
+        aria-label="User info tabs"
         style={{
-          display: 'flex',
-          flexDirection: 'column',
-          width: '100%',
-          maxWidth: 900,
-          maxHeight: '85vh',
-          overflow: 'hidden',
-          background: '#ffffff',
-          borderRadius: 12,
+          display: "flex",
+          gap: 8,
+          borderBottom: "1px solid var(--border-subtle)",
+          paddingBottom: 4,
         }}
       >
-        {/* Tabs header: sticky inside this container, with safe z-index */}
-        <div
-          role="presentation"
-          style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 10,
-            background: '#ffffff',
-            borderBottom: '1px solid var(--border-subtle)',
-          }}
-        >
-          <div style={{ padding: '12px 16px', overflowX: 'auto' }}>
-            <Tabs
-              tabs={tabs}
-              activeKey={activeTab}
-              onChange={setActiveTab}
-              aria-label="User info tabs"
-            />
-          </div>
-        </div>
-
-        {/* Panels container: scrollable area */}
-        <div
-          role="region"
-          aria-label="Tab content"
-          style={{
-            flex: 1,
-            minHeight: 0, // critical for flex scroll
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            background: '#f9fafb',
-            WebkitOverflowScrolling: 'touch',
-          }}
-          tabIndex={0} // allow keyboard scroll focus
-        >
-          <div style={{ padding: '16px' }}>
-            {activeTab === 'details' && (
-              <div className="space-y-4">
-                <UserDetailsView user={user} />
-              </div>
-            )}
-
-            {activeTab === 'projects' && (
-              <div className="space-y-4">
-                <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
-              </div>
-            )}
-          </div>
-        </div>
+        {tabs.map((t) => {
+          const isActive = String(activeKey) === String(t.key);
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => onChange(t.key)}
+              title={t.label}
+              style={{
+                appearance: "none",
+                border: "none",
+                background: isActive ? "rgba(37, 99, 235, 0.10)" : "transparent", // #2563EB1A
+                color: isActive ? "#2563EB" : "var(--text-secondary, #475569)",
+                fontWeight: isActive ? 700 : 600,
+                padding: "8px 12px",
+                borderRadius: 8,
+                cursor: "pointer",
+                outline: "none",
+                position: "relative",
+                transition: "background .15s ease, color .15s ease",
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive) e.currentTarget.style.background = "rgba(37,99,235,0.06)";
+                e.currentTarget.style.color = "#2563EB";
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = isActive ? "#2563EB" : "var(--text-secondary, #475569)";
+              }}
+            >
+              {t.label}
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  left: 8,
+                  right: 8,
+                  bottom: -5,
+                  height: 2,
+                  background: isActive ? "#2563EB" : "transparent",
+                  borderRadius: 2,
+                  transition: "background .15s ease",
+                }}
+              />
+            </button>
+          );
+        })}
       </div>
-    </Modal>
+    );
+  }
+
+  return (
+    // Apply subtle overlay via wrapper as Modal already provides a baseline; reinforce to ensure requirement
+    <div
+      style={{
+        position: open ? "fixed" : "hidden",
+        inset: 0,
+        display: open ? "grid" : "none",
+        placeItems: "center",
+        background: "rgba(0,0,0,0.40)", // bg-black/40
+        zIndex: 80,
+        padding: 16,
+      }}
+      role="presentation"
+      onClick={(e) => {
+        // Close on clicking overlay area outside card
+        if (e.target === e.currentTarget && typeof onClose === "function") onClose();
+      }}
+    >
+      <Modal
+        title={title}
+        open={open}
+        onClose={onClose}
+        footer={
+          // Full-width bold red Close button with hover state and focus ring
+          <div style={{ width: "100%" }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                width: "100%",
+                background: "#EF4444",
+                color: "#fff",
+                border: "none",
+                borderRadius: 10,
+                padding: "10px 14px",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+                transition: "background .15s ease, transform .05s ease",
+              }}
+              onMouseDown={(e) => { e.currentTarget.style.transform = "translateY(1px)"; }}
+              onMouseUp={(e) => { e.currentTarget.style.transform = "translateY(0)"; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#dc2626"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "#EF4444"; }}
+              onFocus={(e) => { e.currentTarget.style.outline = "3px solid rgba(239,68,68,0.35)"; e.currentTarget.style.outlineOffset = "2px"; }}
+              onBlur={(e) => { e.currentTarget.style.outline = "none"; }}
+              aria-label="Close"
+              title="Close"
+            >
+              Close
+            </button>
+          </div>
+        }
+      >
+        {/* Modal content container:
+            - flex column
+            - capped height to avoid viewport overflow
+            - sticky header/tabs; scroll only within content panel
+            - comfortable paddings (p-6 equivalent ~24px)
+         */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            width: '100%',
+            maxWidth: 900,
+            maxHeight: '85vh',
+            overflow: 'hidden',
+            background: '#ffffff',
+            borderRadius: 12,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Sticky header area (modal header is provided by Modal). We'll add a sticky tabs bar below it */}
+          <div
+            role="presentation"
+            style={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 11,
+              background: '#ffffff',
+              boxShadow: "0 1px 0 var(--border-subtle)",
+            }}
+          >
+            <div style={{ padding: '12px 24px' }}>
+              <ThemedTabs activeKey={activeTab} onChange={setActiveTab} />
+            </div>
+          </div>
+
+          {/* Panels container: scrollable area with comfortable padding */}
+          <div
+            role="region"
+            aria-label="Tab content"
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              background: '#f9fafb',
+              WebkitOverflowScrolling: 'touch',
+            }}
+            tabIndex={0}
+          >
+            <div style={{ padding: '24px' }}>
+              {activeTab === 'details' && (
+                <div style={{ display: "grid", gap: 16 }}>
+                  <UserDetailsView user={user} />
+                </div>
+              )}
+
+              {activeTab === 'projects' && (
+                <div style={{ display: "grid", gap: 16 }}>
+                  <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </div>
   );
 }
 
