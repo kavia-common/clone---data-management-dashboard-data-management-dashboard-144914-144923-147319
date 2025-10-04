@@ -138,13 +138,7 @@ export default function UserProfileModal({ open, onClose, user }) {
     return v == null || v === "" ? "" : String(v);
   }
 
-  // Primary and Secondary buttons both close (no state change to data)
-  function handlePrimary() {
-    if (typeof onClose === "function") onClose();
-  }
-  function handleSecondary() {
-    if (typeof onClose === "function") onClose();
-  }
+  
 
   return (
     <div
@@ -280,16 +274,6 @@ export default function UserProfileModal({ open, onClose, user }) {
             {fields.map((f) => {
               const id = `${f.key}-input-${labelId}`; // ensure uniqueness with useId seed
               const value = displayValue(f.value);
-              const helper =
-                f.key === "name"
-                  ? "Your display name"
-                  : f.key === "email"
-                  ? "Primary contact email"
-                  : f.key === "department"
-                  ? "Department or team"
-                  : f.key === "__tenant"
-                  ? "Derived from tenant/organization fields"
-                  : "";
 
               return (
                 <label key={f.key} htmlFor={id} style={{ display: "grid", gap: 6 }}>
@@ -331,47 +315,14 @@ export default function UserProfileModal({ open, onClose, user }) {
                       e.currentTarget.style.boxShadow = "none";
                     }}
                   />
-                  <span
-                    className="muted"
-                    style={{ fontSize: 12, color: "var(--text-tertiary)" }}
-                  >
-                    {helper}
-                  </span>
+                  
                 </label>
               );
             })}
           </div>
         </div>
 
-        {/* Footer */}
-        <div
-          className="modal-footer"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "12px 16px",
-            borderTop: "1px solid var(--border-subtle)",
-            background: "var(--bg-surface)",
-          }}
-        >
-          <div className="muted" style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
-            Press Esc to close
-          </div>
-          <div className="modal-actions" style={{ display: "flex", gap: 8 }}>
-            <Button variant="secondary" onClick={handleSecondary} title="Close">
-              Close
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handlePrimary}
-              title="Done"
-              aria-label="Done"
-            >
-              Done
-            </Button>
-          </div>
-        </div>
+        
       </div>
     </div>
   );
