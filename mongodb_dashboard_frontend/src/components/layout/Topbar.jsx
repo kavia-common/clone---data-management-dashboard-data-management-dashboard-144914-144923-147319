@@ -11,10 +11,10 @@ export default function Topbar() {
   return (
     <header className="topbar" role="banner">
       <div className="topbar-left">
-        <a className="brand" href="/dashboard" aria-label="Go to dashboard home">
+        <div className="brand" aria-label="Tenant Dashboard">
           <span className="brand-badge" aria-hidden="true">★</span>
-          <span className="brand-title">Kavia Dashboard</span>
-        </a>
+          <span className="brand-title">Tenant Dashboard</span>
+        </div>
       </div>
 
       <div className="topbar-actions" role="group" aria-label="User actions">
