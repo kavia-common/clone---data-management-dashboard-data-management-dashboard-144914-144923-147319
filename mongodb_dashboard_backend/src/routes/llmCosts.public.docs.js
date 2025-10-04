@@ -2,39 +2,25 @@
  * @swagger
  * /api/llm-costs:
  *   get:
- *     summary: List LLM cost records
+ *     summary: List all LLM cost records
  *     description: >
- *       Returns a list of LLM cost documents. Supports optional projectId filter and date range.
+ *       Returns all documents from the llm_costs collection without requiring any filters.
  *       If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }.
- *       Otherwise a raw array is returned.
+ *       Otherwise a raw array is returned. All fields present in the database are returned (no projection).
  *     tags: [LLMCosts]
  *     parameters:
  *       - in: query
- *         name: projectId
- *         schema: { type: string }
- *         description: Optional project identifier to filter costs (maps to project_id)
- *       - in: query
- *         name: from
- *         schema: { type: string, format: date-time }
- *         description: Optional ISO date-time lower bound (applied to timestamp)
- *       - in: query
- *         name: to
- *         schema: { type: string, format: date-time }
- *         description: Optional ISO date-time upper bound (applied to timestamp)
- *       - in: query
  *         name: page
  *         schema: { type: integer, minimum: 1 }
+ *         description: Optional page number to enable envelope response
  *       - in: query
  *         name: limit
  *         schema: { type: integer, minimum: 1, maximum: 200 }
+ *         description: Optional page size to enable envelope response
  *       - in: query
  *         name: sort
  *         schema: { type: string }
- *         description: Sort string (e.g., -timestamp or total_cost)
- *       - in: query
- *         name: filter
- *         schema: { type: string }
- *         description: Additional JSON filter (merged with projectId/date filters)
+ *         description: Optional sort string (e.g., -timestamp or total_cost)
  *     responses:
  *       200:
  *         description: Successful response (array or envelope based on pagination params)
@@ -45,8 +31,6 @@
  *                 - type: array
  *                   items: { $ref: '#/components/schemas/GenericDocument' }
  *                 - $ref: '#/components/schemas/ListEnvelope'
- *       400:
- *         description: Invalid filter or date
  *       500:
  *         description: Internal server error
  */
@@ -55,28 +39,15 @@
  * @swagger
  * /api/projects/{projectId}/llm-costs:
  *   get:
- *     summary: List LLM cost records for a project
- *     description: Returns LLM cost documents filtered by projectId. Supports optional from/to date range and pagination.
+ *     summary: List LLM cost records (deprecated project alias)
+ *     deprecated: true
+ *     description: >
+ *       Deprecated alias that forwards to /api/llm-costs (list-all). This path no longer applies project-based filtering.
  *     tags: [LLMCosts]
  *     parameters:
  *       - in: path
  *         name: projectId
  *         required: true
- *         schema: { type: string }
- *       - in: query
- *         name: from
- *         schema: { type: string, format: date-time }
- *       - in: query
- *         name: to
- *         schema: { type: string, format: date-time }
- *       - in: query
- *         name: page
- *         schema: { type: integer, minimum: 1 }
- *       - in: query
- *         name: limit
- *         schema: { type: integer, minimum: 1, maximum: 200 }
- *       - in: query
- *         name: sort
  *         schema: { type: string }
  *     responses:
  *       200:
@@ -88,6 +59,4 @@
  *                 - type: array
  *                   items: { $ref: '#/components/schemas/GenericDocument' }
  *                 - $ref: '#/components/schemas/ListEnvelope'
- *       400: { description: Invalid input }
- *       500: { description: Internal server error }
  */
