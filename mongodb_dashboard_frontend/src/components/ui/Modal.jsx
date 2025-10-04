@@ -1,77 +1,97 @@
-import React from "react";
+import React, { useEffect } from "react";
 
 /**
  * PUBLIC_INTERFACE
  * Modal
- * A simple overlay container that centers its children and closes on backdrop click.
- * Consumers are responsible for rendering header/body/footer within children.
+ * Shared overlay component that centers content precisely and handles backdrop/ESC close.
  *
- * Behavior:
- * - Uses a fixed, full-screen overlay with flex centering so the modal stays centered on scroll/resize.
- * - Backdrop is a semi-transparent black rgba(0,0,0,0.3) per requirement (with CSS var fallback).
- * - Content wrapper enforces max-width and max-height with internal scroll.
- * - Backdrop click-to-close remains intact; children control internal focus/scrolling.
+ * Usage:
+ * - Pass any children. The container will provide sizing and overflow management.
+ * - Keep headers inside children sticky if needed using className="sticky-header".
  */
 export default function Modal({ title, open, onClose, children }) {
+  // Close on ESC (hook must not be conditional)
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(e) {
+      if (e.key === 'Escape' && typeof onClose === 'function') onClose();
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
     <div
+      className="modal-overlay-grid"
       role="dialog"
       aria-modal="true"
       aria-label={title}
       onClick={(e) => {
-        // Close only when clicking on the backdrop (not inside the modal content)
+        // Close only when clicking on the backdrop
         if (e.target === e.currentTarget && typeof onClose === 'function') onClose();
       }}
-      style={{
-        // Fixed overlay covering entire viewport and staying centered on scroll/resize
-        position: 'fixed',
-        inset: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        // Responsive padding including safe-area insets for mobile
-        padding: '16px',
-        // Semi-transparent backdrop per request; allow CSS var override
-        background: 'var(--modal-backdrop, rgba(0,0,0,0.3))',
-        // Ensure overlay is above app header/other content
-        zIndex: 1100,
-        // Allow overlay to scroll if an extremely tall modal is rendered
-        overflowY: 'auto',
-      }}
     >
-      {/* Content wrapper:
-          - Fill available width within overlay padding
-          - Constrain size and allow internal scroll to keep header/footer visible
-      */}
       <div
+        className="modal-card-shell"
         onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%',
-          maxWidth: 'min(960px, 100%)',
-          maxHeight: 'calc(100vh - 32px)',
-          // Provide a default card surface if children don't set one
-          background: 'var(--bg-surface, #ffffff)',
-          borderRadius: 12,
-          boxShadow: '0 8px 20px rgba(16,24,40,0.12)',
-          border: 'none',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
       >
-        {/* Inner scroll region: wrap children in a flex column to allow content to scroll if needed */}
-        <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+        {/* Children are expected to structure their own header/body with sticky header if needed */}
+        <div className="modal-card-body-scroll">
           {children}
         </div>
       </div>
 
-      {/* Responsive padding refinement for very small viewports with safe-area insets */}
       <style>{`
+        .modal-overlay-grid {
+          position: fixed;
+          inset: 0;
+          display: grid;
+          place-items: center;
+          padding: 24px;
+          background: rgba(0,0,0,0.3);
+          z-index: 1000;
+        }
+        .modal-card-shell {
+          margin: 0;
+          transform: none;
+          position: relative;
+          width: min(96vw, 960px);
+          max-height: min(92vh, 800px);
+          border: none;
+          border-radius: 12px;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          background: var(--bg-surface, #fff);
+          box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .modal-card-body-scroll {
+          flex: 1;
+          min-height: 0;
+          overflow: auto;
+          display: flex;
+          flex-direction: column;
+        }
+        /* Allow children to define sticky header inside */
+        .modal-card-shell .sticky-header {
+          position: sticky;
+          top: 0;
+          z-index: 1;
+          background: inherit;
+        }
+
+        /* Safe area on small screens */
         @media (max-width: 639px) {
-          [role="dialog"] {
-            padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+          .modal-overlay-grid {
+            padding:
+              max(12px, env(safe-area-inset-top))
+              max(12px, env(safe-area-inset-right))
+              max(12px, env(safe-area-inset-bottom))
+              max(12px, env(safe-area-inset-left));
           }
         }
       `}</style>

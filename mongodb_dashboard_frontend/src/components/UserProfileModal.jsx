@@ -1,29 +1,15 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import Button from "./ui/Button.jsx";
+import Modal from "./ui/Modal.jsx";
 
 /**
  * PUBLIC_INTERFACE
  * UserProfileModal
  * Accessible, responsive modal that shows a selected user's core profile information only.
  * - Shows ONLY: Name, Email, Department, and Tenant ID.
- * - Ocean Professional theme: rounded corners, subtle shadows, smooth transitions, clean layout.
- * - Accessibility: role=dialog, aria-modal, labelledby/desc, focus trap, ESC/overlay close, and focus return.
+ * - Ocean Professional theme with sticky header and internal scroll.
  */
-// PUBLIC_INTERFACE
 export default function UserProfileModal({ open, onClose, user }) {
-  /**
-   * Modal with structured core user details in read-only form controls.
-   * Props:
-   * - open: boolean, controls visibility
-   * - onClose: function, called when user dismisses modal (overlay click, ESC, or buttons)
-   * - user: object, the selected user's data
-   *
-   * Accessibility and behavior:
-   * - Focus is trapped within the modal while open
-   * - ESC closes the modal
-   * - Clicking the backdrop closes the modal
-   * - Focus returns to the previously focused element after close
-   */
   const safeUser = user || {};
 
   // Derive avatar initial
@@ -69,24 +55,20 @@ export default function UserProfileModal({ open, onClose, user }) {
   const descId = useId();
 
   // Refs for focus handling and trap
-  const backdropRef = useRef(null);
   const cardRef = useRef(null);
   const previouslyFocusedRef = useRef(null);
 
   // Simple "enter" animation state
   const [entered, setEntered] = useState(false);
 
-  // Attach/detach ESC to close and manage focus return/trap
+  // Manage focus trap and restoration (ESC handled by shared Modal)
   useEffect(() => {
     if (!open) return;
     setEntered(false);
-    // Wait one tick to allow DOM to paint, then toggle enter state and focus
     const raf = requestAnimationFrame(() => setEntered(true));
 
-    // Record previously focused element
     previouslyFocusedRef.current = document.activeElement;
 
-    // Move focus to the first focusable element inside the dialog
     const focusFirst = () => {
       if (!cardRef.current) return;
       const nodes = getFocusableElements(cardRef.current);
@@ -96,23 +78,16 @@ export default function UserProfileModal({ open, onClose, user }) {
     const t = setTimeout(focusFirst, 0);
 
     function onKeyDown(e) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        if (typeof onClose === "function") onClose();
-      }
-      // Focus trap logic
       if (e.key === "Tab") {
         trapTabKey(e, cardRef.current);
       }
     }
-
     document.addEventListener("keydown", onKeyDown);
 
     return () => {
       cancelAnimationFrame(raf);
       clearTimeout(t);
       document.removeEventListener("keydown", onKeyDown);
-      // Return focus to the previously focused element, if still in the document
       try {
         if (previouslyFocusedRef.current && previouslyFocusedRef.current.focus) {
           previouslyFocusedRef.current.focus();
@@ -122,209 +97,159 @@ export default function UserProfileModal({ open, onClose, user }) {
       }
       setEntered(false);
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
-
-  // Backdrop click handler (only close when clicking the backdrop itself, not children)
-  function onBackdropClick(e) {
-    if (e.target === e.currentTarget) {
-      if (typeof onClose === "function") onClose();
-    }
-  }
 
   // Helper to format placeholders for empty values
   function displayValue(v) {
     return v == null || v === "" ? "" : String(v);
   }
 
-  
-
   return (
-    <div
-      ref={backdropRef}
-      className="modal-backdrop"
-      role="presentation"
-      onClick={onBackdropClick}
-      style={{
-        // Elevated, bluish overlay with subtle blur per Ocean Professional theme
-        background: "rgba(17,24,39,0.45)",
-        backdropFilter: "blur(3px)",
-        WebkitBackdropFilter: "blur(3px)",
-        zIndex: 90, // slightly above default to ensure clarity
-        transition: "background 160ms ease",
-      }}
-    >
+    <Modal title={title} open={open} onClose={onClose}>
+      {/* Sticky Header */}
       <div
-        ref={cardRef}
-        className="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelId}
-        aria-describedby={descId}
-        // Make card focusable as a fallback
-        tabIndex={-1}
+        className="sticky-header"
         style={{
-          maxWidth: 640,
-          borderRadius: 14,
-          boxShadow: "0 12px 30px rgba(15,23,42,0.15), 0 4px 14px rgba(2,6,23,0.08)",
-          border: "1px solid var(--border-subtle)",
-          overflow: "hidden",
-          transform: entered ? "translateY(0) scale(1)" : "translateY(6px) scale(0.98)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "14px 16px",
+          boxShadow: "0 1px 0 var(--border-subtle)",
+          background: "#fff",
+          transform: entered ? "none" : "translateY(2px)",
           opacity: entered ? 1 : 0.98,
           transition: "transform 160ms ease, opacity 160ms ease",
-          background: "var(--bg-surface)",
-        }}
-        onClick={(e) => {
-          // Prevent clicks inside the card from bubbling to the backdrop
-          e.stopPropagation();
         }}
       >
-        {/* Header */}
-        <div
-          className="modal-header"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "14px 16px",
-            borderBottom: "1px solid var(--border-subtle)",
-            background:
-              "linear-gradient(180deg, rgba(37,99,235,0.06), rgba(255,255,255,0))",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-            <div
-              aria-hidden="true"
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: "50%",
-                background: "#2563EB", // primary
-                color: "#fff",
-                display: "grid",
-                placeItems: "center",
-                fontWeight: 800,
-                flex: "0 0 auto",
-              }}
-            >
-              {avatarChar}
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <h3
-                id={labelId}
-                style={{
-                  margin: 0,
-                  fontSize: 16,
-                  fontWeight: 700,
-                  color: "var(--text-primary)",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-                title={title}
-              >
-                {title}
-              </h3>
-              <div
-                className="muted"
-                id={descId}
-                style={{ fontSize: 12, color: "var(--text-tertiary)" }}
-              >
-                Read-only user details
-              </div>
-            </div>
-          </div>
-
-          <Button
-            variant="ghost"
-            aria-label="Close"
-            onClick={onClose}
-            title="Close dialog"
-          >
-            ✕
-          </Button>
-        </div>
-
-        {/* Body */}
-        <div className="modal-body" style={{ padding: 16 }}>
-          {/* Section: Profile summary */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
           <div
+            aria-hidden="true"
             style={{
+              width: 40,
+              height: 40,
+              borderRadius: "50%",
+              background: "#2563EB",
+              color: "#fff",
               display: "grid",
-              gridTemplateColumns: "1fr",
-              gap: 6,
-              marginBottom: 12,
+              placeItems: "center",
+              fontWeight: 800,
+              flex: "0 0 auto",
             }}
           >
-            <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>
-              {safeUser?.name || safeUser?.full_name || "—"}
-            </div>
+            {avatarChar}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <h3
+              id={labelId}
+              style={{
+                margin: 0,
+                fontSize: 16,
+                fontWeight: 700,
+                color: "var(--text-primary)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+              title={title}
+            >
+              {title}
+            </h3>
             <div
               className="muted"
+              id={descId}
               style={{ fontSize: 12, color: "var(--text-tertiary)" }}
-              title={safeUser?.email || undefined}
             >
-              {safeUser?.email || "—"}
+              Read-only user details
             </div>
-          </div>
-
-          {/* Section: Read-only form controls */}
-          <div className="form-grid" style={{ gap: 16 }}>
-            {fields.map((f) => {
-              const id = `${f.key}-input-${labelId}`; // ensure uniqueness with useId seed
-              const value = displayValue(f.value);
-
-              return (
-                <label key={f.key} htmlFor={id} style={{ display: "grid", gap: 6 }}>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-tertiary)",
-                      fontWeight: 600,
-                      letterSpacing: ".02em",
-                    }}
-                  >
-                    {f.label}
-                  </span>
-                  <input
-                    id={id}
-                    type="text"
-                    readOnly
-                    aria-readonly="true"
-                    value={value}
-                    placeholder={value ? undefined : "Not provided"}
-                    style={{
-                      // Enhance input look specifically for this modal to align with requested accents
-                      border: "1px solid var(--input-border)",
-                      borderRadius: 10,
-                      padding: "10px 12px",
-                      background: "#fff",
-                      color: "var(--text-primary)",
-                      outline: "none",
-                      height: 40,
-                      transition: "box-shadow .15s ease, border-color .15s ease",
-                    }}
-                    onFocus={(e) => {
-                      e.currentTarget.style.borderColor = "#2563EB";
-                      e.currentTarget.style.boxShadow =
-                        "0 0 0 3px rgba(37, 99, 235, 0.28)";
-                    }}
-                    onBlur={(e) => {
-                      e.currentTarget.style.borderColor = "var(--input-border)";
-                      e.currentTarget.style.boxShadow = "none";
-                    }}
-                  />
-                  
-                </label>
-              );
-            })}
           </div>
         </div>
 
-        
+        <Button
+          variant="ghost"
+          aria-label="Close"
+          onClick={onClose}
+          title="Close dialog"
+        >
+          ✕
+        </Button>
       </div>
-    </div>
+
+      {/* Scrollable Body */}
+      <div ref={cardRef} style={{ padding: 16, flex: 1, minHeight: 0, overflow: "auto" }}>
+        {/* Profile summary */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr",
+            gap: 6,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>
+            {safeUser?.name || safeUser?.full_name || "—"}
+          </div>
+          <div
+            className="muted"
+            style={{ fontSize: 12, color: "var(--text-tertiary)" }}
+            title={safeUser?.email || undefined}
+          >
+            {safeUser?.email || "—"}
+          </div>
+        </div>
+
+        {/* Read-only fields */}
+        <div className="form-grid" style={{ gap: 16 }}>
+          {fields.map((f) => {
+            const id = `${f.key}-input-${labelId}`;
+            const value = displayValue(f.value);
+
+            return (
+              <label key={f.key} htmlFor={id} style={{ display: "grid", gap: 6 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-tertiary)",
+                    fontWeight: 600,
+                    letterSpacing: ".02em",
+                  }}
+                >
+                  {f.label}
+                </span>
+                <input
+                  id={id}
+                  type="text"
+                  readOnly
+                  aria-readonly="true"
+                  value={value}
+                  placeholder={value ? undefined : "Not provided"}
+                  style={{
+                    border: "1px solid var(--input-border)",
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    background: "#fff",
+                    color: "var(--text-primary)",
+                    outline: "none",
+                    height: 40,
+                    transition: "box-shadow .15s ease, border-color .15s ease",
+                  }}
+                  onFocus={(e) => {
+                    e.currentTarget.style.borderColor = "#2563EB";
+                    e.currentTarget.style.boxShadow =
+                      "0 0 0 3px rgba(37, 99, 235, 0.28)";
+                  }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.borderColor = "var(--input-border)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                />
+              </label>
+            );
+          })}
+        </div>
+      </div>
+    </Modal>
   );
 }
 

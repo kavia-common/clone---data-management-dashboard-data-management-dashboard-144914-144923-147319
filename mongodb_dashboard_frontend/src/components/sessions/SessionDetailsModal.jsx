@@ -92,178 +92,144 @@ function SessionDetailsModal({ open, onClose, session }) {
 
   return (
     <Modal open={open} onClose={onClose}>
-      {/* Outer container: modal card with refined paddings, rounded corners, and elevation */}
+      {/* Sticky Header with subtle shadow */}
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={headerId}
-        aria-describedby={`${headerId}-content`}
-        className="w-full session-details-modal modal-content-constraints"
-        onClick={(e) => e.stopPropagation()}
+        className="sticky-header"
         style={{
-          // Card visuals aligned with Ocean Professional
-          background: '#ffffff',
-          borderRadius: 16,
-          boxShadow: '0 8px 20px rgba(16,24,40,0.12)',
-          // Centered and responsive width within overlay padding
-          width: 'min(720px, calc(100vw - 32px))',
-          // Constrain height to viewport minus overlay padding; internal content scrolls
-          maxHeight: 'min(85vh, calc(100vh - 32px))',
-          display: 'flex',
-          flexDirection: 'column',
-          // Hide overflow at container; inner content region handles scrolling
-          overflow: 'hidden',
-          // Slightly above overlay content wrapper when necessary
-          zIndex: 1001,
+          zIndex: 1,
+          background: 'rgba(255,255,255,0.96)',
+          backdropFilter: 'saturate(1) blur(2px)',
+          padding: '16px 24px',
+          boxShadow: '0 1px 0 var(--border-subtle, #E5E7EB)',
         }}
       >
-        {/* Sticky Header with subtle shadow */}
-        <div
-          className="sticky"
+        <h2
+          id={headerId}
           style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 10,
-            background: 'rgba(255,255,255,0.96)',
-            backdropFilter: 'saturate(1) blur(2px)',
-            padding: '16px 24px',
-            boxShadow: '0 1px 0 var(--border-subtle, #E5E7EB)',
+            margin: 0,
+            fontSize: 18,
+            fontWeight: 600,
+            color: 'var(--text-strong, #0F172A)',
           }}
+          title={typeof derivedTitle === 'string' ? derivedTitle : undefined}
         >
-          <h2
-            id={headerId}
-            style={{
-              margin: 0,
-              fontSize: 18,
-              fontWeight: 600,
-              color: 'var(--text-strong, #0F172A)',
-            }}
-            title={typeof derivedTitle === 'string' ? derivedTitle : undefined}
-          >
-            {derivedTitle}
-          </h2>
-        </div>
-
-        {/* Scrollable content area; avoid horizontal scroll, ensure long text wraps */}
-        <div
-          ref={contentRef}
-          tabIndex={-1}
-          id={`${headerId}-content`}
-          style={{
-            padding: '16px 24px',
-            paddingTop: 16,
-            gap: 16,
-            display: 'flex',
-            flexDirection: 'column',
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            WebkitOverflowScrolling: 'touch',
-            wordBreak: 'break-word',
-            overflowWrap: 'anywhere',
-          }}
-        >
-          {/* Details Card with accent rail */}
-          <section
-            aria-label="Core details"
-            className="details-card"
-            style={{
-              position: 'relative',
-              background: '#fff',
-              border: '1px solid var(--border-subtle, #E5E7EB)',
-              borderRadius: 12,
-              padding: 16,
-            }}
-          >
-
-
-            {/* Inner grid: two columns desktop, one column on small screens */}
-            <div
-              role="group"
-              aria-label="Label and value pairs"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                columnGap: 32,
-                rowGap: 20,
-              }}
-            >
-              {Object.entries(coreDetails).map(([label, value]) => {
-                const isPlaceholder = value === '—';
-                return (
-                  <div key={label} style={{ minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: 'var(--text-muted, #475569)',
-                        letterSpacing: '0.2px',
-                        marginBottom: 6,
-                      }}
-                    >
-                      {label}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 14,
-                        fontWeight: isPlaceholder ? 500 : 700,
-                        color: isPlaceholder
-                          ? 'var(--text-subtle, #94A3B8)'
-                          : 'var(--text-strong, #0F172A)',
-                        lineHeight: '20px',
-                        whiteSpace: 'normal',
-                        overflowWrap: 'anywhere',
-                      }}
-                      title={typeof value === 'string' ? value : undefined}
-                    >
-                      {String(value)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        </div>
-
-        {/* Footer with full-width prominent Close button */}
-        <div
-          style={{
-            padding: '12px 16px',
-            paddingTop: 12,
-            borderTop: '1px solid var(--border-subtle, #E5E7EB)',
-            background: '#ffffff',
-          }}
-        >
-          <button
-            type="button"
-            onClick={onClose}
-            className="btn-close-primary"
-            style={{
-              width: '100%',
-              height: 46,
-              background: '#EF4444',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 12,
-              fontWeight: 700,
-              boxShadow: '0 1px 2px rgba(16,24,40,0.04)',
-              cursor: 'pointer',
-              transition: 'background .15s ease, transform .06s ease',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = '#DC2626'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = '#EF4444'; }}
-            onMouseDown={(e) => { e.currentTarget.style.transform = 'translateY(1px)'; }}
-            onMouseUp={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
-            onFocus={(e) => { e.currentTarget.style.outline = '3px solid rgba(220,38,38,0.35)'; e.currentTarget.style.outlineOffset = '2px'; }}
-            onBlur={(e) => { e.currentTarget.style.outline = 'none'; }}
-            aria-label="Close"
-            title="Close"
-          >
-            Close
-          </button>
-        </div>
+          {derivedTitle}
+        </h2>
       </div>
 
-      {/* Responsive adjustment for the details grid: collapse to one column on narrow viewports */}
+      {/* Scrollable content area */}
+      <div
+        ref={contentRef}
+        tabIndex={-1}
+        id={`${headerId}-content`}
+        style={{
+          padding: '16px 24px',
+          gap: 16,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          wordBreak: 'break-word',
+          overflowWrap: 'anywhere',
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        <section
+          aria-label="Core details"
+          className="details-card"
+          style={{
+            position: 'relative',
+            background: '#fff',
+            border: '1px solid var(--border-subtle, #E5E7EB)',
+            borderRadius: 12,
+            padding: 16,
+          }}
+        >
+          <div
+            role="group"
+            aria-label="Label and value pairs"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              columnGap: 32,
+              rowGap: 20,
+            }}
+          >
+            {Object.entries(coreDetails).map(([label, value]) => {
+              const isPlaceholder = value === '—';
+              return (
+                <div key={label} style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: 'var(--text-muted, #475569)',
+                      letterSpacing: '0.2px',
+                      marginBottom: 6,
+                    }}
+                  >
+                    {label}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: isPlaceholder ? 500 : 700,
+                      color: isPlaceholder
+                        ? 'var(--text-subtle, #94A3B8)'
+                        : 'var(--text-strong, #0F172A)',
+                      lineHeight: '20px',
+                      whiteSpace: 'normal',
+                      overflowWrap: 'anywhere',
+                    }}
+                    title={typeof value === 'string' ? value : undefined}
+                  >
+                    {String(value)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
+      {/* Footer */}
+      <div
+        style={{
+          padding: '12px 16px',
+          borderTop: '1px solid var(--border-subtle, #E5E7EB)',
+          background: '#ffffff',
+        }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="btn-close-primary"
+          style={{
+            width: '100%',
+            height: 46,
+            background: '#EF4444',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 12,
+            fontWeight: 700,
+            boxShadow: '0 1px 2px rgba(16,24,40,0.04)',
+            cursor: 'pointer',
+            transition: 'background .15s ease, transform .06s ease',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#DC2626'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#EF4444'; }}
+          onMouseDown={(e) => { e.currentTarget.style.transform = 'translateY(1px)'; }}
+          onMouseUp={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+          onFocus={(e) => { e.currentTarget.style.outline = '3px solid rgba(220,38,38,0.35)'; e.currentTarget.style.outlineOffset = '2px'; }}
+          onBlur={(e) => { e.currentTarget.style.outline = 'none'; }}
+          aria-label="Close"
+          title="Close"
+        >
+          Close
+        </button>
+      </div>
+
       <style>{`
         @media (max-width: 639px) {
           .details-card [aria-label="Label and value pairs"] {

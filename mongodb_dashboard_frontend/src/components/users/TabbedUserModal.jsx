@@ -491,105 +491,59 @@ export default function TabbedUserModal({
   }
 
   return (
-    <Modal
-      title={title}
-      open={open}
-      onClose={onClose}
-      footer={
-        // Full-width bold red Close button with hover state and focus ring
-        <div style={{ width: "100%" }}>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              width: "100%",
-              background: "#EF4444",
-              color: "#fff",
-              border: "none",
-              borderRadius: 10,
-              padding: "10px 14px",
-              fontWeight: 700,
-              cursor: "pointer",
-              boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
-              transition: "background .15s ease, transform .05s ease",
-            }}
-            onMouseDown={(e) => { e.currentTarget.style.transform = "translateY(1px)"; }}
-            onMouseUp={(e) => { e.currentTarget.style.transform = "translateY(0)"; }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "#dc2626"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "#EF4444"; }}
-            onFocus={(e) => { e.currentTarget.style.outline = "3px solid rgba(239,68,68,0.35)"; e.currentTarget.style.outlineOffset = "2px"; }}
-            onBlur={(e) => { e.currentTarget.style.outline = "none"; }}
-            aria-label="Close"
-            title="Close"
-          >
-            Close
-          </button>
+    <Modal title={title} open={open} onClose={onClose}>
+      {/* Sticky tabs header inside modal content; body scrolls */}
+      <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "#fff" }}>
+        <div style={{ padding: "12px 20px" }}>
+          <ThemedTabs activeKey={activeTab} onChange={setActiveTab} />
         </div>
-      }
-    >
-      {/* Modal content container:
-          - flex column
-          - capped height to avoid viewport overflow
-          - sticky header/tabs; scroll only within content panel
-          - comfortable paddings (p-6 equivalent ~24px)
-       */}
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          width: '100%',
-          maxWidth: 900,
-          maxHeight: '85vh',
-          overflow: 'hidden',
-          background: '#ffffff',
-          borderRadius: 12,
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Sticky header area (modal header is provided by Modal). We'll add a sticky tabs bar below it */}
-        <div
-          role="presentation"
-          style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 11,
-            background: '#ffffff',
-            boxShadow: "0 1px 0 var(--border-subtle)",
-          }}
-        >
-          <div style={{ padding: '12px 24px' }}>
-            <ThemedTabs activeKey={activeTab} onChange={setActiveTab} />
-          </div>
-        </div>
+      </div>
 
-        {/* Panels container: scrollable area with comfortable padding */}
-        <div
-          role="region"
-          aria-label="Tab content"
-          style={{
-            flex: 1,
-            minHeight: 0,
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            background: '#f9fafb',
-            WebkitOverflowScrolling: 'touch',
-          }}
-          tabIndex={0}
-        >
-          <div style={{ padding: '24px' }}>
-            {activeTab === 'details' && (
-              <div style={{ display: "grid", gap: 16 }}>
-                <UserDetailsView user={user} />
-              </div>
-            )}
+      {/* Scrollable body area */}
+      <div role="region" aria-label="Tab content" style={{ flex: 1, minHeight: 0, overflow: "auto", background: "#f9fafb" }} tabIndex={0}>
+        <div style={{ padding: 20 }}>
+          {activeTab === 'details' && (
+            <div style={{ display: "grid", gap: 16 }}>
+              <UserDetailsView user={user} />
+            </div>
+          )}
 
-            {activeTab === 'projects' && (
-              <div style={{ display: "grid", gap: 16 }}>
-                <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
-              </div>
-            )}
-          </div>
+          {activeTab === 'projects' && (
+            <div style={{ display: "grid", gap: 16 }}>
+              <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
+            </div>
+          )}
         </div>
+      </div>
+
+      {/* Footer action */}
+      <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "#fff" }}>
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            width: "100%",
+            background: "#EF4444",
+            color: "#fff",
+            border: "none",
+            borderRadius: 10,
+            padding: "10px 14px",
+            fontWeight: 700,
+            cursor: "pointer",
+            boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+            transition: "background .15s ease, transform .05s ease",
+          }}
+          onMouseDown={(e) => { e.currentTarget.style.transform = "translateY(1px)"; }}
+          onMouseUp={(e) => { e.currentTarget.style.transform = "translateY(0)"; }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "#dc2626"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "#EF4444"; }}
+          onFocus={(e) => { e.currentTarget.style.outline = "3px solid rgba(239,68,68,0.35)"; e.currentTarget.style.outlineOffset = "2px"; }}
+          onBlur={(e) => { e.currentTarget.style.outline = "none"; }}
+          aria-label="Close"
+          title="Close"
+        >
+          Close
+        </button>
       </div>
     </Modal>
   );

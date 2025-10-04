@@ -114,26 +114,5 @@ body.modal-open--dim-header .topbar {
   border-color: var(--border-subtle, #E5E7EB) !important;
 }
 
-/* Fallback utility: fixed transform centering for any element needing precise center without flex wrapper */
-.center-fixed-transform {
-  position: fixed !important;
-  top: 50% !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%) !important;
-  z-index: 1100 !important;
-  max-width: min(960px, 100vw - 32px) !important;
-  max-height: calc(100vh - 32px) !important;
-  width: 100% !important;
-}
-
-/* Fallback utility: fixed transform centering for any element needing precise center without flex wrapper */
-.center-fixed-transform {
-  position: fixed !important;
-  top: 50% !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%) !important;
-  z-index: 1100 !important;
-  max-width: min(960px, 100vw - 32px) !important;
-  max-height: calc(100vh - 32px) !important;
-  width: 100% !important;
-}
+/* Remove transform-based centering utilities to avoid conflicts with shared Modal */
+.center-fixed-transform { all: unset; }
