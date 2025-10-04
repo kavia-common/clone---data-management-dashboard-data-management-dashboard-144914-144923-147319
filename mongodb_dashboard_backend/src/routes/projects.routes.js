@@ -107,6 +107,78 @@ router.get(
 
 /**
  * @swagger
+ * /api/projects/{projectId}/usage:
+ *   get:
+ *     summary: Project usage (credits and cost)
+ *     description: Returns credits used and total cost for a given project, aggregated from LLM costs. Falls back to zero if not found.
+ *     tags: [Projects]
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Usage totals for the project
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 projectId:
+ *                   type: string
+ *                 creditsUsed:
+ *                   type: number
+ *                 cost:
+ *                   type: number
+ *                 currency:
+ *                   type: string
+ *       404:
+ *         description: Project not found
+ */
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/projects/:projectId/usage
+ * Returns project-level credits used and cost totals.
+ */
+router.get(
+  '/:projectId/usage',
+  asyncHandler(async (req, res) => {
+    const { projectId } = req.params;
+
+    // Ensure the project exists to return 404 for invalid ids
+    const project = await Project.findOne({ project_id: projectId }).lean();
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    // Aggregate from LLMCosts via analytics service for consistency
+    const costs = await (async () => {
+      try {
+        const result = await getCosts({ tenant_id: project.tenant_id, project_id: projectId });
+        return result || { total_cost: 0 };
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('Error aggregating project usage:', e);
+        return { total_cost: 0 };
+      }
+    })();
+
+    const creditsUsed = Number(costs.total_cost || 0);
+    const cost = creditsUsed;
+    const currency = project.credits_unit || 'USD';
+
+    return res.status(200).json({
+      projectId,
+      creditsUsed,
+      cost,
+      currency,
+    });
+  })
+);
+
+/**
+ * @swagger
  * /api/projects/{projectId}/users/usage:
  *   get:
  *     summary: Project users usage

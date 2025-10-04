@@ -45,6 +45,10 @@ LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ session_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ llm_model: 1, timestamp: -1 });
 LLMCostsSchema.index({ task_id: 1 });
+// Optimize direct project_id lookups for usage endpoint
+LLMCostsSchema.index({ project_id: 1 });
+// Optimize direct project_id lookups for usage endpoint
+LLMCostsSchema.index({ project_id: 1 });
 
 LLMCostsSchema.pre('findOneAndUpdate', function (next) {
   this.set({ updated_at: new Date() });
