@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import { listSessions } from "../../api/client";
+import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
@@ -20,6 +21,10 @@ export default function Sessions() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+
+  // New state for details modal
+  const [selectedSession, setSelectedSession] = useState(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   // Allowed and ordered fields per requirement (User Name and Total Cost removed)
   const allowedOrdered = useMemo(
@@ -105,8 +110,35 @@ export default function Sessions() {
     setItems(filtered);
   }, [query, allItems, allowedOrdered]);
 
+  // Toggle global dimming class while modal is open (align with user modal UX)
+  useEffect(() => {
+    if (detailsOpen) {
+      document.body.classList.add("modal-open");
+    } else {
+      document.body.classList.remove("modal-open");
+    }
+    return () => document.body.classList.remove("modal-open");
+  }, [detailsOpen]);
+
+  // Row click -> open modal
+  const handleRowClick = (row) => {
+    setSelectedSession(row);
+    setDetailsOpen(true);
+  };
+
   return (
     <div>
+      {/* Mount modal at root to avoid clipping and ensure overlay covers page */}
+      <SessionDetailsModal
+        open={detailsOpen}
+        onClose={() => {
+          setDetailsOpen(false);
+          // slight delay to allow closing transition if any
+          setTimeout(() => setSelectedSession(null), 0);
+        }}
+        session={selectedSession}
+      />
+
       <Card title="Session Tracking" subtitle="Selected columns only">
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
@@ -131,6 +163,7 @@ export default function Sessions() {
             await load(page, limit);
           }}
           paginationTitle="Sessions pages"
+          onRowClick={handleRowClick}
         />
       </Card>
     </div>
