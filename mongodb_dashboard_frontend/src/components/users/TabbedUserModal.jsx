@@ -178,19 +178,42 @@ UserDetailsView.propTypes = {
 /**
  * Renders the Project Details header section showing aggregate cost if a project is provided.
  * Prefers sum of cost_history.delta_total_cost; falls back to legacy total cost internally via hook.
+ * Always renders the card so Project ID and Updated are visible; shows '—' for cost when projectId is missing.
  */
 function ProjectCostSummaryCard({ project }) {
+  // Resolve projectId from various possible shapes; log for diagnostics in development.
   const projectIdStr = useMemo(() => {
     if (!project) return '';
-    const id = project.project_id || project.projectId || '';
+    const id =
+      project.project_id ??
+      project.projectId ??
+      project.id ??
+      project._id ??
+      '';
     const s = String(id || '').trim();
     return s.length > 0 && s !== '—' ? s : '';
   }, [project]);
 
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      // eslint-disable-next-line no-console
+      console.log('[ProjectCostSummaryCard] projectIdStr:', projectIdStr, 'project:', project);
+    } catch {
+      /* noop */
+    }
+  }
+
   const enabled = Boolean(projectIdStr);
   const { formattedCost, loading, error } = useProjectCostHistorySum(projectIdStr, { enabled });
 
-  if (!enabled) return null;
+  if (process.env.NODE_ENV !== 'production' && enabled) {
+    try {
+      // eslint-disable-next-line no-console
+      console.log('[ProjectCostSummaryCard] enabled fetch for projectId:', projectIdStr);
+    } catch {
+      /* noop */
+    }
+  }
 
   const updated = project?.updatedAt || project?.updated_at || project?.last_activity || null;
   const updatedLabel = (() => {
@@ -198,6 +221,7 @@ function ProjectCostSummaryCard({ project }) {
     try { return new Date(updated).toLocaleString(); } catch { return String(updated); }
   })();
 
+  // Always render the card to show ID and Updated; show '—' for cost if no projectId
   return (
     <section
       aria-label="Project aggregate cost"
@@ -226,11 +250,15 @@ function ProjectCostSummaryCard({ project }) {
             Total Cost
           </div>
           <div style={{ fontWeight: 700, color: 'var(--text-primary, #111827)' }}>
-            {loading ? 'Loading…' : error ? (
-              <span title={error} style={{ color: '#EF4444', fontWeight: 600 }}>Error</span>
-            ) : (formattedCost ?? '—')}
+            {!enabled
+              ? '—'
+              : loading
+                ? 'Loading…'
+                : error
+                  ? <span title={error} style={{ color: '#EF4444', fontWeight: 600 }}>Error</span>
+                  : (formattedCost ?? '—')}
           </div>
-          {/* We prefer sum of cost_history.delta_total_cost since it more accurately tracks incremental updates than summing total_cost across sessions. */}
+          {/* Prefer sum of cost_history.delta_total_cost; fall back handled in the hook if needed. */}
         </div>
 
         <div>
