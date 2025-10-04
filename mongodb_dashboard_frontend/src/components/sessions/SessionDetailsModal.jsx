@@ -104,11 +104,16 @@ function SessionDetailsModal({ open, onClose, session }) {
           background: '#ffffff',
           borderRadius: 16,
           boxShadow: '0 8px 20px rgba(16,24,40,0.12)',
+          // Responsive width with small-screen padding courtesy of Modal overlay
           width: 'min(720px, calc(100vw - 32px))',
+          // Constrain height to viewport; internal area scrolls
           maxHeight: '85vh',
           display: 'flex',
           flexDirection: 'column',
+          // Hide overflow on the container; inner content region handles scrolling
           overflow: 'hidden',
+          // Ensure this container is rendered above any app-level elements within the overlay
+          zIndex: 1001,
         }}
       >
         {/* Sticky Header with subtle shadow */}
