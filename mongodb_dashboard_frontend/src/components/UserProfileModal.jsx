@@ -5,8 +5,8 @@ import Modal from "./ui/Modal.jsx";
  * PUBLIC_INTERFACE
  * UserProfileModal
  * Accessible modal that shows a selected user's core profile information only.
- * - Renders a concise set of fields in a clean two‑column grid.
- * - Removes any "Additional details" or raw document/JSON sections to keep the modal focused.
+ * - Shows ONLY: Name, Email, Department, and Tenant ID.
+ * - Renders in a clean two‑column grid consistent with the Ocean Professional theme.
  */
 // PUBLIC_INTERFACE
 export default function UserProfileModal({ open, onClose, user }) {
@@ -35,19 +35,13 @@ export default function UserProfileModal({ open, onClose, user }) {
     );
   }, [safeUser]);
 
-  // Core fields to highlight in a two-column grid
+  // Core fields restricted to Name, Email, Department, Tenant ID
   const mainFields = useMemo(
     () => [
       { key: "name", label: "Name" },
       { key: "email", label: "Email" },
-      { key: "phone", label: "Phone" },
       { key: "department", label: "Department" },
-      { key: "role", label: "Role" },
-      { key: "status", label: "Status" },
-      { key: "__tenant", label: "Tenant Id" }, // synthetic (resolved from multiple keys)
-      { key: "_id", label: "ID" },
-      { key: "created_at", label: "Created At", type: "date" },
-      { key: "updated_at", label: "Updated At", type: "date" },
+      { key: "__tenant", label: "Tenant ID" }, // synthetic (resolved from multiple keys)
     ],
     []
   );
