@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import Modal from '../ui/Modal.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
+import { toTitleCaseName } from '../../utils/stringFormatters.js';
 
 /**
  * PUBLIC_INTERFACE
@@ -177,7 +178,9 @@ function SessionDetailsModal({ open, onClose, session }) {
 
     // Strict user display: session.user_name first, then resolved user name, then Unknown
     const resolvedUserName = resolveUserName(pick(['user', 'userId', 'user_id', 'username', 'email', 'owner', 'ownerEmail']));
-    const displayUser = s?.User_name ?? resolvedUserName ?? 'Unknown User'; // Note: source uses 'User_name' (capital U)
+    // Title Case normalization for display; preserve null-safe fallback
+    const rawName = s?.User_name ?? resolvedUserName ?? 'Unknown User';
+    const displayUser = typeof rawName === 'string' ? toTitleCaseName(rawName) : rawName; // e.g., 'john_doe-smith' -> 'John Doe Smith'
 
     const projectId = pick(['project_id', 'projectId', 'project', 'projectSlug']);
     const projectName = pick(['projectName', 'project_name', 'projectLabel', 'project_label']);
