@@ -158,27 +158,23 @@ function SessionDetailsModal({ open, onClose, session }) {
       'created_at', 'createdAt', 'startedAt', 'started_at', 'start_time', 'startTime', 'created', 'timestamp', 'session_start', 'sessionStart', 'begin_time', 'beginTime'
     ]);
 
-    // Normalize last_updated
-    const lastUpdatedAtRaw = pick([
-      'lastUpdatedAt', 'updatedAt', 'updated_at',
-      'modifiedAt', 'modified_at',
-      'lastModified', 'last_modified',
-      'lastActivityAt', 'last_activity_at',
-      'finishedAt', 'finished_at',
-      'endedAt', 'ended_at',
-      'end_time', 'endTime',
-      'last_activity', 'lastActivity',
-      'timestamp_updated', 'modified', 'lastUpdate', 'last_update',
-      'meta.updatedAt', 'metadata.updatedAt',
-    ]);
-
-    // Fallback cascade for last_updated
-    let normalizedLastUpdatedAt = lastUpdatedAtRaw;
+    // Last Updated: strict rule -> use session.last_updated if present, else fallbacks
+    const lastUpdatedPrimary = pick(['last_updated']); // direct preferred field
+    let normalizedLastUpdatedAt = lastUpdatedPrimary;
     if (!normalizedLastUpdatedAt) {
-      const ended = pick(['endedAt','ended_at','end_time','endTime','finishedAt','finished_at']);
-      const updated = pick(['updatedAt','updated_at','modifiedAt','modified_at','lastModified','last_modified','timestamp_updated','modified','lastUpdate','last_update']);
-      const activity = pick(['lastActivityAt','last_activity_at','last_activity','lastActivity']);
-      normalizedLastUpdatedAt = ended || updated || activity || undefined;
+      // Only when missing, try aliases
+      normalizedLastUpdatedAt = pick([
+        'lastUpdatedAt', 'updatedAt', 'updated_at',
+        'modifiedAt', 'modified_at',
+        'lastModified', 'last_modified',
+        'lastActivityAt', 'last_activity_at',
+        'finishedAt', 'finished_at',
+        'endedAt', 'ended_at',
+        'end_time', 'endTime',
+        'last_activity', 'lastActivity',
+        'timestamp_updated', 'modified', 'lastUpdate', 'last_update',
+        'meta.updatedAt', 'metadata.updatedAt',
+      ]);
     }
 
     const normalizedCreatedAt = createdAtRaw || undefined;
@@ -192,8 +188,6 @@ function SessionDetailsModal({ open, onClose, session }) {
     const projectName = pick(['projectName', 'project_name', 'projectLabel', 'project_label']);
     const serviceType = pick(['serviceType', 'service_type', 'provider', 'modelProvider']);
     const tenant = pick(['tenant', 'tenantId', 'tenant_id', 'organization', 'organization_id', 'organizationId', 'tenantName', 'tenant_name']);
-
-    const durationStr = computeDuration(normalizedCreatedAt, normalizedLastUpdatedAt);
 
     // Resolve user display with strict preference: session.user_name -> resolved via userRef -> masked/short id -> 'Unknown User'
     let userName = undefined;
@@ -223,26 +217,32 @@ function SessionDetailsModal({ open, onClose, session }) {
       }
     }
 
+    // Compute duration using created_at and the normalized last_updated
+    const durationStr = computeDuration(normalizedCreatedAt, normalizedLastUpdatedAt);
+
     // Dev-only diagnostics to help trace missing fields during development
     if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
-      console.debug('[SessionDetailsModal] session received:', { session });
-      // eslint-disable-next-line no-console
-      console.debug('[SessionDetailsModal] normalized fields:', {
-        created_at: normalizedCreatedAt,
-        last_updated: normalizedLastUpdatedAt,
-        project_id: projectId || projectName,
-        service_type: serviceType,
-        user_name: userName,
-      });
+      try {
+        // eslint-disable-next-line no-console
+        console.debug('[SessionDetailsModal] session received (keys):', Object.keys(s || {}));
+        // eslint-disable-next-line no-console
+        console.debug('[SessionDetailsModal] key fields snapshot:', {
+          user_name_raw: s?.user_name ?? s?.userName,
+          user_ref: s?.user ?? s?.userId ?? s?.user_id ?? s?.username ?? s?.email ?? s?.owner ?? s?.ownerEmail,
+          created_raw: s?.created_at ?? s?.createdAt ?? s?.startedAt ?? s?.start_time ?? s?.startTime,
+          last_updated_raw: s?.last_updated ?? s?.updated_at ?? s?.updatedAt ?? s?.lastUpdatedAt ?? s?.endedAt ?? s?.finishedAt ?? s?.lastActivityAt,
+        });
+      } catch {
+        // ignore logging errors
+      }
     }
 
     // Build detail fields ensuring the five required are present
     const details = {
-      'User': userName || 'Unknown User',                       // user_name preferred
+      'User': userName || 'Unknown User',                       // user_name preferred, never raw ID if name exists
       'Session ID': sessionId ?? '—',
-      'Project ID': projectId ?? projectName ?? '—',       // project_id with name fallback
-      'Service Type': serviceType ?? '—',                  // service_type
+      'Project ID': projectId ?? projectName ?? '—',            // project_id with name fallback
+      'Service Type': serviceType ?? '—',                       // service_type
       Tenant: tenant ?? '—',
       'Created At': formatDate(normalizedCreatedAt),            // created_at
       'Last Updated At': formatDate(normalizedLastUpdatedAt),   // last_updated
