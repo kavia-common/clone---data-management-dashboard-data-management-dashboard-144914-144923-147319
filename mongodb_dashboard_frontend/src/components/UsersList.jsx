@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
-import UserProfileModal from "./UserProfileModal.jsx";
 import { listUsers } from "../api/client";
 
 /**
@@ -22,9 +21,9 @@ import { listUsers } from "../api/client";
  * Enhancement:
  * - Changes filter control to Organization (replacing Department). Includes a "Reset" button to clear filters.
  *
- * @param {{ title?: string, subtitle?: string, showActions?: boolean, onUserSelect?: (user:any)=>void }} props
+ * @param {{ title?: string, subtitle?: string, showActions?: boolean, onUserSelect?: (user:any)=>void, onUserRowClick?: (user:any)=>void }} props
  */
-export default function UsersList({ title = "Users", subtitle = "All users", showActions = false, onUserSelect }) {
+export default function UsersList({ title = "Users", subtitle = "All users", showActions = false, onUserSelect, onUserRowClick }) {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -36,48 +35,6 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   const [organizationFilter, setOrganizationFilter] = useState("");
 
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
-
-  // Modal: user profile
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [profileOpen, setProfileOpen] = useState(false);
-
-  // While the profile modal is open, make the global header (Topbar) inaccessible:
-  // - inert: prevents focus and interaction in supported browsers
-  // - aria-hidden: hide from assistive tech
-  // - topbar--dimmed: visual dim and pointer-events disabled as a fallback
-  useEffect(() => {
-    const header = document.querySelector(".topbar");
-    if (!header) return;
-
-    if (profileOpen) {
-      try {
-        header.setAttribute("inert", "");
-        header.setAttribute("aria-hidden", "true");
-        header.classList.add("topbar--dimmed");
-      } catch {
-        // no-op
-      }
-    } else {
-      try {
-        header.removeAttribute("inert");
-        header.removeAttribute("aria-hidden");
-        header.classList.remove("topbar--dimmed");
-      } catch {
-        // no-op
-      }
-    }
-
-    // Cleanup to ensure header is restored if component unmounts while modal is open
-    return () => {
-      try {
-        header.removeAttribute("inert");
-        header.removeAttribute("aria-hidden");
-        header.classList.remove("topbar--dimmed");
-      } catch {
-        // no-op
-      }
-    };
-  }, [profileOpen]);
 
   // Limit searchable fields to the visible columns (and their most likely underlying keys).
   const allowedFields = useMemo(
@@ -186,19 +143,17 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
   }
 
-  function onRowClick(user) {
-    setSelectedUser(user);
-    setProfileOpen(true);
+  // Row click: delegate to parent only (stateless regarding profile modal)
+  function handleRowClick(user) {
     try {
+      if (typeof onUserRowClick === "function") {
+        onUserRowClick(user);
+        return;
+      }
       if (typeof onUserSelect === "function") onUserSelect(user);
     } catch {
       // ignore external callback errors
     }
-  }
-
-  function closeProfile() {
-    setProfileOpen(false);
-    setSelectedUser(null);
   }
 
   // Force DataTable to reset pagination to page 1 whenever filters or search change
@@ -258,7 +213,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           data={items}
           loading={loading}
           onDelete={showActions ? onDelete : undefined}
-          onRowClick={onRowClick}
+          onRowClick={handleRowClick}
           pageSize={meta.limit || 10}
           initialPage={1}
           paginationTitle="Users pages"
@@ -290,12 +245,6 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           </div>
         </div>
       )}
-
-      <UserProfileModal
-        open={profileOpen}
-        onClose={closeProfile}
-        user={selectedUser}
-      />
     </div>
   );
 }
