@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 /**
- * LLM Costs model mapping to 'llm_cost' collection.
+ * LLM Costs model mapping to 'llm_cost' collection (not 'llm_costs').
  * Fields accommodate different possible shapes: total_cost or amount, currency, timestamp, and project_id.
  */
 const LlmCostSchema = new mongoose.Schema(
