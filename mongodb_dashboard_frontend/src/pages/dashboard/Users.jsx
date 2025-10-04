@@ -29,12 +29,7 @@ export default function Users() {
     setOpen(true);
   }
 
-  // Example handler for "View Projects" triggers in this page (if any future button exists)
-  function openSelectedUserProjects() {
-    if (!selectedUser) return;
-    setDefaultTab("projects");
-    setOpen(true);
-  }
+
 
   function closeModal() {
     setOpen(false);
@@ -82,22 +77,8 @@ export default function Users() {
         onUserSelect={handleUserSelect}
       />
 
-      {/* Optional action row for manual projects open if needed */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, gap: 8, flexWrap: "wrap" }}>
-        <div className="muted" style={{ fontSize: 12 }}>
-          {selectedUser
-            ? `Selected: ${selectedUser.name || selectedUser.full_name || selectedUser.email || selectedUser._id || "User"}`
-            : "Select a user row to open their details"}
-        </div>
-        <button
-          className="btn btn-primary"
-          onClick={openSelectedUserProjects}
-          disabled={!selectedUser || !tenantId}
-          title={selectedUser && tenantId ? "View projects for selected user" : "Select a user first"}
-        >
-          View Selected User Projects
-        </button>
-      </div>
+      {/* Spacer preserved after removing helper text and button to maintain layout rhythm */}
+      <div style={{ marginTop: 12 }} aria-hidden="true" />
 
       {/* Single tabbed modal: Details and Projects */}
       <TabbedUserModal
