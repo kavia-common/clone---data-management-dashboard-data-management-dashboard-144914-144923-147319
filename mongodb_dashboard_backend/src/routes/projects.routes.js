@@ -331,4 +331,91 @@ router.get(
   })
 );
 
+/**
+ * @swagger
+ * /api/projects/{projectId}/cost-history-sum:
+ *   get:
+ *     summary: Project total cost from cost_history deltas (session tracking)
+ *     description: >
+ *       Aggregates project cost as the sum of all cost_history.delta_total_cost across session_tracking documents where project_id matches the given projectId.
+ *       Handles missing or empty cost_history gracefully and coerces delta_total_cost values to numbers.
+ *     tags: [Projects]
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Project cost aggregated from cost_history deltas
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 projectId:
+ *                   type: string
+ *                 cost:
+ *                   type: number
+ */
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/projects/:projectId/cost-history-sum
+ * Sums cost_history.delta_total_cost across all session_tracking documents for the given project.
+ */
+router.get(
+  '/:projectId/cost-history-sum',
+  asyncHandler(async (req, res) => {
+    const projectIdStr = String(req.params.projectId);
+
+    // Aggregation pipeline as specified in requirements
+    const pipeline = [
+      { $match: { project_id: projectIdStr } },
+      {
+        $project: {
+          deltas: {
+            $map: {
+              input: { $ifNull: ['$cost_history', []] },
+              as: 'ch',
+              in: {
+                $toDouble: { $ifNull: ['$$ch.delta_total_cost', 0] },
+              },
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          sumDeltas: { $sum: '$deltas' },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          projectCost: { $sum: '$sumDeltas' },
+        },
+      },
+    ];
+
+    let projectCost = 0;
+    try {
+      const result = await SessionTracking.aggregate(pipeline);
+      projectCost = Number(result?.[0]?.projectCost ?? 0);
+      if (!Number.isFinite(projectCost)) projectCost = 0;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `Error aggregating cost_history deltas for projectId=${projectIdStr}`,
+        err?.message || err
+      );
+      projectCost = 0;
+    }
+
+    return res.status(200).json({
+      projectId: projectIdStr,
+      cost: projectCost,
+    });
+  })
+);
+
 module.exports = router;
