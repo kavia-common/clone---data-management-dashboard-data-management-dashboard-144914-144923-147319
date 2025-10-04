@@ -249,15 +249,11 @@ function UserProjectsView({ userId, tenantId, from, to }) {
     // Lazy import to avoid top-level circular dependencies – hook is simple
     // eslint-disable-next-line global-require
     const { useProjectCost } = require('../../hooks/useProjectCost');
-    const { data: costData, loading: costLoading, error: costError } = useProjectCost(id, { enabled: Boolean(id && id !== '—') });
+    // Pass a string project identifier explicitly and defensively enable
+    const stringProjectId = id && id !== '—' ? String(id) : '';
+    const { formattedCost, data: costData, loading: costLoading, error: costError } = useProjectCost(stringProjectId, { enabled: Boolean(stringProjectId) });
 
-    const formatCost = (c, curr) => {
-      if (c == null) return '—';
-      const num = Number(c);
-      if (!Number.isFinite(num)) return '—';
-      const symbol = curr === 'USD' ? '$' : '';
-      return `${symbol}${num.toFixed(4)}${symbol ? '' : ` ${curr || ''}`}`.trim();
-    };
+    // Cost formatting is now handled by the hook (Intl.NumberFormat)
 
     return (
       <div
@@ -370,7 +366,7 @@ function UserProjectsView({ userId, tenantId, from, to }) {
             <>
               <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Cost</dt>
               <dd style={{ margin: 0, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
-                {costLoading ? 'Loading…' : costError ? '—' : formatCost(costData?.cost, costData?.currency)}
+                {costLoading ? 'Loading…' : costError ? '—' : (formattedCost || '—')}
               </dd>
             </>
           </dl>
