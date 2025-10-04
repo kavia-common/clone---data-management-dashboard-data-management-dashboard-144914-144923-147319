@@ -2,33 +2,36 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import Modal from '../ui/Modal.jsx';
 
 /**
- * SessionDetailsModal
  * PUBLIC_INTERFACE
- * Props:
- * - open: boolean - whether the modal is visible
- * - onClose: function - called when closing the modal
- * - session: object - the selected session data to display
+ * SessionDetailsModal
+ * A responsive, accessible modal that presents session details in a clear two-column grid.
  *
- * This modal mirrors the styling/UX patterns used by TabbedUserModal:
- * - Subtle overlay backdrop
- * - Sticky header with title
- * - Internal scroll area for content
- * - Comfortable spacing
- * - Full-width red Close button (#EF4444) with hover state
- * - Accessibility: role="dialog", aria-modal, aria-labelledby
+ * Props:
+ * - open: boolean - controls visibility
+ * - onClose: function - invoked to close modal
+ * - session: object - session data to render
+ *
+ * Design and UX:
+ * - Subtle overlay provided by Modal component
+ * - Sticky header with title; content area scrolls internally
+ * - Core details section rendered as a 2-column responsive grid (1-column on small screens)
+ * - Dedicated Metadata section separated by a divider and spacing
+ * - Labels are muted with medium weight; values wrap to avoid horizontal scrolling
+ * - Prominent full-width Close button in error color (#EF4444) with hover/focus states
+ * - Ocean Professional theme: primary #2563EB, accent #F59E0B, error #EF4444
  */
 function SessionDetailsModal({ open, onClose, session }) {
   const headerId = 'session-details-title';
   const contentRef = useRef(null);
 
-  // Focus modal content on open (basic focus management if Modal doesn't trap focus)
+  // Focus modal content when opened for accessibility
   useEffect(() => {
     if (open && contentRef.current) {
       contentRef.current.focus();
     }
   }, [open]);
 
-  // Formatters
+  // Helpers
   const formatDate = (val) => {
     if (!val) return '—';
     try {
@@ -40,12 +43,10 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
   };
 
-  const toDisplay = useMemo(() => {
-    // Build a flat display map from likely fields, guarding undefineds
+  const coreDetails = useMemo(() => {
     if (!session || typeof session !== 'object') return {};
 
     const s = session;
-    // cover multiple possible key variants
     const get = (keys) => {
       for (const k of keys) {
         if (s && s[k] !== undefined && s[k] !== null) return s[k];
@@ -65,7 +66,6 @@ function SessionDetailsModal({ open, onClose, session }) {
     const source = get(['source', 'ip', 'ipAddress', 'client_ip']);
     const sessionId = get(['sessionId', '_id', 'id']);
     const projectId = get(['projectId', 'project_id', 'project']);
-    const metadata = get(['metadata', 'meta']);
 
     return {
       'Session ID': sessionId ?? '—',
@@ -80,13 +80,19 @@ function SessionDetailsModal({ open, onClose, session }) {
       'Tokens Used': tokensUsed !== undefined ? String(tokensUsed) : '—',
       'Model': model ?? '—',
       'Source / IP': source ?? '—',
-      'Metadata': metadata ? (typeof metadata === 'object' ? JSON.stringify(metadata, null, 2) : String(metadata)) : '—',
     };
+  }, [session]);
+
+  const metadataValue = useMemo(() => {
+    if (!session || typeof session !== 'object') return '—';
+    const meta = session?.metadata ?? session?.meta;
+    if (!meta && meta !== 0) return '—';
+    if (typeof meta === 'object') return JSON.stringify(meta, null, 2);
+    return String(meta);
   }, [session]);
 
   return (
     <Modal open={open} onClose={onClose}>
-      {/* Overlay and container provided by Modal. We build internal structure like TabbedUserModal */}
       <div
         className="relative bg-white rounded-lg shadow-xl w-full max-w-3xl mx-auto max-h-[85vh] flex flex-col"
         role="dialog"
@@ -107,30 +113,50 @@ function SessionDetailsModal({ open, onClose, session }) {
           ref={contentRef}
           tabIndex={-1}
           id={`${headerId}-content`}
-          className="overflow-y-auto px-6 py-5 space-y-6"
+          className="overflow-y-auto px-6 py-5 space-y-8"
           style={{ WebkitOverflowScrolling: 'touch' }}
         >
-          {/* Grid of labeled values */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {Object.entries(toDisplay).map(([label, value]) => (
-              <div key={label} className="flex flex-col">
-                <span className="text-xs uppercase tracking-wide text-gray-500">{label}</span>
-                {label === 'Metadata' && value !== '—' ? (
-                  <pre className="mt-1 text-sm text-gray-900 bg-gray-50 rounded p-3 overflow-x-auto">{value}</pre>
-                ) : (
-                  <span className="mt-1 text-sm text-gray-900 break-words">{value}</span>
-                )}
-              </div>
-            ))}
-          </div>
+          {/* Core details grid */}
+          <section aria-label="Core details" className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+              {Object.entries(coreDetails).map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <div className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">
+                    {label}
+                  </div>
+                  <div className="mt-1 text-sm text-gray-900 break-words leading-6">
+                    {value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Divider and Metadata */}
+          <hr className="border-gray-200" />
+          <section aria-label="Metadata" className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900">
+                Metadata
+              </h3>
+              {/* Optional accent underline could be added if desired */}
+            </div>
+            {metadataValue !== '—' ? (
+              <pre className="text-sm text-gray-900 bg-gray-50 rounded-md p-3 overflow-x-auto whitespace-pre-wrap break-words">
+                {metadataValue}
+              </pre>
+            ) : (
+              <div className="text-sm text-gray-500">—</div>
+            )}
+          </section>
         </div>
 
-        {/* Footer with full-width Close button */}
+        {/* Footer with full-width prominent Close button */}
         <div className="px-6 pb-6">
           <button
             type="button"
             onClick={onClose}
-            className="w-full inline-flex items-center justify-center rounded-md bg-red-500 px-4 py-2.5 text-white font-medium shadow-sm hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition"
+            className="w-full inline-flex items-center justify-center rounded-md bg-red-500 px-5 py-3 text-white font-semibold shadow-sm hover:bg-red-600 active:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition"
           >
             Close
           </button>
