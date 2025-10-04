@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { formatUsdUpTo8 } from "../../components/utils/numberFormat";
 import { listSessions } from "../../api/client";
 
 // PUBLIC_INTERFACE
@@ -12,9 +11,8 @@ export default function Sessions() {
    * - Tenant Id
    * - Organization Name
    * - Service Type
-   * - Total Cost
    *
-   * All other columns (ID, session start/end, status, created/updated at, actions) are removed from both configuration and UI.
+   * All other columns (ID, session start/end, status, total cost, created/updated at, actions) are removed from both configuration and UI.
    */
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
@@ -23,14 +21,13 @@ export default function Sessions() {
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Allowed and ordered fields per requirement (User Name removed)
+  // Allowed and ordered fields per requirement (User Name and Total Cost removed)
   const allowedOrdered = useMemo(
     () => [
       "task_id",
       "tenant_id",
       "organization_name",
       "service_type",
-      "total_cost",
     ],
     []
   );
@@ -50,21 +47,7 @@ export default function Sessions() {
     (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
 
     return allowedOrdered.map((k) => {
-      // total_cost: currency-like formatting if number
-      if (k === "total_cost") {
-        return {
-          key: k,
-          label: toLabel(k),
-          render: (v) =>
-            typeof v === "number" ? (
-              <span className="amount-positive" title={formatUsdUpTo8(v)}>
-                {formatUsdUpTo8(v)}
-              </span>
-            ) : v == null || v === "" ? "—" : String(v),
-          priority: 2,
-        };
-      }
-      // Regular text cells
+      // Regular text cells (Total Cost removed)
       return {
         key: k,
         label: toLabel(k),
