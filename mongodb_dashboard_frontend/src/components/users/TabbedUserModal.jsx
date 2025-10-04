@@ -245,16 +245,6 @@ function UserProjectsView({ userId, tenantId, from, to }) {
       gap: 12,
     };
 
-    // Fetch cost for this project from session tracking aggregation
-    // Lazy import to avoid top-level circular dependencies – hook is simple
-    // eslint-disable-next-line global-require
-    const { useProjectCost } = require('../../hooks/useProjectCost');
-    // Pass a string project identifier explicitly and defensively enable
-    const stringProjectId = id && id !== '—' ? String(id) : '';
-    const { formattedCost, data: costData, loading: costLoading, error: costError } = useProjectCost(stringProjectId, { enabled: Boolean(stringProjectId) });
-
-    // Cost formatting is now handled by the hook (Intl.NumberFormat)
-
     return (
       <div
         role="article"
@@ -361,23 +351,8 @@ function UserProjectsView({ userId, tenantId, from, to }) {
                 </dd>
               </>
             ) : null}
-
-            {/* Cost (aggregated from session tracking) */}
-            <>
-              <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Cost</dt>
-              <dd style={{ margin: 0, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
-                {costLoading ? 'Loading…' : costError ? '—' : (formattedCost || '—')}
-              </dd>
-            </>
           </dl>
         </div>
-
-        {/* Inline minimal error notice if fetch failed */}
-        {costError ? (
-          <div role="alert" style={{ marginTop: 8, fontSize: 12, color: '#b91c1c' }}>
-            Unable to load cost for this project.
-          </div>
-        ) : null}
       </div>
     );
   };
