@@ -32,15 +32,24 @@ export default function Users() {
         title="Users"
         subtitle="All users"
         showActions={false}
-        onUserSelect={(u) => setSelectedUser(u)}
+        onUserSelect={(u) => {
+          // When a user row is selected, immediately open the projects modal.
+          setSelectedUser(u);
+          // Only open if we can derive a tenant id; otherwise let the button remain disabled.
+          const tId =
+            u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id ?? "";
+          if (tId && (u?._id || u?.id)) {
+            setProjectsOpen(true);
+          }
+        }}
       />
 
-      {/* Action row: show current selection and View button */}
+      {/* Action row: show current selection and View button (fallback/manual trigger) */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, gap: 8, flexWrap: "wrap" }}>
         <div className="muted" style={{ fontSize: 12 }}>
           {selectedUser
             ? `Selected: ${selectedUser.name || selectedUser.full_name || selectedUser.email || selectedUser._id || "User"}`
-            : "Select a user row to enable View Projects"}
+            : "Select a user row to view their projects"}
         </div>
         <button
           className="btn btn-primary"

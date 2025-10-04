@@ -71,7 +71,9 @@ export default function UserProjectsModal({
         </div>
       )}
       {!loading && !error && (!projects || projects.length === 0) && (
-        <div className="table-empty">No projects found</div>
+        <div className="table-empty">
+          No projects found for this user in the selected tenant. This usually means no sessions have been recorded yet.
+        </div>
       )}
 
       {/* List of projects */}
