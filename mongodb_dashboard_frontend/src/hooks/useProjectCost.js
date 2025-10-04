@@ -27,11 +27,11 @@ export function useProjectCost(projectId, options = {}) {
   const formatCurrency = (amount, currency = 'USD') => {
     if (amount == null || Number.isNaN(Number(amount))) return '—';
     try {
-      const nf = new Intl.NumberFormat(undefined, {
+      const nf = new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: currency || 'USD',
         minimumFractionDigits: 4,
-        maximumFractionDigits: 4,
+        maximumFractionDigits: 6,
       });
       return nf.format(Number(amount));
     } catch {
