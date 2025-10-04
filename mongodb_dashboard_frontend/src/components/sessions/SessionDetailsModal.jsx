@@ -31,13 +31,14 @@ function SessionDetailsModal({ open, onClose, session }) {
 
   // Helpers
   const formatDate = (val) => {
+    // Render a formatted local date-time or an em-dash placeholder if missing/invalid.
     if (!val) return '—';
     try {
       const d = new Date(val);
-      if (isNaN(d.getTime())) return String(val);
+      if (isNaN(d.getTime())) return '—';
       return d.toLocaleString();
     } catch {
-      return String(val);
+      return '—';
     }
   };
 
@@ -69,21 +70,54 @@ function SessionDetailsModal({ open, onClose, session }) {
     if (!session || typeof session !== 'object') return {};
 
     const s = session;
-    const get = (keys) => {
+
+    // Utility: safely pick the first defined value by probing dot/flat aliases
+    const pick = (keys) => {
       for (const k of keys) {
-        if (s && s[k] !== undefined && s[k] !== null) return s[k];
+        // support nested via simple dot path if ever provided
+        if (k.includes('.')) {
+          const parts = k.split('.');
+          let cur = s;
+          let found = true;
+          for (const p of parts) {
+            if (cur && Object.prototype.hasOwnProperty.call(cur, p)) {
+              cur = cur[p];
+            } else {
+              found = false;
+              break;
+            }
+          }
+          if (found && cur != null) return cur;
+        } else if (s && s[k] !== undefined && s[k] !== null) {
+          return s[k];
+        }
       }
       return undefined;
     };
 
-    const startedAt = get(['startedAt', 'start_time', 'startTime', 'created_at', 'createdAt']);
-    const lastUpdatedAt = get(['lastUpdatedAt', 'updatedAt', 'updated_at', 'end_time', 'endTime']);
-    const sessionId = get(['sessionId', '_id', 'id']);
-    const user = get(['user', 'userId', 'user_id', 'username', 'user_name', 'email']);
-    const project = get(['project', 'projectId', 'project_id']);
-    const tenant = get(['tenant', 'tenantId', 'tenant_id']);
+    // Normalize timestamps with broad alias coverage
+    const startedAtRaw = pick([
+      'startedAt', 'start_time', 'startTime', 'created_at', 'createdAt', 'created', 'timestamp', 'session_start', 'sessionStart',
+    ]);
 
-    const durationStr = computeDuration(startedAt, lastUpdatedAt);
+    const lastUpdatedAtRaw = pick([
+      'lastUpdatedAt', 'updatedAt', 'updated_at', 'modifiedAt', 'modified_at', 'lastModified', 'last_modified',
+      'end_time', 'endTime', 'finishedAt', 'finished_at', 'endedAt', 'ended_at', 'last_activity', 'lastActivity',
+      'timestamp_updated', 'modified', 'lastUpdate', 'last_update',
+      // Some APIs track Mongoose-style updated path inside metadata
+      'meta.updatedAt', 'metadata.updatedAt',
+    ]);
+
+    // Use createdAt as fallback for lastUpdated if nothing else is present (but leave formatting to show — per requirement)
+    const normalizedStartedAt = startedAtRaw || undefined;
+    const normalizedLastUpdatedAt = lastUpdatedAtRaw || undefined;
+
+    const sessionId = pick(['sessionId', '_id', 'id']);
+    const user = pick(['user', 'userId', 'user_id', 'username', 'user_name', 'email', 'owner', 'ownerEmail']);
+    const project = pick(['project', 'projectId', 'project_id', 'projectName', 'project_name']);
+    const tenant = pick(['tenant', 'tenantId', 'tenant_id', 'organization', 'organization_id', 'organizationId']);
+
+    const durationStr = computeDuration(normalizedStartedAt, normalizedLastUpdatedAt);
 
     // Only include the approved labels and order
     return {
@@ -91,8 +125,8 @@ function SessionDetailsModal({ open, onClose, session }) {
       'Session ID': sessionId ?? '—',
       Project: project ?? '—',
       Tenant: tenant ?? '—',
-      'Started At': formatDate(startedAt),
-      'Last Updated At': formatDate(lastUpdatedAt),
+      'Started At': formatDate(normalizedStartedAt),
+      'Last Updated At': formatDate(normalizedLastUpdatedAt),
       Duration: durationStr,
     };
   }, [session]);
