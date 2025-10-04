@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import Modal from '../ui/Modal.jsx';
-import { getUserById } from '../../api/users';
 
 /**
  * PUBLIC_INTERFACE
@@ -22,58 +21,6 @@ import { getUserById } from '../../api/users';
 function SessionDetailsModal({ open, onClose, session }) {
   const headerId = 'session-details-title';
   const contentRef = useRef(null);
-
-  // Local state for resolved user name
-  const [userName, setUserName] = useState('');
-  const [userLoading, setUserLoading] = useState(false);
-
-  // Derive userId from session using common keys
-  const userId = useMemo(() => {
-    if (!session || typeof session !== 'object') return '';
-    return (
-      session.userId ||
-      session.user_id ||
-      (typeof session.user === 'object' ? session.user?.id || session.user?._id : session.user) ||
-      session.user ||
-      ''
-    );
-  }, [session]);
-
-  // Non-blocking fetch of user details with caching in API helper
-  useEffect(() => {
-    let cancelled = false;
-
-    async function resolveUser() {
-      if (!userId) {
-        setUserName('');
-        setUserLoading(false);
-        return;
-      }
-      setUserLoading(true);
-      try {
-        const user = await getUserById(String(userId));
-        if (cancelled) return;
-
-        const name =
-          user?.name ||
-          user?.full_name ||
-          [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() ||
-          user?.email ||
-          '';
-
-        setUserName(name || 'Unknown User');
-      } catch (e) {
-        if (!cancelled) setUserName('Unknown User');
-      } finally {
-        if (!cancelled) setUserLoading(false);
-      }
-    }
-
-    resolveUser();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
 
   // Focus modal content when opened for accessibility
   useEffect(() => {
@@ -139,13 +86,8 @@ function SessionDetailsModal({ open, onClose, session }) {
     const durationStr = computeDuration(startedAt, lastUpdatedAt);
 
     // Only include the approved labels and order
-    // Use resolved userName; if loading show subtle hint; fallback to Unknown User
-    const displayUser =
-      (userName && userName.trim()) ||
-      (userLoading ? 'Loading…' : 'Unknown User');
-
     return {
-      User: displayUser,
+      User: user ?? '—',
       'Session ID': sessionId ?? '—',
       Project: project ?? '—',
       Tenant: tenant ?? '—',
@@ -153,7 +95,7 @@ function SessionDetailsModal({ open, onClose, session }) {
       'Last Updated At': formatDate(lastUpdatedAt),
       Duration: durationStr,
     };
-  }, [session, userName, userLoading]);
+  }, [session]);
 
   // Title must be "Session Details - <sessionId>"
   const title = useMemo(() => {

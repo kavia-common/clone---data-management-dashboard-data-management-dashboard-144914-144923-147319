@@ -1,46 +1,5 @@
 import { getApiClient } from "./client";
 
-// Simple in-memory cache for userId -> user document
-const userCache = new Map();
-
-/**
- * PUBLIC_INTERFACE
- * getUserById
- * Fetch a user document by ID using GET /api/users/:id. Uses a simple in-memory cache
- * to avoid redundant requests across modal openings.
- *
- * @param {string} userId - The user identifier (Mongo _id or string id).
- * @returns {Promise<null|{ id?: string, _id?: string, name?: string, full_name?: string, email?: string }>}
- */
-export async function getUserById(userId) {
-  const api = getApiClient();
-  if (!userId) return null;
-
-  // serve from cache if available
-  if (userCache.has(userId)) {
-    return userCache.get(userId);
-  }
-
-  try {
-    const res = await api.get(`/users/${encodeURIComponent(userId)}`);
-    const data = res?.data?.data ?? res?.data ?? null;
-    if (data) {
-      userCache.set(userId, data);
-    } else {
-      // cache negative result to avoid hammering on missing users
-      userCache.set(userId, null);
-    }
-    return data;
-  } catch (e) {
-    if (e?.response?.status === 404) {
-      userCache.set(userId, null);
-      return null;
-    }
-    // Do not cache transient errors
-    throw e;
-  }
-}
-
 /**
  * PUBLIC_INTERFACE
  * getUserProjects
