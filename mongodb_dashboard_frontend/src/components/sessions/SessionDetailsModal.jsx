@@ -98,26 +98,56 @@ function SessionDetailsModal({ open, onClose, session }) {
     // Normalize timestamps with broad alias coverage
     const startedAtRaw = pick([
       'startedAt', 'start_time', 'startTime', 'created_at', 'createdAt', 'created', 'timestamp', 'session_start', 'sessionStart',
+      // sometimes "begin" variants
+      'begin_time', 'beginTime'
     ]);
 
+    // Cover all listed backend variants for last update / end markers
     const lastUpdatedAtRaw = pick([
-      'lastUpdatedAt', 'updatedAt', 'updated_at', 'modifiedAt', 'modified_at', 'lastModified', 'last_modified',
-      'end_time', 'endTime', 'finishedAt', 'finished_at', 'endedAt', 'ended_at', 'last_activity', 'lastActivity',
+      'lastUpdatedAt', 'updatedAt', 'updated_at',
+      'modifiedAt', 'modified_at',
+      'lastModified', 'last_modified',
+      'lastActivityAt', 'last_activity_at',
+      'finishedAt', 'finished_at',
+      'endedAt', 'ended_at',
+      'end_time', 'endTime',
+      'last_activity', 'lastActivity',
       'timestamp_updated', 'modified', 'lastUpdate', 'last_update',
       // Some APIs track Mongoose-style updated path inside metadata
       'meta.updatedAt', 'metadata.updatedAt',
     ]);
 
-    // Use createdAt as fallback for lastUpdated if nothing else is present (but leave formatting to show — per requirement)
+    // Fallbacks: if we have an explicit "ended" field prefer that as lastUpdated; else updated; else activity; else undefined
+    let normalizedLastUpdatedAt = lastUpdatedAtRaw;
+    if (!normalizedLastUpdatedAt) {
+      const ended = pick(['endedAt','ended_at','end_time','endTime','finishedAt','finished_at']);
+      const updated = pick(['updatedAt','updated_at','modifiedAt','modified_at','lastModified','last_modified','timestamp_updated','modified','lastUpdate','last_update']);
+      const activity = pick(['lastActivityAt','last_activity_at','last_activity','lastActivity']);
+      normalizedLastUpdatedAt = ended || updated || activity || undefined;
+    }
+
     const normalizedStartedAt = startedAtRaw || undefined;
-    const normalizedLastUpdatedAt = lastUpdatedAtRaw || undefined;
 
     const sessionId = pick(['sessionId', '_id', 'id']);
     const user = pick(['user', 'userId', 'user_id', 'username', 'user_name', 'email', 'owner', 'ownerEmail']);
     const project = pick(['project', 'projectId', 'project_id', 'projectName', 'project_name']);
-    const tenant = pick(['tenant', 'tenantId', 'tenant_id', 'organization', 'organization_id', 'organizationId']);
+    const tenant = pick(['tenant', 'tenantId', 'tenant_id', 'organization', 'organization_id', 'organizationId', 'tenantName', 'tenant_name']);
 
     const durationStr = computeDuration(normalizedStartedAt, normalizedLastUpdatedAt);
+
+    // Dev-only diagnostics to help trace missing fields during development
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.debug('[SessionDetailsModal] session received:', { session });
+      if (!normalizedStartedAt) {
+        // eslint-disable-next-line no-console
+        console.warn('[SessionDetailsModal] Started At not found in session. Probed keys did not resolve.');
+      }
+      if (!normalizedLastUpdatedAt) {
+        // eslint-disable-next-line no-console
+        console.warn('[SessionDetailsModal] Last Updated At not found in session. Probed keys did not resolve.');
+      }
+    }
 
     // Only include the approved labels and order
     return {

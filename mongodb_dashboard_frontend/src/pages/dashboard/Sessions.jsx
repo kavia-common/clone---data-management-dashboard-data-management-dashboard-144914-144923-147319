@@ -120,8 +120,12 @@ export default function Sessions() {
     return () => document.body.classList.remove("modal-open");
   }, [detailsOpen]);
 
-  // Row click -> open modal
+  // Row click -> open modal (with dev-only logging to verify payload)
   const handleRowClick = (row) => {
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.debug("[Sessions] Row clicked -> opening details modal with session:", row);
+    }
     setSelectedSession(row);
     setDetailsOpen(true);
   };
