@@ -7,6 +7,7 @@ import Modal from '../ui/Modal.jsx';
 // Views
 import { useUserProjects } from '../../hooks/useUserProjects';
 import { useProjectCostHistorySum } from '../../hooks/useProjectCostHistorySum';
+import useProjectLlmCost from '../../hooks/useProjectLlmCost';
 
 /**
  * Internal presentational view for user details
@@ -182,13 +183,31 @@ UserDetailsView.propTypes = {
 function ProjectCostSummaryCard({ project }) {
   const projectIdStr = useMemo(() => {
     if (!project) return '';
-    const id = project.project_id || project.projectId || '';
+    const id =
+      project.project_id ||
+      project.projectId ||
+      project.id ||
+      project._id ||
+      '';
     const s = String(id || '').trim();
     return s.length > 0 && s !== '—' ? s : '';
   }, [project]);
 
   const enabled = Boolean(projectIdStr);
-  const { formattedCost, loading, error } = useProjectCostHistorySum(projectIdStr, { enabled });
+
+  // Primary source: llm_cost endpoint
+  const {
+    formattedCost: llmFormatted,
+    loading: llmLoading,
+    error: llmError,
+  } = useProjectLlmCost(enabled ? projectIdStr : null);
+
+  // Fallback source: cost-history-sum from session tracking
+  const {
+    formattedCost: historyFormatted,
+    loading: historyLoading,
+    error: historyError,
+  } = useProjectCostHistorySum(projectIdStr, { enabled });
 
   if (!enabled) return null;
 
@@ -197,6 +216,17 @@ function ProjectCostSummaryCard({ project }) {
     if (!updated) return '—';
     try { return new Date(updated).toLocaleString(); } catch { return String(updated); }
   })();
+
+  let display = '—';
+  if (!llmLoading && !llmError) {
+    display = llmFormatted;
+  } else if (historyLoading) {
+    display = 'Loading…';
+  } else if (!historyLoading && !historyError) {
+    display = historyFormatted;
+  } else if (llmError || historyError) {
+    display = 'Error loading cost';
+  }
 
   return (
     <section
@@ -226,11 +256,9 @@ function ProjectCostSummaryCard({ project }) {
             Total Cost
           </div>
           <div style={{ fontWeight: 700, color: 'var(--text-primary, #111827)' }}>
-            {loading ? 'Loading…' : error ? (
-              <span title={error} style={{ color: '#EF4444', fontWeight: 600 }}>Error</span>
-            ) : (formattedCost ?? '—')}
+            {display}
           </div>
-          {/* We prefer sum of cost_history.delta_total_cost since it more accurately tracks incremental updates than summing total_cost across sessions. */}
+          {/* Prefer llm_cost aggregate; falls back to cost_history sum */}
         </div>
 
         <div>

@@ -1,45 +1,22 @@
-import { getApiClient } from './client';
+import { getApiBaseUrl } from './util';
 
-/**
- * PUBLIC_INTERFACE
- * getProjectCost
- * Fetch the aggregated cost for a project from the backend.
- * Calls GET /api/projects/:projectId/cost and returns { projectId, cost, currency }.
- */
-export async function getProjectCost(projectId) {
-  if (!projectId) {
-    throw new Error('getProjectCost: projectId is required');
+// PUBLIC_INTERFACE
+export async function getProjectLlmCost(projectId) {
+  /** Fetch total LLM cost for a project from the backend.
+   * Returns shape: { projectId, cost, currency }
+   */
+  if (!projectId) throw new Error('projectId is required');
+  const base = getApiBaseUrl();
+  const url = `${base}/projects/${encodeURIComponent(projectId)}/llm-cost`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch LLM cost (${res.status})`);
   }
-  const api = getApiClient();
-  const res = await api.get(`/projects/${encodeURIComponent(String(projectId))}/cost`);
-  const json = res.data?.data ?? res.data;
-  return {
-    projectId: json?.projectId ?? String(projectId),
-    cost: Number(json?.cost ?? 0),
-    currency: json?.currency || 'USD',
-  };
+  const data = await res.json();
+  return data;
 }
 
-/**
- * PUBLIC_INTERFACE
- * getProjectCostHistorySum
- * Fetch the project's total cost aggregated from session_tracking cost_history deltas.
- * Calls GET /api/projects/:projectId/cost-history-sum and returns { projectId, cost }.
- * This supersedes naive total_cost summation as it accounts for granular deltas.
- */
-export async function getProjectCostHistorySum(projectId) {
-  if (!projectId) {
-    throw new Error('getProjectCostHistorySum: projectId is required');
-  }
-  const api = getApiClient();
-  const res = await api.get(`/projects/${encodeURIComponent(String(projectId))}/cost-history-sum`);
-  const json = res.data?.data ?? res.data;
-  return {
-    projectId: json?.projectId ?? String(projectId),
-    cost: Number(json?.cost ?? 0),
-  };
-}
-
-
-
-
+// Keep default export object if callers expect consolidated API
+const api = { getProjectLlmCost };
+export default api;
