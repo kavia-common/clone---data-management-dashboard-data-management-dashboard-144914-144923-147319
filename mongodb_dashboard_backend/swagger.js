@@ -50,8 +50,7 @@ const options = {
     },
     // Endpoints are public; no global security
   },
-  // Include all route files and any *docs.js files for JSDoc-only endpoints
-  apis: ['./src/routes/*.js', './src/routes/*.*.docs.js'],
+  apis: ['./src/routes/*.js'],
 };
 
 const swaggerSpec = swaggerJSDoc(options);
