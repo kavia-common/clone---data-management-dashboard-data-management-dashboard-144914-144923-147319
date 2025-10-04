@@ -5,28 +5,13 @@ import PropTypes from 'prop-types';
 import Modal from '../ui/Modal.jsx';
 import Tabs from '../ui/Tabs.jsx';
 
-// Fallbacks if Modal/Tabs are ever missing in a different template context.
-// These are not used here because this project already has Modal and Tabs components.
-// Keeping lightweight fallbacks commented for reference.
-// const FallbackModal = ({ open, onClose, title, children, width = 800 }) => {
-//   if (!open) return null;
-//   return (
-//     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-//       <div className="bg-white rounded-lg shadow-xl w-full" style={{ maxWidth: width }}>
-//         <div className="flex items-center justify-between px-4 py-3 border-b">
-//           <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-//           <button onClick={onClose} aria-label="Close" className="p-1 rounded hover:bg-gray-100">✕</button>
-//         </div>
-//         <div className="p-4">{children}</div>
-//       </div>
-//     </div>
-//   );
-// };
-
 // Views
 import { useUserProjects } from '../../hooks/useUserProjects';
 
-// Internal presentational view for user details
+/**
+ * Internal presentational view for user details
+ * Responsive grid, safe text wrapping and truncation.
+ */
 function UserDetailsView({ user }) {
   if (!user) return <div className="text-gray-500">No user selected</div>;
   const rows = [
@@ -43,7 +28,13 @@ function UserDetailsView({ user }) {
       {rows.map(([label, value]) => (
         <div key={label} className="bg-gray-50 rounded p-3">
           <div className="text-xs uppercase text-gray-500">{label}</div>
-          <div className="text-sm text-gray-900 break-words">{value || '—'}</div>
+          <div
+            className="text-sm text-gray-900 break-words"
+            title={value ? String(value) : undefined}
+            style={{ wordBreak: 'break-word' }}
+          >
+            {value || '—'}
+          </div>
         </div>
       ))}
     </div>
@@ -54,7 +45,10 @@ UserDetailsView.propTypes = {
   user: PropTypes.object,
 };
 
-// Internal presentational view for user projects
+/**
+ * Internal presentational view for user projects
+ * Wraps lists/tables with horizontal scrolling when needed.
+ */
 function UserProjectsView({ userId, tenantId, from, to }) {
   const enabled = Boolean(userId && tenantId);
   const { projects, loading, error, refetch } = useUserProjects({ userId, tenantId, from, to, enabled });
@@ -66,26 +60,72 @@ function UserProjectsView({ userId, tenantId, from, to }) {
   if (error) {
     return (
       <div className="error" role="alert" style={{ marginBottom: 12 }}>
-        {error} <button onClick={() => refetch()} className="btn btn-ghost" style={{ height: 28, padding: '2px 8px' }}>Retry</button>
+        {error}{' '}
+        <button
+          onClick={() => refetch()}
+          className="btn btn-ghost"
+          style={{ height: 28, padding: '2px 8px' }}
+        >
+          Retry
+        </button>
       </div>
     );
   }
 
   const list = projects || [];
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {list.length === 0 && <div className="text-gray-500">No projects found.</div>}
-      {list.map((p, idx) => {
-        const key = p.project_id || p.projectId || idx;
-        const name = p.name || p.project_name || p.projectName || p.project_id || p.projectId || '—';
-        const desc = p.description || p.project_description || '';
-        return (
-          <div key={key} className="border rounded p-3">
-            <div className="font-medium" title={String(name)}>{name}</div>
-            {desc ? <div className="text-sm text-gray-600" title={String(desc)}>{desc}</div> : null}
-          </div>
-        );
-      })}
+      {/* Table/list wrapper with horizontal overflow safety */}
+      <div style={{ overflowX: 'auto', overflowY: 'visible' }}>
+        <div style={{ display: 'grid', gap: 12, minWidth: 360 }}>
+          {list.map((p, idx) => {
+            const key = p.project_id || p.projectId || idx;
+            const name =
+              p.name ||
+              p.project_name ||
+              p.projectName ||
+              p.project_id ||
+              p.projectId ||
+              '—';
+            const desc = p.description || p.project_description || '';
+            const last = p.last_activity || p.lastActivity || null;
+            return (
+              <div
+                key={key}
+                className="border rounded p-3"
+                style={{ background: '#fff' }}
+              >
+                <div
+                  className="font-medium"
+                  title={String(name)}
+                  style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                >
+                  {name}
+                </div>
+                {desc ? (
+                  <div
+                    className="text-sm text-gray-600"
+                    title={String(desc)}
+                    style={{ marginTop: 4 }}
+                  >
+                    {desc}
+                  </div>
+                ) : null}
+                {last ? (
+                  <div
+                    className="text-sm text-gray-500"
+                    title={String(last)}
+                    style={{ marginTop: 6, whiteSpace: 'nowrap' }}
+                  >
+                    Last activity: {(() => { try { return new Date(last).toLocaleString(); } catch { return String(last); } })()}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -101,14 +141,10 @@ UserProjectsView.propTypes = {
  * PUBLIC_INTERFACE
  * TabbedUserModal
  * A single modal that combines user details and user projects into two tabs.
- * Props:
- * - open: boolean
- * - onClose: function
- * - user: object | null
- * - tenantId: string | undefined
- * - defaultTab: 'details' | 'projects' (initial tab when opening)
- * - from?: string|Date
- * - to?: string|Date
+ * Structure optimized to avoid content overlap:
+ * - Modal body becomes a flex column container with max-height and overflow hidden
+ * - Sticky tablist header
+ * - Scrollable panels area with min-h-0 and overflow-y-auto
  */
 // PUBLIC_INTERFACE
 export default function TabbedUserModal({
@@ -152,15 +188,73 @@ export default function TabbedUserModal({
         </div>
       }
     >
-      <div style={{ marginBottom: 12 }}>
-        <Tabs tabs={tabs} activeKey={activeTab} onChange={setActiveTab} aria-label="User info tabs" />
+      {/* Modal content container:
+          - flex column
+          - capped height to avoid viewport overflow
+          - internal scroll only in the panels section
+       */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          width: '100%',
+          maxWidth: 900,
+          maxHeight: '85vh',
+          overflow: 'hidden',
+          background: '#ffffff',
+          borderRadius: 12,
+        }}
+      >
+        {/* Tabs header: sticky inside this container, with safe z-index */}
+        <div
+          role="presentation"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+            background: '#ffffff',
+            borderBottom: '1px solid var(--border-subtle)',
+          }}
+        >
+          <div style={{ padding: '12px 16px', overflowX: 'auto' }}>
+            <Tabs
+              tabs={tabs}
+              activeKey={activeTab}
+              onChange={setActiveTab}
+              aria-label="User info tabs"
+            />
+          </div>
+        </div>
+
+        {/* Panels container: scrollable area */}
+        <div
+          role="region"
+          aria-label="Tab content"
+          style={{
+            flex: 1,
+            minHeight: 0, // critical for flex scroll
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            background: '#f9fafb',
+            WebkitOverflowScrolling: 'touch',
+          }}
+          tabIndex={0} // allow keyboard scroll focus
+        >
+          <div style={{ padding: '16px' }}>
+            {activeTab === 'details' && (
+              <div className="space-y-4">
+                <UserDetailsView user={user} />
+              </div>
+            )}
+
+            {activeTab === 'projects' && (
+              <div className="space-y-4">
+                <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-
-      {activeTab === 'details' && <UserDetailsView user={user} />}
-
-      {activeTab === 'projects' && (
-        <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
-      )}
     </Modal>
   );
 }
