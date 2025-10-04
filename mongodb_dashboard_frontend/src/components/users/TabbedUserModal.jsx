@@ -245,16 +245,16 @@ function UserProjectsView({ userId, tenantId, from, to }) {
       gap: 12,
     };
 
-    // Fetch usage for this project
+    // Fetch cost for this project from session tracking aggregation
     // Lazy import to avoid top-level circular dependencies – hook is simple
     // eslint-disable-next-line global-require
-    const { useProjectUsage } = require('../../hooks/useProjectUsage');
-    const { data: usage, loading: usageLoading, error: usageError } = useProjectUsage(id, { enabled: Boolean(id && id !== '—') });
+    const { useProjectCost } = require('../../hooks/useProjectCost');
+    const { data: costData, loading: costLoading, error: costError } = useProjectCost(id, { enabled: Boolean(id && id !== '—') });
 
     const formatCost = (c, curr) => {
       if (c == null) return '—';
       const num = Number(c);
-      if (Number.isNaN(num)) return '—';
+      if (!Number.isFinite(num)) return '—';
       const symbol = curr === 'USD' ? '$' : '';
       return `${symbol}${num.toFixed(4)}${symbol ? '' : ` ${curr || ''}`}`.trim();
     };
@@ -366,28 +366,20 @@ function UserProjectsView({ userId, tenantId, from, to }) {
               </>
             ) : null}
 
-            {/* Credits Consumed */}
-            <>
-              <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Credits Consumed</dt>
-              <dd style={{ margin: 0, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
-                {usageLoading ? 'Loading…' : usageError ? '—' : (usage?.creditsUsed ?? '—')}
-              </dd>
-            </>
-
-            {/* Cost */}
+            {/* Cost (aggregated from session tracking) */}
             <>
               <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Cost</dt>
               <dd style={{ margin: 0, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
-                {usageLoading ? 'Loading…' : usageError ? '—' : formatCost(usage?.cost, usage?.currency)}
+                {costLoading ? 'Loading…' : costError ? '—' : formatCost(costData?.cost, costData?.currency)}
               </dd>
             </>
           </dl>
         </div>
 
         {/* Inline minimal error notice if fetch failed */}
-        {usageError ? (
+        {costError ? (
           <div role="alert" style={{ marginTop: 8, fontSize: 12, color: '#b91c1c' }}>
-            Unable to load usage for this project.
+            Unable to load cost for this project.
           </div>
         ) : null}
       </div>
