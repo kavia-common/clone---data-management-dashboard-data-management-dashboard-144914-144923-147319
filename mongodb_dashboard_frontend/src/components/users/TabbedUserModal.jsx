@@ -492,58 +492,87 @@ export default function TabbedUserModal({
 
   return (
     <Modal title={title} open={open} onClose={onClose}>
-      {/* Sticky tabs header inside modal content; body scrolls */}
-      <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "#fff" }}>
-        <div style={{ padding: "12px 20px" }}>
-          <ThemedTabs activeKey={activeTab} onChange={setActiveTab} />
+      {/* Wrapper to narrow only this user modal without affecting global Modal */}
+      <div
+        className="tabbed-user-modal--narrow"
+        style={{
+          width: "100%",
+          maxWidth: "720px", // narrower width per request
+          margin: "0 auto", // keep centered within Modal content area
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+        }}
+      >
+        <style>{`
+          /* Ensure narrow container adapts on extra small screens without horizontal overflow */
+          @media (max-width: 740px) {
+            .tabbed-user-modal--narrow {
+              max-width: 100%;
+            }
+          }
+        `}</style>
+        <style>{`
+          /* Ensure narrow container adapts on extra small screens without horizontal overflow */
+          @media (max-width: 740px) {
+            .tabbed-user-modal--narrow {
+              max-width: 100%;
+            }
+          }
+        `}</style>
+        {/* Sticky tabs header inside modal content; body scrolls */}
+        <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "#fff" }}>
+          <div style={{ padding: "12px 20px" }}>
+            <ThemedTabs activeKey={activeTab} onChange={setActiveTab} />
+          </div>
         </div>
-      </div>
 
-      {/* Scrollable body area */}
-      <div role="region" aria-label="Tab content" style={{ flex: 1, minHeight: 0, overflow: "auto", background: "#f9fafb" }} tabIndex={0}>
-        <div style={{ padding: 20 }}>
-          {activeTab === 'details' && (
-            <div style={{ display: "grid", gap: 16 }}>
-              <UserDetailsView user={user} />
-            </div>
-          )}
+        {/* Scrollable body area */}
+        <div role="region" aria-label="Tab content" style={{ flex: 1, minHeight: 0, overflow: "auto", background: "#f9fafb" }} tabIndex={0}>
+          <div style={{ padding: 20 }}>
+            {activeTab === 'details' && (
+              <div style={{ display: "grid", gap: 16 }}>
+                <UserDetailsView user={user} />
+              </div>
+            )}
 
-          {activeTab === 'projects' && (
-            <div style={{ display: "grid", gap: 16 }}>
-              <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
-            </div>
-          )}
+            {activeTab === 'projects' && (
+              <div style={{ display: "grid", gap: 16 }}>
+                <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Footer action */}
-      <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "#fff" }}>
-        <button
-          type="button"
-          onClick={onClose}
-          style={{
-            width: "100%",
-            background: "#EF4444",
-            color: "#fff",
-            border: "none",
-            borderRadius: 10,
-            padding: "10px 14px",
-            fontWeight: 700,
-            cursor: "pointer",
-            boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
-            transition: "background .15s ease, transform .05s ease",
-          }}
-          onMouseDown={(e) => { e.currentTarget.style.transform = "translateY(1px)"; }}
-          onMouseUp={(e) => { e.currentTarget.style.transform = "translateY(0)"; }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "#dc2626"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "#EF4444"; }}
-          onFocus={(e) => { e.currentTarget.style.outline = "3px solid rgba(239,68,68,0.35)"; e.currentTarget.style.outlineOffset = "2px"; }}
-          onBlur={(e) => { e.currentTarget.style.outline = "none"; }}
-          aria-label="Close"
-          title="Close"
-        >
-          Close
-        </button>
+        {/* Footer action */}
+        <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "#fff" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              width: "100%",
+              background: "#EF4444",
+              color: "#fff",
+              border: "none",
+              borderRadius: 10,
+              padding: "10px 14px",
+              fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+              transition: "background .15s ease, transform .05s ease",
+            }}
+            onMouseDown={(e) => { e.currentTarget.style.transform = "translateY(1px)"; }}
+            onMouseUp={(e) => { e.currentTarget.style.transform = "translateY(0)"; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#dc2626"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "#EF4444"; }}
+            onFocus={(e) => { e.currentTarget.style.outline = "3px solid rgba(239,68,68,0.35)"; e.currentTarget.style.outlineOffset = "2px"; }}
+            onBlur={(e) => { e.currentTarget.style.outline = "none"; }}
+            aria-label="Close"
+            title="Close"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </Modal>
   );
