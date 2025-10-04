@@ -184,7 +184,10 @@ function SessionDetailsModal({ open, onClose, session }) {
     const normalizedCreatedAt = createdAtRaw || undefined;
 
     const sessionId = pick(['sessionId', '_id', 'id']);
-    const userRef = pick(['user', 'userId', 'user_id', 'username', 'user_name', 'email', 'owner', 'ownerEmail']);
+    // Prefer explicit user_name in session data first
+    const userNameFromSession = pick(['user_name', 'userName']);
+    // Keep references to possible user identifiers for fallback resolution
+    const userRef = pick(['user', 'userId', 'user_id', 'username', 'email', 'owner', 'ownerEmail']);
     const projectId = pick(['project_id', 'projectId', 'project', 'projectSlug']);
     const projectName = pick(['projectName', 'project_name', 'projectLabel', 'project_label']);
     const serviceType = pick(['serviceType', 'service_type', 'provider', 'modelProvider']);
@@ -192,8 +195,33 @@ function SessionDetailsModal({ open, onClose, session }) {
 
     const durationStr = computeDuration(normalizedCreatedAt, normalizedLastUpdatedAt);
 
-    // Resolve user display name
-    const userName = resolveUserName(userRef) || 'Unknown User';
+    // Resolve user display with strict preference: session.user_name -> resolved via userRef -> masked/short id -> 'Unknown User'
+    let userName = undefined;
+    if (userNameFromSession) {
+      userName = String(userNameFromSession);
+    } else {
+      // Try resolving via users context if we only have an ID/reference
+      const resolved = resolveUserName(userRef);
+      if (resolved && resolved !== 'Unknown User') {
+        userName = resolved;
+      } else {
+        // As a last resort, show a masked/shortened identifier if available (avoid leaking full raw IDs)
+        const rawId =
+          (typeof userRef === 'string' && userRef) ||
+          (typeof userRef === 'object' && (userRef?._id || userRef?.id || userRef?.userId)) ||
+          undefined;
+        if (rawId && typeof rawId === 'string') {
+          // Mask: show first 4 and last 4 chars if length > 10, else show as-is
+          if (rawId.length > 10) {
+            userName = `${rawId.slice(0, 4)}…${rawId.slice(-4)}`;
+          } else {
+            userName = rawId;
+          }
+        } else {
+          userName = 'Unknown User';
+        }
+      }
+    }
 
     // Dev-only diagnostics to help trace missing fields during development
     if (process.env.NODE_ENV !== 'production') {
@@ -211,10 +239,10 @@ function SessionDetailsModal({ open, onClose, session }) {
 
     // Build detail fields ensuring the five required are present
     const details = {
-      'User Name': userName || 'Unknown User',                  // user_name
+      'User': userName || 'Unknown User',                       // user_name preferred
       'Session ID': sessionId ?? '—',
-      'Project ID': projectId ?? projectName ?? '—',            // project_id with name fallback
-      'Service Type': serviceType ?? '—',                       // service_type
+      'Project ID': projectId ?? projectName ?? '—',       // project_id with name fallback
+      'Service Type': serviceType ?? '—',                  // service_type
       Tenant: tenant ?? '—',
       'Created At': formatDate(normalizedCreatedAt),            // created_at
       'Last Updated At': formatDate(normalizedLastUpdatedAt),   // last_updated
