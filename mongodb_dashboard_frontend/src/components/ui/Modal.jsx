@@ -1,31 +1,33 @@
 import React from "react";
-import Button from "./Button.jsx";
 
-// PUBLIC_INTERFACE
-export default function Modal({ title, open, onClose, children, footer }) {
-  /** Accessible modal with header, body, and footer areas. */
+/**
+ * PUBLIC_INTERFACE
+ * Modal
+ * A simple overlay container that centers its children and closes on backdrop click.
+ * Consumers are responsible for rendering header/body/footer within children.
+ */
+export default function Modal({ title, open, onClose, children }) {
   if (!open) return null;
   return (
     <div
-      className="modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label={title}
       onClick={(e) => {
-        // clicking on backdrop closes the modal
         if (e.target === e.currentTarget && typeof onClose === 'function') onClose();
       }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'grid',
+        placeItems: 'center',
+        background: 'rgba(17,24,39,0.5)', // subtle dark overlay
+        zIndex: 80,
+        padding: 16,
+      }}
     >
-      <div
-        className="modal-card"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-header">
-          <h3>{title}</h3>
-          <Button variant="ghost" aria-label="Close" title="Close" onClick={onClose}>✕</Button>
-        </div>
-        <div className="modal-body">{children}</div>
-        <div className="modal-footer">{footer}</div>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: '100%' }}>
+        {children}
       </div>
     </div>
   );

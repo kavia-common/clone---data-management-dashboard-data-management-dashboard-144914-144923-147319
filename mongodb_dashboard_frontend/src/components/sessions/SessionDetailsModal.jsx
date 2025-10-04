@@ -4,7 +4,7 @@ import Modal from '../ui/Modal.jsx';
 /**
  * PUBLIC_INTERFACE
  * SessionDetailsModal
- * A responsive, accessible modal that presents session details in a clear two-column grid.
+ * A responsive, accessible modal that presents session details in a clean two-column layout aligned to the Ocean Professional theme.
  *
  * Props:
  * - open: boolean - controls visibility
@@ -12,12 +12,11 @@ import Modal from '../ui/Modal.jsx';
  * - session: object - session data to render
  *
  * Design and UX:
- * - Subtle overlay provided by Modal component
- * - Sticky header with title; content area scrolls internally
- * - Core details section rendered as a 2-column responsive grid (1-column on small screens)
- * - Labels are muted with medium weight; values wrap to avoid horizontal scrolling
- * - Prominent full-width Close button in error color (#EF4444) with hover/focus states
- * - Ocean Professional theme: primary #2563EB, accent #F59E0B, error #EF4444
+ * - Uses parent Modal overlay; keeps sticky header within card with subtle shadow
+ * - Two-column responsive grid (minmax 240px, 1fr) stacking to single column <640px
+ * - Labels are muted, medium weight; values wrap and avoid horizontal scroll
+ * - Full-width red Close button with hover/focus states, rounded-md
+ * - No metadata section
  */
 function SessionDetailsModal({ open, onClose, session }) {
   const headerId = 'session-details-title';
@@ -42,7 +41,7 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
   };
 
-  // Collect the most relevant details using tolerant key extraction.
+  // Collect core details using tolerant key extraction.
   const coreDetails = useMemo(() => {
     if (!session || typeof session !== 'object') return {};
 
@@ -83,75 +82,214 @@ function SessionDetailsModal({ open, onClose, session }) {
     };
   }, [session]);
 
-
+  // Derive a presentable title using primary identifiers (user or session)
+  const derivedTitle = useMemo(() => {
+    const nameLike = session?.user_name || session?.username || session?.user || '';
+    const email = session?.email || '';
+    const id = session?.sessionId || session?._id || session?.id || '';
+    return (nameLike || email || id || 'Session Details');
+  }, [session]);
 
   return (
     <Modal open={open} onClose={onClose}>
-      {/* Outer container: ensure no horizontal overflow and internal scroll */}
+      {/* Outer container: modal card with refined paddings, rounded corners, and elevation */}
       <div
-        className="relative bg-white rounded-lg shadow-xl w-full max-w-3xl mx-auto max-h-[85vh] flex flex-col overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-labelledby={headerId}
         aria-describedby={`${headerId}-content`}
+        className="w-full"
         onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#ffffff',
+          borderRadius: 16,
+          boxShadow: '0 8px 20px rgba(16,24,40,0.12)',
+          width: 'min(720px, calc(100vw - 32px))',
+          maxHeight: '85vh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
       >
-        {/* Sticky Header */}
-        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b px-6 py-4">
-          <h2 id={headerId} className="text-lg font-semibold text-gray-900">
-            Session Details
+        {/* Sticky Header with subtle shadow */}
+        <div
+          className="sticky"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+            background: 'rgba(255,255,255,0.96)',
+            backdropFilter: 'saturate(1) blur(2px)',
+            padding: '16px 24px',
+            boxShadow: '0 1px 0 var(--border-subtle, #E5E7EB)',
+          }}
+        >
+          <h2
+            id={headerId}
+            style={{
+              margin: 0,
+              fontSize: 18,
+              fontWeight: 600,
+              color: 'var(--text-strong, #0F172A)',
+            }}
+            title={typeof derivedTitle === 'string' ? derivedTitle : undefined}
+          >
+            {derivedTitle}
           </h2>
-          <p className="mt-1 text-xs text-gray-500">
-            Review core information for the selected session.
-          </p>
         </div>
 
-        {/* Scrollable Content Wrapper: prefer wrapping, allow x-auto for extreme cases */}
+        {/* Scrollable content area; avoid horizontal scroll, ensure long text wraps */}
         <div
           ref={contentRef}
           tabIndex={-1}
           id={`${headerId}-content`}
-          className="px-6 py-5 space-y-8 overflow-y-auto overflow-x-auto"
           style={{
+            padding: '16px 24px',
+            paddingTop: 16,
+            gap: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            overflowY: 'auto',
+            overflowX: 'hidden',
             WebkitOverflowScrolling: 'touch',
             wordBreak: 'break-word',
             overflowWrap: 'anywhere',
           }}
         >
-          {/* Core details grid/table */}
-          <section aria-label="Core details" className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-[minmax(140px,1fr)_2fr] gap-4">
-              {Object.entries(coreDetails).map(([label, value]) => (
-                <React.Fragment key={label}>
-                  <div className="min-w-0 md:text-right md:pr-4">
-                    <div className="text-xs md:text-sm font-medium text-gray-600">
+          {/* Details Card with accent rail */}
+          <section
+            aria-label="Core details"
+            className="details-card"
+            style={{
+              position: 'relative',
+              background: '#fff',
+              border: '1px solid var(--border-subtle, #E5E7EB)',
+              borderRadius: 12,
+              padding: 16,
+            }}
+          >
+            {/* Accent Rail and optional warm dot */}
+            <div
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                left: 8,
+                top: 8,
+                bottom: 8,
+                width: 6,
+                background: 'var(--brand-200, #BFDBFE)',
+                borderRadius: 8,
+              }}
+            />
+            <span
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                top: 8,
+                left: 6,
+                width: 8,
+                height: 8,
+                background: 'var(--accent-warm, #F59E0B)',
+                borderRadius: 9999,
+              }}
+            />
+
+            {/* Inner grid: two columns desktop, one column on small screens */}
+            <div
+              role="group"
+              aria-label="Label and value pairs"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                columnGap: 32,
+                rowGap: 20,
+              }}
+            >
+              {Object.entries(coreDetails).map(([label, value]) => {
+                const isPlaceholder = value === '—';
+                return (
+                  <div key={label} style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: 'var(--text-muted, #475569)',
+                        letterSpacing: '0.2px',
+                        marginBottom: 6,
+                      }}
+                    >
                       {label}
                     </div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="mt-1 md:mt-0 text-sm text-gray-900 leading-6 break-words">
-                      {value}
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: isPlaceholder ? 500 : 700,
+                        color: isPlaceholder
+                          ? 'var(--text-subtle, #94A3B8)'
+                          : 'var(--text-strong, #0F172A)',
+                        lineHeight: '20px',
+                        whiteSpace: 'normal',
+                        overflowWrap: 'anywhere',
+                      }}
+                      title={typeof value === 'string' ? value : undefined}
+                    >
+                      {String(value)}
                     </div>
                   </div>
-                </React.Fragment>
-              ))}
+                );
+              })}
             </div>
           </section>
-
-
         </div>
 
         {/* Footer with full-width prominent Close button */}
-        <div className="px-6 pb-6 pt-2 border-t bg-white">
+        <div
+          style={{
+            padding: '12px 16px',
+            paddingTop: 12,
+            borderTop: '1px solid var(--border-subtle, #E5E7EB)',
+            background: '#ffffff',
+          }}
+        >
           <button
             type="button"
             onClick={onClose}
-            className="w-full inline-flex items-center justify-center rounded-lg bg-red-600 px-5 py-3 text-white font-semibold shadow-sm hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-600 transition-colors"
+            className="btn-close-primary"
+            style={{
+              width: '100%',
+              height: 46,
+              background: '#EF4444',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 12,
+              fontWeight: 700,
+              boxShadow: '0 1px 2px rgba(16,24,40,0.04)',
+              cursor: 'pointer',
+              transition: 'background .15s ease, transform .06s ease',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#DC2626'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#EF4444'; }}
+            onMouseDown={(e) => { e.currentTarget.style.transform = 'translateY(1px)'; }}
+            onMouseUp={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+            onFocus={(e) => { e.currentTarget.style.outline = '3px solid rgba(220,38,38,0.35)'; e.currentTarget.style.outlineOffset = '2px'; }}
+            onBlur={(e) => { e.currentTarget.style.outline = 'none'; }}
+            aria-label="Close"
+            title="Close"
           >
             Close
           </button>
         </div>
       </div>
+
+      {/* Responsive adjustment for the details grid: collapse to one column on narrow viewports */}
+      <style>{`
+        @media (max-width: 639px) {
+          .details-card [aria-label="Label and value pairs"] {
+            grid-template-columns: 1fr !important;
+            row-gap: 16px !important;
+          }
+        }
+      `}</style>
     </Modal>
   );
 }
