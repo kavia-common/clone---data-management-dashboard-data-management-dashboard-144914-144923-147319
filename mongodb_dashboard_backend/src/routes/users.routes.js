@@ -2,6 +2,7 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const User = require('../models/user.model');
+const { getUserProjectsFromSessions } = require('../services/users.service');
 
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
@@ -330,5 +331,86 @@ router.put('/:id', asyncHandler(controller.update));
  *         description: Invalid id
  */
 router.delete('/:id', asyncHandler(controller.remove));
+
+/**
+ * @swagger
+ * /api/users/{userId}/projects:
+ *   get:
+ *     summary: Get projects associated with a user (from session tracking)
+ *     description: >
+ *       Returns distinct projects the user has activity in, based on the session_tracking collection.
+ *       Optional time range can be provided using "from" and "to" query parameters.
+ *       Note: This endpoint excludes cost aggregation.
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: string }
+ *         description: User identifier (normalized to string for matching)
+ *       - in: query
+ *         name: tenant_id
+ *         required: true
+ *         schema: { type: string }
+ *         description: Tenant (organization) ID to scope the query
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO date-time lower bound
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO date-time upper bound
+ *     responses:
+ *       200:
+ *         description: User projects list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user_id: { type: string }
+ *                 tenant_id: { type: string }
+ *                 projects:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       project_id: { type: string }
+ *                       project_name: { type: string, nullable: true }
+ *                       last_activity: { type: string, format: date-time, nullable: true }
+ *       400:
+ *         description: Missing required parameters or invalid input
+ */
+ // PUBLIC_INTERFACE
+router.get(
+  '/:userId/projects',
+  asyncHandler(async (req, res) => {
+    const { userId } = req.params;
+    const { tenant_id: tenantId, from, to } = req.query || {};
+
+    if (!tenantId) {
+      return res.status(400).json({ success: false, message: 'tenant_id is required' });
+    }
+
+    // Basic ISO date validation if provided
+    const parseMaybe = (v) => {
+      if (!v) return undefined;
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+    };
+    const fromIso = parseMaybe(from);
+    const toIso = parseMaybe(to);
+
+    const payload = await getUserProjectsFromSessions({
+      tenantId,
+      userId,
+      from: fromIso,
+      to: toIso,
+    });
+
+    return res.status(200).json(payload);
+  })
+);
 
 module.exports = router;
