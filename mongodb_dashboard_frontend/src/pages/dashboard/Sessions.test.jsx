@@ -25,7 +25,7 @@ jest.mock('../../api/client', () => ({
     items: [
       { _id: 'a1', task_id: 'T-1', tenant_id: 'org1', organization_name: 'Org One', service_type: 'etl', updatedAt: '2024-10-01T00:10:00.000Z' },
     ],
-    meta: { page: 1, limit: 10, total: 1 },
+    meta: { page: 1, limit: 8, total: 1 }, // standardized page size = 8
   })),
 }));
 

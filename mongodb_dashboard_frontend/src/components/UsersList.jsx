@@ -34,7 +34,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   // New: Tenant filter (instant)
   const [organizationFilter, setOrganizationFilter] = useState("");
 
-  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+  const [meta, setMeta] = useState({ page: 1, limit: 8, total: 0 }); // standardized page size = 8
 
   // Limit searchable fields to the visible columns (and their most likely underlying keys).
   const allowedFields = useMemo(
@@ -84,11 +84,11 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
-      setMeta((prev) => ({ page: 1, limit: prev.limit || 10, total: arr.length }));
+      setMeta({ page: 1, limit: 8, total: arr.length }); // enforce page size = 8
     } catch (e) {
       setAllItems([]);
       setItems([]);
-      setMeta({ page: 1, limit: 10, total: 0 });
+      setMeta({ page: 1, limit: 8, total: 0 }); // keep standardized page size = 8
       setError(e?.response?.data?.message || e?.message || "Failed to load users.");
     } finally {
       setLoading(false);
@@ -214,7 +214,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           loading={loading}
           onDelete={showActions ? onDelete : undefined}
           onRowClick={handleRowClick}
-          pageSize={meta.limit || 10}
+          pageSize={meta.limit || 8} // standardized: 8 rows per page
           initialPage={1}
           paginationTitle="Users pages"
         />

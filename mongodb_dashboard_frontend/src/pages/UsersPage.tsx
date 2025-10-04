@@ -89,7 +89,7 @@ export default function UsersPage() {
           columns={columns}
           data={items}
           loading={loading}
-          pageSize={10}
+          pageSize={8} // standardized: 8 rows per page
           initialPage={1}
           paginationTitle="Users pages"
         />

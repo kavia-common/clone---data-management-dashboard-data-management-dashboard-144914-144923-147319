@@ -16,7 +16,7 @@ export default function Sessions() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+  const [meta, setMeta] = useState({ page: 1, limit: 8, total: 0 }); // standardized page size = 8
 
   // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
@@ -58,21 +58,22 @@ export default function Sessions() {
   const [columns, setColumns] = useState(buildRestrictedColumns([]));
 
   // PUBLIC_INTERFACE
-  async function load(page = 1, limit = meta.limit || 10, qStr = "") {
+  async function load(page = 1, limit = meta.limit || 8, qStr = "") {
     /** Load sessions from server with pagination and optional query string. */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
     try {
-      const res = await listSessions({ page, limit, q: qStr });
+      const res = await listSessions({ page, pageSize: limit, limit, q: qStr }); // send pageSize for API alias compatibility
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
 
       setItems(arr);
+      // Standardize page size to 8, regardless of server echo
       setMeta({
         page: res?.meta?.page || page,
-        limit: res?.meta?.limit || limit,
+        limit: 8,
         total: res?.meta?.total ?? (Array.isArray(arr) ? arr.length : 0),
       });
       // Update columns dynamically based on currently returned data
@@ -89,7 +90,7 @@ export default function Sessions() {
 
   // Initial load
   useEffect(() => {
-    load(1, meta.limit || 10, "");
+    load(1, meta.limit || 8, ""); // enforce default page size of 8
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -97,7 +98,7 @@ export default function Sessions() {
   useEffect(() => {
     const handle = setTimeout(() => {
       // Reset to first page when searching
-      load(1, meta.limit || 10, (query || "").trim());
+      load(1, meta.limit || 8, (query || "").trim()); // standardized page size = 8
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -160,7 +161,7 @@ export default function Sessions() {
           columns={columns}
           data={items}
           loading={loading}
-          pageSize={meta.limit || 10}
+          pageSize={meta.limit || 8} // standardized: 8 rows per page
           initialPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit) => {
