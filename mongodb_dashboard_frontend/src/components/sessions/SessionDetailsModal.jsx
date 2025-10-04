@@ -132,7 +132,6 @@ function SessionDetailsModal({ open, onClose, session }) {
     // Utility: safely pick the first defined value by probing dot/flat aliases
     const pick = (keys) => {
       for (const k of keys) {
-        // support nested via simple dot path if ever provided
         if (k.includes('.')) {
           const parts = k.split('.');
           let cur = s;
@@ -158,95 +157,59 @@ function SessionDetailsModal({ open, onClose, session }) {
       'created_at', 'createdAt', 'startedAt', 'started_at', 'start_time', 'startTime', 'created', 'timestamp', 'session_start', 'sessionStart', 'begin_time', 'beginTime'
     ]);
 
-    // Last Updated: strict rule -> use session.last_updated if present, else fallbacks
-    const lastUpdatedPrimary = pick(['last_updated']); // direct preferred field
+    // Last Updated: prefer session.last_updated directly; only if absent, fall back to prior aliases
+    const lastUpdatedPrimary = pick(['last_updated']);
     let normalizedLastUpdatedAt = lastUpdatedPrimary;
     if (!normalizedLastUpdatedAt) {
-      // Only when missing, try aliases
       normalizedLastUpdatedAt = pick([
-        'lastUpdatedAt', 'updatedAt', 'updated_at',
+        'updatedAt', 'updated_at',
         'modifiedAt', 'modified_at',
         'lastModified', 'last_modified',
         'lastActivityAt', 'last_activity_at',
         'finishedAt', 'finished_at',
-        'endedAt', 'ended_at',
-        'end_time', 'endTime',
-        'last_activity', 'lastActivity',
-        'timestamp_updated', 'modified', 'lastUpdate', 'last_update',
-        'meta.updatedAt', 'metadata.updatedAt',
+        'endedAt', 'ended_at'
       ]);
     }
 
     const normalizedCreatedAt = createdAtRaw || undefined;
 
     const sessionId = pick(['sessionId', '_id', 'id']);
-    // Prefer explicit user_name in session data first
-    const userNameFromSession = pick(['user_name', 'userName']);
-    // Keep references to possible user identifiers for fallback resolution
-    const userRef = pick(['user', 'userId', 'user_id', 'username', 'email', 'owner', 'ownerEmail']);
+
+    // Strict user display: session.user_name first, then resolved user name, then Unknown
+    const resolvedUserName = resolveUserName(pick(['user', 'userId', 'user_id', 'username', 'email', 'owner', 'ownerEmail']));
+    const displayUser = s?.user_name ?? resolvedUserName ?? 'Unknown User';
+
     const projectId = pick(['project_id', 'projectId', 'project', 'projectSlug']);
     const projectName = pick(['projectName', 'project_name', 'projectLabel', 'project_label']);
     const serviceType = pick(['serviceType', 'service_type', 'provider', 'modelProvider']);
     const tenant = pick(['tenant', 'tenantId', 'tenant_id', 'organization', 'organization_id', 'organizationId', 'tenantName', 'tenant_name']);
 
-    // Resolve user display with strict preference: session.user_name -> resolved via userRef -> masked/short id -> 'Unknown User'
-    let userName = undefined;
-    if (userNameFromSession) {
-      userName = String(userNameFromSession);
-    } else {
-      // Try resolving via users context if we only have an ID/reference
-      const resolved = resolveUserName(userRef);
-      if (resolved && resolved !== 'Unknown User') {
-        userName = resolved;
-      } else {
-        // As a last resort, show a masked/shortened identifier if available (avoid leaking full raw IDs)
-        const rawId =
-          (typeof userRef === 'string' && userRef) ||
-          (typeof userRef === 'object' && (userRef?._id || userRef?.id || userRef?.userId)) ||
-          undefined;
-        if (rawId && typeof rawId === 'string') {
-          // Mask: show first 4 and last 4 chars if length > 10, else show as-is
-          if (rawId.length > 10) {
-            userName = `${rawId.slice(0, 4)}…${rawId.slice(-4)}`;
-          } else {
-            userName = rawId;
-          }
-        } else {
-          userName = 'Unknown User';
-        }
-      }
-    }
-
     // Compute duration using created_at and the normalized last_updated
     const durationStr = computeDuration(normalizedCreatedAt, normalizedLastUpdatedAt);
 
-    // Dev-only diagnostics to help trace missing fields during development
+    // Dev-only diagnostics per instructions
     if (process.env.NODE_ENV !== 'production') {
       try {
         // eslint-disable-next-line no-console
-        console.debug('[SessionDetailsModal] session received (keys):', Object.keys(s || {}));
-        // eslint-disable-next-line no-console
-        console.debug('[SessionDetailsModal] key fields snapshot:', {
-          user_name_raw: s?.user_name ?? s?.userName,
-          user_ref: s?.user ?? s?.userId ?? s?.user_id ?? s?.username ?? s?.email ?? s?.owner ?? s?.ownerEmail,
-          created_raw: s?.created_at ?? s?.createdAt ?? s?.startedAt ?? s?.start_time ?? s?.startTime,
-          last_updated_raw: s?.last_updated ?? s?.updated_at ?? s?.updatedAt ?? s?.lastUpdatedAt ?? s?.endedAt ?? s?.finishedAt ?? s?.lastActivityAt,
+        console.log('[SessionDetailsModal:debug]', {
+          user_name: s?.user_name,
+          user_id: s?.userId || s?.user_id,
+          last_updated: s?.last_updated,
         });
       } catch {
         // ignore logging errors
       }
     }
 
-    // Build detail fields ensuring the five required are present
     const details = {
-      'User': userName || 'Unknown User',                       // user_name preferred, never raw ID if name exists
+      'User': displayUser,
       'Session ID': sessionId ?? '—',
-      'Project ID': projectId ?? projectName ?? '—',            // project_id with name fallback
-      'Service Type': serviceType ?? '—',                       // service_type
+      'Project ID': projectId ?? projectName ?? '—',
+      'Service Type': serviceType ?? '—',
       Tenant: tenant ?? '—',
-      'Created At': formatDate(normalizedCreatedAt),            // created_at
-      'Last Updated At': formatDate(normalizedLastUpdatedAt),   // last_updated
-      Duration: durationStr,                                    // computed if both present
+      'Created At': formatDate(normalizedCreatedAt),
+      'Last Updated At': formatDate(normalizedLastUpdatedAt),
+      Duration: durationStr,
     };
 
     return details;
