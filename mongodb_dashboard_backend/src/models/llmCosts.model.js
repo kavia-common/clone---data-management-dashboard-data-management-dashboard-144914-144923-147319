@@ -1,58 +1,25 @@
 const mongoose = require('mongoose');
 
 /**
- * LLM Costs model
- * This schema is permissive to accommodate varied cost records from different agents/models.
- * Common fields are indexed to support filtering and sorting in list endpoints.
+ * LLM Costs model mapping to 'llm_cost' collection (not 'llm_costs').
+ * Fields accommodate different possible shapes: total_cost or amount, currency, timestamp, and project_id.
  */
-const CostBreakdownSchema = new mongoose.Schema(
+const LlmCostSchema = new mongoose.Schema(
   {
-    // Arbitrary key-value pairs for cost components (e.g., prompt_tokens, completion_tokens, input_cost, output_cost)
-  },
-  { _id: false, strict: false }
-);
-
-const LLMCostsSchema = new mongoose.Schema(
-  {
-    task_id: { type: String, index: true },
-    session_id: { type: String, index: true }, // if linked with session_tracking
-    tenant_id: { type: String, index: true },
-    project_id: { type: String, index: true },
-    user_id: { type: mongoose.Schema.Types.Mixed, index: true },
-    organization_name: { type: String },
-    llm_model: { type: String, index: true },
-    provider: { type: String }, // openai, anthropic, etc.
-    service_type: { type: String }, // code generation, query, etc.
-    operation: { type: String }, // e.g., "chat.completions"
-    total_cost: { type: Number, index: true },
+    project_id: { type: String, index: true, description: 'Associated project ID' },
+    // Support either total_cost or amount fields, and preserve precision via Decimal128 if present.
+    total_cost: { type: mongoose.Schema.Types.Decimal128, required: false },
+    amount: { type: mongoose.Schema.Types.Decimal128, required: false },
     currency: { type: String, default: 'USD' },
-    breakdown: { type: CostBreakdownSchema, default: () => ({}) },
-    metadata: { type: mongoose.Schema.Types.Mixed }, // free-form
-    timestamp: { type: Date, index: true, default: Date.now },
-    created_at: { type: Date, index: true, default: Date.now },
-    updated_at: { type: Date, index: true, default: Date.now },
+    timestamp: { type: Date, default: Date.now },
+    // Allow any additional fields that may exist in the collection
   },
-  {
-    timestamps: false,
-    collection: 'llm_costs',
-    strict: false, // allow additional fields that may exist in real documents
-  }
+  { collection: 'llm_cost', strict: false, timestamps: false }
 );
 
-// Useful indexes for common filter/sort combos
-LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 });
-LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
-LLMCostsSchema.index({ session_id: 1, timestamp: -1 });
-LLMCostsSchema.index({ llm_model: 1, timestamp: -1 });
-LLMCostsSchema.index({ task_id: 1 });
-// Optimize direct project_id lookups for usage endpoint
-LLMCostsSchema.index({ project_id: 1 });
-// Optimize direct project_id lookups for usage endpoint
-LLMCostsSchema.index({ project_id: 1 });
+// Ensure an index on project_id for faster aggregation lookups.
+LlmCostSchema.index({ project_id: 1 });
 
-LLMCostsSchema.pre('findOneAndUpdate', function (next) {
-  this.set({ updated_at: new Date() });
-  next();
-});
-
-module.exports = mongoose.model('LLMCost', LLMCostsSchema);
+// Avoid recompilation in watch mode
+const modelName = 'LlmCost';
+module.exports = mongoose.models[modelName] || mongoose.model(modelName, LlmCostSchema);
