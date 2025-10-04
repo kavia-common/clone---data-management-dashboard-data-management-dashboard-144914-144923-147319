@@ -1,24 +1,20 @@
 import React, { useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
-import UserProjectsModal from "../../components/users/UserProjectsModal.jsx";
+import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 
 /**
  * PUBLIC_INTERFACE
  * Users page
- * Container page that reuses the shared UsersList component and provides a modal to view a user's projects.
- * The UsersList opens a profile modal on row click and also bubbles selection up via onUserSelect.
+ * Refactored to use a single TabbedUserModal that merges Profile (Details) and Projects into tabs.
+ * - Centralizes selectedUser and modal open state in this page.
+ * - When selecting a user from UsersList, opens the modal with defaultTab="details".
+ * - When invoking "View Projects" triggers, opens with defaultTab="projects".
  */
 export default function Users() {
-  const [projectsOpen, setProjectsOpen] = useState(false);
+  // Centralized state for one modal
+  const [open, setOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-
-  function handleOpenProjects() {
-    if (!selectedUser) return;
-    setProjectsOpen(true);
-  }
-  function handleCloseProjects() {
-    setProjectsOpen(false);
-  }
+  const [defaultTab, setDefaultTab] = useState("details"); // 'details' | 'projects'
 
   // Derive tenant id from user object using known keys
   const tenantId = useMemo(() => {
@@ -26,34 +22,43 @@ export default function Users() {
     return u.tenant_id ?? u.organization_name ?? u.organization ?? u.organization_id ?? "";
   }, [selectedUser]);
 
+  // Called when a user is chosen from UsersList (row click)
+  function handleUserSelect(user) {
+    setSelectedUser(user);
+    setDefaultTab("details");
+    setOpen(true);
+  }
+
+  // Example handler for "View Projects" triggers in this page (if any future button exists)
+  function openSelectedUserProjects() {
+    if (!selectedUser) return;
+    setDefaultTab("projects");
+    setOpen(true);
+  }
+
+  function closeModal() {
+    setOpen(false);
+  }
+
   return (
     <div>
       <UsersList
         title="Users"
         subtitle="All users"
         showActions={false}
-        onUserSelect={(u) => {
-          // When a user row is selected, immediately open the projects modal.
-          setSelectedUser(u);
-          // Only open if we can derive a tenant id; otherwise let the button remain disabled.
-          const tId =
-            u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id ?? "";
-          if (tId && (u?._id || u?.id)) {
-            setProjectsOpen(true);
-          }
-        }}
+        onUserSelect={handleUserSelect}
       />
 
-      {/* Action row: show current selection and View button (fallback/manual trigger) */}
+      {/* Optional action row for manual projects open if needed */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, gap: 8, flexWrap: "wrap" }}>
         <div className="muted" style={{ fontSize: 12 }}>
           {selectedUser
             ? `Selected: ${selectedUser.name || selectedUser.full_name || selectedUser.email || selectedUser._id || "User"}`
-            : "Select a user row to view their projects"}
+            : "Select a user row to open their details"}
         </div>
         <button
           className="btn btn-primary"
-          onClick={handleOpenProjects}
+          onClick={openSelectedUserProjects}
           disabled={!selectedUser || !tenantId}
           title={selectedUser && tenantId ? "View projects for selected user" : "Select a user first"}
         >
@@ -61,13 +66,13 @@ export default function Users() {
         </button>
       </div>
 
-      {/* Projects modal */}
-      <UserProjectsModal
-        open={projectsOpen}
-        onClose={handleCloseProjects}
-        userId={selectedUser?._id || selectedUser?.id || ""}
-        tenantId={tenantId || ""}
-        userName={selectedUser?.name || selectedUser?.full_name || selectedUser?.email || ""}
+      {/* Single tabbed modal: Details and Projects */}
+      <TabbedUserModal
+        open={open}
+        onClose={closeModal}
+        user={selectedUser}
+        tenantId={tenantId}
+        defaultTab={defaultTab}
       />
     </div>
   );
