@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import { listSessions } from "../../api/client";
@@ -7,33 +7,27 @@ import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
-   * Session Tracking table restricted to show only the following columns (in this exact order):
-   * - Task Id
-   * - Tenant Id
-   * - Organization Name
-   * - Service Type
-   *
-   * All other columns (ID, session start/end, status, total cost, created/updated at, actions) are removed from both configuration and UI.
+   * Sessions page with server-side search and pagination.
+   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
+   * - Keeps existing pagination using server-provided meta.total and page/limit.
+   * - Minimal loading and error states shown within the table and above toolbar.
    */
-  const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // New state for details modal
+  // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  // Allowed and ordered fields per requirement (User Name and Total Cost removed)
+  // Lock to prevent race conditions when multiple loads are inflight (e.g., debounce vs pagination)
+  const activeRequestRef = useRef(0);
+
+  // Allowed and ordered fields (column visibility)
   const allowedOrdered = useMemo(
-    () => [
-      "task_id",
-      "tenant_id",
-      "organization_name",
-      "service_type",
-    ],
+    () => ["task_id", "tenant_id", "organization_name", "service_type"],
     []
   );
 
@@ -47,12 +41,11 @@ export default function Sessions() {
 
   // PUBLIC_INTERFACE
   function buildRestrictedColumns(rows = []) {
-    /** Build DataTable columns strictly from the allowed list, preserving order, with appropriate renderers. */
+    /** Build DataTable columns strictly from the allowed list, preserving order. */
     const presentKeys = new Set();
     (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
 
     return allowedOrdered.map((k) => {
-      // Regular text cells (Total Cost removed)
       return {
         key: k,
         label: toLabel(k),
@@ -64,51 +57,51 @@ export default function Sessions() {
 
   const [columns, setColumns] = useState(buildRestrictedColumns([]));
 
-  async function load(page = 1, limit = meta.limit || 10) {
+  // PUBLIC_INTERFACE
+  async function load(page = 1, limit = meta.limit || 10, qStr = "") {
+    /** Load sessions from server with pagination and optional query string. */
+    const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
     try {
-      const res = await listSessions({ page, limit });
+      const res = await listSessions({ page, limit, q: qStr });
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      setAllItems(arr);
+      // If a newer request started after this one, ignore late response
+      if (requestId !== activeRequestRef.current) return;
+
       setItems(arr);
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,
-        total: res?.meta?.total ?? arr.length,
+        total: res?.meta?.total ?? (Array.isArray(arr) ? arr.length : 0),
       });
+      // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
     } catch (e) {
-      setAllItems([]);
+      if (requestId !== activeRequestRef.current) return;
       setItems([]);
       setColumns(buildRestrictedColumns([]));
       setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestRef.current) setLoading(false);
     }
   }
 
+  // Initial load
   useEffect(() => {
-    load();
+    load(1, meta.limit || 10, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Client-side search limited to the visible fields only
+  // Debounced server-side search on query change
   useEffect(() => {
-    const q = (query || "").trim().toLowerCase();
-    if (!q) {
-      setItems(allItems);
-      return;
-    }
-    const filtered = (allItems || []).filter((s) => {
-      const vals = allowedOrdered
-        .map((f) => s?.[f])
-        .filter((v) => v !== undefined && v !== null)
-        .map((v) => String(v).toLowerCase());
-      return vals.some((v) => v.includes(q));
-    });
-    setItems(filtered);
-  }, [query, allItems, allowedOrdered]);
+    const handle = setTimeout(() => {
+      // Reset to first page when searching
+      load(1, meta.limit || 10, (query || "").trim());
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   // Toggle global dimming class while modal is open (align with user modal UX)
   useEffect(() => {
@@ -120,23 +113,13 @@ export default function Sessions() {
     return () => document.body.classList.remove("modal-open");
   }, [detailsOpen]);
 
-  // Row click -> open modal (with dev-only logging to verify payload)
+  // Row click -> open modal
   const handleRowClick = (row) => {
     if (process.env.NODE_ENV !== "production") {
       try {
         const keys = Object.keys(row || {});
         // eslint-disable-next-line no-console
         console.debug("[Sessions] Row clicked -> opening details modal with keys:", keys);
-        // eslint-disable-next-line no-console
-        console.debug("[Sessions] Sample field values:", {
-          created_at_like: row?.created_at || row?.createdAt || row?.startedAt || row?.start_time || row?.startTime,
-          last_updated_direct: row?.last_updated,
-          last_updated_like: row?.updated_at || row?.updatedAt || row?.lastUpdatedAt || row?.endedAt || row?.finishedAt || row?.lastActivityAt,
-          project_like: row?.project_id || row?.projectId || row?.project || row?.projectName || row?.projectSlug,
-          service_type_like: row?.service_type || row?.serviceType || row?.provider || row?.modelProvider,
-          user_name_direct: row?.user_name || row?.userName,
-          user_like: row?.user || row?.userId || row?.user_id || row?.username || row?.email,
-        });
       } catch {
         // ignore logging errors
       }
@@ -147,39 +130,41 @@ export default function Sessions() {
 
   return (
     <div>
-      {/* Mount modal at root to avoid clipping and ensure overlay covers page */}
+      {/* Details Modal */}
       <SessionDetailsModal
         open={detailsOpen}
         onClose={() => {
           setDetailsOpen(false);
-          // slight delay to allow closing transition if any
           setTimeout(() => setSelectedSession(null), 0);
         }}
         session={selectedSession}
       />
 
-      <Card title="Session Tracking" subtitle="Selected columns only">
+      <Card title="Session Tracking" subtitle="Search across the full dataset">
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
             className="input-search"
-            placeholder="Search by visible fields..."
+            placeholder="Search sessions (user, org, service, status, etc.)..."
             aria-label="Search sessions"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
           <div className="spacer" />
         </div>
-        {error && <div className="error" role="alert">{error}</div>}
+        {error && (
+          <div className="error" role="alert" style={{ marginBottom: 8 }}>
+            {error}
+          </div>
+        )}
         <DataTable
           columns={columns}
           data={items}
           loading={loading}
-          // No actions (edit/delete) per requirement to remove actions column from UI
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit) => {
-            await load(page, limit);
+            await load(page, limit, (query || "").trim());
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
