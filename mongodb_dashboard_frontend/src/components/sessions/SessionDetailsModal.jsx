@@ -101,18 +101,19 @@ function SessionDetailsModal({ open, onClose, session }) {
         className="w-full"
         onClick={(e) => e.stopPropagation()}
         style={{
+          // Card visuals aligned with Ocean Professional
           background: '#ffffff',
           borderRadius: 16,
           boxShadow: '0 8px 20px rgba(16,24,40,0.12)',
-          // Responsive width with small-screen padding courtesy of Modal overlay
+          // Centered and responsive width within overlay padding
           width: 'min(720px, calc(100vw - 32px))',
-          // Constrain height to viewport; internal area scrolls
-          maxHeight: '85vh',
+          // Constrain height to viewport minus overlay padding; internal content scrolls
+          maxHeight: 'min(85vh, calc(100vh - 32px))',
           display: 'flex',
           flexDirection: 'column',
-          // Hide overflow on the container; inner content region handles scrolling
+          // Hide overflow at container; inner content region handles scrolling
           overflow: 'hidden',
-          // Ensure this container is rendered above any app-level elements within the overlay
+          // Slightly above overlay content wrapper when necessary
           zIndex: 1001,
         }}
       >

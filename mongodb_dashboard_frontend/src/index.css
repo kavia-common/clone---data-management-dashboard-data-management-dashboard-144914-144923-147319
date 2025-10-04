@@ -1,8 +1,14 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 html, body {
-  /* Prevent page/body scrolling; app shell manages internal scroll areas (e.g., table-scroll) */
-  overflow: hidden;
+  /* Allow page to scroll when needed; modal overlay uses position: fixed to stay centered */
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Utility: lock body scroll when an app-level modal policy wants it */
+body.modal-open--lock-scroll {
+  overflow: hidden !important;
 }
 
 /* Ocean Professional CSS variables */
@@ -33,6 +39,9 @@ html, body {
   --danger-700: #B91C1C;
 
   --link: #2563EB;
+
+  /* Modal backdrop token for Ocean Professional */
+  --modal-backdrop: rgba(17,24,39,0.5);
 }
 
 body {
