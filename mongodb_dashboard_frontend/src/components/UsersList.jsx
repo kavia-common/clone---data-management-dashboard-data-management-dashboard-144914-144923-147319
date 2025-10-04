@@ -21,8 +21,10 @@ import { listUsers } from "../api/client";
  *
  * Enhancement:
  * - Changes filter control to Organization (replacing Department). Includes a "Reset" button to clear filters.
+ *
+ * @param {{ title?: string, subtitle?: string, showActions?: boolean, onUserSelect?: (user:any)=>void }} props
  */
-export default function UsersList({ title = "Users", subtitle = "All users", showActions = false }) {
+export default function UsersList({ title = "Users", subtitle = "All users", showActions = false, onUserSelect }) {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -187,6 +189,11 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
   function onRowClick(user) {
     setSelectedUser(user);
     setProfileOpen(true);
+    try {
+      if (typeof onUserSelect === "function") onUserSelect(user);
+    } catch {
+      // ignore external callback errors
+    }
   }
 
   function closeProfile() {
