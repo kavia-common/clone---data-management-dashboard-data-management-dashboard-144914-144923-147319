@@ -69,9 +69,6 @@ export function useProjectCostHistorySum(projectId, options = {}) {
     try {
       // First try the cost-history-sum endpoint (sum of cost_history.delta_total_cost)
       const sum = await getProjectCostHistorySum(normalizedId);
-      if (process.env.NODE_ENV !== 'production') {
-        try { console.log('[useProjectCostHistorySum] /cost-history-sum response:', sum); } catch {}
-      }
       // If endpoint returns a numeric cost, use it. If null/undefined or NaN, try fallback.
       const sumCost = Number(sum?.cost);
       if (Number.isFinite(sumCost)) {
@@ -80,9 +77,6 @@ export function useProjectCostHistorySum(projectId, options = {}) {
       } else {
         // Fallback: legacy /cost endpoint (sum of total_cost across sessions)
         const legacy = await getProjectCost(normalizedId);
-        if (process.env.NODE_ENV !== 'production') {
-          try { console.log('[useProjectCostHistorySum] fallback /cost response:', legacy); } catch {}
-        }
         const legacyCost = Number(legacy?.cost);
         setCost(Number.isFinite(legacyCost) ? legacyCost : null);
         if (!Number.isFinite(legacyCost)) {
@@ -93,9 +87,6 @@ export function useProjectCostHistorySum(projectId, options = {}) {
       // If sum endpoint fails, try legacy as fallback
       try {
         const legacy = await getProjectCost(normalizedId);
-        if (process.env.NODE_ENV !== 'production') {
-          try { console.log('[useProjectCostHistorySum] catch fallback /cost response:', legacy); } catch {}
-        }
         const legacyCost = Number(legacy?.cost);
         setCost(Number.isFinite(legacyCost) ? legacyCost : null);
         if (!Number.isFinite(legacyCost)) {

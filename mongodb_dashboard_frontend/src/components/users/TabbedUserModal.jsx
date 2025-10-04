@@ -7,6 +7,7 @@ import Modal from '../ui/Modal.jsx';
 // Views
 import { useUserProjects } from '../../hooks/useUserProjects';
 import { useProjectCostHistorySum } from '../../hooks/useProjectCostHistorySum';
+import useProjectLlmCost from '../../hooks/useProjectLlmCost';
 
 /**
  * Internal presentational view for user details
@@ -178,42 +179,37 @@ UserDetailsView.propTypes = {
 /**
  * Renders the Project Details header section showing aggregate cost if a project is provided.
  * Prefers sum of cost_history.delta_total_cost; falls back to legacy total cost internally via hook.
- * Always renders the card so Project ID and Updated are visible; shows '—' for cost when projectId is missing.
  */
 function ProjectCostSummaryCard({ project }) {
-  // Resolve projectId from various possible shapes; log for diagnostics in development.
   const projectIdStr = useMemo(() => {
     if (!project) return '';
     const id =
-      project.project_id ??
-      project.projectId ??
-      project.id ??
-      project._id ??
+      project.project_id ||
+      project.projectId ||
+      project.id ||
+      project._id ||
       '';
     const s = String(id || '').trim();
     return s.length > 0 && s !== '—' ? s : '';
   }, [project]);
 
-  if (process.env.NODE_ENV !== 'production') {
-    try {
-      // eslint-disable-next-line no-console
-      console.log('[ProjectCostSummaryCard] projectIdStr:', projectIdStr, 'project:', project);
-    } catch {
-      /* noop */
-    }
-  }
-
   const enabled = Boolean(projectIdStr);
-  const { formattedCost, loading, error } = useProjectCostHistorySum(projectIdStr, { enabled });
 
-  if (process.env.NODE_ENV !== 'production' && enabled) {
-    try {
-      // eslint-disable-next-line no-console
-      console.log('[ProjectCostSummaryCard] enabled fetch for projectId:', projectIdStr);
-    } catch {
-      /* noop */
-    }
-  }
+  // Primary source: llm_cost endpoint
+  const {
+    formattedCost: llmFormatted,
+    loading: llmLoading,
+    error: llmError,
+  } = useProjectLlmCost(enabled ? projectIdStr : null);
+
+  // Fallback source: cost-history-sum from session tracking
+  const {
+    formattedCost: historyFormatted,
+    loading: historyLoading,
+    error: historyError,
+  } = useProjectCostHistorySum(projectIdStr, { enabled });
+
+  if (!enabled) return null;
 
   const updated = project?.updatedAt || project?.updated_at || project?.last_activity || null;
   const updatedLabel = (() => {
@@ -221,7 +217,17 @@ function ProjectCostSummaryCard({ project }) {
     try { return new Date(updated).toLocaleString(); } catch { return String(updated); }
   })();
 
-  // Always render the card to show ID and Updated; show '—' for cost if no projectId
+  let display = '—';
+  if (!llmLoading && !llmError) {
+    display = llmFormatted;
+  } else if (historyLoading) {
+    display = 'Loading…';
+  } else if (!historyLoading && !historyError) {
+    display = historyFormatted;
+  } else if (llmError || historyError) {
+    display = 'Error loading cost';
+  }
+
   return (
     <section
       aria-label="Project aggregate cost"
@@ -250,15 +256,9 @@ function ProjectCostSummaryCard({ project }) {
             Total Cost
           </div>
           <div style={{ fontWeight: 700, color: 'var(--text-primary, #111827)' }}>
-            {!enabled
-              ? '—'
-              : loading
-                ? 'Loading…'
-                : error
-                  ? <span title={error} style={{ color: '#EF4444', fontWeight: 600 }}>Error</span>
-                  : (formattedCost ?? '—')}
+            {display}
           </div>
-          {/* Prefer sum of cost_history.delta_total_cost; fall back handled in the hook if needed. */}
+          {/* Prefer llm_cost aggregate; falls back to cost_history sum */}
         </div>
 
         <div>
