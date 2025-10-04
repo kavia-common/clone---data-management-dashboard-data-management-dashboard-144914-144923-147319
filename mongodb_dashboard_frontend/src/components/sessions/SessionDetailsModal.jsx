@@ -43,6 +43,7 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
   };
 
+  // Collect the most relevant details using tolerant key extraction.
   const coreDetails = useMemo(() => {
     if (!session || typeof session !== 'object') return {};
 
@@ -69,16 +70,16 @@ function SessionDetailsModal({ open, onClose, session }) {
 
     return {
       'Session ID': sessionId ?? '—',
-      'Status': status ?? '—',
+      Status: status ?? '—',
       'Started At': formatDate(startedAt),
       'Ended At': formatDate(endedAt),
-      'Duration': duration !== undefined ? String(duration) : '—',
-      'User': userId ?? '—',
-      'Tenant': tenantId ?? '—',
-      'Project': projectId ?? '—',
-      'Requests': requestCount !== undefined ? String(requestCount) : '—',
+      Duration: duration !== undefined ? String(duration) : '—',
+      User: userId ?? '—',
+      Tenant: tenantId ?? '—',
+      Project: projectId ?? '—',
+      Requests: requestCount !== undefined ? String(requestCount) : '—',
       'Tokens Used': tokensUsed !== undefined ? String(tokensUsed) : '—',
-      'Model': model ?? '—',
+      Model: model ?? '—',
       'Source / IP': source ?? '—',
     };
   }, [session]);
@@ -93,8 +94,9 @@ function SessionDetailsModal({ open, onClose, session }) {
 
   return (
     <Modal open={open} onClose={onClose}>
+      {/* Outer container: ensure no horizontal overflow and internal scroll */}
       <div
-        className="relative bg-white rounded-lg shadow-xl w-full max-w-3xl mx-auto max-h-[85vh] flex flex-col"
+        className="relative bg-white rounded-lg shadow-xl w-full max-w-3xl mx-auto max-h-[85vh] flex flex-col overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-labelledby={headerId}
@@ -106,57 +108,70 @@ function SessionDetailsModal({ open, onClose, session }) {
           <h2 id={headerId} className="text-lg font-semibold text-gray-900">
             Session Details
           </h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Review core information and metadata for the selected session.
+          </p>
         </div>
 
-        {/* Scrollable Content */}
+        {/* Scrollable Content Wrapper: prefer wrapping, allow x-auto for extreme cases */}
         <div
           ref={contentRef}
           tabIndex={-1}
           id={`${headerId}-content`}
-          className="overflow-y-auto px-6 py-5 space-y-8"
-          style={{ WebkitOverflowScrolling: 'touch' }}
+          className="px-6 py-5 space-y-8 overflow-y-auto overflow-x-auto"
+          style={{
+            WebkitOverflowScrolling: 'touch',
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
+          }}
         >
-          {/* Core details grid */}
+          {/* Core details grid/table */}
           <section aria-label="Core details" className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(140px,1fr)_2fr] gap-4">
               {Object.entries(coreDetails).map(([label, value]) => (
-                <div key={label} className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">
-                    {label}
+                <React.Fragment key={label}>
+                  <div className="min-w-0 md:text-right md:pr-4">
+                    <div className="text-xs md:text-sm font-medium text-gray-600">
+                      {label}
+                    </div>
                   </div>
-                  <div className="mt-1 text-sm text-gray-900 break-words leading-6">
-                    {value}
+                  <div className="min-w-0">
+                    <div className="mt-1 md:mt-0 text-sm text-gray-900 leading-6 break-words">
+                      {value}
+                    </div>
                   </div>
-                </div>
+                </React.Fragment>
               ))}
             </div>
           </section>
 
           {/* Divider and Metadata */}
-          <hr className="border-gray-200" />
-          <section aria-label="Metadata" className="space-y-3">
-            <div className="flex items-center justify-between">
+          <section aria-label="Metadata" className="mt-6">
+            <hr className="border-gray-200" />
+            <div className="mt-4 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">
                 Metadata
               </h3>
-              {/* Optional accent underline could be added if desired */}
+              <span className="text-[11px] text-amber-600/80">
+                Ocean Professional
+              </span>
             </div>
             {metadataValue !== '—' ? (
-              <pre className="text-sm text-gray-900 bg-gray-50 rounded-md p-3 overflow-x-auto whitespace-pre-wrap break-words">
+              <pre className="mt-2 text-sm text-gray-900 bg-gray-50 rounded-md p-4 whitespace-pre-wrap break-words overflow-x-auto">
                 {metadataValue}
               </pre>
             ) : (
-              <div className="text-sm text-gray-500">—</div>
+              <div className="mt-2 text-sm text-gray-500">—</div>
             )}
           </section>
         </div>
 
         {/* Footer with full-width prominent Close button */}
-        <div className="px-6 pb-6">
+        <div className="px-6 pb-6 pt-2 border-t bg-white">
           <button
             type="button"
             onClick={onClose}
-            className="w-full inline-flex items-center justify-center rounded-md bg-red-500 px-5 py-3 text-white font-semibold shadow-sm hover:bg-red-600 active:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition"
+            className="w-full inline-flex items-center justify-center rounded-lg bg-red-600 px-5 py-3 text-white font-semibold shadow-sm hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-600 transition-colors"
           >
             Close
           </button>
