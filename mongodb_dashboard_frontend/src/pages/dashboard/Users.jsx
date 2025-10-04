@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 
@@ -39,6 +39,39 @@ export default function Users() {
   function closeModal() {
     setOpen(false);
   }
+
+  // Dim/deactivate headbar while modal is open
+  useEffect(() => {
+    const body = document?.body;
+    if (!body) return;
+
+    const CLASS = "modal-open--dim-header";
+    const apply = () => {
+      if (open) {
+        body.classList.add(CLASS);
+        // Mark the header as hidden from assistive tech while modal is active
+        const headerEl = document.querySelector(".app-headbar, .topbar");
+        if (headerEl) {
+          headerEl.setAttribute("aria-hidden", "true");
+        }
+      } else {
+        body.classList.remove(CLASS);
+        const headerEl = document.querySelector(".app-headbar, .topbar");
+        if (headerEl) {
+          headerEl.removeAttribute("aria-hidden");
+        }
+      }
+    };
+
+    apply();
+    return () => {
+      body.classList.remove(CLASS);
+      const headerEl = document.querySelector(".app-headbar, .topbar");
+      if (headerEl) {
+        headerEl.removeAttribute("aria-hidden");
+      }
+    };
+  }, [open]);
 
   return (
     <div>

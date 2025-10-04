@@ -57,6 +57,7 @@
   gap: 8px;
   min-width: 0; /* allow children to shrink */
   overflow: hidden; /* prevent children from overflowing at intermediate widths */
+  transition: opacity .15s ease, filter .15s ease; /* smooth when dim toggles */
 }
 
 .topbar-left {

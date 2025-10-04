@@ -9,7 +9,7 @@ import React from "react";
 export default function Topbar() {
   /** Top navigation bar with brand mark/wordmark and user chip. */
   return (
-    <header className="topbar" role="banner">
+    <header className="topbar app-headbar" role="banner">
       <div className="topbar-left">
         <div className="brand" aria-label="Tenant Dashboard">
           <span className="brand-badge" aria-hidden="true">★</span>
