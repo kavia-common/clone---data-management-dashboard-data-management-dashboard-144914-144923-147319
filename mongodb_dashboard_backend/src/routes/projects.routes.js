@@ -5,6 +5,7 @@ const Project = require('../models/project.model');
 const Tenant = require('../models/tenant.model');
 const SessionTracking = require('../models/sessionTracking.model');
 const { getSessionDurations, getCosts } = require('../services/analytics');
+const LlmCost = require('../models/llmCosts.model');
 
 const router = express.Router();
 const controller = buildCrudController(Project, '-created_at');
@@ -177,6 +178,10 @@ router.get(
     });
   })
 );
+
+
+
+
 
 /**
  * @swagger
