@@ -4,19 +4,28 @@ import Modal from '../ui/Modal.jsx';
 /**
  * PUBLIC_INTERFACE
  * SessionDetailsModal
- * A responsive, accessible modal that presents session details in a clean two-column layout aligned to the Ocean Professional theme.
+ * A responsive, accessible modal that presents a focused set of session details in a clean two-column layout.
  *
  * Props:
  * - open: boolean - controls visibility
  * - onClose: function - invoked to close modal
  * - session: object - session data to render
  *
+ * Shows exactly these fields:
+ * - User (user.name or user.email fallback to userId/user)
+ * - Session ID (id or _id)
+ * - Project (project | projectId | project_name)
+ * - Tenant (tenant | tenantId | tenant_name)
+ * - Started At (createdAt | startedAt)
+ * - Last Updated At (updatedAt | lastUpdatedAt)
+ * - Duration (computed from Last Updated At - Started At)
+ *
  * Design and UX:
  * - Uses parent Modal overlay; keeps sticky header within card with subtle shadow
- * - Two-column responsive grid (minmax 240px, 1fr) stacking to single column <640px
- * - Labels are muted, medium weight; values wrap and avoid horizontal scroll
- * - Full-width red Close button with hover/focus states, rounded-md
- * - No metadata section
+ * - Two-column responsive grid stacking to single column <640px
+ * - Labels are muted; values wrap and avoid horizontal scroll
+ * - Full-width red Close button with hover/focus states
+ * - Internal scroll with sticky header
  */
 function SessionDetailsModal({ open, onClose, session }) {
   const headerId = 'session-details-title';
@@ -34,61 +43,72 @@ function SessionDetailsModal({ open, onClose, session }) {
     if (!val) return '—';
     try {
       const d = new Date(val);
-      if (isNaN(d.getTime())) return String(val);
+      if (isNaN(d.getTime())) return '—';
       return d.toLocaleString();
     } catch {
-      return String(val);
+      return '—';
     }
   };
 
-  // Collect core details using tolerant key extraction.
-  const coreDetails = useMemo(() => {
-    if (!session || typeof session !== 'object') return {};
+  const formatDuration = (start, end) => {
+    if (!start || !end) return '—';
+    const s = new Date(start);
+    const e = new Date(end);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return '—';
+    const diffMs = Math.max(0, e.getTime() - s.getTime());
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const parts = [];
+    if (hours) parts.push(`${hours}h`);
+    if (minutes || hours) parts.push(`${minutes}m`);
+    parts.push(`${seconds}s`);
+    return parts.join(' ');
+  };
 
-    const s = session;
-    const get = (keys) => {
-      for (const k of keys) {
-        if (s && s[k] !== undefined && s[k] !== null) return s[k];
-      }
-      return undefined;
-    };
+  // Extract values with tolerant keys and fallbacks
+  const sessionId =
+    session?.id ?? session?._id ?? '—';
 
-    const startedAt = get(['startedAt', 'start_time', 'startTime', 'created_at', 'createdAt']);
-    const endedAt = get(['endedAt', 'end_time', 'endTime', 'updated_at', 'updatedAt']);
-    const duration = get(['duration', 'durationMs', 'duration_ms', 'elapsed']);
-    const userId = get(['userId', 'user_id', 'user']);
-    const tenantId = get(['tenantId', 'tenant_id', 'tenant']);
-    const status = get(['status', 'state']);
-    const requestCount = get(['requestCount', 'requests', 'numRequests']);
-    const tokensUsed = get(['tokensUsed', 'tokenUsage', 'tokens', 'totalTokens']);
-    const model = get(['model', 'llm_model', 'llmModel']);
-    const source = get(['source', 'ip', 'ipAddress', 'client_ip']);
-    const sessionId = get(['sessionId', '_id', 'id']);
-    const projectId = get(['projectId', 'project_id', 'project']);
+  const userDisplay =
+    session?.user?.name ??
+    session?.user?.email ??
+    session?.userId ??
+    (typeof session?.user === 'string' ? session.user : undefined) ??
+    '—';
 
-    return {
-      'Session ID': sessionId ?? '—',
-      Status: status ?? '—',
-      'Started At': formatDate(startedAt),
-      'Ended At': formatDate(endedAt),
-      Duration: duration !== undefined ? String(duration) : '—',
-      User: userId ?? '—',
-      Tenant: tenantId ?? '—',
-      Project: projectId ?? '—',
-      Requests: requestCount !== undefined ? String(requestCount) : '—',
-      'Tokens Used': tokensUsed !== undefined ? String(tokensUsed) : '—',
-      Model: model ?? '—',
-      'Source / IP': source ?? '—',
-    };
-  }, [session]);
+  const projectDisplay =
+    session?.project ?? session?.projectId ?? session?.project_name ?? '—';
 
-  // Derive a presentable title using primary identifiers (user or session)
-  const derivedTitle = useMemo(() => {
-    const nameLike = session?.user_name || session?.username || session?.user || '';
-    const email = session?.email || '';
-    const id = session?.sessionId || session?._id || session?.id || '';
-    return (nameLike || email || id || 'Session Details');
-  }, [session]);
+  const tenantDisplay =
+    session?.tenant ?? session?.tenantId ?? session?.tenant_name ?? '—';
+
+  const startedAtRaw =
+    session?.createdAt ?? session?.startedAt ?? session?.start_time ?? session?.startTime;
+  const lastUpdatedAtRaw =
+    session?.updatedAt ?? session?.lastUpdatedAt ?? session?.end_time ?? session?.endTime;
+
+  const startedAt = formatDate(startedAtRaw);
+  const lastUpdatedAt = formatDate(lastUpdatedAtRaw);
+  const duration = formatDuration(startedAtRaw, lastUpdatedAtRaw);
+
+  // Only the requested fields in the 2-column grid
+  const fields = useMemo(
+    () => [
+      { label: 'User', value: userDisplay },
+      { label: 'Session ID', value: sessionId },
+      { label: 'Project', value: projectDisplay },
+      { label: 'Tenant', value: tenantDisplay },
+      { label: 'Started At', value: startedAt },
+      { label: 'Last Updated At', value: lastUpdatedAt },
+      { label: 'Duration', value: duration },
+    ],
+    [userDisplay, sessionId, projectDisplay, tenantDisplay, startedAt, lastUpdatedAt, duration]
+  );
+
+  // Title format update
+  const title = `Session Details - ${sessionId}`;
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -111,9 +131,10 @@ function SessionDetailsModal({ open, onClose, session }) {
             fontWeight: 600,
             color: 'var(--text-strong, #0F172A)',
           }}
-          title={typeof derivedTitle === 'string' ? derivedTitle : undefined}
+          title={title}
+          aria-label={title}
         >
-          {derivedTitle}
+          {title}
         </h2>
       </div>
 
@@ -136,7 +157,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         }}
       >
         <section
-          aria-label="Core details"
+          aria-label="Session details"
           className="details-card"
           style={{
             position: 'relative',
@@ -156,7 +177,7 @@ function SessionDetailsModal({ open, onClose, session }) {
               rowGap: 20,
             }}
           >
-            {Object.entries(coreDetails).map(([label, value]) => {
+            {fields.map(({ label, value }) => {
               const isPlaceholder = value === '—';
               return (
                 <div key={label} style={{ minWidth: 0 }}>
@@ -184,7 +205,7 @@ function SessionDetailsModal({ open, onClose, session }) {
                     }}
                     title={typeof value === 'string' ? value : undefined}
                   >
-                    {String(value)}
+                    {String(value ?? '—')}
                   </div>
                 </div>
               );
