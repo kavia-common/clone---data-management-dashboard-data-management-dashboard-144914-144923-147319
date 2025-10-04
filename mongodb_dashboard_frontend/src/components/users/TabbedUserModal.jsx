@@ -11,33 +11,152 @@ import { useUserProjects } from '../../hooks/useUserProjects';
 /**
  * Internal presentational view for user details
  * Responsive grid, safe text wrapping and truncation.
+ * Shows ONLY: Name, Email, Role, and Tenant in a 2x2 grid with Ocean Professional styling.
  */
 function UserDetailsView({ user }) {
   if (!user) return <div className="text-gray-500">No user selected</div>;
-  const rows = [
-    ['Name', user.name || user.full_name || `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim()],
-    ['Email', user.email],
-    ['Role', user.role || user.user_role],
-    ['Tenant', user.tenant_id || user.organization_name || user.organization || user.organization_id],
-    ['Status', user.status],
-    ['Created', user.createdAt || user.created_at],
-    ['Updated', user.updatedAt || user.updated_at],
-  ];
+
+  // Derive fields with fallbacks
+  const name =
+    user?.name ||
+    user?.full_name ||
+    `${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim() ||
+    '';
+  const email = user?.email || '';
+  const role = user?.role || user?.user_role || '';
+  const tenant =
+    user?.tenant_id ??
+    user?.organization_name ??
+    user?.organization ??
+    user?.organization_id ??
+    '';
+
+  // Card-like surface for details with theme-consistent styles
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {rows.map(([label, value]) => (
-        <div key={label} className="bg-gray-50 rounded p-3">
-          <div className="text-xs uppercase text-gray-500">{label}</div>
-          <div
-            className="text-sm text-gray-900 break-words"
-            title={value ? String(value) : undefined}
-            style={{ wordBreak: 'break-word' }}
+    <section
+      aria-label="User details"
+      style={{
+        background: "var(--bg-surface, #ffffff)",
+        border: "1px solid var(--border-subtle, #E6EAF0)",
+        borderRadius: 12,
+        boxShadow: "var(--shadow, 0 1px 2px rgba(16,24,40,0.04))",
+        padding: 16,
+      }}
+    >
+      <div
+        className="grid grid-cols-1 sm:grid-cols-2 gap-4"
+        role="group"
+        aria-label="Details grid"
+      >
+        {/* Name */}
+        <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--text-tertiary, #64748B)",
+              letterSpacing: ".02em",
+              marginBottom: 6,
+            }}
           >
-            {value || '—'}
-          </div>
+            Name
+          </label>
+          <p
+            style={{
+              margin: 0,
+              color: "var(--text-primary, #111827)",
+              fontWeight: 600,
+              wordBreak: "break-word",
+            }}
+            title={name || undefined}
+          >
+            {name || "—"}
+          </p>
         </div>
-      ))}
-    </div>
+
+        {/* Email */}
+        <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--text-tertiary, #64748B)",
+              letterSpacing: ".02em",
+              marginBottom: 6,
+            }}
+          >
+            Email
+          </label>
+          <p
+            style={{
+              margin: 0,
+              color: "var(--text-primary, #111827)",
+              fontWeight: 600,
+              wordBreak: "break-word",
+            }}
+            title={email || undefined}
+          >
+            {email || "—"}
+          </p>
+        </div>
+
+        {/* Role */}
+        <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--text-tertiary, #64748B)",
+              letterSpacing: ".02em",
+              marginBottom: 6,
+            }}
+          >
+            Role
+          </label>
+          <p
+            style={{
+              margin: 0,
+              color: "var(--text-primary, #111827)",
+              fontWeight: 600,
+              wordBreak: "break-word",
+            }}
+            title={role || undefined}
+          >
+            {role || "—"}
+          </p>
+        </div>
+
+        {/* Tenant */}
+        <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--text-tertiary, #64748B)",
+              letterSpacing: ".02em",
+              marginBottom: 6,
+            }}
+          >
+            Tenant
+          </label>
+          <p
+            style={{
+              margin: 0,
+              color: "var(--text-primary, #111827)",
+              fontWeight: 600,
+              wordBreak: "break-word",
+            }}
+            title={(tenant && String(tenant)) || undefined}
+          >
+            {tenant ? String(tenant) : "—"}
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }
 
