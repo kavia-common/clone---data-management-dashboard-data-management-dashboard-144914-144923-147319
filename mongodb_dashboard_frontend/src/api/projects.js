@@ -1,4 +1,4 @@
-import { getApiClient } from './client';
+import { getApiBaseUrl } from './util';
 
 // PUBLIC_INTERFACE
 export async function getProjectLlmCost(projectId) {
@@ -6,37 +6,17 @@ export async function getProjectLlmCost(projectId) {
    * Returns shape: { projectId, cost, currency }
    */
   if (!projectId) throw new Error('projectId is required');
-  const api = getApiClient();
-  const res = await api.get(`/projects/${encodeURIComponent(projectId)}/llm-cost`);
-  return res.data?.data ?? res.data;
-}
+  const base = getApiBaseUrl();
+  const url = `${base}/projects/${encodeURIComponent(projectId)}/llm-cost`;
 
-/**
- * PUBLIC_INTERFACE
- * getProjectCostHistorySum
- * Calls GET /api/projects/:projectId/cost-history-sum
- * Returns: { projectId, cost }
- */
-export async function getProjectCostHistorySum(projectId) {
-  if (!projectId) throw new Error('projectId is required');
-  const api = getApiClient();
-  const res = await api.get(`/projects/${encodeURIComponent(projectId)}/cost-history-sum`);
-  return res.data?.data ?? res.data;
-}
-
-/**
- * PUBLIC_INTERFACE
- * getProjectCost
- * Calls GET /api/projects/:projectId/cost
- * Returns: { projectId, cost, currency }
- */
-export async function getProjectCost(projectId) {
-  if (!projectId) throw new Error('projectId is required');
-  const api = getApiClient();
-  const res = await api.get(`/projects/${encodeURIComponent(projectId)}/cost`);
-  return res.data?.data ?? res.data;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch LLM cost (${res.status})`);
+  }
+  const data = await res.json();
+  return data;
 }
 
 // Keep default export object if callers expect consolidated API
-const api = { getProjectLlmCost, getProjectCostHistorySum, getProjectCost };
+const api = { getProjectLlmCost };
 export default api;
