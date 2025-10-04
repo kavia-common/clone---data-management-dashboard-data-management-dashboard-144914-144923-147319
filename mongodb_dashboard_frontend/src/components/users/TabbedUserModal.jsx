@@ -6,6 +6,7 @@ import Modal from '../ui/Modal.jsx';
 
 // Views
 import { useUserProjects } from '../../hooks/useUserProjects';
+import { useProjectCostHistorySum } from '../../hooks/useProjectCostHistorySum';
 
 /**
  * Internal presentational view for user details
@@ -172,6 +173,81 @@ function UserDetailsView({ user }) {
 
 UserDetailsView.propTypes = {
   user: PropTypes.object,
+};
+
+/**
+ * Renders the Project Details header section showing aggregate cost if a project is provided.
+ * Prefers sum of cost_history.delta_total_cost; falls back to legacy total cost internally via hook.
+ */
+function ProjectCostSummaryCard({ project }) {
+  const projectIdStr = useMemo(() => {
+    if (!project) return '';
+    const id = project.project_id || project.projectId || '';
+    const s = String(id || '').trim();
+    return s.length > 0 && s !== '—' ? s : '';
+  }, [project]);
+
+  const enabled = Boolean(projectIdStr);
+  const { formattedCost, loading, error } = useProjectCostHistorySum(projectIdStr, { enabled });
+
+  if (!enabled) return null;
+
+  const updated = project?.updatedAt || project?.updated_at || project?.last_activity || null;
+  const updatedLabel = (() => {
+    if (!updated) return '—';
+    try { return new Date(updated).toLocaleString(); } catch { return String(updated); }
+  })();
+
+  return (
+    <section
+      aria-label="Project aggregate cost"
+      style={{
+        background: "var(--bg-surface, #ffffff)",
+        border: "1px solid var(--border-subtle, #E6EAF0)",
+        borderRadius: 12,
+        boxShadow: "var(--shadow, 0 1px 2px rgba(16,24,40,0.04))",
+        padding: 16,
+        display: 'grid',
+        gap: 8,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary, #64748B)', letterSpacing: '.02em' }}>
+          Project Details
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
+          ID: {projectIdStr || '—'}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary, #64748B)', marginBottom: 4 }}>
+            Total Cost
+          </div>
+          <div style={{ fontWeight: 700, color: 'var(--text-primary, #111827)' }}>
+            {loading ? 'Loading…' : error ? (
+              <span title={error} style={{ color: '#EF4444', fontWeight: 600 }}>Error</span>
+            ) : (formattedCost ?? '—')}
+          </div>
+          {/* We prefer sum of cost_history.delta_total_cost since it more accurately tracks incremental updates than summing total_cost across sessions. */}
+        </div>
+
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary, #64748B)', marginBottom: 4 }}>
+            Updated
+          </div>
+          <div style={{ color: 'var(--text-secondary, #475569)' }}>
+            {updatedLabel}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+ProjectCostSummaryCard.propTypes = {
+  project: PropTypes.object,
 };
 
 /**
@@ -514,6 +590,9 @@ export default function TabbedUserModal({
 
           {activeTab === 'projects' && (
             <div style={{ display: "grid", gap: 16 }}>
+              {/* Project aggregate cost card using hook at component level to follow rules-of-hooks */}
+              <ProjectCostSummaryCard project={user?.current_project} />
+
               <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
             </div>
           )}
