@@ -100,15 +100,30 @@ router.get(
           type: { $ifNull: ['$type', { $ifNull: ['$service_type', '$operation'] }] },
           currency: { $ifNull: ['$currency', 'USD'] },
           total_cost_num: {
-            $cond: [
-              { $ne: ['$total_cost', null] },
-              {
+            $let: {
+              vars: {
+                rawCost: {
+                  $ifNull: ['$total_cost', { $ifNull: ['$cost', { $ifNull: ['$usage.cost', 0] }] }],
+                },
+              },
+              in: {
                 $convert: {
                   input: {
                     $cond: [
-                      { $isNumber: '$total_cost' },
-                      '$total_cost',
-                      { $toString: '$total_cost' },
+                      { $isNumber: '$$rawCost' },
+                      '$$rawCost',
+                      {
+                        $cond: [
+                          {
+                            $and: [
+                              { $eq: [{ $type: '$$rawCost' }, 'string'] },
+                              { $eq: [{ $substrCP: ['$$rawCost', 0, 1] }, '$'] },
+                            ],
+                          },
+                          { $substrCP: ['$$rawCost', 1, { $strLenCP: '$$rawCost' }] },
+                          { $toString: '$$rawCost' },
+                        ],
+                      },
                     ],
                   },
                   to: 'double',
@@ -116,8 +131,7 @@ router.get(
                   onNull: 0,
                 },
               },
-              0,
-            ],
+            },
           },
         },
       },

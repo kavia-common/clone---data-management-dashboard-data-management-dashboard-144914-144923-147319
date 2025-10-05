@@ -153,7 +153,11 @@ async function getUserProjectsCosts(userId) {
 
   const projectNormalized = {
     _id: 0,
-    project_id: '$project_id',
+    project_id: {
+      $toString: {
+        $ifNull: ['$project_id', { $ifNull: ['$projectId', { $ifNull: ['$project', '$project_code'] }] }],
+      },
+    },
     agent_name: {
       $ifNull: [
         '$agent_name',

@@ -11,7 +11,8 @@ async function getHierarchy(req, res) {
    * Aggregates hierarchical costs per user -> projects -> agents with per-date breakdown.
    * Query:
    *  - filter: optional JSON string to pre-filter the llm_costs collection
-   * Returns: Array as described in the service docstring with $-formatted money fields.
+   * Returns: Array of:
+   *   { user_id, type: 'llm_interaction', user_cost: '$X.XX', projects: [ { project_id, project_cost: '$Y.YY', agents: [ { agent_name, total_cost: '$..', costs_by_date: { 'YYYY-MM-DD': '$..' }, tokens_by_date: { 'YYYY-MM-DD': { input_tokens, output_tokens } } } ] } ] }
    */
   try {
     // Optional filter from query

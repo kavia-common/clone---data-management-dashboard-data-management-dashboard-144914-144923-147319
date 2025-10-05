@@ -35,7 +35,13 @@ function projectionStage() {
         },
       },
       project_id: {
-        $ifNull: ['$project_id', { $ifNull: ['$projectId', { $ifNull: ['$project', '$project_code'] }] }],
+        // Normalize to string to avoid mixed-type grouping issues (ObjectId/number/string)
+        $toString: {
+          $ifNull: [
+            '$project_id',
+            { $ifNull: ['$projectId', { $ifNull: ['$project', '$project_code'] }] },
+          ],
+        },
       },
       agent_name: {
         $ifNull: [
@@ -71,10 +77,59 @@ function projectionStage() {
         ],
       },
       numeric_cost: {
-        $ifNull: ['$cost', { $ifNull: ['$total_cost', { $ifNull: ['$usage.cost', 0] }] }],
+        // Robust numeric conversion:
+        // 1. Prefer 'cost' then 'total_cost' then 'usage.cost'
+        // 2. If value is a string and starts with '$', strip it
+        // 3. Convert to double with onError/onNull = 0
+        $let: {
+          vars: {
+            rawCost: {
+              $ifNull: ['$cost', { $ifNull: ['$total_cost', { $ifNull: ['$usage.cost', 0] }] }],
+            },
+          },
+          in: {
+            $convert: {
+              input: {
+                $cond: [
+                  { $isNumber: '$$rawCost' },
+                  '$$rawCost',
+                  {
+                    $cond: [
+                      // If string and starts with '$', remove leading '$'
+                      {
+                        $and: [
+                          { $eq: [{ $type: '$$rawCost' }, 'string'] },
+                          { $eq: [{ $substrCP: ['$$rawCost', 0, 1] }, '$'] },
+                        ],
+                      },
+                      { $substrCP: ['$$rawCost', 1, { $strLenCP: '$$rawCost' }] },
+                      { $toString: '$$rawCost' },
+                    ],
+                  },
+                ],
+              },
+              to: 'double',
+              onError: 0,
+              onNull: 0,
+            },
+          },
+        },
       },
       dateRaw: {
-        $ifNull: ['$date', { $ifNull: ['$createdAt', '$timestamp'] }],
+        $ifNull: [
+          '$date',
+          {
+            $ifNull: [
+              '$createdAt',
+              {
+                $ifNull: [
+                  '$timestamp',
+                  { $ifNull: ['$created_at', { $ifNull: ['$updated_at', null] }] },
+                ],
+              },
+            ],
+          },
+        ],
       },
     },
   };
@@ -280,10 +335,10 @@ async function aggregateHierarchy({ filter = {} } = {}) {
 
   const results = await col.aggregate(pipeline, { allowDiskUse: true }).toArray();
 
-  // Format currency with leading $ for cost fields, preserving 6 decimals
+  // Format currency with leading $ and two decimals
   const formatMoney = (n) => {
-    const num = typeof n === 'number' ? n : 0;
-    return `$${num.toFixed(6)}`;
+    const num = Number.isFinite(n) ? n : Number(n) || 0;
+    return `$${num.toFixed(2)}`;
   };
 
   const formatted = results.map((user) => ({
