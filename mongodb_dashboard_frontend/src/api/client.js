@@ -12,7 +12,7 @@ import axios from "axios";
 // Build base URLs from environment variables. Avoid hardcoding.
 function resolveBackendBase() {
   try {
-    const envUrl = "https://vscode-internal-38872-beta.beta01.cloud.kavia.ai:3001" || process.env.REACT_APP_API_BASE_URL;
+    const envUrl = "https://vscode-internal-33834-beta.beta01.cloud.kavia.ai:3001" || process.env.REACT_APP_API_BASE_URL;
     if (envUrl) return envUrl;
 
     // As a safe fallback, use same-origin (e.g., when a reverse proxy serves /api on the same host).
@@ -50,7 +50,7 @@ if (process.env.NODE_ENV !== "production") {
       RAW_BASE_URL || "(same-origin)",
       "PREFIX:",
       API_PREFIX,
-      ") — Ensure REACT_APP_API_BASE_URL is set to https://vscode-internal-38872-beta.beta01.cloud.kavia.ai:3001"
+      ") — Ensure REACT_APP_API_BASE_URL is set to https://vscode-internal-33834-beta.beta01.cloud.kavia.ai:3001"
     );
   } catch {
     // ignore
@@ -342,4 +342,28 @@ export async function getProjectUsersUsage(projectId) {
   /** Per-user usage summary within a project. */
   const res = await api.get(`/projects/${encodeURIComponent(projectId)}/users/usage`);
   return Array.isArray(res.data) ? res.data : res.data?.data ?? res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getUserCosts
+ * GET /api/users/:userId/costs
+ * Returns { userId, total_cost, user_cost, by_agent: [{agent_name,total_cost}], by_type: [{type,total_cost}] }
+ */
+export async function getUserCosts(userId) {
+  if (!userId) throw new Error('userId is required');
+  const res = await api.get(`/users/${encodeURIComponent(userId)}/costs`);
+  return res.data?.data ?? res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getUserProjectsCosts
+ * GET /api/users/:userId/projects/costs
+ * Returns { userId, projects: [{ projectId, project_cost, agents: [{agent_name,total_cost}] }] }
+ */
+export async function getUserProjectsCosts(userId) {
+  if (!userId) throw new Error('userId is required');
+  const res = await api.get(`/users/${encodeURIComponent(userId)}/projects/costs`);
+  return res.data?.data ?? res.data;
 }

@@ -12,7 +12,12 @@ import { useUserProjects } from '../../hooks/useUserProjects';
  * 2x2 responsive grid with Ocean Professional styling and neutral divider.
  * Fields: Name | Email (row 1), Role | Tenant (row 2).
  */
-function UserDetailsView({ user }) {
+import { getUserCosts, getUserProjectsCosts as getUserProjectsCostsApi } from '../../api/client';
+
+/**
+ * Extended details with cost breakdowns
+ */
+function UserDetailsView({ user, userCosts }) {
   if (!user) return <div className="text-gray-500">No user selected</div>;
 
   // Derive fields with fallbacks
@@ -35,6 +40,20 @@ function UserDetailsView({ user }) {
     user?.organization_id ??
     '';
 
+  // Costs
+  const totalCost = userCosts?.total_cost ?? 0;
+  const currency = userCosts?.currency || 'USD';
+  const byType = userCosts?.by_type || [];
+  const byAgent = userCosts?.by_agent || [];
+
+  const money = (v) => {
+    try {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(v || 0));
+    } catch {
+      return `$${Number(v || 0).toFixed(4)}`;
+    }
+  };
+
   // Card-like surface for details with theme-consistent styles
   return (
     <section
@@ -44,8 +63,7 @@ function UserDetailsView({ user }) {
         border: "1px solid var(--border-subtle, #E6EAF0)",
         borderRadius: 12,
         boxShadow: "var(--shadow, 0 1px 2px rgba(16,24,40,0.04))",
-        padding: 24, // comfortable padding
-        // neutral subtle divider instead of colored accent to avoid unintended lines
+        padding: 24,
         borderLeft: "1px solid var(--border-subtle, #E5E7EB)",
       }}
     >
@@ -166,6 +184,75 @@ function UserDetailsView({ user }) {
           </div>
         </div>
       </div>
+
+      {/* Cost summary */}
+      <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
+        <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+          Total Cost: {money(totalCost)}
+        </div>
+
+        {/* By type */}
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 6 }}>
+            Cost by type
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {byType.length === 0 ? (
+              <span style={{ color: 'var(--text-secondary)' }}>No type breakdown</span>
+            ) : (
+              byType.map((t, i) => (
+                <span
+                  key={`${t?.type || 'unknown'}-${i}`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: '#F8FAFC',
+                    border: '1px solid var(--border-subtle, #E6EAF0)',
+                    borderRadius: 9999,
+                    padding: '6px 10px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {String(t?.type || 'unknown')}: {money(t?.total_cost || 0)}
+                </span>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* By agent */}
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 6 }}>
+            Cost by agent
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {byAgent.length === 0 ? (
+              <span style={{ color: 'var(--text-secondary)' }}>No agent breakdown</span>
+            ) : (
+              byAgent.map((a, i) => (
+                <span
+                  key={`${a?.agent_name || 'unknown'}-${i}`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    background: '#F8FAFC',
+                    border: '1px solid var(--border-subtle, #E6EAF0)',
+                    borderRadius: 9999,
+                    padding: '6px 10px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {String(a?.agent_name || 'unknown')}: {money(a?.total_cost || 0)}
+                </span>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
@@ -182,6 +269,28 @@ UserDetailsView.propTypes = {
 function UserProjectsView({ userId, tenantId, from, to }) {
   const enabled = Boolean(userId && tenantId);
   const { projects, loading, error, refetch } = useUserProjects({ userId, tenantId, from, to, enabled });
+  const [costs, setCosts] = React.useState({ userId: '', projects: [] });
+  const [costsLoading, setCostsLoading] = React.useState(false);
+  const [costsError, setCostsError] = React.useState('');
+
+  useEffect(() => {
+    let active = true;
+    async function loadCosts() {
+      if (!enabled) return;
+      setCostsLoading(true);
+      setCostsError('');
+      try {
+        const res = await getUserProjectsCostsApi(userId);
+        if (active) setCosts(res || { userId: String(userId), projects: [] });
+      } catch (e) {
+        if (active) setCostsError(e?.message || 'Failed to load project costs');
+      } finally {
+        if (active) setCostsLoading(false);
+      }
+    }
+    loadCosts();
+    return () => { active = false; };
+  }, [userId, enabled]);
 
   if (!enabled) {
     return <div className="text-gray-500">Select a user with a valid tenant to view projects.</div>;
@@ -203,6 +312,9 @@ function UserProjectsView({ userId, tenantId, from, to }) {
   }
 
   const list = projects || [];
+  const costsByProject = new Map(
+    (costs?.projects || []).map((p) => [String(p.projectId), p])
+  );
 
   // Small presentational component to render each project card
   const ProjectCard = ({ project }) => {
@@ -212,6 +324,14 @@ function UserProjectsView({ userId, tenantId, from, to }) {
       project?.project_name ||
       project?.projectName ||
       '—';
+    const projectIdForCosts = String(id);
+    const costInfo = costsByProject.get(projectIdForCosts);
+    const projectCost = costInfo?.project_cost ?? 0;
+    const agents = costInfo?.agents || [];
+    const money = (v) => {
+      try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(Number(v || 0)); }
+      catch { return `$${Number(v || 0).toFixed(4)}`; }
+    };
     const status = project?.status || project?.state || '';
     const desc = project?.description || project?.project_description || '';
     const created = project?.createdAt || project?.created_at || '';
@@ -351,6 +471,38 @@ function UserProjectsView({ userId, tenantId, from, to }) {
                 </dd>
               </>
             ) : null}
+
+            {/* Costs */}
+            <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Project Cost</dt>
+            <dd style={{ margin: 0, color: 'var(--text-primary)' }}>{money(projectCost)}</dd>
+
+            {agents && agents.length > 0 ? (
+              <>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>By Agent</dt>
+                <dd style={{ margin: 0 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {agents.map((a, i) => (
+                      <span
+                        key={`${a?.agent_name || 'unknown'}-${i}`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          background: '#F8FAFC',
+                          border: '1px solid var(--border-subtle, #E6EAF0)',
+                          borderRadius: 9999,
+                          padding: '6px 10px',
+                          fontSize: 12,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {String(a?.agent_name || 'unknown')}: {money(a?.total_cost || 0)}
+                      </span>
+                    ))}
+                  </div>
+                </dd>
+              </>
+            ) : null}
           </dl>
         </div>
       </div>
@@ -427,6 +579,33 @@ export default function TabbedUserModal({
     if (!user) return 'User';
     return user?.name || user?.full_name || user?.email || 'User';
   }, [user]);
+
+  // Load user costs when details tab is active or when user changes
+  const [userCosts, setUserCosts] = useState(null);
+  const [userCostsLoading, setUserCostsLoading] = useState(false);
+  const [userCostsError, setUserCostsError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    async function loadCosts() {
+      if (!user?._id && !user?.id) {
+        setUserCosts(null);
+        return;
+      }
+      setUserCostsLoading(true);
+      setUserCostsError('');
+      try {
+        const res = await getUserCosts(user?._id || user?.id);
+        if (active) setUserCosts(res);
+      } catch (e) {
+        if (active) setUserCostsError(e?.message || 'Failed to load user costs');
+      } finally {
+        if (active) setUserCostsLoading(false);
+      }
+    }
+    loadCosts();
+    return () => { active = false; };
+  }, [user?._id, user?.id]);
 
   // Custom tab renderer to apply requested theme (active/inactive/hover)
   function ThemedTabs({ activeKey, onChange }) {
@@ -508,7 +687,13 @@ export default function TabbedUserModal({
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && (
             <div style={{ display: "grid", gap: 16 }}>
-              <UserDetailsView user={user} />
+              {userCostsLoading ? (
+                <div className="table-empty">Loading user costs…</div>
+              ) : userCostsError ? (
+                <div className="error" role="alert">{userCostsError}</div>
+              ) : (
+                <UserDetailsView user={user} userCosts={userCosts} />
+              )}
             </div>
           )}
 
