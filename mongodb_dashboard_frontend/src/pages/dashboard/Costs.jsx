@@ -4,6 +4,7 @@ import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import { formatUsdUpTo8 } from "../../components/utils/numberFormat";
 import { listLlmCosts } from "../../api/client";
+import useLlmCostsSummary from "../../hooks/useLlmCostsSummary";
 
 /**
  * PUBLIC_INTERFACE
@@ -300,8 +301,33 @@ export default function Costs() {
   // Build columns once data is present
   const columns = useMemo(() => buildColumnsFromSample(items || []), [items]);
 
+  const { data: summary, loading: summaryLoading, error: summaryError } = useLlmCostsSummary();
+
   return (
     <div>
+      <Card title="LLM Costs Summary" subtitle="Aggregated totals derived from type field">
+        {summaryLoading ? (
+          <div className="text-gray-400 text-sm">Loading summary...</div>
+        ) : summaryError ? (
+          <div className="text-red-500 text-sm">Failed to load summary</div>
+        ) : (
+          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+            <div>
+              <div className="text-xs text-gray-500">User Cost</div>
+              <div className="text-lg font-semibold">
+                {summary.currency} {Number(summary.user_cost || 0).toFixed(4)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-500">Project Cost</div>
+              <div className="text-lg font-semibold">
+                {summary.currency} {Number(summary.project_cost || 0).toFixed(4)}
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+
       <Card
         title="Costs"
         subtitle="LLM usage cost records — compact view with expandable details"

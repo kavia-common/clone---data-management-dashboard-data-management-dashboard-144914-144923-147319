@@ -12,7 +12,7 @@ import axios from "axios";
 // Build base URLs from environment variables. Avoid hardcoding.
 function resolveBackendBase() {
   try {
-    const envUrl = "https://vscode-internal-33834-beta.beta01.cloud.kavia.ai:3001" || process.env.REACT_APP_API_BASE_URL;
+    const envUrl = "https://vscode-internal-41062-beta.beta01.cloud.kavia.ai:3001" || process.env.REACT_APP_API_BASE_URL;
     if (envUrl) return envUrl;
 
     // As a safe fallback, use same-origin (e.g., when a reverse proxy serves /api on the same host).
@@ -50,7 +50,7 @@ if (process.env.NODE_ENV !== "production") {
       RAW_BASE_URL || "(same-origin)",
       "PREFIX:",
       API_PREFIX,
-      ") — Ensure REACT_APP_API_BASE_URL is set to https://vscode-internal-33834-beta.beta01.cloud.kavia.ai:3001"
+      ") — Ensure REACT_APP_API_BASE_URL is set to https://vscode-internal-41062-beta.beta01.cloud.kavia.ai:3001"
     );
   } catch {
     // ignore
