@@ -12,10 +12,11 @@ import axios from "axios";
 // Build base URLs from environment variables. Avoid hardcoding.
 function resolveBackendBase() {
   try {
-    const envUrl = "https://vscode-internal-15308-beta.beta01.cloud.kavia.ai:3001" || process.env.REACT_APP_API_BASE_URL;
-    if (envUrl) return envUrl;
+    // Prefer explicit environment variables
+    const envUrl = process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || "";
+    if (envUrl) return String(envUrl).replace(/\/+$/, "");
 
-    // As a safe fallback, use same-origin (e.g., when a reverse proxy serves /api on the same host).
+    // Fallback: same-origin (useful when a reverse proxy serves /api on the same host/port)
     if (typeof window !== "undefined" && window.location) {
       const { protocol, host } = window.location; // includes port if any
       return `${protocol}//${host}`;
@@ -50,7 +51,7 @@ if (process.env.NODE_ENV !== "production") {
       RAW_BASE_URL || "(same-origin)",
       "PREFIX:",
       API_PREFIX,
-      ") — Ensure REACT_APP_API_BASE_URL is set to https://vscode-internal-15308-beta.beta01.cloud.kavia.ai:3001"
+      ") — Tip: set REACT_APP_API_BASE_URL to your backend (e.g., http://localhost:3001)"
     );
   } catch {
     // ignore

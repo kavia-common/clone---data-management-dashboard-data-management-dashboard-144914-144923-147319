@@ -40,6 +40,10 @@ export async function getUserProjects(userId, params = {}) {
     }
   }
 
+  if (process.env.NODE_ENV !== "production") {
+    // eslint-disable-next-line no-console
+    console.debug("[UsersAPI] GET /users/:id/projects", { userId, query });
+  }
   const res = await api.get(`/users/${encodeURIComponent(userId)}/projects`, { params: query });
   // Response shape: { user_id, tenant_id, projects: [{ project_id, project_name?, last_activity? }]}
   return res.data?.data ?? res.data;
