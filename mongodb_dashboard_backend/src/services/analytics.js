@@ -57,6 +57,7 @@ async function getSessionDurations({ tenant_id, project_id, user_id }) {
 /**
  * PUBLIC_INTERFACE
  * Compute total costs and breakdowns from LLMCost collection grouped by user and/or project.
+ * Note: This uses existing fields in documents and does not rely on any stored by_type/by_agent structures.
  */
 async function getCosts({ tenant_id, project_id, user_id }) {
   const match = {};

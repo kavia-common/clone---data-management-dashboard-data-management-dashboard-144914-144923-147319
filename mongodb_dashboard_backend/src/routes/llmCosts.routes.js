@@ -55,6 +55,92 @@ const controller = buildCrudController(LLMCost, '-timestamp');
 router.get('/', asyncHandler(controller.list));
 
 /**
+ * PUBLIC_INTERFACE
+ * GET /api/llm-costs/summary
+ * Aggregates costs by the existing 'type' field to produce user_cost and project_cost totals.
+ * - If type === 'user' the cost contributes to user_cost.
+ * - If type === 'project' the cost contributes to project_cost.
+ * - Returns non-zero values where data exists.
+ *
+ * Response:
+ *  {
+ *    user_cost: number,
+ *    project_cost: number,
+ *    currency: string
+ *  }
+ */
+router.get(
+  '/summary',
+  asyncHandler(async (req, res) => {
+    // Normalize and sum total_cost per doc
+    const pipeline = [
+      {
+        $project: {
+          type: { $ifNull: ['$type', { $ifNull: ['$service_type', '$operation'] }] },
+          currency: { $ifNull: ['$currency', 'USD'] },
+          total_cost_num: {
+            $cond: [
+              { $ne: ['$total_cost', null] },
+              {
+                $convert: {
+                  input: {
+                    $cond: [
+                      { $isNumber: '$total_cost' },
+                      '$total_cost',
+                      { $toString: '$total_cost' },
+                    ],
+                  },
+                  to: 'double',
+                  onError: 0,
+                  onNull: 0,
+                },
+              },
+              0,
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          user_cost: {
+            $sum: {
+              $cond: [{ $eq: ['$type', 'user'] }, '$total_cost_num', 0],
+            },
+          },
+          project_cost: {
+            $sum: {
+              $cond: [{ $eq: ['$type', 'project'] }, '$total_cost_num', 0],
+            },
+          },
+          currencies: { $addToSet: '$currency' },
+        },
+      },
+    ];
+
+    let summary = { user_cost: 0, project_cost: 0, currencies: ['USD'] };
+    try {
+      const result = await LLMCost.aggregate(pipeline);
+      summary = result?.[0] || summary;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Error aggregating /api/llm-costs/summary', err?.message || err);
+    }
+
+    const currency =
+      Array.isArray(summary.currencies) && summary.currencies.length === 1
+        ? summary.currencies[0]
+        : 'USD';
+
+    return res.status(200).json({
+      user_cost: Number(summary.user_cost || 0),
+      project_cost: Number(summary.project_cost || 0),
+      currency,
+    });
+  })
+);
+
+/**
  * @swagger
  * /api/llm-costs/{id}:
  *   get:

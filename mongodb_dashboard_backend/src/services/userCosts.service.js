@@ -4,24 +4,28 @@ const LLMCost = require('../models/llmCosts.model');
 /**
  * PUBLIC_INTERFACE
  * getUserCosts
- * Aggregates total cost for a user from llm_costs with breakdowns by agent_name and type (if present).
+ * Aggregates total cost for a user from llm_costs with breakdowns based on existing fields.
  *
- * Note: The llm_costs schema is permissive. We project possible alias fields into normalized keys:
- * - agent_name: from agent_name | agent | metadata.agent_name
- * - type: from type | service_type | operation
+ * Implementation notes:
+ * - This service does NOT rely on any non-existent by_type/by_agent stored fields.
+ * - It derives breakdowns using present fields:
+ *     agent_name: from agent_name | agent | metadata.agent_name
+ *     type: from type | service_type | operation
+ * - It returns aliases:
+ *     user_cost = total_cost for the user
  *
- * @param {string|number} userId - User identifier; will be compared as string by coercing user_id with $toString
+ * @param {string|number} userId - User identifier; coerced to string for comparison against user_id
  * @returns {Promise<{ userId: string, total_cost: number, user_cost: number, currency?: string, by_agent: Array<{agent_name: string, total_cost: number}>, by_type: Array<{type: string, total_cost: number}> }>}
  */
 async function getUserCosts(userId) {
   const userIdStr = String(userId);
 
-  // Common $match: compare by string
+  // $match using $toString to accommodate mixed-type user_id
   const match = {
     $expr: { $eq: [{ $toString: '$user_id' }, userIdStr] },
   };
 
-  // Projection stage to normalize fields and ensure numeric total_cost
+  // Normalize and coerce cost to double
   const projectNormalized = {
     _id: 0,
     total_cost_num: {
@@ -45,7 +49,6 @@ async function getUserCosts(userId) {
       ],
     },
     currency: { $ifNull: ['$currency', 'USD'] },
-    // normalized fields
     agent_name: {
       $ifNull: [
         '$agent_name',
@@ -60,7 +63,6 @@ async function getUserCosts(userId) {
     },
   };
 
-  // Overall total
   const overallPipeline = [
     { $match: match },
     { $project: projectNormalized },
@@ -73,7 +75,6 @@ async function getUserCosts(userId) {
     },
   ];
 
-  // By agent
   const byAgentPipeline = [
     { $match: match },
     { $project: projectNormalized },
@@ -87,7 +88,6 @@ async function getUserCosts(userId) {
     { $sort: { total_cost: -1 } },
   ];
 
-  // By type
   const byTypePipeline = [
     { $match: match },
     { $project: projectNormalized },
@@ -109,20 +109,21 @@ async function getUserCosts(userId) {
 
   const overall = overallArr?.[0] || { total_cost: 0, currencies: ['USD'] };
   const total_cost = Number(overall.total_cost || 0);
-  const currency = Array.isArray(overall.currencies) && overall.currencies.length === 1
-    ? overall.currencies[0]
-    : 'USD';
+  const currency =
+    Array.isArray(overall.currencies) && overall.currencies.length === 1
+      ? overall.currencies[0]
+      : 'USD';
 
   return {
     userId: userIdStr,
     total_cost,
-    user_cost: total_cost, // alias as requested
+    user_cost: total_cost,
     currency,
-    by_agent: byAgent.map((a) => ({
+    by_agent: (byAgent || []).map((a) => ({
       agent_name: a.agent_name === '__unknown__' ? 'unknown' : a.agent_name,
       total_cost: Number(a.total_cost || 0),
     })),
-    by_type: byType.map((t) => ({
+    by_type: (byType || []).map((t) => ({
       type: t.type === '__unknown__' ? 'unknown' : t.type,
       total_cost: Number(t.total_cost || 0),
     })),
@@ -136,6 +137,9 @@ async function getUserCosts(userId) {
  *
  * Returns array of:
  *   { projectId, project_cost, agents: [{ agent_name, total_cost }] }
+ *
+ * Note:
+ * - No reliance on by_type/by_agent stored fields; we compute using current doc fields.
  *
  * @param {string|number} userId
  * @returns {Promise<Array<{ projectId: string, project_cost: number, agents: Array<{agent_name: string, total_cost: number}> }>>}
@@ -178,7 +182,6 @@ async function getUserProjectsCosts(userId) {
     },
   };
 
-  // Group by project and agent first
   const pipeline = [
     { $match: match },
     { $project: projectNormalized },
@@ -216,9 +219,8 @@ async function getUserProjectsCosts(userId) {
 
   const results = await LLMCost.aggregate(pipeline);
 
-  // Normalize unknown labels and numeric values
-  const normalized = results
-    .filter((r) => r.projectId) // ignore null projects
+  const normalized = (results || [])
+    .filter((r) => r.projectId) // drop null/empty projectId
     .map((r) => ({
       projectId: r.projectId,
       project_cost: Number(r.project_cost || 0),
