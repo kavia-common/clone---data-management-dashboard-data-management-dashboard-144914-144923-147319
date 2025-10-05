@@ -2,17 +2,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
+import CostsDetailsModal from "../../components/costs/CostsDetailsModal.jsx";
 import { formatUsdUpTo8 } from "../../components/utils/numberFormat";
 import { listLlmCosts } from "../../api/client";
 
 /**
  * PUBLIC_INTERFACE
  * Costs page
- * Refactored to avoid table breaking by:
- * - Limiting columns to main fields only (no auto-expanding to hundreds of columns).
- * - Summarizing arrays/objects inline with a compact preview (first 1–2 items) and a “View All” modal for details.
- * - Capping cell width with ellipsis and adding title-based tooltips for long content.
- * - Keeping responsive behavior aligned with Users/Sessions modules.
+ * - Keeps compact LLM costs table with inspector for large fields.
+ * - Adds "View All" action to open CostsDetailsModal with structured user/project/LLM cost details.
  */
 export default function Costs() {
   const [allItems, setAllItems] = useState([]);
@@ -22,12 +20,14 @@ export default function Costs() {
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Modal state for inspecting large arrays/objects without breaking table layout
+  // Inspector modal state
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectTitle, setInspectTitle] = useState("Details");
   const [inspectPayload, setInspectPayload] = useState(null);
 
-  // Field hints
+  // Costs Details modal state
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
   const dateFieldHints = useMemo(
     () =>
       new Set([
@@ -56,7 +56,7 @@ export default function Costs() {
       : k.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
   }
 
-  // Open modal inspector with pretty JSON
+  // PUBLIC_INTERFACE
   function openInspector(title, payload) {
     setInspectTitle(title);
     setInspectPayload(payload);
@@ -67,7 +67,6 @@ export default function Costs() {
     setInspectPayload(null);
   }
 
-  // Renderers with capped width and tooltips
   const renderText = (value) => {
     const text = value == null || value === "" ? "—" : String(value);
     return (
@@ -118,7 +117,6 @@ export default function Costs() {
     }
   };
 
-  // Compact preview for arrays/objects with modal "View All"
   function renderCompact(value, fieldLabel = "Details") {
     if (Array.isArray(value)) {
       const len = value.length;
@@ -128,7 +126,6 @@ export default function Costs() {
       const previewText = shown
         .map((v) => {
           if (v && typeof v === "object") {
-            // prefer a name/id if present
             return v.name || v.id || v._id || JSON.stringify(v);
           }
           return String(v);
@@ -163,7 +160,6 @@ export default function Costs() {
       );
     }
     if (value && typeof value === "object") {
-      // summarize object keys
       const keys = Object.keys(value);
       const shown = keys.slice(0, 2);
       const summary = `${shown.join(", ")}${keys.length > 2 ? ` +${keys.length - 2} more` : ""}`;
@@ -187,11 +183,8 @@ export default function Costs() {
     return renderText(value);
   }
 
-  // Derive a stable, minimal set of main fields (no exploding columns)
   function buildColumnsFromSample(rows = []) {
     const sample = rows[0] || {};
-    // Choose a conservative main field set to mirror Users/Sessions style
-    // We pick commonly expected cost fields if present; otherwise fall back to a few safe keys.
     const preferredOrder = [
       "_id",
       "tenant_id",
@@ -205,13 +198,8 @@ export default function Costs() {
       "updated_at",
     ];
 
-    // Detect nested heavy fields to summarize into a single column each
     const nestedCandidates = ["users", "projects", "agents", "details", "metadata", "params", "prompt", "response"];
-
-    // Gather present main fields
     const presentMain = preferredOrder.filter((k) => Object.prototype.hasOwnProperty.call(sample, k));
-
-    // Always include _id if present; ensure at least ID + one more field if exists
     const mainFields = presentMain.length ? presentMain : Object.keys(sample).slice(0, 5);
 
     const cols = [];
@@ -227,12 +215,10 @@ export default function Costs() {
           if (typeof val === "number") return renderNumber(val, k);
           return renderText(val);
         },
-        // Assign priorities to allow responsive hiding if needed
         priority: ["_id", "llm_model", "total_cost"].includes(k) ? 1 : 2,
       });
     });
 
-    // Add compact columns for nested candidates that exist on sample; do not add more than 3 nested columns
     const nestedCols = [];
     nestedCandidates.forEach((name) => {
       if (Object.prototype.hasOwnProperty.call(sample, name)) {
@@ -245,7 +231,6 @@ export default function Costs() {
       }
     });
 
-    // Limit nested columns to avoid width blow-up
     cols.push(...nestedCols.slice(0, 3));
 
     return cols.length ? cols : [{ key: "_id", label: "ID" }];
@@ -273,7 +258,6 @@ export default function Costs() {
     load();
   }, []);
 
-  // Text search across selected fields (safe and simple)
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) {
@@ -297,7 +281,6 @@ export default function Costs() {
     setItems(filtered);
   }, [query, allItems]);
 
-  // Build columns once data is present
   const columns = useMemo(() => buildColumnsFromSample(items || []), [items]);
 
   return (
@@ -306,7 +289,7 @@ export default function Costs() {
         title="Costs"
         subtitle="LLM usage cost records — compact view with expandable details"
       >
-        <div className="toolbar" aria-label="Costs toolbar">
+        <div className="toolbar" aria-label="Costs toolbar" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <input
             className="input-search"
             placeholder="Search costs..."
@@ -314,10 +297,18 @@ export default function Costs() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div className="spacer" />
+          <div style={{ flex: 1 }} />
+          <button
+            className="text-sm font-medium"
+            style={{ color: "#2563EB" }}
+            onClick={() => setDetailsOpen(true)}
+            aria-label="View all cost details"
+            title="View all cost details"
+          >
+            View All
+          </button>
         </div>
         {error && <div className="error" role="alert">{error}</div>}
-        {/* DataTable cells already respect ellipsis on small screens via CSS; we cap content and add title tooltips here */}
         <DataTable
           columns={columns}
           data={items}
@@ -337,16 +328,14 @@ export default function Costs() {
         title={inspectTitle}
         open={inspectOpen}
         onClose={closeInspector}
-        footer={
-          <div className="modal-actions">
-            <button className="btn btn-ghost" onClick={closeInspector}>Close</button>
-          </div>
-        }
       >
-        <div style={{ whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 12 }}>
+        <div style={{ whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 12, padding: 16 }}>
           {inspectPayload == null ? "—" : safePretty(inspectPayload)}
         </div>
       </Modal>
+
+      {/* Structured costs modal */}
+      <CostsDetailsModal isOpen={detailsOpen} onClose={() => setDetailsOpen(false)} />
     </div>
   );
 }
