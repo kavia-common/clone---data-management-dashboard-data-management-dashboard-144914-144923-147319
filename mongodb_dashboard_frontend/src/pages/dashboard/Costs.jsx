@@ -5,6 +5,7 @@ import Modal from "../../components/ui/Modal.jsx";
 import { formatUsdUpTo8 } from "../../components/utils/numberFormat";
 import { listLlmCosts } from "../../api/client";
 import useLlmCostsSummary from "../../hooks/useLlmCostsSummary";
+import useLlmCostsHierarchy from "../../hooks/useLlmCostsHierarchy";
 
 /**
  * PUBLIC_INTERFACE
@@ -303,6 +304,8 @@ export default function Costs() {
 
   const { data: summary, loading: summaryLoading, error: summaryError } = useLlmCostsSummary();
 
+  const { data: hierarchy, loading: hierarchyLoading, error: hierarchyError } = useLlmCostsHierarchy();
+
   return (
     <div>
       <Card title="LLM Costs Summary" subtitle="Aggregated totals derived from type field">
@@ -324,6 +327,87 @@ export default function Costs() {
                 {summary.currency} {Number(summary.project_cost || 0).toFixed(4)}
               </div>
             </div>
+          </div>
+        )}
+      </Card>
+
+      <Card title="Per-user and project breakdown" subtitle="User -> Project -> Agent hierarchy with per-date tokens and costs">
+        {hierarchyLoading ? (
+          <div className="text-gray-400 text-sm">Loading breakdown...</div>
+        ) : hierarchyError ? (
+          <div className="text-red-500 text-sm">Failed to load breakdown</div>
+        ) : !Array.isArray(hierarchy) || hierarchy.length === 0 ? (
+          <div className="text-gray-500 text-sm">No hierarchical data available.</div>
+        ) : (
+          <div className="space-y-4">
+            {hierarchy.map((user) => (
+              <div key={user.user_id} className="rounded border">
+                <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
+                  <div className="font-semibold text-gray-800">User: {user.user_id}</div>
+                  <div className="text-sm text-gray-700">Total: {user.user_cost}</div>
+                </div>
+                <div className="p-4 space-y-3">
+                  {(user.projects || []).map((proj, idx) => (
+                    <div key={`${user.user_id}-${idx}`} className="rounded border">
+                      <div className="px-3 py-2 bg-white flex items-center justify-between">
+                        <div className="text-gray-800">
+                          Project: <span className="font-medium">{String(proj.project_id)}</span>
+                        </div>
+                        <div className="text-sm">Total: {proj.project_cost}</div>
+                      </div>
+                      <div className="px-3 pb-3">
+                        {(proj.agents || []).map((agent, aidx) => (
+                          <details key={`${user.user_id}-${idx}-a-${aidx}`} className="border rounded mt-2">
+                            <summary className="px-3 py-2 cursor-pointer bg-gray-50 hover:bg-gray-100 flex items-center justify-between">
+                              <span className="text-gray-800">
+                                Agent: <span className="font-medium">{agent.agent_name || "Unknown"}</span>
+                              </span>
+                              <span className="text-sm">Total: {agent.total_cost}</span>
+                            </summary>
+                            <div className="p-3 bg-white">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <div className="font-semibold mb-1">Costs by date</div>
+                                  {agent.costs_by_date && Object.keys(agent.costs_by_date).length > 0 ? (
+                                    <ul className="text-sm space-y-1">
+                                      {Object.entries(agent.costs_by_date).map(([date, cost]) => (
+                                        <li key={date} className="flex justify-between">
+                                          <span className="text-gray-600">{date}</span>
+                                          <span className="font-mono">{cost}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <div className="text-sm text-gray-500">No per-date cost data</div>
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="font-semibold mb-1">Tokens by date</div>
+                                  {agent.tokens_by_date && Object.keys(agent.tokens_by_date).length > 0 ? (
+                                    <ul className="text-sm space-y-1">
+                                      {Object.entries(agent.tokens_by_date).map(([date, tok]) => (
+                                        <li key={date} className="flex justify-between">
+                                          <span className="text-gray-600">{date}</span>
+                                          <span className="font-mono">
+                                            in: {tok?.input_tokens ?? 0} | out: {tok?.output_tokens ?? 0}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <div className="text-sm text-gray-500">No per-date token data</div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </Card>
