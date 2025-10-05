@@ -121,10 +121,10 @@ export default function Overview() {
         )}
       </Card>
 
-      <Card title="Activity trend" subtitle="Weekly activity overview" className="block-full">
+      {/* <Card title="Activity trend" subtitle="Weekly activity overview" className="block-full">
         {error && <div className="error" role="alert">{error}</div>}
         {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" color={accentAmber} />}
-      </Card>
+      </Card> */}
     </div>
   );
 }
