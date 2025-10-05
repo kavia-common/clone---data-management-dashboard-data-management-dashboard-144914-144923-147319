@@ -111,9 +111,13 @@ app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
  // Sample data endpoint (demonstration): /api/data
 app.use('/api/data', require('./routes/data.routes'));
 
-  // LLM costs endpoints (CRUD/list/get)
-app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
-app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
+  // LLM costs endpoints:
+  // - Aggregated costs (users/projects) at GET /api/llm-costs
+  app.use('/api/llm-costs', require('./routes/llmCosts.aggregate.routes'));
+
+  // - Raw LLM costs CRUD/list/get under both kebab and camel aliases
+  app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
+  app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
 
 // Tenants and Projects (mapping, hierarchy, credits, usage)
 app.use('/api/tenants', require('./routes/tenants.routes'));
