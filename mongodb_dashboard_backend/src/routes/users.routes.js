@@ -421,9 +421,7 @@ router.get(
  *     summary: User cost totals and breakdowns
  *     description: >
  *       Aggregates LLM costs for a user across all projects. Returns total_cost (alias user_cost),
- *       and breakdowns computed from existing fields:
- *       - agent_name derived from agent_name | agent | metadata.agent_name
- *       - type derived from type | service_type | operation
+ *       and breakdowns by agent_name and type.
  *     tags: [Users]
  *     parameters:
  *       - in: path

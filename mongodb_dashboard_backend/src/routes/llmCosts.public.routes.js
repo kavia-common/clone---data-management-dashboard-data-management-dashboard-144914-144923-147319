@@ -2,7 +2,6 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const LLMCost = require('../models/llmCosts.model');
-const { getHierarchy } = require('../controllers/llmCosts.controller');
 
 const router = express.Router();
 // Default sort retained, but will not affect "list all" unless client passes pagination/sort explicitly
@@ -24,9 +23,6 @@ router.get(
     return controller.list(req, res);
   })
 );
-
-// Hierarchical aggregation endpoint (public)
-router.get('/hierarchy', asyncHandler(getHierarchy));
 
 /**
  * PUBLIC_INTERFACE

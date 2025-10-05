@@ -2,7 +2,6 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const LLMCost = require('../models/llmCosts.model');
-const { getHierarchy } = require('../controllers/llmCosts.controller');
 
 const router = express.Router();
 // Default sort by most recent cost first
@@ -54,126 +53,6 @@ const controller = buildCrudController(LLMCost, '-timestamp');
  *         description: Invalid filter
  */
 router.get('/', asyncHandler(controller.list));
-
-/**
- * @swagger
- * /api/llm-costs/hierarchy:
- *   get:
- *     summary: Hierarchical LLM costs per user -> projects -> agents
- *     description: >
- *       Aggregates from llm_costs by user, then project, then agent with per-date token and cost summaries.
- *       Returns an array of users with nested projects and agents. Costs are formatted with a leading $ at the API layer.
- *     tags: [LLMCosts]
- *     parameters:
- *       - in: query
- *         name: filter
- *         schema: { type: string }
- *         description: Optional JSON filter to pre-filter llm_costs
- *     responses:
- *       200:
- *         description: Hierarchical costs
- */
-router.get('/hierarchy', asyncHandler(getHierarchy));
-
-/**
- * PUBLIC_INTERFACE
- * GET /api/llm-costs/summary
- * Aggregates costs by the existing 'type' field to produce user_cost and project_cost totals.
- * - If type === 'user' the cost contributes to user_cost.
- * - If type === 'project' the cost contributes to project_cost.
- * - Returns non-zero values where data exists.
- *
- * Response:
- *  {
- *    user_cost: number,
- *    project_cost: number,
- *    currency: string
- *  }
- */
-router.get(
-  '/summary',
-  asyncHandler(async (req, res) => {
-    // Normalize and sum total_cost per doc
-    const pipeline = [
-      {
-        $project: {
-          type: { $ifNull: ['$type', { $ifNull: ['$service_type', '$operation'] }] },
-          currency: { $ifNull: ['$currency', 'USD'] },
-          total_cost_num: {
-            $let: {
-              vars: {
-                rawCost: {
-                  $ifNull: ['$total_cost', { $ifNull: ['$cost', { $ifNull: ['$usage.cost', 0] }] }],
-                },
-              },
-              in: {
-                $convert: {
-                  input: {
-                    $cond: [
-                      { $isNumber: '$$rawCost' },
-                      '$$rawCost',
-                      {
-                        $cond: [
-                          {
-                            $and: [
-                              { $eq: [{ $type: '$$rawCost' }, 'string'] },
-                              { $eq: [{ $substrCP: ['$$rawCost', 0, 1] }, '$'] },
-                            ],
-                          },
-                          { $substrCP: ['$$rawCost', 1, { $strLenCP: '$$rawCost' }] },
-                          { $toString: '$$rawCost' },
-                        ],
-                      },
-                    ],
-                  },
-                  to: 'double',
-                  onError: 0,
-                  onNull: 0,
-                },
-              },
-            },
-          },
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          user_cost: {
-            $sum: {
-              $cond: [{ $eq: ['$type', 'user'] }, '$total_cost_num', 0],
-            },
-          },
-          project_cost: {
-            $sum: {
-              $cond: [{ $eq: ['$type', 'project'] }, '$total_cost_num', 0],
-            },
-          },
-          currencies: { $addToSet: '$currency' },
-        },
-      },
-    ];
-
-    let summary = { user_cost: 0, project_cost: 0, currencies: ['USD'] };
-    try {
-      const result = await LLMCost.aggregate(pipeline);
-      summary = result?.[0] || summary;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error aggregating /api/llm-costs/summary', err?.message || err);
-    }
-
-    const currency =
-      Array.isArray(summary.currencies) && summary.currencies.length === 1
-        ? summary.currencies[0]
-        : 'USD';
-
-    return res.status(200).json({
-      user_cost: Number(summary.user_cost || 0),
-      project_cost: Number(summary.project_cost || 0),
-      currency,
-    });
-  })
-);
 
 /**
  * @swagger
