@@ -1,0 +1,39 @@
+'use strict';
+
+const { success, handleError } = require('../utils/http');
+const { aggregateHierarchy, ensureLlmCostsIndexes } = require('../services/llmCostsHierarchy.service');
+
+// PUBLIC_INTERFACE
+async function getHierarchy(req, res) {
+  /**
+   * PUBLIC_INTERFACE
+   * Handler: GET /api/llm-costs/hierarchy
+   * Aggregates hierarchical costs per user -> projects -> agents with per-date breakdown.
+   * Query:
+   *  - filter: optional JSON string to pre-filter the llm_costs collection
+   * Returns: Array as described in the service docstring with $-formatted money fields.
+   */
+  try {
+    // Optional filter from query
+    let filter = {};
+    if (req.query && req.query.filter) {
+      try {
+        filter = JSON.parse(req.query.filter);
+      } catch (e) {
+        return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+      }
+    }
+
+    // Best-effort index creation (non-blocking); ignore errors
+    ensureLlmCostsIndexes().catch(() => {});
+
+    const data = await aggregateHierarchy({ filter });
+    return success(res, data);
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
+
+module.exports = {
+  getHierarchy,
+};

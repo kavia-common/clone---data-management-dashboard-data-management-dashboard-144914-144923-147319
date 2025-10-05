@@ -2,6 +2,7 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const LLMCost = require('../models/llmCosts.model');
+const { getHierarchy } = require('../controllers/llmCosts.controller');
 
 const router = express.Router();
 // Default sort by most recent cost first
@@ -53,6 +54,26 @@ const controller = buildCrudController(LLMCost, '-timestamp');
  *         description: Invalid filter
  */
 router.get('/', asyncHandler(controller.list));
+
+/**
+ * @swagger
+ * /api/llm-costs/hierarchy:
+ *   get:
+ *     summary: Hierarchical LLM costs per user -> projects -> agents
+ *     description: >
+ *       Aggregates from llm_costs by user, then project, then agent with per-date token and cost summaries.
+ *       Returns an array of users with nested projects and agents. Costs are formatted with a leading $ at the API layer.
+ *     tags: [LLMCosts]
+ *     parameters:
+ *       - in: query
+ *         name: filter
+ *         schema: { type: string }
+ *         description: Optional JSON filter to pre-filter llm_costs
+ *     responses:
+ *       200:
+ *         description: Hierarchical costs
+ */
+router.get('/hierarchy', asyncHandler(getHierarchy));
 
 /**
  * PUBLIC_INTERFACE
