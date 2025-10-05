@@ -438,80 +438,26 @@ router.get(
  *         description: Invalid input
  */
  // PUBLIC_INTERFACE
-// router.get(
-//   '/:userId/costs',
-//   asyncHandler(async (req, res) => {
-//     const { userId } = req.params;
-//     try {
-//       const payload = await getUserCosts(userId);
-//       return res.status(200).json(payload);
-//     } catch (err) {
-//       // eslint-disable-next-line no-console
-//       console.error('Error in GET /api/users/:userId/costs', err?.message || err);
-//       return res.status(200).json({
-//         userId: String(userId),
-//         total_cost: 0,
-//         user_cost: 0,
-//         by_agent: [],
-//         by_type: [],
-//       });
-//     }
-//   })
-// );
-
-/**
- * PUBLIC_INTERFACE
- * /api/users/:userId/costs — Returns both total + per-project cost summary
- */
 router.get(
   '/:userId/costs',
   asyncHandler(async (req, res) => {
     const { userId } = req.params;
-
     try {
-      // Fetch both in parallel for performance
-      const [userCosts, projectCosts] = await Promise.all([
-        getUserCosts(userId),
-        getUserProjectsCosts(userId),
-      ]);
-
-      // Normalize costs if aggregation returns nothing
-      const safeUserCost = Number(userCosts?.total_cost || 0);
-      const safeProjects =
-        Array.isArray(projectCosts) && projectCosts.length > 0
-          ? projectCosts
-          : [];
-
-      // Derive combined total if service returned 0
-      const derivedTotal =
-        safeUserCost === 0 && safeProjects.length > 0
-          ? safeProjects.reduce((acc, p) => acc + (p.project_cost || 0), 0)
-          : safeUserCost;
-
-      return res.status(200).json({
-        userId: String(userId),
-        total_cost: derivedTotal,
-        user_cost: derivedTotal,
-        by_agent: userCosts?.by_agent || [],
-        by_type: userCosts?.by_type || [],
-        projects: safeProjects,
-        currency: userCosts?.currency || 'USD',
-      });
+      const payload = await getUserCosts(userId);
+      return res.status(200).json(payload);
     } catch (err) {
-      console.error('Error in GET /api/users/:userId/costs:', err?.message || err);
+      // eslint-disable-next-line no-console
+      console.error('Error in GET /api/users/:userId/costs', err?.message || err);
       return res.status(200).json({
         userId: String(userId),
         total_cost: 0,
         user_cost: 0,
-        currency: 'USD',
         by_agent: [],
         by_type: [],
-        projects: [],
       });
     }
   })
 );
-
 
 /**
  * @swagger
