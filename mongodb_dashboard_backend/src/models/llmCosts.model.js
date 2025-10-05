@@ -22,6 +22,9 @@ const LLMCostsSchema = new mongoose.Schema(
     organization_name: { type: String },
     llm_model: { type: String, index: true },
     provider: { type: String }, // openai, anthropic, etc.
+    // Normalized optional fields to support aggregations and indexing
+    agent_name: { type: String, index: true }, // e.g., "CodeWritingAgent"
+    type: { type: String, index: true }, // custom type if provided
     service_type: { type: String }, // code generation, query, etc.
     operation: { type: String }, // e.g., "chat.completions"
     total_cost: { type: Number, index: true },
