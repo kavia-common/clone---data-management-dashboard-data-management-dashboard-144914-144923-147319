@@ -1,109 +1,26 @@
 import axios from "axios";
+import { getApiBaseUrl } from "./util";
 
 /**
- * Simple API client with a static pod definition first.
- * The static "pod" describes the API host configuration/shape and is used to
- * build the axios instance. This matches the earlier state where the static
- * pod was defined first before dynamic helpers.
+ * PUBLIC API CLIENT (pre-229 baseline)
+ * Simple axios client configured from REACT_APP_API_BASE_URL and '/api' prefix.
+ * Provides basic endpoints used across the app without recent additions.
  */
 
-// Static pod definition first (earlier state)
-const pod = {
-  name: "dashboard-api",
-  // Use env var if provided, otherwise same-origin, and always prefix with /api
-  base:
-    (process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || "")
-      .toString()
-      .replace(/\/+$/, "") || "",
-  prefix: "/api",
-};
+// Resolve base URL once from util (env-driven)
+const API_BASE_URL = getApiBaseUrl();
 
-// Derive API base URL from static pod
-function joinUrl(base, path) {
-  if (!base) return path || "";
-  const b = base.endsWith("/") ? base.slice(0, -1) : base;
-  const p = path ? (path.startsWith("/") ? path : `/${path}`) : "";
-  return `${b}${p}`;
-}
-
-const API_BASE_URL = joinUrl(pod.base, pod.prefix) || "/api";
-
-// In dev, show the resolved base for quick verification
-if (process.env.NODE_ENV !== "production") {
-  // eslint-disable-next-line no-console
-  console.log(
-    "[API] static pod:",
-    pod,
-    "resolved API_BASE_URL:",
-    API_BASE_URL
-  );
-}
-
-// LocalStorage keys
-const LS_TOKEN_KEY = "dashboard_token";
-const LS_USER_KEY = "dashboard_user";
-
-// Token helpers
-function getToken() {
-  try {
-    return localStorage.getItem(LS_TOKEN_KEY) || "";
-  } catch {
-    return "";
-  }
-}
-
-function setToken(token) {
-  try {
-    if (token) localStorage.setItem(LS_TOKEN_KEY, token);
-    else localStorage.removeItem(LS_TOKEN_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-function setUser(user) {
-  try {
-    if (user) localStorage.setItem(LS_USER_KEY, JSON.stringify(user));
-    else localStorage.removeItem(LS_USER_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-function getUser() {
-  try {
-    const raw = localStorage.getItem(LS_USER_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-// Axios instance configured from static pod
+// Axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
 });
 
-// Attach Authorization if token exists
-api.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
-// Handle 401 globally
-api.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    if (err?.response?.status === 401) {
-      setToken("");
-      setUser(null);
-      err.isAuthError = true;
-    }
-    return Promise.reject(err);
-  }
-);
+// PUBLIC_INTERFACE
+export function getApiClient() {
+  /** Returns the configured Axios instance. */
+  return api;
+}
 
 // Normalize list/envelope responses
 function normalizeListResponse(res) {
@@ -116,95 +33,46 @@ function normalizeListResponse(res) {
 }
 
 // PUBLIC_INTERFACE
-export function getApiClient() {
-  /** Returns the configured Axios instance for advanced usage. */
-  return api;
-}
-
-// PUBLIC_INTERFACE
-export function getStoredAuth() {
-  /** Returns the currently stored user and token from localStorage. */
-  return { token: getToken(), user: getUser() };
-}
-
-// PUBLIC_INTERFACE
-export function persistAuth(token, user) {
-  /** Persists token and user to localStorage (used after login/register). */
-  setToken(token);
-  setUser(user || null);
-}
-
-// PUBLIC_INTERFACE
 export async function health() {
-  /**
-   * Calls the health endpoint to verify backend connectivity (bypasses /api).
-   * Uses pod.base (same-origin if empty).
-   */
-  const res = await axios.get(joinUrl(pod.base, "/"));
-  return res.data;
-}
-
-// PUBLIC_INTERFACE
-export async function loginApi(credentials) {
-  /** POST /auth/login with { email, password } and returns { token, user }. */
-  const res = await api.post("/auth/login", credentials);
-  return res.data;
-}
-
-// PUBLIC_INTERFACE
-export async function registerApi(payload) {
-  /** POST /auth/register with { name, email, password } and returns { token, user }. */
-  const res = await api.post("/auth/register", payload);
-  return res.data;
-}
-
-// Helper to ensure filter param is stringified when object
-function withStringifiedFilter(params = {}) {
-  const p = { ...(params || {}) };
-  if (p.filter && typeof p.filter === "object") {
-    try {
-      p.filter = JSON.stringify(p.filter);
-    } catch {
-      // ignore
-    }
-  }
-  return p;
+  /** GET / (same-origin) health endpoint via absolute fetch (not axios base). */
+  const res = await fetch("/");
+  return res.json();
 }
 
 // Users
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
-  /** GET /api/users with optional query params for filtering/pagination. */
-  const res = await api.get("/users", { params: withStringifiedFilter(params) });
+  /** GET /api/users with optional query params. */
+  const res = await api.get("/users", { params });
   return normalizeListResponse(res);
 }
 
 // PUBLIC_INTERFACE
 export async function createUser(body) {
-  /** POST /api/users to create a new user/referral record. */
+  /** POST /api/users to create a user. */
   const res = await api.post("/users", body);
   return res.data?.data ?? res.data;
 }
 
 // PUBLIC_INTERFACE
 export async function updateUser(id, body) {
-  /** PUT /api/users/:id to update a user/referral record. */
+  /** PUT /api/users/:id to update a user. */
   const res = await api.put(`/users/${id}`, body);
   return res.data?.data ?? res.data;
 }
 
 // PUBLIC_INTERFACE
 export async function deleteUser(id) {
-  /** DELETE /api/users/:id to remove a user/referral record. */
+  /** DELETE /api/users/:id to remove a user. */
   const res = await api.delete(`/users/${id}`);
   return res.data?.data ?? res.data;
 }
 
-// Sessions
+// Sessions (session-tracking)
 // PUBLIC_INTERFACE
 export async function listSessions(params = {}) {
-  /** GET /api/session-tracking with optional filters. */
-  const res = await api.get("/session-tracking", { params: withStringifiedFilter(params) });
+  /** GET /api/session-tracking with optional query params. */
+  const res = await api.get("/session-tracking", { params });
   return normalizeListResponse(res);
 }
 
@@ -224,7 +92,7 @@ export async function updateSession(id, body) {
 
 // PUBLIC_INTERFACE
 export async function deleteSession(id) {
-  /** DELETE /api/session-tracking/:id to remove a session record. */
+  /** DELETE /api/session-tracking/:id to delete a session record. */
   const res = await api.delete(`/session-tracking/${id}`);
   return res.data?.data ?? res.data;
 }
@@ -232,98 +100,30 @@ export async function deleteSession(id) {
 // App Deployments
 // PUBLIC_INTERFACE
 export async function listDeployments(params = {}) {
-  /** GET /api/app-deployments with optional filters. */
-  const res = await api.get("/app-deployments", { params: withStringifiedFilter(params) });
+  /** GET /api/app-deployments with optional query params. */
+  const res = await api.get("/app-deployments", { params });
   return normalizeListResponse(res);
 }
 
-// PUBLIC_INTERFACE
-export async function createDeployment(body) {
-  /** POST /api/app-deployments to create a new deployment record. */
-  const res = await api.post("/app-deployments", body);
-  return res.data?.data ?? res.data;
-}
-
-// PUBLIC_INTERFACE
-export async function updateDeployment(id, body) {
-  /** PUT /api/app-deployments/:id to update a deployment record. */
-  const res = await api.put(`/app-deployments/${id}`, body);
-  return res.data?.data ?? res.data;
-}
-
-// PUBLIC_INTERFACE
-export async function deleteDeployment(id) {
-  /** DELETE /api/app-deployments/:id to remove a deployment record. */
-  const res = await api.delete(`/app-deployments/${id}`);
-  return res.data?.data ?? res.data;
-}
-
-// LLM Costs
+ // LLM Costs
 // PUBLIC_INTERFACE
 export async function listLlmCosts(params = {}) {
-  /** GET /api/llm-costs with optional filters and pagination, returns normalized { items, total, meta }. */
-  const res = await api.get("/llm-costs", { params: withStringifiedFilter(params) });
+  /** GET /api/llm-costs with optional query params. */
+  const res = await api.get("/llm-costs", { params });
   return normalizeListResponse(res);
 }
 
-// Tenants, Projects, and Usage
-
 // PUBLIC_INTERFACE
-export async function getTenantNavigation(tenantId) {
-  /** Returns navigation hierarchy for a tenant: groups, users, projects. */
-  const res = await api.get(`/tenants/${encodeURIComponent(tenantId)}/navigation`);
-  return res.data?.data ?? res.data;
-}
-
-// PUBLIC_INTERFACE
-export async function getTenantCreditsSummary(tenantId) {
-  /** Tenant-level credit summary and breakdowns by user/project. */
-  const res = await api.get(`/tenants/${encodeURIComponent(tenantId)}/credits-summary`);
-  return res.data?.data ?? res.data;
-}
-
-// PUBLIC_INTERFACE
-export async function getTenantUsersUsage(tenantId, params = {}) {
-  /** Per-user usage summary for a tenant: total_cost, total_minutes, project splits if available. */
-  const res = await api.get(`/tenants/${encodeURIComponent(tenantId)}/users/usage`, {
-    params: withStringifiedFilter(params),
-  });
-  return Array.isArray(res.data) ? res.data : res.data?.data ?? res.data;
-}
-
-// PUBLIC_INTERFACE
-export async function getProjectOverview(projectId) {
-  /** Project overview: ownership, access rights, credits allocated/used/balance, and aggregations. */
-  const res = await api.get(`/projects/${encodeURIComponent(projectId)}/overview`);
-  return res.data?.data ?? res.data;
-}
-
-// PUBLIC_INTERFACE
-export async function getProjectUsersUsage(projectId) {
-  /** Per-user usage summary within a project. */
-  const res = await api.get(`/projects/${encodeURIComponent(projectId)}/users/usage`);
-  return Array.isArray(res.data) ? res.data : res.data?.data ?? res.data;
-}
-
-/**
- * PUBLIC_INTERFACE
- * getUserCosts
- * GET /api/users/:userId/costs
- * Returns { userId, total_cost, user_cost, by_agent: [{agent_name,total_cost}], by_type: [{type,total_cost}] }
- */
 export async function getUserCosts(userId) {
+  /** GET /api/users/:userId/costs - returns user total_cost and breakdowns if available. */
   if (!userId) throw new Error("userId is required");
   const res = await api.get(`/users/${encodeURIComponent(userId)}/costs`);
   return res.data?.data ?? res.data;
 }
 
-/**
- * PUBLIC_INTERFACE
- * getUserProjectsCosts
- * GET /api/users/:userId/projects/costs
- * Returns { userId, projects: [{ projectId, project_cost, agents: [{agent_name,total_cost}] }] }
- */
+// PUBLIC_INTERFACE
 export async function getUserProjectsCosts(userId) {
+  /** GET /api/users/:userId/projects/costs - returns per-project costs for a user. */
   if (!userId) throw new Error("userId is required");
   const res = await api.get(`/users/${encodeURIComponent(userId)}/projects/costs`);
   return res.data?.data ?? res.data;
