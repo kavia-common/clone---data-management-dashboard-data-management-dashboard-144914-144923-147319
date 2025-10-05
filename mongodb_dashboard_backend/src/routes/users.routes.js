@@ -3,7 +3,6 @@ const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const User = require('../models/user.model');
 const { getUserProjectsFromSessions } = require('../services/users.service');
-const { getUserCosts, getUserProjectsCosts } = require('../services/userCosts.service');
 
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
@@ -411,82 +410,6 @@ router.get(
     });
 
     return res.status(200).json(payload);
-  })
-);
-
-/**
- * @swagger
- * /api/users/{userId}/costs:
- *   get:
- *     summary: User cost totals and breakdowns
- *     description: >
- *       Aggregates LLM costs for a user across all projects. Returns total_cost (alias user_cost),
- *       and breakdowns by agent_name and type.
- *     tags: [Users]
- *     parameters:
- *       - in: path
- *         name: userId
- *         required: true
- *         schema: { type: string }
- *         description: User identifier (matched by string representation)
- *     responses:
- *       200:
- *         description: User cost totals and breakdown
- *       400:
- *         description: Invalid input
- */
- // PUBLIC_INTERFACE
-router.get(
-  '/:userId/costs',
-  asyncHandler(async (req, res) => {
-    const { userId } = req.params;
-    try {
-      const payload = await getUserCosts(userId);
-      return res.status(200).json(payload);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error in GET /api/users/:userId/costs', err?.message || err);
-      return res.status(200).json({
-        userId: String(userId),
-        total_cost: 0,
-        user_cost: 0,
-        by_agent: [],
-        by_type: [],
-      });
-    }
-  })
-);
-
-/**
- * @swagger
- * /api/users/{userId}/projects/costs:
- *   get:
- *     summary: Per-project cost totals for a user
- *     description: Returns a list of projects with project_cost and agent totals for the specified user.
- *     tags: [Users]
- *     parameters:
- *       - in: path
- *         name: userId
- *         required: true
- *         schema: { type: string }
- *         description: User identifier (matched by string representation)
- *     responses:
- *       200:
- *         description: Project cost totals for the user
- */
- // PUBLIC_INTERFACE
-router.get(
-  '/:userId/projects/costs',
-  asyncHandler(async (req, res) => {
-    const { userId } = req.params;
-    try {
-      const projects = await getUserProjectsCosts(userId);
-      return res.status(200).json({ userId: String(userId), projects });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Error in GET /api/users/:userId/projects/costs', err?.message || err);
-      return res.status(200).json({ userId: String(userId), projects: [] });
-    }
   })
 );
 
