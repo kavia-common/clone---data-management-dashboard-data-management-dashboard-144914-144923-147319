@@ -1,36 +1,24 @@
 import axios from "axios";
 
 /**
- * API client configuration
- * Enforces environment-driven API base URL and /api prefix.
- *
- * Priority:
- * 1) REACT_APP_API_URL or REACT_APP_API_BASE_URL (recommended)
- * 2) Soft fallback: same-origin (no port inference, no localhost)
+ * Simple API client with a static pod definition first.
+ * The static "pod" describes the API host configuration/shape and is used to
+ * build the axios instance. This matches the earlier state where the static
+ * pod was defined first before dynamic helpers.
  */
 
-// Build base URLs from environment variables. Avoid hardcoding.
-function resolveBackendBase() {
-  try {
-    // Prefer explicit environment variables
-    const envUrl = process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || "";
-    if (envUrl) return String(envUrl).replace(/\/+$/, "");
+// Static pod definition first (earlier state)
+const pod = {
+  name: "dashboard-api",
+  // Use env var if provided, otherwise same-origin, and always prefix with /api
+  base:
+    (process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || "")
+      .toString()
+      .replace(/\/+$/, "") || "",
+  prefix: "/api",
+};
 
-    // Fallback: same-origin (useful when a reverse proxy serves /api on the same host/port)
-    if (typeof window !== "undefined" && window.location) {
-      const { protocol, host } = window.location; // includes port if any
-      return `${protocol}//${host}`;
-    }
-    return "";
-  } catch {
-    return "";
-  }
-}
-
-const RAW_BASE_URL = resolveBackendBase();
-const API_PREFIX = process.env.REACT_APP_API_PREFIX || "/api";
-
-// Normalize base URL + prefix, avoiding double slashes
+// Derive API base URL from static pod
 function joinUrl(base, path) {
   if (!base) return path || "";
   const b = base.endsWith("/") ? base.slice(0, -1) : base;
@@ -38,33 +26,24 @@ function joinUrl(base, path) {
   return `${b}${p}`;
 }
 
-const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
+const API_BASE_URL = joinUrl(pod.base, pod.prefix) || "/api";
 
-// Helpful dev log to verify resolved API base URL (won't affect production builds)
+// In dev, show the resolved base for quick verification
 if (process.env.NODE_ENV !== "production") {
-  try {
-    // eslint-disable-next-line no-console
-    console.log(
-      "[API] baseURL:",
-      API_BASE_URL || "/api",
-      "(RAW:",
-      RAW_BASE_URL || "(same-origin)",
-      "PREFIX:",
-      API_PREFIX,
-      ") — Tip: set REACT_APP_API_BASE_URL to your backend (e.g., http://localhost:3001)"
-    );
-  } catch {
-    // ignore
-  }
+  // eslint-disable-next-line no-console
+  console.log(
+    "[API] static pod:",
+    pod,
+    "resolved API_BASE_URL:",
+    API_BASE_URL
+  );
 }
 
-// Keys for localStorage persistence
+// LocalStorage keys
 const LS_TOKEN_KEY = "dashboard_token";
 const LS_USER_KEY = "dashboard_user";
 
-/**
- * Internal: get token from localStorage.
- */
+// Token helpers
 function getToken() {
   try {
     return localStorage.getItem(LS_TOKEN_KEY) || "";
@@ -73,33 +52,24 @@ function getToken() {
   }
 }
 
-/**
- * Internal: persist auth token.
- */
 function setToken(token) {
   try {
     if (token) localStorage.setItem(LS_TOKEN_KEY, token);
     else localStorage.removeItem(LS_TOKEN_KEY);
   } catch {
-    // ignore storage errors in restrictive environments
+    // ignore
   }
 }
 
-/**
- * Internal: persist user profile (optional).
- */
 function setUser(user) {
   try {
     if (user) localStorage.setItem(LS_USER_KEY, JSON.stringify(user));
     else localStorage.removeItem(LS_USER_KEY);
   } catch {
-    // ignore storage errors
+    // ignore
   }
 }
 
-/**
- * Internal: get persisted user profile or null.
- */
 function getUser() {
   try {
     const raw = localStorage.getItem(LS_USER_KEY);
@@ -109,39 +79,33 @@ function getUser() {
   }
 }
 
-// Create configured axios instance for API routes under /api
+// Axios instance configured from static pod
 const api = axios.create({
-  baseURL: API_BASE_URL || "/api",
-  headers: {
-    "Content-Type": "application/json",
-  },
+  baseURL: API_BASE_URL,
+  headers: { "Content-Type": "application/json" },
 });
 
-// Attach Authorization header on each request if token exists
+// Attach Authorization if token exists
 api.interceptors.request.use((config) => {
   const token = getToken();
-  if (token) {
-    // Use Bearer token as standard
-    config.headers.Authorization = `Bearer ${token}`;
-  }
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Handle 401 globally by clearing token to force re-login
+// Handle 401 globally
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error?.response?.status === 401) {
+  (res) => res,
+  (err) => {
+    if (err?.response?.status === 401) {
       setToken("");
       setUser(null);
-      // soft redirect hint for callers
-      error.isAuthError = true;
+      err.isAuthError = true;
     }
-    return Promise.reject(error);
+    return Promise.reject(err);
   }
 );
 
-// Helper to normalize list responses from backend { success, data, meta }
+// Normalize list/envelope responses
 function normalizeListResponse(res) {
   const payload = res?.data || {};
   const items = Array.isArray(payload) ? payload : payload.data || [];
@@ -174,11 +138,9 @@ export function persistAuth(token, user) {
 export async function health() {
   /**
    * Calls the health endpoint to verify backend connectivity (bypasses /api).
-   * Uses the resolved RAW_BASE_URL or same-origin if empty.
+   * Uses pod.base (same-origin if empty).
    */
-  const rootBase = RAW_BASE_URL || "";
-  const url = joinUrl(rootBase, "/");
-  const res = await axios.get(url);
+  const res = await axios.get(joinUrl(pod.base, "/"));
   return res.data;
 }
 
@@ -196,21 +158,20 @@ export async function registerApi(payload) {
   return res.data;
 }
 
-// Collection APIs
-
-/** Internal helper: ensure filter param is JSON.stringified when provided. */
+// Helper to ensure filter param is stringified when object
 function withStringifiedFilter(params = {}) {
   const p = { ...(params || {}) };
   if (p.filter && typeof p.filter === "object") {
     try {
       p.filter = JSON.stringify(p.filter);
     } catch {
-      // leave as-is if stringify fails
+      // ignore
     }
   }
   return p;
 }
 
+// Users
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
   /** GET /api/users with optional query params for filtering/pagination. */
@@ -239,7 +200,7 @@ export async function deleteUser(id) {
   return res.data?.data ?? res.data;
 }
 
-/* See withStringifiedFilter above */
+// Sessions
 // PUBLIC_INTERFACE
 export async function listSessions(params = {}) {
   /** GET /api/session-tracking with optional filters. */
@@ -268,7 +229,7 @@ export async function deleteSession(id) {
   return res.data?.data ?? res.data;
 }
 
-/* See withStringifiedFilter above */
+// App Deployments
 // PUBLIC_INTERFACE
 export async function listDeployments(params = {}) {
   /** GET /api/app-deployments with optional filters. */
@@ -297,7 +258,7 @@ export async function deleteDeployment(id) {
   return res.data?.data ?? res.data;
 }
 
-/* LLM Costs */
+// LLM Costs
 // PUBLIC_INTERFACE
 export async function listLlmCosts(params = {}) {
   /** GET /api/llm-costs with optional filters and pagination, returns normalized { items, total, meta }. */
@@ -305,7 +266,7 @@ export async function listLlmCosts(params = {}) {
   return normalizeListResponse(res);
 }
 
-/* Tenants, Projects, and Usage APIs (new) */
+// Tenants, Projects, and Usage
 
 // PUBLIC_INTERFACE
 export async function getTenantNavigation(tenantId) {
@@ -327,7 +288,6 @@ export async function getTenantUsersUsage(tenantId, params = {}) {
   const res = await api.get(`/tenants/${encodeURIComponent(tenantId)}/users/usage`, {
     params: withStringifiedFilter(params),
   });
-  // Could be array or envelope
   return Array.isArray(res.data) ? res.data : res.data?.data ?? res.data;
 }
 
@@ -352,7 +312,7 @@ export async function getProjectUsersUsage(projectId) {
  * Returns { userId, total_cost, user_cost, by_agent: [{agent_name,total_cost}], by_type: [{type,total_cost}] }
  */
 export async function getUserCosts(userId) {
-  if (!userId) throw new Error('userId is required');
+  if (!userId) throw new Error("userId is required");
   const res = await api.get(`/users/${encodeURIComponent(userId)}/costs`);
   return res.data?.data ?? res.data;
 }
@@ -364,7 +324,7 @@ export async function getUserCosts(userId) {
  * Returns { userId, projects: [{ projectId, project_cost, agents: [{agent_name,total_cost}] }] }
  */
 export async function getUserProjectsCosts(userId) {
-  if (!userId) throw new Error('userId is required');
+  if (!userId) throw new Error("userId is required");
   const res = await api.get(`/users/${encodeURIComponent(userId)}/projects/costs`);
   return res.data?.data ?? res.data;
 }
