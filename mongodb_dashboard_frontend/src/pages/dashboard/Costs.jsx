@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
+import DetailsViewer from "../../components/common/DetailsViewer.jsx";
 import { formatUsdUpTo8 } from "../../components/utils/numberFormat";
 import { listLlmCosts } from "../../api/client";
 
@@ -317,9 +318,26 @@ export default function Costs() {
         open={inspectOpen}
         onClose={closeInspector}
       >
-        <div style={{ whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 12, padding: 16 }}>
-          {inspectPayload == null ? "—" : safePretty(inspectPayload)}
-        </div>
+        <DetailsViewer
+          data={inspectPayload}
+          title={inspectTitle || "Cost details"}
+          highlightKeys={[
+            "timestamp",
+            "model",
+            "llm_model",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "currency",
+            "cost",
+            "total_cost",
+            "project",
+            "project_id",
+            "user",
+            "user_id",
+          ]}
+          collapsedDepth={1}
+        />
       </Modal>
 
       {/* Structured costs modal removed */}
