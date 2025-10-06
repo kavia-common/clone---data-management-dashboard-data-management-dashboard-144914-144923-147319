@@ -10,10 +10,6 @@ import { getApiBaseUrl } from "./util";
 // Resolve base URL once from util (env-driven)
 const API_BASE_URL = getApiBaseUrl();
 
-if (process.env.NODE_ENV !== "production") {
-  // eslint-disable-next-line no-console
-  console.debug("[API] Axios baseURL:", API_BASE_URL);
-}
 // Axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
