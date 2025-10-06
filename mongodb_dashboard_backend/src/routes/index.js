@@ -33,6 +33,4 @@ const router = express.Router();
  */
 router.get('/', healthController.check.bind(healthController));
 
-// Note: Removed any mounts for llmCosts.aggregate routes to keep Costs feature scoped to llm_costs only.
-
 module.exports = router;
