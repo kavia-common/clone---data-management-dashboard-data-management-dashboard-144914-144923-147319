@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
-import CostsDetailsModal from "../../components/costs/CostsDetailsModal.jsx";
 import { formatUsdUpTo8 } from "../../components/utils/numberFormat";
 import { listLlmCosts } from "../../api/client";
 
@@ -25,8 +24,7 @@ export default function Costs() {
   const [inspectTitle, setInspectTitle] = useState("Details");
   const [inspectPayload, setInspectPayload] = useState(null);
 
-  // Costs Details modal state
-  const [detailsOpen, setDetailsOpen] = useState(false);
+
 
   const dateFieldHints = useMemo(
     () =>
@@ -151,10 +149,10 @@ export default function Costs() {
             className="btn btn-ghost"
             style={{ padding: "4px 8px", height: 28 }}
             onClick={() => openInspector(fieldLabel, value)}
-            aria-label={`View all ${fieldLabel}`}
-            title={`View all ${fieldLabel}`}
+            aria-label={`View details for ${fieldLabel}`}
+            title={`View details for ${fieldLabel}`}
           >
-            View All
+            View details
           </button>
         </div>
       );
@@ -298,15 +296,6 @@ export default function Costs() {
             onChange={(e) => setQuery(e.target.value)}
           />
           <div style={{ flex: 1 }} />
-          <button
-            className="text-sm font-medium"
-            style={{ color: "#2563EB" }}
-            onClick={() => setDetailsOpen(true)}
-            aria-label="View all cost details"
-            title="View all cost details"
-          >
-            View All
-          </button>
         </div>
         {error && <div className="error" role="alert">{error}</div>}
         <DataTable
@@ -334,8 +323,7 @@ export default function Costs() {
         </div>
       </Modal>
 
-      {/* Structured costs modal */}
-      <CostsDetailsModal isOpen={detailsOpen} onClose={() => setDetailsOpen(false)} />
+
     </div>
   );
 }
