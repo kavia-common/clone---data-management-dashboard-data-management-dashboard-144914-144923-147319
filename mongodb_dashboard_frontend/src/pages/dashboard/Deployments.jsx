@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import { listDeployments } from "../../api/client";
+import DeploymentsOverTime from "../../components/charts/DeploymentsOverTime.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -117,22 +118,30 @@ export default function Deployments() {
   }, []);
 
   return (
-    <div>
-      <Card title="App Deployments" subtitle="Selected columns only">
-        {error && <div className="error" role="alert">{error}</div>}
-        <DataTable
-          columns={columns}
-          data={items}
-          loading={loading}
-          pageSize={meta.limit || 10}
-          initialPage={meta.page || 1}
-          serverTotal={meta.total}
-          fetchPage={async (page, limit) => {
-            await load(page, limit);
-          }}
-          paginationTitle="Deployment pages"
-        />
-      </Card>
+    <div className="grid">
+      {/* Chart block spans full width above the table */}
+      <div className="block-full">
+        <DeploymentsOverTime height={340} />
+      </div>
+
+      {/* Keep the existing table in its own card; span full width */}
+      <div className="block-full">
+        <Card title="App Deployments" subtitle="Selected columns only">
+          {error && <div className="error" role="alert">{error}</div>}
+          <DataTable
+            columns={columns}
+            data={items}
+            loading={loading}
+            pageSize={meta.limit || 10}
+            initialPage={meta.page || 1}
+            serverTotal={meta.total}
+            fetchPage={async (page, limit) => {
+              await load(page, limit);
+            }}
+            paginationTitle="Deployment pages"
+          />
+        </Card>
+      </div>
     </div>
   );
 }
