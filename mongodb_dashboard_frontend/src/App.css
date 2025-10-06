@@ -714,6 +714,25 @@ input:focus, select:focus, textarea:focus {
   text-overflow: initial;  /* remove ellipsis so content can be scrolled into view */
 }
 
+/* Charts: ensure stable height and avoid overlap with sticky/scroll behavior */
+.chart-card { position: relative; }
+.chart-toolbar {
+  position: relative; /* avoid sticky to prevent overlap on scroll containers */
+  top: auto;
+  z-index: auto;
+  background: transparent;
+}
+.chart-wrapper {
+  width: 100%;
+  /* enforce stable min-height so ResponsiveContainer always has non-zero height */
+  min-height: 280px;
+  position: relative;
+  overflow: visible; /* allow tooltips/brush to render fully */
+}
+@media (max-width: 480px) {
+  .chart-wrapper { min-height: 240px; }
+}
+
 /* On tablet, keep labels visible and align left; rely on horizontal scroll for overflow */
 @media (max-width: 1023px) {
   .nav-link .nav-label { display: inline !important; }

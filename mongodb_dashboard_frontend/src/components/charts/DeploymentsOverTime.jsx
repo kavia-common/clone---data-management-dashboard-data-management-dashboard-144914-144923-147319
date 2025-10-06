@@ -172,11 +172,11 @@ export default function DeploymentsOverTime({ height = 320, className = "" }) {
     <Card
       title="Deployments Over Time"
       subtitle="Counts aggregated by day or week with filters and time range selection"
-      className={`block-full ${className}`.trim()}
+      className={`block-full chart-card ${className}`.trim()}
     >
       {error && <div className="error" role="alert">{error}</div>}
 
-      <div className="toolbar" role="region" aria-label="Chart controls" style={{ position: "sticky", top: "var(--header-height, 0px)", zIndex: 1, background: "var(--bg-surface)" }}>
+      <div className="toolbar chart-toolbar" role="region" aria-label="Chart controls">
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <label>
             <span>Aggregation</span>
@@ -247,7 +247,7 @@ export default function DeploymentsOverTime({ height = 320, className = "" }) {
         </div>
       </div>
 
-      <div style={{ width: "100%", height, marginTop: 8 }}>
+      <div className="chart-wrapper" style={{ width: "100%", height, marginTop: 8 }}>
         {loading ? (
           <div>Loading chart...</div>
         ) : (
