@@ -212,7 +212,7 @@ export default function Sessions() {
       />
 
       {/* Charts row */}
-      <div className="grid" role="region" aria-label="Session insights">
+      <div className="grid sessions-charts" role="region" aria-label="Session insights">
         <Card
           className="col-span-6 chart-card"
           title="Sessions by Organization"

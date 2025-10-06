@@ -715,6 +715,10 @@ input:focus, select:focus, textarea:focus {
 }
 
 /* Charts: ensure stable height and avoid overlap with sticky/scroll behavior */
+.sessions-charts { margin-bottom: 24px; } /* ~mt-6 */
+@media (min-width: 768px) {
+  .sessions-charts { margin-bottom: 32px; } /* ~md:mb-8 */
+}
 .chart-card { position: relative; }
 .chart-toolbar {
   position: relative; /* avoid sticky to prevent overlap on scroll containers */
