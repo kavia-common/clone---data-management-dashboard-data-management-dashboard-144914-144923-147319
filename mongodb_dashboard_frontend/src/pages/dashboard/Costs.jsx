@@ -317,6 +317,7 @@ export default function Costs() {
         title={inspectTitle}
         open={inspectOpen}
         onClose={closeInspector}
+        headerOffset={60}
       >
         <DetailsViewer
           data={inspectPayload}

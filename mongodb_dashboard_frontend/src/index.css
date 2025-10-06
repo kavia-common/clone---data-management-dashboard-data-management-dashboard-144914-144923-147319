@@ -42,6 +42,9 @@ body.modal-open--lock-scroll {
 
   /* Modal backdrop token for Ocean Professional (default to rgba(0,0,0,0.3) per requirement) */
   --modal-backdrop: rgba(0,0,0,0.3);
+
+  /* Fixed header height (used by header-aware modals) */
+  --header-height: 60px;
 }
 
 body {
