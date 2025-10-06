@@ -1,28 +1,26 @@
 import axios from "axios";
-import { getApiBaseUrl } from "./util";
-
 /**
- * PUBLIC API CLIENT (pre-229 baseline)
- * Simple axios client configured from REACT_APP_API_BASE_URL and '/api' prefix.
- * Provides basic endpoints used across the app without recent additions.
+ * API client configuration (static pod URL version)
+ * This connects directly to the backend running in your specific pod.
+ * Used when environment-based resolution is unavailable or unstable.
  */
-
-// Resolve base URL once from util (env-driven)
-const API_BASE_URL = getApiBaseUrl();
-
-// Axios instance
+// :red_circle: Static backend base URL (replace with your active pod if it changes)
+const RAW_BASE_URL = "https://vscode-internal-31347-beta.beta01.cloud.kavia.ai:3001";
+const API_PREFIX = "/api";
+// Combine base + prefix safely
+function joinUrl(base, path) {
+  if (!base) return path || "";
+  const b = base.endsWith("/") ? base.slice(0, -1) : base;
+  const p = path ? (path.startsWith("/") ? path : `/${path}`) : "";
+  return `${b}${p}`;
+}
+const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
+// :white_tick: Create configured Axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
 });
-
-// PUBLIC_INTERFACE
-export function getApiClient() {
-  /** Returns the configured Axios instance. */
-  return api;
-}
-
-// Normalize list/envelope responses
+// Helper: normalize list/envelope responses
 function normalizeListResponse(res) {
   const payload = res?.data || {};
   const items = Array.isArray(payload) ? payload : payload.data || [];
@@ -31,100 +29,70 @@ function normalizeListResponse(res) {
     (Array.isArray(items) ? items.length : 0);
   return { items, total, meta: payload.meta || null };
 }
-
 // PUBLIC_INTERFACE
-export async function health() {
-  /** GET / (same-origin) health endpoint via absolute fetch (not axios base). */
-  const res = await fetch("/");
-  return res.json();
+export function getApiClient() {
+  /** Returns the configured Axios instance */
+  return api;
 }
-
-// Users
-// PUBLIC_INTERFACE
+// Health endpoint
+export async function health() {
+  /** GET / - backend health check */
+  const res = await axios.get(RAW_BASE_URL);
+  return res.data;
+}
+// === USERS ===
 export async function listUsers(params = {}) {
-  /** GET /api/users with optional query params. */
   const res = await api.get("/users", { params });
   return normalizeListResponse(res);
 }
-
-// PUBLIC_INTERFACE
 export async function createUser(body) {
-  /** POST /api/users to create a user. */
   const res = await api.post("/users", body);
   return res.data?.data ?? res.data;
 }
-
-// PUBLIC_INTERFACE
 export async function updateUser(id, body) {
-  /** PUT /api/users/:id to update a user. */
   const res = await api.put(`/users/${id}`, body);
   return res.data?.data ?? res.data;
 }
-
-// PUBLIC_INTERFACE
 export async function deleteUser(id) {
-  /** DELETE /api/users/:id to remove a user. */
   const res = await api.delete(`/users/${id}`);
   return res.data?.data ?? res.data;
 }
-
-// Sessions (session-tracking)
-// PUBLIC_INTERFACE
+// === SESSION TRACKING ===
 export async function listSessions(params = {}) {
-  /** GET /api/session-tracking with optional query params. */
   const res = await api.get("/session-tracking", { params });
   return normalizeListResponse(res);
 }
-
-// PUBLIC_INTERFACE
 export async function createSession(body) {
-  /** POST /api/session-tracking to create a session record. */
   const res = await api.post("/session-tracking", body);
   return res.data?.data ?? res.data;
 }
-
-// PUBLIC_INTERFACE
 export async function updateSession(id, body) {
-  /** PUT /api/session-tracking/:id to update a session record. */
   const res = await api.put(`/session-tracking/${id}`, body);
   return res.data?.data ?? res.data;
 }
-
-// PUBLIC_INTERFACE
 export async function deleteSession(id) {
-  /** DELETE /api/session-tracking/:id to delete a session record. */
   const res = await api.delete(`/session-tracking/${id}`);
   return res.data?.data ?? res.data;
 }
-
-// App Deployments
-// PUBLIC_INTERFACE
+// === APP DEPLOYMENTS ===
 export async function listDeployments(params = {}) {
-  /** GET /api/app-deployments with optional query params. */
   const res = await api.get("/app-deployments", { params });
   return normalizeListResponse(res);
 }
-
- // LLM Costs
-// PUBLIC_INTERFACE
+// === LLM COSTS ===
 export async function listLlmCosts(params = {}) {
-  /** GET /api/llm-costs with optional query params. */
   const res = await api.get("/llm-costs", { params });
   return normalizeListResponse(res);
 }
-
-// PUBLIC_INTERFACE
+// === USER COSTS ===
 export async function getUserCosts(userId) {
-  /** GET /api/users/:userId/costs - returns user total_cost and breakdowns if available. */
   if (!userId) throw new Error("userId is required");
-  const res = await api.get(`/users/${encodeURIComponent(userId)}/costs`);
+  const res = await api.get(`/users`);
   return res.data?.data ?? res.data;
 }
-
-// PUBLIC_INTERFACE
+// === USER PROJECT COSTS ===
 export async function getUserProjectsCosts(userId) {
-  /** GET /api/users/:userId/projects/costs - returns per-project costs for a user. */
   if (!userId) throw new Error("userId is required");
-  const res = await api.get(`/users/${encodeURIComponent(userId)}/projects/costs`);
+  const res = await api.get(`/users`);
   return res.data?.data ?? res.data;
 }
