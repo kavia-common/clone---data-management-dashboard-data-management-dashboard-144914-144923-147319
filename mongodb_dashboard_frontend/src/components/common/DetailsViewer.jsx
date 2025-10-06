@@ -24,6 +24,8 @@ export default function DetailsViewer({
   title = "Details",
   highlightKeys = [],
   collapsedDepth = 1,
+  // When provided, only these keys will be shown at the root level, in the given order.
+  allowedKeys,
 }) {
   const [openMap, setOpenMap] = useState(() => new Map()); // path => boolean
 
@@ -236,23 +238,28 @@ export default function DetailsViewer({
   }
 
   function renderEntries(obj, basePath = "root", depth = 0, rootObj = obj) {
-    // Order: highlighted keys first (in the provided order), then remaining keys alphabetically.
-    const keySet = new Set(Object.keys(obj || {}));
-    const top = [];
-    (highlightKeys || []).forEach((k) => {
-      if (keySet.has(k)) {
-        top.push(k);
-        keySet.delete(k);
-      }
-    });
-    const rest = Array.from(keySet).sort((a, b) => a.localeCompare(b));
-
-    const ordered = [...top, ...rest];
+    // If a whitelist is provided at this level, strictly use it in the given order.
+    let ordered;
+    if (Array.isArray(allowedKeys) && allowedKeys.length > 0 && basePath === "root") {
+      ordered = [...allowedKeys];
+    } else {
+      // Order: highlighted keys first (in the provided order), then remaining keys alphabetically.
+      const keySet = new Set(Object.keys(obj || {}));
+      const top = [];
+      (highlightKeys || []).forEach((k) => {
+        if (keySet.has(k)) {
+          top.push(k);
+          keySet.delete(k);
+        }
+      });
+      const rest = Array.from(keySet).sort((a, b) => a.localeCompare(b));
+      ordered = [...top, ...rest];
+    }
 
     return (
       <dl className="dv-grid" aria-label="Details list">
         {ordered.map((k) => {
-          const v = obj[k];
+          const v = obj[k]; // may be undefined if key missing; we'll still render as '—'
           const entryPath = `${basePath}.${k}`;
           const isObject = v && typeof v === "object";
           const emphasize =
