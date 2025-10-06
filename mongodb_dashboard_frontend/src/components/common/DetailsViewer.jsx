@@ -11,23 +11,31 @@ import { formatCurrencyAmount } from "../../utils/formatCurrency";
  * - Nested objects/arrays are collapsible with proper a11y (aria-expanded, keyboard navigable)
  * - Known fields (timestamps, tokens, currency, cost, duration) are formatted
  * - Unknown keys are handled gracefully
- * - Raw JSON toggle with copy-to-clipboard
+ * - Raw JSON toggle with copy-to-clipboard (limited to filtered subset when allowedKeys is provided)
  *
  * Props:
  * - data: object|array|string (required) - Data to render
  * - title: string (optional) - Heading for the details viewer
  * - highlightKeys: string[] (optional) - Keys to show first
  * - collapsedDepth: number (optional, default 1) - Nesting depth at which to collapse children by default
+ * - allowedKeys: string[] (optional) - Whitelist of keys to render. When provided:
+ *    - Only these keys are rendered from the top-level data object
+ *    - Nested/unknown/non-whitelisted data is not rendered
+ *    - Raw JSON toggle is hidden to avoid showing excluded data
+ *    - Copy JSON copies only the filtered (whitelisted) subset
  */
 export default function DetailsViewer({
   data,
   title = "Details",
   highlightKeys = [],
   collapsedDepth = 1,
+  allowedKeys = [],
 }) {
   const [showRaw, setShowRaw] = useState(false);
   const [copied, setCopied] = useState(false);
   const [openMap, setOpenMap] = useState(() => new Map()); // path => boolean
+
+  const isRestricted = Array.isArray(allowedKeys) && allowedKeys.length > 0;
 
   const currencyHint = useMemo(() => {
     // Try to detect a currency from data if available.
@@ -43,6 +51,33 @@ export default function DetailsViewer({
     return "USD";
   }, [data]);
 
+  const LABELS_MAP = useMemo(
+    () => ({
+      user_cost: "User Cost",
+      type: "Type",
+      project_cost: "Project Cost",
+      agent_name: "Agent Name",
+      total_cost: "Total Cost",
+      _id: "ID",
+    }),
+    []
+  );
+
+  const filteredData = useMemo(() => {
+    if (!isRestricted) return data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      // In restricted mode, ignore non-object payloads to avoid leaking nested data
+      return {};
+    }
+    const out = {};
+    allowedKeys.forEach((k) => {
+      if (Object.prototype.hasOwnProperty.call(data, k)) {
+        out[k] = data[k];
+      }
+    });
+    return out;
+  }, [isRestricted, data, allowedKeys]);
+
   const togglePath = useCallback((path, next) => {
     setOpenMap((prev) => {
       const m = new Map(prev);
@@ -53,13 +88,15 @@ export default function DetailsViewer({
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(safePretty(data));
+      // Copy only the filtered subset in restricted mode
+      const payload = isRestricted ? filteredData : data;
+      await navigator.clipboard.writeText(safePretty(payload));
       setCopied(true);
       setTimeout(() => setCopied(false), 1300);
     } catch {
       // no-op
     }
-  }, [data]);
+  }, [isRestricted, filteredData, data]);
 
   // PUBLIC_INTERFACE
   function safePretty(payload) {
@@ -78,6 +115,9 @@ export default function DetailsViewer({
 
   function toLabel(key) {
     if (!key && key !== 0) return "";
+    if (Object.prototype.hasOwnProperty.call(LABELS_MAP, key)) {
+      return LABELS_MAP[key];
+    }
     if (key === "_id") return "ID";
     return String(key)
       .replace(/_/g, " ")
@@ -124,7 +164,7 @@ export default function DetailsViewer({
       if (isTokenLike(key)) {
         return value.toLocaleString();
       }
-      if (/^(total_cost|cost|organization_cost|price)$/i.test(key)) {
+      if (/^(total_cost|cost|organization_cost|price|user_cost|project_cost)$/i.test(key)) {
         const cur =
           (rootData && (rootData.currency || rootData.credits_unit || rootData.cost_currency)) ||
           currencyHint ||
@@ -260,6 +300,44 @@ export default function DetailsViewer({
   }
 
   function renderEntries(obj, basePath = "root", depth = 0, rootObj = obj) {
+    // When in restricted mode, render only the allowed keys, in the given order, without traversing nested structures.
+    if (isRestricted) {
+      const present = (allowedKeys || []).filter((k) => Object.prototype.hasOwnProperty.call(obj || {}, k));
+      if (present.length === 0) {
+        return <div className="dv-empty muted">No whitelisted fields</div>;
+      }
+      return (
+        <dl className="dv-grid" aria-label="Details list">
+          {present.map((k) => {
+            const v = obj[k];
+            const entryPath = `${basePath}.${k}`;
+            const emphasize =
+              /^(total_cost|user_cost|project_cost|currency)$/i.test(k);
+
+            // Do not render nested details in restricted mode; show a compact placeholder for non-primitives.
+            const display =
+              v != null && typeof v === "object"
+                ? "…"
+                : formatValueByKey(k, v, rootObj);
+
+            return (
+              <div key={entryPath} className="dv-row">
+                <dt className="dv-key" title={toLabel(k)}>
+                  {toLabel(k)}
+                </dt>
+                <dd className="dv-valcell">
+                  <span className={["dv-val", emphasize ? "em" : ""].filter(Boolean).join(" ")} title={String(display)}>
+                    {String(display)}
+                  </span>
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      );
+    }
+
+    // Default (non-restricted) behavior:
     // Order: highlighted keys first (in the provided order), then remaining keys alphabetically.
     const keySet = new Set(Object.keys(obj || {}));
     const top = [];
@@ -280,7 +358,7 @@ export default function DetailsViewer({
           const entryPath = `${basePath}.${k}`;
           const isObject = v && typeof v === "object";
           const emphasize =
-            /^(model|llm_model|total_cost|cost|currency|project|project_id|user|user_id|tenant|tenant_id)$/i.test(k);
+            /^(model|llm_model|total_cost|cost|currency|project|project_id|user|user_id)$/i.test(k);
 
           return (
             <div key={entryPath} className="dv-row">
@@ -304,8 +382,8 @@ export default function DetailsViewer({
           <h2 className="dv-title" id="details-viewer-title">
             {title}
           </h2>
-          {/* Quick highlights when available */}
-          {data && typeof data === "object" && !Array.isArray(data) ? (
+          {/* Hide quick highlights in restricted mode to avoid hints of excluded data */}
+          {!isRestricted && data && typeof data === "object" && !Array.isArray(data) ? (
             <div className="dv-highlights">
               {["timestamp", "llm_model", "model", "prompt_tokens", "completion_tokens", "total_tokens", "currency", "total_cost", "cost", "project", "project_id", "user", "user_id"]
                 .filter((k) => Object.prototype.hasOwnProperty.call(data, k))
@@ -324,41 +402,45 @@ export default function DetailsViewer({
           ) : null}
         </div>
         <div className="dv-actions">
-          <button
-            className="btn btn-secondary"
-            onClick={() => setShowRaw((s) => !s)}
-            aria-pressed={showRaw}
-            title={showRaw ? "Show formatted view" : "Show raw JSON"}
-          >
-            {showRaw ? "Formatted view" : "Raw JSON"}
-          </button>
+          {/* Raw JSON toggle is hidden in restricted mode. */}
+          {!isRestricted && (
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowRaw((s) => !s)}
+              aria-pressed={showRaw}
+              title={showRaw ? "Show formatted view" : "Show raw JSON"}
+            >
+              {showRaw ? "Formatted view" : "Raw JSON"}
+            </button>
+          )}
           <button
             className="btn btn-primary"
             onClick={handleCopy}
-            aria-label="Copy raw JSON to clipboard"
-            title="Copy raw JSON"
+            aria-label="Copy JSON to clipboard"
+            title="Copy JSON"
           >
             {copied ? "Copied" : "Copy JSON"}
           </button>
         </div>
       </div>
 
-      {!showRaw ? (
-        <div className="dv-body">
-          {data == null ? (
-            <div className="dv-empty muted">No data</div>
-          ) : typeof data === "object" ? (
-            Array.isArray(data) ? (
-              renderNode(data, "root", 0, data)
-            ) : (
-              renderEntries(data, "root", 0, data)
-            )
-          ) : (
-            <div className="dv-primitive">{String(data)}</div>
-          )}
-        </div>
-      ) : (
+      {/* Body: if restricted, never render nested nodes; if raw JSON is toggled, show filtered JSON when restricted */}
+      {(!isRestricted && showRaw) ? (
         <pre className="dv-raw" aria-label="Raw JSON">{safePretty(data)}</pre>
+      ) : (
+        <div className="dv-body">
+          {(() => {
+            const source = isRestricted ? filteredData : data;
+            if (source == null) return <div className="dv-empty muted">No data</div>;
+            if (typeof source !== "object") return <div className="dv-primitive">{String(source)}</div>;
+            if (Array.isArray(source)) {
+              // In restricted mode we won't render arbitrary arrays; fall back to "No whitelisted fields".
+              if (isRestricted) return <div className="dv-empty muted">No whitelisted fields</div>;
+              return renderNode(source, "root", 0, source);
+            }
+            return renderEntries(source, "root", 0, source);
+          })()}
+        </div>
       )}
 
       <style>{`
