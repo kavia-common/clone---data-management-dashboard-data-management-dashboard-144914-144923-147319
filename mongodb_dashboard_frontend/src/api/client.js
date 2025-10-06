@@ -1,18 +1,12 @@
 import axios from "axios";
 /**
- * API client configuration using environment variables
- * This connects to the backend using environment-based configuration.
+ * API client configuration (static pod URL version)
+ * This connects directly to the backend running in your specific pod.
+ * Used when environment-based resolution is unavailable or unstable.
  */
-// Get API configuration from environment variables
-const RAW_BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://localhost:3001";
-const API_PREFIX = process.env.REACT_APP_API_PREFIX || "/api";
-
-// Debug logging in development
-if (process.env.NODE_ENV === 'development') {
-  console.log('[API] baseURL:', `${RAW_BASE_URL}${API_PREFIX}`, 
-              '(RAW:', RAW_BASE_URL, 'PREFIX:', API_PREFIX, ')');
-}
-
+// :red_circle: Static backend base URL (replace with your active pod if it changes)
+const RAW_BASE_URL = "https://vscode-internal-31347-beta.beta01.cloud.kavia.ai:3001";
+const API_PREFIX = "/api";
 // Combine base + prefix safely
 function joinUrl(base, path) {
   if (!base) return path || "";

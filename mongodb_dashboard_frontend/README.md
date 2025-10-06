@@ -28,18 +28,6 @@ Modern, modular React dashboard styled with the "Ocean Professional" theme to ma
 
 App will run at http://localhost:3000 (or your environment preview URL)
 
-Troubleshooting dev server termination (exit 143/SIGTERM) in preview
-- In some preview systems the CRA dev server can be terminated by the supervisor if it isn’t reachable externally or the websocket cannot connect.
-- Fix by creating .env.development with:
-  HOST=0.0.0.0
-  PORT=3000
-  BROWSER=none
-  WDS_SOCKET_HOST=0.0.0.0
-  WDS_SOCKET_PORT=3000
-  WDS_SOCKET_PATH=/ws
-  DANGEROUSLY_DISABLE_HOST_CHECK=true
-- These settings ensure the dev server binds to all interfaces and the client websocket connects successfully via the preview/proxy.
-
 ### Verify backend connectivity
 - The API base URL is resolved as: ${REACT_APP_API_BASE_URL}${REACT_APP_API_PREFIX}
 - In development, the console prints:
