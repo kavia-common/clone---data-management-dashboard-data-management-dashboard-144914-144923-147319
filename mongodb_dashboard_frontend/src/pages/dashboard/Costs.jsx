@@ -38,7 +38,7 @@ export default function Costs() {
     []
   );
   const currencyFieldHints = useMemo(
-    () => new Set(["total_cost", "cost", "organization_cost", "user_cost", "project_cost"]),
+    () => new Set(["total_cost", "cost", "organization_cost"]),
     []
   );
   const numericPrettyHints = useMemo(
@@ -180,41 +180,6 @@ export default function Costs() {
     return renderText(value);
   }
 
-  // Allowed keys for Costs detail view
-  const COST_ALLOWED_KEYS = ["user_cost", "type", "project_cost", "agent_name", "total_cost"];
-
-  // Map various possible field names to the canonical keys for the DetailsViewer
-  function extractCostDetails(source) {
-    const pickFirst = (obj, keys) => {
-      for (const k of keys) {
-        if (obj && Object.prototype.hasOwnProperty.call(obj, k) && obj[k] != null) return obj[k];
-      }
-      return undefined;
-    };
-    const obj = source || {};
-    return {
-      user_cost: pickFirst(obj, ["user_cost", "userCost", "user_total_cost", "userTotalCost", "user_cost_usd"]),
-      type: pickFirst(obj, ["type", "event_type", "service_type", "record_type"]),
-      project_cost: pickFirst(obj, ["project_cost", "projectCost", "organization_cost", "org_cost", "project_total_cost"]),
-      agent_name: pickFirst(obj, ["agent_name", "agentName", "agent", "worker_name", "workerName"]),
-      total_cost: pickFirst(obj, ["total_cost", "totalCost", "cost"]),
-      // Pass-through currency hint so DetailsViewer can format properly (not shown unless allowed)
-      currency: pickFirst(obj, ["currency", "credits_unit", "cost_currency", "unit"]) || "USD",
-    };
-  }
-
-  function looksLikeCostRecord(obj) {
-    if (!obj || typeof obj !== "object") return false;
-    const candidates = new Set([
-      "user_cost", "userCost", "user_total_cost", "userTotalCost", "user_cost_usd",
-      "type", "event_type", "service_type", "record_type",
-      "project_cost", "projectCost", "organization_cost", "org_cost", "project_total_cost",
-      "agent_name", "agentName", "agent", "worker_name", "workerName",
-      "total_cost", "totalCost", "cost",
-    ]);
-    return Object.keys(obj).some((k) => candidates.has(k));
-  }
-
   function buildColumnsFromSample(rows = []) {
     const sample = rows[0] || {};
     const preferredOrder = [
@@ -343,11 +308,6 @@ export default function Costs() {
           fetchPage={async (page, limit) => {
             await load(page, limit);
           }}
-          onRowClick={(row) => {
-            // Build and show cost details for the clicked row
-            const details = extractCostDetails(row || {});
-            openInspector("Cost details", details);
-          }}
           paginationTitle="Cost records pages"
         />
       </Card>
@@ -359,25 +319,26 @@ export default function Costs() {
         onClose={closeInspector}
         headerOffset={60}
       >
-        {(() => {
-          const allowed = COST_ALLOWED_KEYS;
-          let dataForViewer = inspectPayload;
-
-          // If the inspect payload appears to be a cost record or we explicitly passed a row, normalize to the 5-field details object
-          if (looksLikeCostRecord(inspectPayload)) {
-            dataForViewer = extractCostDetails(inspectPayload || {});
-          }
-
-          return (
-            <DetailsViewer
-              data={dataForViewer}
-              title={inspectTitle || "Cost details"}
-              allowedKeys={looksLikeCostRecord(inspectPayload) ? allowed : undefined}
-              highlightKeys={allowed}
-              collapsedDepth={1}
-            />
-          );
-        })()}
+        <DetailsViewer
+          data={inspectPayload}
+          title={inspectTitle || "Cost details"}
+          highlightKeys={[
+            "timestamp",
+            "model",
+            "llm_model",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "currency",
+            "cost",
+            "total_cost",
+            "project",
+            "project_id",
+            "user",
+            "user_id",
+          ]}
+          collapsedDepth={1}
+        />
       </Modal>
 
       {/* Structured costs modal removed */}
@@ -385,4 +346,19 @@ export default function Costs() {
   );
 }
 
-
+/**
+ * PUBLIC_INTERFACE
+ * Pretty print helper for modal payload display.
+ */
+function safePretty(payload) {
+  try {
+    if (typeof payload === "string") return payload;
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    try {
+      return String(payload);
+    } catch {
+      return "Unable to render payload";
+    }
+  }
+}
