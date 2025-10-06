@@ -12,6 +12,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "start:port3000": "cross-env PORT=3000 HOST=0.0.0.0 BROWSER=none react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
