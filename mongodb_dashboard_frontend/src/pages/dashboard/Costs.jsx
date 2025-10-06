@@ -3,7 +3,7 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import DetailsViewer from "../../components/common/DetailsViewer.jsx";
-import { formatUsdUpTo8 } from "../../components/utils/numberFormat";
+import { formatCurrencyAmount } from "../../utils/formatCurrency";
 import { listLlmCosts } from "../../api/client";
 
 /**
@@ -86,7 +86,7 @@ export default function Costs() {
   const renderNumber = (value, key) => {
     if (value == null || value === "") return "—";
     if (currencyFieldHints.has(key) && typeof value === "number") {
-      const txt = formatUsdUpTo8(value);
+      const txt = formatCurrencyAmount(value, { currency: "USD" });
       return (
         <span className="amount-positive" title={txt} style={{ whiteSpace: "nowrap" }}>
           {txt}

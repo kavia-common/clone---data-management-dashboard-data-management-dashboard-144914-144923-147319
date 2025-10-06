@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback } from "react";
-import { formatCurrency, formatUsdUpTo8 } from "../../components/utils/numberFormat";
+import { formatCurrencyAmount } from "../../utils/formatCurrency";
 
 /**
  * PUBLIC_INTERFACE
@@ -130,13 +130,9 @@ export default function DetailsViewer({
           currencyHint ||
           "USD";
         try {
-          // Prefer USD up to 8 decimals if currency is USD, otherwise Intl currency.
-          if ((cur || "").toUpperCase() === "USD") {
-            return formatUsdUpTo8(value);
-          }
-          return formatCurrency(value, cur);
+          return formatCurrencyAmount(value, { currency: cur });
         } catch {
-          return formatUsdUpTo8(value);
+          return formatCurrencyAmount(value, { currency: "USD" });
         }
       }
       if (isDurationLike(key)) {
