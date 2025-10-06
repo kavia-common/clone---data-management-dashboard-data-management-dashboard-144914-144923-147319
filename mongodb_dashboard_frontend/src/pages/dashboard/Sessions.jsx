@@ -3,6 +3,8 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import { listSessions } from "../../api/client";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
+import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
+import SessionsByType from "../../components/charts/SessionsByType.jsx";
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
@@ -57,6 +59,71 @@ export default function Sessions() {
 
   const [columns, setColumns] = useState(buildRestrictedColumns([]));
 
+  // Aggregates for charts
+  const [aggLoading, setAggLoading] = useState(false);
+  const [aggError, setAggError] = useState("");
+  const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
+  const [byType, setByType] = useState([]); // [{ session_type, session_count }]
+
+  async function loadAggregates(qStr = "") {
+    /**
+     * Fetch sessions data across multiple pages (capped) and build client-side aggregates
+     * for charts: by organization_name and by session_type.
+     */
+    setAggLoading(true);
+    setAggError("");
+    try {
+      const limit = 200;
+      const maxPages = 10;
+      let page = 1;
+      const all = [];
+      while (page <= maxPages) {
+        const res = await listSessions({ page, limit, q: qStr });
+        const arr = Array.isArray(res?.items) ? res.items : [];
+        all.push(...arr);
+        if (arr.length < limit) break;
+        page += 1;
+      }
+
+      // Aggregate by organization
+      const orgCounts = new Map();
+      all.forEach((it) => {
+        let org =
+          it?.organization_name ||
+          it?.organization?.name ||
+          it?.tenant_id ||
+          "";
+        org = String(org || "").trim();
+        if (!org) org = "Unknown";
+        orgCounts.set(org, (orgCounts.get(org) || 0) + 1);
+      });
+      const orgArr = Array.from(orgCounts.entries())
+        .map(([organization_name, session_count]) => ({ organization_name, session_count }))
+        .sort((a, b) => b.session_count - a.session_count);
+
+      // Aggregate by type
+      const typeCounts = new Map();
+      all.forEach((it) => {
+        let t = it?.session_type || it?.type || it?.service_type || "";
+        t = String(t || "").trim();
+        if (!t) t = "Unknown";
+        typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
+      });
+      const typeArr = Array.from(typeCounts.entries())
+        .map(([session_type, session_count]) => ({ session_type, session_count }))
+        .sort((a, b) => b.session_count - a.session_count);
+
+      setByOrg(orgArr);
+      setByType(typeArr);
+    } catch (e) {
+      setByOrg([]);
+      setByType([]);
+      setAggError(e?.response?.data?.message || e?.message || "Failed to load session aggregates.");
+    } finally {
+      setAggLoading(false);
+    }
+  }
+
   // PUBLIC_INTERFACE
   async function load(page = 1, limit = meta.limit || 10, qStr = "") {
     /** Load sessions from server with pagination and optional query string. */
@@ -90,14 +157,18 @@ export default function Sessions() {
   // Initial load
   useEffect(() => {
     load(1, meta.limit || 10, "");
+    loadAggregates("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Debounced server-side search on query change
   useEffect(() => {
     const handle = setTimeout(() => {
+      const q = (query || "").trim();
       // Reset to first page when searching
-      load(1, meta.limit || 10, (query || "").trim());
+      load(1, meta.limit || 10, q);
+      // Sync charts to the same query
+      loadAggregates(q);
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,6 +211,37 @@ export default function Sessions() {
         session={selectedSession}
       />
 
+      {/* Charts row */}
+      <div className="grid" role="region" aria-label="Session insights">
+        <Card
+          className="col-span-6 chart-card"
+          title="Sessions by Organization"
+          subtitle="Count of sessions per organization"
+        >
+          <div className="chart-wrapper" style={{ height: 320 }}>
+            <SessionsByOrganization
+              data={byOrg}
+              loading={aggLoading}
+              error={aggError}
+            />
+          </div>
+        </Card>
+        <Card
+          className="col-span-6 chart-card"
+          title="Sessions by Type"
+          subtitle="Count of sessions per type"
+        >
+          <div className="chart-wrapper" style={{ height: 320 }}>
+            <SessionsByType
+              data={byType}
+              loading={aggLoading}
+              error={aggError}
+            />
+          </div>
+        </Card>
+      </div>
+
+      {/* Existing table card remains below charts */}
       <Card title="Session Tracking" subtitle="Search across the full dataset">
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
