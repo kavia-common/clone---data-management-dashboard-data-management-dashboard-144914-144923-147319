@@ -337,7 +337,6 @@ export default function Costs() {
             "user",
             "user_id",
           ]}
-          allowedKeys={["user_cost", "type", "project_cost", "agent_name", "total_cost"]}
           collapsedDepth={1}
         />
       </Modal>
