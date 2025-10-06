@@ -319,26 +319,33 @@ export default function Costs() {
         onClose={closeInspector}
         headerOffset={60}
       >
-        <DetailsViewer
-          data={inspectPayload}
-          title={inspectTitle || "Cost details"}
-          highlightKeys={[
-            "timestamp",
-            "model",
-            "llm_model",
-            "prompt_tokens",
-            "completion_tokens",
-            "total_tokens",
-            "currency",
-            "cost",
-            "total_cost",
-            "project",
-            "project_id",
-            "user",
-            "user_id",
-          ]}
-          collapsedDepth={1}
-        />
+        {(() => {
+          const allowed = ["user_cost", "type", "project_cost", "agent_name", "total_cost"];
+          const filterAllowedFields = (payload) => {
+            if (Array.isArray(payload)) {
+              return payload.map((item) => filterAllowedFields(item));
+            }
+            if (payload && typeof payload === "object") {
+              const out = {};
+              allowed.forEach((k) => {
+                if (Object.prototype.hasOwnProperty.call(payload, k)) {
+                  out[k] = payload[k];
+                }
+              });
+              return out;
+            }
+            return payload;
+          };
+          const filtered = filterAllowedFields(inspectPayload);
+          return (
+            <DetailsViewer
+              data={filtered}
+              title={inspectTitle || "Cost details"}
+              highlightKeys={allowed}
+              collapsedDepth={1}
+            />
+          );
+        })()}
       </Modal>
 
       {/* Structured costs modal removed */}
@@ -346,19 +353,4 @@ export default function Costs() {
   );
 }
 
-/**
- * PUBLIC_INTERFACE
- * Pretty print helper for modal payload display.
- */
-function safePretty(payload) {
-  try {
-    if (typeof payload === "string") return payload;
-    return JSON.stringify(payload, null, 2);
-  } catch {
-    try {
-      return String(payload);
-    } catch {
-      return "Unable to render payload";
-    }
-  }
-}
+

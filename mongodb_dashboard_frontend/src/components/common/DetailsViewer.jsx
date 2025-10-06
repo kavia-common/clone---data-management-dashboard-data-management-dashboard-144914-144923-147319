@@ -11,7 +11,7 @@ import { formatCurrencyAmount } from "../../utils/formatCurrency";
  * - Nested objects/arrays are collapsible with proper a11y (aria-expanded, keyboard navigable)
  * - Known fields (timestamps, tokens, currency, cost, duration) are formatted
  * - Unknown keys are handled gracefully
- * - Raw JSON toggle with copy-to-clipboard
+
  *
  * Props:
  * - data: object|array|string (required) - Data to render
@@ -25,8 +25,6 @@ export default function DetailsViewer({
   highlightKeys = [],
   collapsedDepth = 1,
 }) {
-  const [showRaw, setShowRaw] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [openMap, setOpenMap] = useState(() => new Map()); // path => boolean
 
   const currencyHint = useMemo(() => {
@@ -51,30 +49,8 @@ export default function DetailsViewer({
     });
   }, []);
 
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(safePretty(data));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1300);
-    } catch {
-      // no-op
-    }
-  }, [data]);
 
-  // PUBLIC_INTERFACE
-  function safePretty(payload) {
-    /** Returns JSON.stringify with fallback. */
-    try {
-      if (typeof payload === "string") return payload;
-      return JSON.stringify(payload, null, 2);
-    } catch {
-      try {
-        return String(payload);
-      } catch {
-        return "Unable to render payload";
-      }
-    }
-  }
+
 
   function toLabel(key) {
     if (!key && key !== 0) return "";
@@ -124,7 +100,7 @@ export default function DetailsViewer({
       if (isTokenLike(key)) {
         return value.toLocaleString();
       }
-      if (/^(total_cost|cost|organization_cost|price)$/i.test(key)) {
+      if (/^(total_cost|cost|organization_cost|price|user_cost|project_cost)$/i.test(key)) {
         const cur =
           (rootData && (rootData.currency || rootData.credits_unit || rootData.cost_currency)) ||
           currencyHint ||
@@ -323,43 +299,22 @@ export default function DetailsViewer({
             </div>
           ) : null}
         </div>
-        <div className="dv-actions">
-          <button
-            className="btn btn-secondary"
-            onClick={() => setShowRaw((s) => !s)}
-            aria-pressed={showRaw}
-            title={showRaw ? "Show formatted view" : "Show raw JSON"}
-          >
-            {showRaw ? "Formatted view" : "Raw JSON"}
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleCopy}
-            aria-label="Copy raw JSON to clipboard"
-            title="Copy raw JSON"
-          >
-            {copied ? "Copied" : "Copy JSON"}
-          </button>
-        </div>
+
       </div>
 
-      {!showRaw ? (
-        <div className="dv-body">
-          {data == null ? (
-            <div className="dv-empty muted">No data</div>
-          ) : typeof data === "object" ? (
-            Array.isArray(data) ? (
-              renderNode(data, "root", 0, data)
-            ) : (
-              renderEntries(data, "root", 0, data)
-            )
+      <div className="dv-body">
+        {data == null ? (
+          <div className="dv-empty muted">No data</div>
+        ) : typeof data === "object" ? (
+          Array.isArray(data) ? (
+            renderNode(data, "root", 0, data)
           ) : (
-            <div className="dv-primitive">{String(data)}</div>
-          )}
-        </div>
-      ) : (
-        <pre className="dv-raw" aria-label="Raw JSON">{safePretty(data)}</pre>
-      )}
+            renderEntries(data, "root", 0, data)
+          )
+        ) : (
+          <div className="dv-primitive">{String(data)}</div>
+        )}
+      </div>
 
       <style>{`
         .details-viewer {
@@ -383,7 +338,7 @@ export default function DetailsViewer({
           font-weight: 700;
           color: var(--text-primary);
         }
-        .dv-actions { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
         .dv-highlights { display: inline-flex; gap: 8px; flex-wrap: wrap; }
         .dv-chip {
           background: var(--badge-bg);
@@ -480,16 +435,7 @@ export default function DetailsViewer({
         }
         .dv-array-body { min-width: 0; }
 
-        .dv-raw {
-          margin: 0;
-          padding: 16px;
-          background: #0b1020;
-          color: #e6edf3;
-          border-radius: 0;
-          font-size: 12px;
-          line-height: 1.4;
-          overflow: auto;
-        }
+
 
         .dv-empty { padding: 8px 0; }
       `}</style>
