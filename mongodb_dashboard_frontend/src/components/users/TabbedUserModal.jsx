@@ -12,15 +12,9 @@ import { useUserProjects } from '../../hooks/useUserProjects';
  * 2x2 responsive grid with Ocean Professional styling and neutral divider.
  * Fields: Name | Email (row 1), Role | Tenant (row 2).
  */
-import { getUserCosts, getUserProjectsCosts as getUserProjectsCostsApi } from '../../api/client';
-
-/**
- * Extended details with cost breakdowns
- */
-function UserDetailsView({ user, userCosts }) {
+function UserDetailsView({ user }) {
   if (!user) return <div className="text-gray-500">No user selected</div>;
 
-  // Derive fields with fallbacks
   const name =
     user?.name ||
     user?.full_name ||
@@ -40,21 +34,6 @@ function UserDetailsView({ user, userCosts }) {
     user?.organization_id ??
     '';
 
-  // Costs
-  const totalCost = userCosts?.total_cost ?? 0;
-  const currency = userCosts?.currency || 'USD';
-  const byType = userCosts?.by_type || [];
-  const byAgent = userCosts?.by_agent || [];
-
-  const money = (v) => {
-    try {
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(v || 0));
-    } catch {
-      return `$${Number(v || 0).toFixed(4)}`;
-    }
-  };
-
-  // Card-like surface for details with theme-consistent styles
   return (
     <section
       aria-label="User details"
@@ -184,75 +163,6 @@ function UserDetailsView({ user, userCosts }) {
           </div>
         </div>
       </div>
-
-      {/* Cost summary */}
-      <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
-        <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
-          Total Cost: {money(totalCost)}
-        </div>
-
-        {/* By type */}
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 6 }}>
-            Cost by type
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {byType.length === 0 ? (
-              <span style={{ color: 'var(--text-secondary)' }}>No type breakdown</span>
-            ) : (
-              byType.map((t, i) => (
-                <span
-                  key={`${t?.type || 'unknown'}-${i}`}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: '#F8FAFC',
-                    border: '1px solid var(--border-subtle, #E6EAF0)',
-                    borderRadius: 9999,
-                    padding: '6px 10px',
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  {String(t?.type || 'unknown')}: {money(t?.total_cost || 0)}
-                </span>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* By agent */}
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: 6 }}>
-            Cost by agent
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {byAgent.length === 0 ? (
-              <span style={{ color: 'var(--text-secondary)' }}>No agent breakdown</span>
-            ) : (
-              byAgent.map((a, i) => (
-                <span
-                  key={`${a?.agent_name || 'unknown'}-${i}`}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: '#F8FAFC',
-                    border: '1px solid var(--border-subtle, #E6EAF0)',
-                    borderRadius: 9999,
-                    padding: '6px 10px',
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  {String(a?.agent_name || 'unknown')}: {money(a?.total_cost || 0)}
-                </span>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
     </section>
   );
 }
@@ -263,34 +173,10 @@ UserDetailsView.propTypes = {
 
 /**
  * Internal presentational view for user projects
- * Wraps lists/tables with horizontal scrolling when needed.
- * Fits the new padding and scrollable panel constraints.
  */
 function UserProjectsView({ userId, tenantId, from, to }) {
   const enabled = Boolean(userId && tenantId);
   const { projects, loading, error, refetch } = useUserProjects({ userId, tenantId, from, to, enabled });
-  const [costs, setCosts] = React.useState({ userId: '', projects: [] });
-  const [costsLoading, setCostsLoading] = React.useState(false);
-  const [costsError, setCostsError] = React.useState('');
-
-  useEffect(() => {
-    let active = true;
-    async function loadCosts() {
-      if (!enabled) return;
-      setCostsLoading(true);
-      setCostsError('');
-      try {
-        const res = await getUserProjectsCostsApi(userId);
-        if (active) setCosts(res || { userId: String(userId), projects: [] });
-      } catch (e) {
-        if (active) setCostsError(e?.message || 'Failed to load project costs');
-      } finally {
-        if (active) setCostsLoading(false);
-      }
-    }
-    loadCosts();
-    return () => { active = false; };
-  }, [userId, enabled]);
 
   if (!enabled) {
     return <div className="text-gray-500">Select a user with a valid tenant to view projects.</div>;
@@ -312,26 +198,10 @@ function UserProjectsView({ userId, tenantId, from, to }) {
   }
 
   const list = projects || [];
-  const costsByProject = new Map(
-    (costs?.projects || []).map((p) => [String(p.projectId), p])
-  );
 
-  // Small presentational component to render each project card
   const ProjectCard = ({ project }) => {
     const id = project?.project_id || project?.projectId || project?._id || project?.id || '—';
-    const name =
-      project?.name ||
-      project?.project_name ||
-      project?.projectName ||
-      '—';
-    const projectIdForCosts = String(id);
-    const costInfo = costsByProject.get(projectIdForCosts);
-    const projectCost = costInfo?.project_cost ?? 0;
-    const agents = costInfo?.agents || [];
-    const money = (v) => {
-      try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(Number(v || 0)); }
-      catch { return `$${Number(v || 0).toFixed(4)}`; }
-    };
+    const name = project?.name || project?.project_name || project?.projectName || '—';
     const status = project?.status || project?.state || '';
     const desc = project?.description || project?.project_description || '';
     const created = project?.createdAt || project?.created_at || '';
@@ -343,7 +213,6 @@ function UserProjectsView({ userId, tenantId, from, to }) {
       try { return new Date(val).toLocaleString(); } catch { return String(val); }
     };
 
-    // Card styles matching Ocean Professional theme
     const cardStyle = {
       background: 'var(--bg-surface, #ffffff)',
       border: '1px solid var(--border-subtle, #e5e7eb)',
@@ -355,7 +224,7 @@ function UserProjectsView({ userId, tenantId, from, to }) {
 
     const gridStyle = {
       display: 'grid',
-      gridTemplateColumns: '220px 1fr', // left fixed, right flexible
+      gridTemplateColumns: '220px 1fr',
       gap: 16,
     };
 
@@ -371,18 +240,10 @@ function UserProjectsView({ userId, tenantId, from, to }) {
         aria-label={`Project ${id}`}
         tabIndex={0}
         style={cardStyle}
-        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))'; }}
-        onMouseDown={(e) => { e.currentTarget.style.transform = 'translateY(1px)'; }}
-        onMouseUp={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
-        onFocus={(e) => { e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.28)'; }}
-        onBlur={(e) => { e.currentTarget.style.boxShadow = 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))'; }}
       >
-        {/* Responsive two-column layout: switch to 1-col on small screens via inline match */}
         <div
           style={window?.matchMedia && window.matchMedia('(max-width: 640px)').matches ? gridStyleMobile : gridStyle}
         >
-          {/* Left column: Project ID pill with label */}
           <div>
             <div
               style={{
@@ -391,7 +252,6 @@ function UserProjectsView({ userId, tenantId, from, to }) {
                 color: 'var(--text-tertiary, #64748B)',
                 letterSpacing: '.02em',
                 marginBottom: 6,
-                textTransform: 'none',
               }}
             >
               Project ID
@@ -406,21 +266,14 @@ function UserProjectsView({ userId, tenantId, from, to }) {
                 border: '1px solid var(--border-subtle, #E6EAF0)',
                 borderRadius: 9999,
                 padding: '6px 10px',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                fontFamily: 'ui-monospace, monospace',
                 fontWeight: 600,
-                maxWidth: '100%',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
               }}
-              title={String(id)}
-              aria-label={`Project ID ${id}`}
             >
               {String(id)}
             </div>
           </div>
 
-          {/* Right column: key fields as labeled rows */}
           <dl
             style={{
               display: 'grid',
@@ -428,81 +281,35 @@ function UserProjectsView({ userId, tenantId, from, to }) {
               rowGap: 8,
               columnGap: 12,
               alignItems: 'center',
-              minWidth: 0,
             }}
           >
-            {status ? (
+            {status && (
               <>
-                <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Status</dt>
-                <dd style={{ margin: 0 }}>
-                  <span className="status-badge" aria-label={`Status ${status}`}>{String(status)}</span>
-                </dd>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Status</dt>
+                <dd style={{ margin: 0 }}>{String(status)}</dd>
               </>
-            ) : null}
+            )}
 
-            {desc ? (
+            {desc && (
               <>
-                <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Description</dt>
-                <dd
-                  style={{
-                    margin: 0,
-                    color: 'var(--text-secondary, #475569)',
-                    whiteSpace: 'normal',
-                    overflowWrap: 'anywhere',
-                  }}
-                >
-                  {String(desc)}
-                </dd>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Description</dt>
+                <dd style={{ margin: 0, color: 'var(--text-secondary)' }}>{String(desc)}</dd>
               </>
-            ) : null}
+            )}
 
-            {created ? (
+            {created && (
               <>
-                <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Created</dt>
-                <dd style={{ margin: 0, color: 'var(--text-secondary, #475569)' }}>{safeDate(created)}</dd>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Created</dt>
+                <dd style={{ margin: 0, color: 'var(--text-secondary)' }}>{safeDate(created)}</dd>
               </>
-            ) : null}
+            )}
 
-            {(updated || last) ? (
+            {(updated || last) && (
               <>
-                <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Updated</dt>
-                <dd style={{ margin: 0, color: 'var(--text-secondary, #475569)' }}>
-                  {safeDate(updated || last)}
-                </dd>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Updated</dt>
+                <dd style={{ margin: 0, color: 'var(--text-secondary)' }}>{safeDate(updated || last)}</dd>
               </>
-            ) : null}
-
-            {/* Costs */}
-            <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>Project Cost</dt>
-            <dd style={{ margin: 0, color: 'var(--text-primary)' }}>{money(projectCost)}</dd>
-
-            {agents && agents.length > 0 ? (
-              <>
-                <dt style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600 }}>By Agent</dt>
-                <dd style={{ margin: 0 }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {agents.map((a, i) => (
-                      <span
-                        key={`${a?.agent_name || 'unknown'}-${i}`}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          background: '#F8FAFC',
-                          border: '1px solid var(--border-subtle, #E6EAF0)',
-                          borderRadius: 9999,
-                          padding: '6px 10px',
-                          fontSize: 12,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {String(a?.agent_name || 'unknown')}: {money(a?.total_cost || 0)}
-                      </span>
-                    ))}
-                  </div>
-                </dd>
-              </>
-            ) : null}
+            )}
           </dl>
         </div>
       </div>
@@ -512,21 +319,14 @@ function UserProjectsView({ userId, tenantId, from, to }) {
   return (
     <div role="list" aria-label="User projects list" style={{ display: 'grid', gap: 12 }}>
       {list.length === 0 && (
-        <div
-          className="table-empty"
-          role="note"
-          style={{ color: 'var(--text-tertiary)', background: 'transparent' }}
-        >
+        <div className="table-empty" style={{ color: 'var(--text-tertiary)' }}>
           No projects found for this user.
         </div>
       )}
-
-      {/* Scroll safety is provided by the modal's content area; ensure min width for inner layout */}
       <div style={{ display: 'grid', gap: 12, minWidth: 320 }}>
-        {list.map((p, idx) => {
-          const key = p?.project_id || p?.projectId || p?._id || idx;
-          return <ProjectCard key={key} project={p} />;
-        })}
+        {list.map((p, idx) => (
+          <ProjectCard key={p?.project_id || p?._id || idx} project={p} />
+        ))}
       </div>
     </div>
   );
@@ -542,23 +342,16 @@ UserProjectsView.propTypes = {
 /**
  * PUBLIC_INTERFACE
  * TabbedUserModal
- * A single modal that combines user details and user projects into two tabs.
- * - Styled tabs with Ocean Professional colors and active underline (neutral)
- * - Sticky header and tab bar; scroll only the content
- * - Comfortable padding and full-width red Close button
- * - Semi-transparent backdrop to focus attention
  */
-// PUBLIC_INTERFACE
 export default function TabbedUserModal({
   open,
   onClose,
   user,
   tenantId,
   defaultTab = 'details',
-  from = undefined,
-  to = undefined,
+  from,
+  to,
 }) {
-  // Keep internal tab state synced to defaultTab whenever the modal opens
   const [activeTab, setActiveTab] = useState(defaultTab);
   useEffect(() => {
     if (open) setActiveTab(defaultTab);
@@ -566,7 +359,6 @@ export default function TabbedUserModal({
 
   const userId = useMemo(() => user?._id || user?.id || '', [user]);
 
-  // Tabs with theme-aware labels
   const tabs = useMemo(
     () => [
       { key: 'details', label: 'User Details' },
@@ -575,51 +367,11 @@ export default function TabbedUserModal({
     []
   );
 
-  const title = useMemo(() => {
-    if (!user) return 'User';
-    return user?.name || user?.full_name || user?.email || 'User';
-  }, [user]);
+  const title = useMemo(() => user?.name || user?.full_name || user?.email || 'User', [user]);
 
-  // Load user costs when details tab is active or when user changes
-  const [userCosts, setUserCosts] = useState(null);
-  const [userCostsLoading, setUserCostsLoading] = useState(false);
-  const [userCostsError, setUserCostsError] = useState('');
-
-  useEffect(() => {
-    let active = true;
-    async function loadCosts() {
-      if (!user?._id && !user?.id) {
-        setUserCosts(null);
-        return;
-      }
-      setUserCostsLoading(true);
-      setUserCostsError('');
-      try {
-        const res = await getUserCosts(user?._id || user?.id);
-        if (active) setUserCosts(res);
-      } catch (e) {
-        if (active) setUserCostsError(e?.message || 'Failed to load user costs');
-      } finally {
-        if (active) setUserCostsLoading(false);
-      }
-    }
-    loadCosts();
-    return () => { active = false; };
-  }, [user?._id, user?.id]);
-
-  // Custom tab renderer to apply requested theme (active/inactive/hover)
   function ThemedTabs({ activeKey, onChange }) {
     return (
-      <div
-        role="tablist"
-        aria-label="User info tabs"
-        style={{
-          display: "flex",
-          gap: 8,
-          borderBottom: "1px solid var(--border-subtle)",
-          paddingBottom: 4,
-        }}
-      >
+      <div role="tablist" style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--border-subtle)" }}>
         {tabs.map((t) => {
           const isActive = String(activeKey) === String(t.key);
           return (
@@ -629,43 +381,18 @@ export default function TabbedUserModal({
               role="tab"
               aria-selected={isActive}
               onClick={() => onChange(t.key)}
-              title={t.label}
               style={{
                 appearance: "none",
                 border: "none",
-                background: isActive ? "rgba(15, 23, 42, 0.04)" : "transparent", // neutral subtle tint
-                color: isActive ? "var(--text-primary, #111827)" : "var(--text-secondary, #475569)",
+                background: isActive ? "rgba(15,23,42,0.04)" : "transparent",
+                color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
                 fontWeight: isActive ? 700 : 600,
                 padding: "8px 12px",
                 borderRadius: 8,
                 cursor: "pointer",
-                outline: "none",
-                position: "relative",
-                transition: "background .15s ease, color .15s ease",
-              }}
-              onMouseEnter={(e) => {
-                if (!isActive) e.currentTarget.style.background = "rgba(15,23,42,0.05)";
-                e.currentTarget.style.color = "var(--text-primary, #111827)";
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = isActive ? "var(--text-primary, #111827)" : "var(--text-secondary, #475569)";
               }}
             >
               {t.label}
-              <span
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  left: 8,
-                  right: 8,
-                  bottom: -5,
-                  height: 2,
-                  background: isActive ? "var(--border-subtle, #E5E7EB)" : "transparent",
-                  borderRadius: 2,
-                  transition: "background .15s ease",
-                }}
-              />
             </button>
           );
         })}
@@ -675,37 +402,21 @@ export default function TabbedUserModal({
 
   return (
     <Modal title={title} open={open} onClose={onClose}>
-      {/* Sticky tabs header inside modal content; body scrolls */}
       <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "#fff" }}>
         <div style={{ padding: "12px 20px" }}>
           <ThemedTabs activeKey={activeTab} onChange={setActiveTab} />
         </div>
       </div>
 
-      {/* Scrollable body area */}
-      <div role="region" aria-label="Tab content" style={{ flex: 1, minHeight: 0, overflow: "auto", background: "#f9fafb" }} tabIndex={0}>
+      <div role="region" style={{ flex: 1, overflow: "auto", background: "#f9fafb" }}>
         <div style={{ padding: 20 }}>
-          {activeTab === 'details' && (
-            <div style={{ display: "grid", gap: 16 }}>
-              {userCostsLoading ? (
-                <div className="table-empty">Loading user costs…</div>
-              ) : userCostsError ? (
-                <div className="error" role="alert">{userCostsError}</div>
-              ) : (
-                <UserDetailsView user={user} userCosts={userCosts} />
-              )}
-            </div>
-          )}
-
+          {activeTab === 'details' && <UserDetailsView user={user} />}
           {activeTab === 'projects' && (
-            <div style={{ display: "grid", gap: 16 }}>
-              <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
-            </div>
+            <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
           )}
         </div>
       </div>
 
-      {/* Footer action */}
       <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "#fff" }}>
         <button
           type="button"
@@ -719,17 +430,7 @@ export default function TabbedUserModal({
             padding: "10px 14px",
             fontWeight: 700,
             cursor: "pointer",
-            boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
-            transition: "background .15s ease, transform .05s ease",
           }}
-          onMouseDown={(e) => { e.currentTarget.style.transform = "translateY(1px)"; }}
-          onMouseUp={(e) => { e.currentTarget.style.transform = "translateY(0)"; }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "#dc2626"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "#EF4444"; }}
-          onFocus={(e) => { e.currentTarget.style.outline = "3px solid rgba(239,68,68,0.35)"; e.currentTarget.style.outlineOffset = "2px"; }}
-          onBlur={(e) => { e.currentTarget.style.outline = "none"; }}
-          aria-label="Close"
-          title="Close"
         >
           Close
         </button>
