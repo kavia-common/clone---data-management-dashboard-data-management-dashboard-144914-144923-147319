@@ -217,7 +217,7 @@ function useNormalizedAgent(agent) {
  */
 export default function AgentDetailsModal({ open, onClose, agentId, agentName }) {
   // Redesigned v2 - Add defensive logging to confirm component renders
-  console.debug('[AgentDetailsModal] redesigned render', { open, agentId });
+  console.debug('[AgentDetailsModal REDESIGNED] mounted', { open, agentId, agentName });
   
   const [agent, setAgent] = useState(null);
   const [loading, setLoading] = useState(false);
