@@ -160,6 +160,7 @@ AgentHorizontalScroller.propTypes = {
 /**
  * Normalize the agent object into a consistent shape for presentation.
  * This is memoized to avoid unnecessary recalculations.
+ * Updated to focus only on the required fields: Cost, User Id, Projects, Type, User Cost
  */
 function useNormalizedAgent(agent) {
   return useMemo(() => {
@@ -174,34 +175,40 @@ function useNormalizedAgent(agent) {
       agent.identifier || 
       null;
 
+    // Required fields for the restricted modal
+    const totalCost = agent.total_cost || agent.totalCost || agent.cost || null;
+    const userId = agent.user_id || agent.userId || agent.user?.id || null;
     const type = agent.type || agent.agentType || agent.category || null;
-    const version = agent.version || agent.agentVersion || null;
-    const status = agent.status || agent.state || null;
+    const userCost = agent.user_cost || agent.userCost || agent.metadata?.user_cost || null;
     
-    const createdAt = agent.created_at || agent.createdAt || agent.timestamp || agent.created || null;
-    const updatedAt = agent.updated_at || agent.updatedAt || null;
-    const lastActive = agent.last_active || agent.lastActive || agent.lastActivityAt || null;
-    
-    const totalCost = agent.total_cost || agent.totalCost || agent.cost || 0;
-
-    // Extract metadata and tags
-    const metadata = agent.metadata || agent.meta || agent.details || null;
-    const tags = Array.isArray(agent.tags) ? agent.tags : 
-                 Array.isArray(agent.labels) ? agent.labels :
-                 Array.isArray(agent.keywords) ? agent.keywords : [];
+    // Projects - handle various formats
+    let projects = null;
+    if (agent.projects) {
+      if (Array.isArray(agent.projects)) {
+        projects = `${agent.projects.length} projects`;
+      } else if (typeof agent.projects === 'object') {
+        projects = JSON.stringify(agent.projects);
+      } else {
+        projects = String(agent.projects);
+      }
+    } else if (agent.project_count) {
+      projects = `${agent.project_count} projects`;
+    } else if (agent.metadata?.projects) {
+      if (Array.isArray(agent.metadata.projects)) {
+        projects = `${agent.metadata.projects.length} projects`;
+      } else {
+        projects = String(agent.metadata.projects);
+      }
+    }
 
     return {
       id,
       name,
       type,
-      version,
-      status,
-      createdAt,
-      updatedAt,
-      lastActive,
       totalCost,
-      tags,
-      metadata,
+      userId,
+      projects,
+      userCost,
       raw: agent,
     };
   }, [agent]);
@@ -216,8 +223,6 @@ function useNormalizedAgent(agent) {
  *   agentName: string - optional name for title fallback
  */
 export default function AgentDetailsModal({ open, onClose, agentId, agentName }) {
-  // Redesigned v2 - Add defensive logging to confirm component renders
-  console.debug('[AgentDetailsModal] redesigned render', { open, agentId });
   
   const [agent, setAgent] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -347,23 +352,23 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
   const titleText = normalized?.name || agentName || 'Agent Details';
   const initials = getInitials(normalized?.name || agentName);
 
-  // Build status chips data
+  // Build status chips data - simplified for required fields only
   const statusChips = useMemo(() => {
     const chips = [];
-    if (normalized?.lastActive) {
+    if (normalized?.totalCost != null) {
       chips.push({
-        label: 'Last Active',
-        value: safeFormatDate(normalized.lastActive),
-        icon: '🕒',
-        type: 'info'
-      });
-    }
-    if (normalized?.totalCost && normalized.totalCost > 0) {
-      chips.push({
-        label: 'Total Cost',
-        value: `$${normalized.totalCost.toFixed(4)}`,
+        label: 'Cost',
+        value: typeof normalized.totalCost === 'number' ? `$${normalized.totalCost.toFixed(4)}` : normalized.totalCost,
         icon: '💰',
         type: 'cost'
+      });
+    }
+    if (normalized?.userCost != null) {
+      chips.push({
+        label: 'User Cost',
+        value: typeof normalized.userCost === 'number' ? `$${normalized.userCost.toFixed(4)}` : normalized.userCost,
+        icon: '👤',
+        type: 'user-cost'
       });
     }
     return chips;
@@ -423,18 +428,15 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
   } else {
     bodyContent = (
       <>
-        {/* Agent Header */}
+        {/* Agent Header - Simplified */}
         <div className="agent-header">
           <div className="agent-avatar">
             <span className="agent-avatar-text">{initials}</span>
           </div>
           <div className="agent-header-info">
-            <h2 className="agent-name">
-              {normalized.name}
-              <span className="agent-details-version-badge">v2</span>
-            </h2>
+            <h2 className="agent-name">Agent Details</h2>
             <div className="agent-id-row">
-              <span className="agent-id">ID: {normalized.id}</span>
+              <span className="agent-id">ID: {normalized.id || 'N/A'}</span>
               <button
                 type="button"
                 className="agent-copy-btn"
@@ -450,12 +452,6 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
                 </span>
               )}
             </div>
-            {(normalized.type || normalized.version) && (
-              <div className="agent-badge">
-                {normalized.type && <span className="agent-type">{normalized.type}</span>}
-                {normalized.version && <span className="agent-version">v{normalized.version}</span>}
-              </div>
-            )}
           </div>
         </div>
 
@@ -474,16 +470,7 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
           </div>
         )}
 
-        {/* Tags Scroller */}
-        {tagItems.length > 0 && (
-          <div className="agent-section">
-            <h3 className="agent-section-title">Tags</h3>
-            <AgentHorizontalScroller
-              items={tagItems}
-              onItemClick={() => {/* Could filter content by tag */}}
-            />
-          </div>
-        )}
+
 
         {/* Tabs */}
         <div className="agent-tabs-container">
@@ -526,39 +513,38 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
             >
               <div className="agent-summary-grid">
                 <div className="agent-summary-card">
-                  <div className="agent-card-title">Name</div>
-                  <div className="agent-card-value">{normalized.name || 'N/A'}</div>
+                  <div className="agent-card-title">Cost</div>
+                  <div className="agent-card-value">
+                    {normalized.totalCost != null 
+                      ? (typeof normalized.totalCost === 'number' 
+                          ? `$${normalized.totalCost.toFixed(4)}` 
+                          : normalized.totalCost)
+                      : 'N/A'}
+                  </div>
                 </div>
                 <div className="agent-summary-card">
-                  <div className="agent-card-title">ID</div>
-                  <div className="agent-card-value">{normalized.id || 'N/A'}</div>
+                  <div className="agent-card-title">User Id</div>
+                  <div className="agent-card-value">{normalized.userId || 'N/A'}</div>
                 </div>
                 <div className="agent-summary-card">
-                  <div className="agent-card-title">Status</div>
-                  <div className="agent-card-value">{normalized.status || 'N/A'}</div>
+                  <div className="agent-card-title">Projects</div>
+                  <div className="agent-card-value">{normalized.projects || 'N/A'}</div>
                 </div>
                 <div className="agent-summary-card">
                   <div className="agent-card-title">Type</div>
                   <div className="agent-card-value">{normalized.type || 'N/A'}</div>
                 </div>
                 <div className="agent-summary-card">
-                  <div className="agent-card-title">Created</div>
-                  <div className="agent-card-value">{safeFormatDate(normalized.createdAt)}</div>
-                </div>
-                <div className="agent-summary-card">
-                  <div className="agent-card-title">Updated</div>
-                  <div className="agent-card-value">{safeFormatDate(normalized.updatedAt)}</div>
-                </div>
-              </div>
-
-              {normalized.metadata && (
-                <div className="agent-metadata-section">
-                  <h3 className="agent-section-title">Metadata</h3>
-                  <div className="agent-metadata-viewer">
-                    <DetailsViewer data={normalized.metadata} />
+                  <div className="agent-card-title">User Cost</div>
+                  <div className="agent-card-value">
+                    {normalized.userCost != null 
+                      ? (typeof normalized.userCost === 'number' 
+                          ? `$${normalized.userCost.toFixed(4)}` 
+                          : normalized.userCost)
+                      : 'N/A'}
                   </div>
                 </div>
-              )}
+              </div>
             </div>
           )}
 
@@ -621,7 +607,6 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
       width="min(96vw, 920px)"
     >
       <div className="agent-modal-content">
-        <div className="adm-debug-flag" aria-hidden="true">AgentDetailsModal v2</div>
         {bodyContent}
       </div>
     </Modal>

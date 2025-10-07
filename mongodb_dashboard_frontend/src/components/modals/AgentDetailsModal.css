@@ -219,6 +219,10 @@
   border-left: 3px solid var(--agent-secondary);
 }
 
+.agent-status-user-cost {
+  border-left: 3px solid var(--agent-primary);
+}
+
 /* Sections */
 .agent-section {
   padding: 16px 24px;
