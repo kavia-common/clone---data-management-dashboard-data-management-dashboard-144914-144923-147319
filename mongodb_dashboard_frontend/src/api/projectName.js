@@ -1,6 +1,6 @@
 /**
  * Resolve project name via dedicated endpoint.
- * Uses GET /api/projects/{projectId}/name which returns { projectId, projectName } or 404.
+ * Uses GET /api/app-deployments/project/{projectId}/name which returns { projectId, projectName } with 200.
  * Provides fallback to base URL utility if configured client isn't available.
  */
 
@@ -17,26 +17,27 @@ export async function fetchProjectNameDirect(projectId) {
   if (!projectId) return null;
 
   try {
+    const path = `/app-deployments/project/${encodeURIComponent(String(projectId))}/name`;
     const api = typeof getApiClient === 'function' ? getApiClient() : null;
     if (api) {
-      const res = await api.get(`/projects/${encodeURIComponent(String(projectId))}/name`);
+      const res = await api.get(path);
       const data = res?.data || {};
-      if (!data?.projectName) {
+      if (typeof data?.projectName === 'undefined') {
         console.debug('[ProjectName] Missing projectName in response (api client path)', { projectId, data });
       }
       return data?.projectName ?? null;
     }
     // Fallback to base URL + axios
     const base = (typeof getApiBaseUrl === 'function' && getApiBaseUrl()) || '/api';
-    const url = `${String(base).replace(/\/$/, '')}/projects/${encodeURIComponent(String(projectId))}/name`;
+    const url = `${String(base).replace(/\/$/, '')}${path}`;
     const res = await axios.get(url);
     const data = res?.data || {};
-    if (!data?.projectName) {
+    if (typeof data?.projectName === 'undefined') {
       console.debug('[ProjectName] Missing projectName in response (fallback path)', { projectId, data });
     }
     return data?.projectName ?? null;
   } catch (e) {
-    // Gracefully handle 404/not found as null
+    // API guarantees 200 with null when not found, but still guard.
     const status = e?.response?.status;
     if (status === 404) {
       console.debug('[ProjectName] 404 when fetching project name', { projectId });
@@ -48,9 +49,7 @@ export async function fetchProjectNameDirect(projectId) {
 }
 
 /**
- * Deprecated: deployments-based lookup.
- * Keeping exported for backward compatibility if any old code imports it,
- * but it now delegates to the direct endpoint to avoid double calls.
+ * Deprecated alias retained for compatibility.
  */
 // PUBLIC_INTERFACE
 export async function fetchProjectNameByProjectId(projectId) {
