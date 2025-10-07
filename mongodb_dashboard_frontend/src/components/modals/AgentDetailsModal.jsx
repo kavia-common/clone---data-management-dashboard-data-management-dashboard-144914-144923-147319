@@ -216,6 +216,9 @@ function useNormalizedAgent(agent) {
  *   agentName: string - optional name for title fallback
  */
 export default function AgentDetailsModal({ open, onClose, agentId, agentName }) {
+  // Redesigned v2 - Add defensive logging to confirm component renders
+  console.debug('[AgentDetailsModal] redesigned render', { open, agentId });
+  
   const [agent, setAgent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
@@ -426,7 +429,10 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
             <span className="agent-avatar-text">{initials}</span>
           </div>
           <div className="agent-header-info">
-            <h2 className="agent-name">{normalized.name}</h2>
+            <h2 className="agent-name">
+              {normalized.name}
+              <span className="agent-details-version-badge">v2</span>
+            </h2>
             <div className="agent-id-row">
               <span className="agent-id">ID: {normalized.id}</span>
               <button

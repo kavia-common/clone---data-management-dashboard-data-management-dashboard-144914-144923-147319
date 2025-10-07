@@ -3,7 +3,7 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import DetailsViewer from "../../components/common/DetailsViewer.jsx";
-import AgentDetailsModal from "../../components/costs/AgentDetailsModal.jsx";
+import AgentDetailsModal from "../../components/modals/AgentDetailsModal.jsx";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
 import { listLlmCosts } from "../../api/client";
 
