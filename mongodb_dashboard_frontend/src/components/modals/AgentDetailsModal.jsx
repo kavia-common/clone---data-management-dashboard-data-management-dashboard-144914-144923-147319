@@ -278,6 +278,20 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
   useEffect(() => {
     if (open && agentId) {
       fetchAgent(agentId);
+      
+      // Debug modal width computation
+      setTimeout(() => {
+        const modalElement = document.querySelector('.agent-modal-content');
+        if (modalElement) {
+          const { clientWidth, scrollWidth } = modalElement;
+          console.debug('AgentDetailsModal width debug:', {
+            clientWidth,
+            scrollWidth,
+            hasOverflow: scrollWidth > clientWidth,
+            viewport: { width: window.innerWidth, height: window.innerHeight }
+          });
+        }
+      }, 100);
     }
     if (!open) {
       // Reset on close for a clean state next open
@@ -604,9 +618,9 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
       onClose={onClose}
       title={titleText}
       footer={footerActions}
-      width="min(96vw, 920px)"
+      width="min(92vw, 720px)"
     >
-      <div className="agent-modal-content">
+      <div className="agent-modal-content agent-modal-root">
         {bodyContent}
       </div>
     </Modal>

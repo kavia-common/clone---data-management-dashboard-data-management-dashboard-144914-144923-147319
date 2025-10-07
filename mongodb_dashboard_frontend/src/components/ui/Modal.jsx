@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * PUBLIC_INTERFACE
@@ -60,7 +61,7 @@ export default function Modal({
   // Inline style to ensure height calc uses the same dynamic top value even if not tied to CSS var.
   const cardMaxHeight = `calc(100vh - ${topValue} - 48px)`; // 48px = overlay padding top+bottom
 
-  return (
+  return createPortal(
     <div
       className="modal-overlay-grid"
       role="dialog"
@@ -109,7 +110,8 @@ export default function Modal({
           flex-direction: column;
           background: var(--bg-surface, #fff);
           box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-          max-width: min(96vw, 860px);
+          max-width: min(92vw, 720px);
+          box-sizing: border-box;
         }
         .modal-card-body-scroll {
           flex: 1;
@@ -146,6 +148,7 @@ export default function Modal({
           }
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 }

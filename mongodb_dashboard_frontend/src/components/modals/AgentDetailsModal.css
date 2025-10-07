@@ -23,11 +23,35 @@
   --agent-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Modal Container */
+/* Modal Container with overflow fixes */
 .agent-modal-content {
   background: var(--agent-bg);
   min-height: 400px;
   padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+/* Agent Modal Root - safeguard class for the modal */
+.agent-modal-root {
+  box-sizing: border-box;
+  max-width: 92vw;
+  width: clamp(320px, 720px, 92vw);
+  overflow: hidden;
+}
+
+.agent-modal-root *,
+.agent-modal-root *::before,
+.agent-modal-root *::after {
+  box-sizing: border-box;
+}
+
+/* Modal Body with proper overflow handling */
+.modal-body {
+  overflow: auto;
+  max-height: 70vh;
+  box-sizing: border-box;
 }
 
 /* Agent Header */
@@ -62,6 +86,8 @@
 .agent-header-info {
   flex: 1;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .agent-name {
@@ -73,6 +99,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
 .agent-details-version-badge {
@@ -101,6 +130,9 @@
   background: rgba(0, 0, 0, 0.05);
   padding: 2px 6px;
   border-radius: var(--agent-radius-sm);
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
 .agent-copy-btn {
@@ -292,10 +324,16 @@
   background: var(--agent-surface);
   border-radius: 0 0 var(--agent-radius-md) var(--agent-radius-md);
   overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .agent-panel {
   padding: 24px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 /* Summary Grid */
@@ -318,6 +356,9 @@
   border-radius: var(--agent-radius-md);
   padding: 16px;
   transition: var(--agent-transition);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .agent-summary-card:hover {
@@ -339,6 +380,9 @@
   font-weight: 600;
   color: var(--agent-text);
   word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  max-width: 100%;
 }
 
 /* Metadata Section */
@@ -370,7 +414,11 @@
   border-radius: var(--agent-radius-md);
   padding: 16px;
   max-height: 500px;
+  max-width: 100%;
   overflow: auto;
+  box-sizing: border-box;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* Horizontal Scroller */
@@ -388,7 +436,9 @@
   scroll-behavior: smooth;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  padding: 4px 0;
+  padding: 4px 16px 4px 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .agent-scroller-track::-webkit-scrollbar {

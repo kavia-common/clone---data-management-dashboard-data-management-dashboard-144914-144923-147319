@@ -597,10 +597,12 @@ export default function DetailsViewer({
         .dv-val { 
           white-space: normal; 
           word-break: break-word;
+          overflow-wrap: anywhere;
           overflow: visible; 
           text-overflow: clip; 
           display: inline-block; 
           max-width: 100%;
+          min-width: 0;
         }
         .dv-val.num { text-align: right; font-variant-numeric: tabular-nums; }
         .dv-val.em { font-weight: 600; }
@@ -629,6 +631,10 @@ export default function DetailsViewer({
           border-left: 2px solid var(--border-subtle);
           margin-left: 8px;
           padding-left: 12px;
+          max-width: 100%;
+          min-width: 0;
+          overflow: hidden;
+          box-sizing: border-box;
         }
 
         .dv-array { display: grid; gap: 8px; }
@@ -674,6 +680,10 @@ export default function DetailsViewer({
           font-size: 12px;
           line-height: 1.4;
           overflow: auto;
+          max-width: 100%;
+          box-sizing: border-box;
+          word-break: break-all;
+          white-space: pre-wrap;
         }
 
         .dv-empty { padding: 8px 0; }
