@@ -3,6 +3,7 @@ const { asyncHandler } = require('../utils/http');
 const AppDeployment = require('../models/appDeployments.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 const { validateAppDeployment } = require('../middleware/validators');
+const { normalizeProjectId } = require('../services/enrichment.util');
 
 const router = express.Router();
 const controller = buildCrudController(AppDeployment, '-created_at');
@@ -48,6 +49,82 @@ const controller = buildCrudController(AppDeployment, '-created_at');
  *       400: { description: Invalid filter }
  */
 router.get('/', asyncHandler(controller.list));
+
+/**
+ * @swagger
+ * /api/app-deployments/project/{projectId}/name:
+ *   get:
+ *     summary: Resolve projectName from App Deployments by projectId
+ *     description: |
+ *       Looks up App Deployments collection as the primary source to resolve a project's friendly name.
+ *       Matches the provided projectId against any of: projectId, project_id, metadata.projectId, project.id.
+ *       Returns 200 with { projectId, projectName } even if projectName is not found (null).
+ *     tags: [AppDeployments]
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           description: Project identifier to resolve
+ *     responses:
+ *       200:
+ *         description: Resolved or null projectName from App Deployments
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 projectId:
+ *                   type: string
+ *                   description: Normalized project id
+ *                 projectName:
+ *                   type: string
+ *                   nullable: true
+ *                   description: Resolved project name or null if not found
+ */
+router.get(
+  '/project/:projectId/name',
+  asyncHandler(async (req, res) => {
+    const originalId = req.params.projectId;
+    const pid = normalizeProjectId(originalId) || String(originalId || '').trim();
+
+    if (!pid) {
+      return res.status(200).json({ projectId: originalId || '', projectName: null });
+    }
+
+    // Build OR query across possible id fields in deployments
+    const idQuery = {
+      $or: [{ projectId: pid }, { project_id: pid }, { 'metadata.projectId': pid }, { 'project.id': pid }],
+    };
+
+    // Project only known name fields
+    const projection = {
+      projectName: 1,
+      project_name: 1,
+      'metadata.projectName': 1,
+      'project.name': 1,
+      updatedAt: 1,
+      updated_at: 1,
+      createdAt: 1,
+      created_at: 1,
+    };
+
+    // Prefer the latest record if multiple exist
+    const dep = await AppDeployment.findOne(idQuery, projection)
+      .sort({ updatedAt: -1, updated_at: -1, createdAt: -1, created_at: -1 })
+      .lean();
+
+    const name =
+      dep?.projectName ||
+      dep?.project_name ||
+      dep?.metadata?.projectName ||
+      dep?.project?.name ||
+      null;
+
+    return res.status(200).json({ projectId: pid, projectName: name ? String(name) : null });
+  })
+);
 
 /**
  * @swagger
