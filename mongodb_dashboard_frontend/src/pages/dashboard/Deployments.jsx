@@ -8,7 +8,7 @@ import DeploymentsOverTime from "../../components/charts/DeploymentsOverTime.jsx
  * PUBLIC_INTERFACE
  * Deployments page
  * Shows only the columns:
- * - Deployment Id (truncated to first 8 characters + ".." for display; full value on title + copy on click)
+ * - Deployment Id (full value; no truncation and no copy control)
  * - Branch Name
  * - Status (badge)
  * - Created At
@@ -47,30 +47,15 @@ export default function Deployments() {
 
   // Renderers per column
   function renderDeploymentId(v, row) {
+    // Show full deployment ID with no truncation and no copy button.
     const full = v || row?.deployment_id || row?._id || "";
     if (!full) return "—";
-    const truncated = String(full).length > 8 ? `${String(full).slice(0, 8)}..` : String(full);
     const title = String(full);
-    const handleCopy = async (e) => {
-      e.stopPropagation();
-      try {
-        await navigator.clipboard.writeText(String(full));
-      } catch {
-        // ignore if clipboard not available
-      }
-    };
+
+    // Allow wrapping and prevent overflow clipping
     return (
-      <span title={title} style={{ whiteSpace: "nowrap" }}>
-        <code style={{ userSelect: "text" }}>{truncated}</code>
-        <button
-          className="btn btn-ghost"
-          onClick={handleCopy}
-          aria-label="Copy Deployment Id"
-          title="Copy full Deployment Id"
-          style={{ padding: "2px 6px", height: 24, marginLeft: 6 }}
-        >
-          ⧉
-        </button>
+      <span title={title} style={{ display: "inline-block", whiteSpace: "normal", overflowWrap: "anywhere" }}>
+        <code style={{ userSelect: "text", whiteSpace: "normal", overflowWrap: "anywhere" }}>{title}</code>
       </span>
     );
   }
