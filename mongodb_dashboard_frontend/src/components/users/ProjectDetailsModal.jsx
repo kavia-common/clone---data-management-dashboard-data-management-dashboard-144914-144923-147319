@@ -29,11 +29,18 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
         setLoading(false);
         return;
       }
-      setLoading(true);
-      const name = await fetchProjectNameByProjectId(projectId);
-      if (!ignore) {
+      try {
+        setLoading(true);
+        const name = await fetchProjectNameByProjectId(projectId);
+        if (ignore) return;
         setProjectName(name || "—");
-        setLoading(false);
+      } catch (err) {
+        if (!ignore) {
+          console.error("[ProjectDetailsModal] Error resolving project name", { projectId, error: err?.message || err });
+          setProjectName("—");
+        }
+      } finally {
+        if (!ignore) setLoading(false);
       }
     }
     load();
