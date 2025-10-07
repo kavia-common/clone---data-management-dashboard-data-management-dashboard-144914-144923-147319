@@ -200,7 +200,9 @@ function UserProjectsView({ userId, tenantId, from, to }) {
   const list = projects || [];
 
   const ProjectCard = ({ project }) => {
-    const id = project?.project_id || project?.projectId || project?._id || project?.id || '—';
+    // Prefer MongoDB _id for the true identifier, with safe fallbacks for legacy fields
+    const id = project?._id || project?.id || project?.project_id || project?.projectId || '—';
+    // Name resolution for display
     const name = project?.name || project?.project_name || project?.projectName || '—';
     const status = project?.status || project?.state || '';
     const desc = project?.description || project?.project_description || '';
@@ -254,23 +256,62 @@ function UserProjectsView({ userId, tenantId, from, to }) {
                 marginBottom: 6,
               }}
             >
-              Project ID
+              Project
             </div>
             <div
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                background: '#F8FAFC',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
                 color: 'var(--text-primary, #111827)',
                 border: '1px solid var(--border-subtle, #E6EAF0)',
-                borderRadius: 9999,
-                padding: '6px 10px',
-                fontFamily: 'ui-monospace, monospace',
-                fontWeight: 600,
+                borderRadius: 10,
+                padding: '8px 10px',
+                background: '#F8FAFC',
+                maxWidth: '100%',
               }}
             >
-              {String(id)}
+              <div
+                style={{
+                  fontWeight: 700,
+                  wordBreak: 'break-word',
+                  color: 'var(--text-primary, #111827)',
+                }}
+                title={name !== '—' ? String(name) : undefined}
+              >
+                {String(name)}
+              </div>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  flexWrap: 'wrap',
+                  color: 'var(--text-secondary, #334155)',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: 'var(--text-tertiary, #64748B)',
+                    letterSpacing: '.02em',
+                  }}
+                >
+                  ID:
+                </span>
+                <span
+                  style={{
+                    fontFamily: 'ui-monospace, monospace',
+                    fontWeight: 600,
+                    wordBreak: 'break-all',
+                    whiteSpace: 'normal',
+                  }}
+                  title={id !== '—' ? String(id) : undefined}
+                >
+                  {String(id)}
+                </span>
+              </div>
             </div>
           </div>
 
