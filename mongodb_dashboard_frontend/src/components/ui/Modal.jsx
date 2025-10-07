@@ -67,12 +67,11 @@ export default function Modal({
       aria-modal="true"
       aria-label={title}
       onClick={(e) => {
-        // Close only when clicking on the backdrop
         if (e.target === e.currentTarget && typeof onClose === "function") onClose();
       }}
       style={{
-        top: topValue,          // keep header clickable by starting overlay below header
-        zIndex: overlayZIndex,  // stay above header visually if we ever overlay it
+        top: topValue,
+        zIndex: overlayZIndex,
       }}
     >
       <div
@@ -82,10 +81,8 @@ export default function Modal({
           zIndex: modalZIndex,
           maxHeight: cardMaxHeight,
           width: typeof width === "number" ? `${width}px` : width,
-          maxWidth: "96vw",
         }}
       >
-        {/* Children may include sticky header elements using 'sticky-header' */}
         <div className="modal-card-body-scroll">
           {children}
           {footer ? <div className="modal-footer">{footer}</div> : null}
@@ -95,20 +92,16 @@ export default function Modal({
       <style>{`
         .modal-overlay-grid {
           position: fixed;
-          inset: 0; /* we override top via inline style to honor header offset; other edges remain 0 */
-          display: grid;
-          place-items: center;
+          inset: 0;
           padding: 24px;
           background: var(--modal-backdrop, rgba(0,0,0,0.3));
         }
         .modal-card-shell {
+          position: fixed;
+          top: calc(${topValue} + 50%);
+          left: 50%;
+          transform: translate(-50%, -50%);
           margin: 0;
-          transform: none;
-          position: relative;
-          /* width controlled via inline style; keep a sensible fallback */
-          width: min(96vw, 960px);
-          /* max-height is set inline to use dynamic header offset, but keep a CSS fallback too */
-          max-height: calc(100vh - var(--header-height, 60px) - 48px);
           border: none;
           border-radius: 12px;
           overflow: hidden;
@@ -116,6 +109,7 @@ export default function Modal({
           flex-direction: column;
           background: var(--bg-surface, #fff);
           box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+          max-width: min(96vw, 860px);
         }
         .modal-card-body-scroll {
           flex: 1;
@@ -135,7 +129,6 @@ export default function Modal({
           justify-content: flex-end;
           gap: 8px;
         }
-        /* Allow children to define sticky header inside */
         .modal-card-shell .sticky-header {
           position: sticky;
           top: 0;
@@ -143,8 +136,6 @@ export default function Modal({
           background: inherit;
           backdrop-filter: saturate(1) blur(2px);
         }
-
-        /* Safe area on small screens */
         @media (max-width: 639px) {
           .modal-overlay-grid {
             padding:

@@ -166,27 +166,29 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
               ) : null}
             </div>
 
-            {/* Use DetailsViewer to present full payload with consistent UI */}
-            <DetailsViewer
-              data={agent}
-              title="Agent payload"
-              collapsedDepth={1}
-              highlightKeys={[
-                "name",
-                "_id",
-                "id",
-                "agent_id",
-                "agentId",
-                "type",
-                "agent_type",
-                "version",
-                "last_active",
-                "lastActive",
-                "total_cost",
-                "totalCost",
-                "metadata",
-              ]}
-            />
+            {/* Use DetailsViewer to present full payload with consistent UI, wrapped in horizontal scroll region */}
+            <AgentHorizontalScroller>
+              <DetailsViewer
+                data={agent}
+                title="Agent payload"
+                collapsedDepth={1}
+                highlightKeys={[
+                  "name",
+                  "_id",
+                  "id",
+                  "agent_id",
+                  "agentId",
+                  "type",
+                  "agent_type",
+                  "version",
+                  "last_active",
+                  "lastActive",
+                  "total_cost",
+                  "totalCost",
+                  "metadata",
+                ]}
+              />
+            </AgentHorizontalScroller>
           </div>
         ) : (
           <div className="agent-empty">
@@ -239,8 +241,6 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
           padding: 12px 16px 16px 16px; 
           display: grid; 
           gap: 12px; 
-          max-height: 70vh;
-          overflow-y: auto;
         }
         .agent-summary { display: inline-flex; gap: 8px; flex-wrap: wrap; }
         .chip {
@@ -285,5 +285,117 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
         .agent-fallback { display: grid; gap: 4px; margin-top: 6px; }
       `}</style>
     </Modal>
+  );
+}
+
+/**
+ * AgentHorizontalScroller
+ * A local-only utility for AgentDetailsModal to enable horizontal scrolling of wide nested content
+ * without expanding modal width. Shows left/right buttons when scrollable and disables at edges.
+ */
+function AgentHorizontalScroller({ children }) {
+  const scrollerRef = React.useRef(null);
+  const [canScroll, setCanScroll] = React.useState(false);
+  const [atStart, setAtStart] = React.useState(true);
+  const [atEnd, setAtEnd] = React.useState(false);
+
+  const updateState = React.useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const scrollable = el.scrollWidth > el.clientWidth + 2;
+    setCanScroll(scrollable);
+    setAtStart(el.scrollLeft <= 1);
+    setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 1);
+  }, []);
+
+  React.useEffect(() => {
+    updateState();
+    const el = scrollerRef.current;
+    if (!el) return;
+    const onScroll = () => updateState();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const ro = new ResizeObserver(() => updateState());
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      ro.disconnect();
+    };
+  }, [updateState]);
+
+  const doScroll = (dir) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const delta = 320 * (dir === "left" ? -1 : 1);
+    el.scrollBy({ left: delta, behavior: "smooth" });
+  };
+
+  return (
+    <div className="agent-hscroll-wrap">
+      {canScroll && (
+        <>
+          <button
+            className="hs-btn hs-left"
+            onClick={() => doScroll("left")}
+            disabled={atStart}
+            aria-label="Scroll left"
+            title="Scroll left"
+          >
+            ‹
+          </button>
+          <button
+            className="hs-btn hs-right"
+            onClick={() => doScroll("right")}
+            disabled={atEnd}
+            aria-label="Scroll right"
+            title="Scroll right"
+          >
+            ›
+          </button>
+        </>
+      )}
+      <div ref={scrollerRef} className="agent-hscroll" role="region" aria-label="Scrollable agent details">
+        {children}
+      </div>
+
+      <style>{`
+        .agent-hscroll-wrap {
+          position: relative;
+        }
+        .agent-hscroll {
+          overflow-x: auto;
+          overflow-y: visible;
+          white-space: normal; /* allow blocks to keep natural width; nested tables/blocks can overflow horizontally */
+          padding-bottom: 4px; /* space for potential scrollbar */
+          background: #f9fafb; /* neutral background per theme */
+          border: 1px solid var(--border-subtle);
+          border-radius: 8px;
+        }
+        .hs-btn {
+          position: absolute;
+          top: 8px;
+          z-index: 2;
+          height: 28px;
+          width: 28px;
+          display: grid;
+          place-items: center;
+          border-radius: 999px;
+          border: 1px solid var(--border-subtle);
+          background: #ffffff;
+          color: #2563EB;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+          transition: all 0.2s ease;
+        }
+        .hs-btn:hover:not(:disabled) {
+          box-shadow: 0 4px 10px rgba(37,99,235,0.18);
+          background: #f0f6ff;
+        }
+        .hs-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .hs-left { left: 8px; }
+        .hs-right { right: 8px; }
+      `}</style>
+    </div>
   );
 }
