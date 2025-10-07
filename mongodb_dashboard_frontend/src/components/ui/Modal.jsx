@@ -33,7 +33,9 @@ export default function Modal({
   overlayZIndex = 1190,
   modalZIndex = 1200,
   width = "min(96vw, 860px)",
+  maxWidth = "min(92vw, 720px)",
   footer,
+  className,
 }) {
   const headerVar = "var(--header-height, 60px)";
   // Normalize top offset. Prefer explicit prop; fall back to CSS var with 60px fallback.
@@ -76,12 +78,13 @@ export default function Modal({
       }}
     >
       <div
-        className="modal-card-shell"
+        className={`modal-card-shell${className ? ` ${className}` : ""}`}
         onClick={(e) => e.stopPropagation()}
         style={{
           zIndex: modalZIndex,
           maxHeight: cardMaxHeight,
           width: typeof width === "number" ? `${width}px` : width,
+          maxWidth: typeof maxWidth === "number" ? `${maxWidth}px` : maxWidth,
         }}
       >
         <div className="modal-card-body-scroll">

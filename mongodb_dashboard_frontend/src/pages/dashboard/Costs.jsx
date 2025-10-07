@@ -387,6 +387,8 @@ export default function Costs() {
         onClose={closeAgentModal}
         agentId={selectedAgentId}
         agentName={selectedAgentName}
+        modalWidth="min(94vw, 960px)"
+        modalClassName="costs-agent-modal"
       />
 
       {/* Structured costs modal removed */}

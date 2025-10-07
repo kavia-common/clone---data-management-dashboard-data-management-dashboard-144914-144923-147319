@@ -23,7 +23,7 @@ import "./AgentDetailsModal.css";
  * - Robust long-text handling and no horizontal scroll
  * - Sticky footer with Close and Download JSON (enabled after data load)
  */
-export default function AgentDetailsModal({ open, onClose, agentId, agentName }) {
+export default function AgentDetailsModal({ open, onClose, agentId, agentName, modalWidth, modalClassName }) {
   // Single debug line requested
   try {
     console.debug("[AgentDetailsModal:new]", { open, agentId });
@@ -261,7 +261,9 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
       open={open}
       onClose={onClose}
       title={title}
-      width="min(92vw, 720px)"
+      width={modalWidth || "min(92vw, 720px)"}
+      maxWidth={modalWidth || "min(92vw, 720px)"}
+      className={modalClassName}
       footer={footer}
     >
       <div className="agent-details-modal">
@@ -276,4 +278,6 @@ AgentDetailsModal.propTypes = {
   onClose: PropTypes.func,
   agentId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   agentName: PropTypes.string,
+  modalWidth: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  modalClassName: PropTypes.string,
 };

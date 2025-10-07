@@ -184,3 +184,10 @@
 @keyframes adm-spin {
   to { transform: rotate(360deg); }
 }
+
+/* Costs page only: widen the AgentDetailsModal shell when a costs-specific class is present */
+.modal-card-shell.costs-agent-modal {
+  max-width: min(94vw, 960px);
+  width: min(94vw, 960px);
+  box-sizing: border-box;
+}
