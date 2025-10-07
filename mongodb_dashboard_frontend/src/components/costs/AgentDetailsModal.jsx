@@ -71,6 +71,45 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
     };
   }, [open, agentId]);
 
+  // Normalize frequently used fields for robust display
+  const normalized = useMemo(() => {
+    const a = agent || {};
+    const nid =
+      a.id ??
+      a._id ??
+      a.agentId ??
+      a.agent_id ??
+      a.metadata?.agent_id ??
+      a.agent?.id ??
+      (agentId != null ? agentId : null);
+    const nname =
+      agentName ||
+      a.name ||
+      a.agent_name ||
+      a.agentName ||
+      a.metadata?.name ||
+      a.agent?.name ||
+      null;
+    const ntype = a.type || a.agent_type || a.metadata?.type || a.agent?.type || null;
+    const nversion = a.version || a.metadata?.version || a.agent?.version || null;
+    const nlast =
+      a.last_active ||
+      a.lastActive ||
+      a.updated_at ||
+      a.updatedAt ||
+      a.timestamp ||
+      null;
+    const ncost = (a.total_cost ?? a.totalCost ?? a.cost ?? null);
+    return {
+      id: nid != null ? String(nid) : null,
+      name: nname != null ? String(nname) : null,
+      type: ntype != null ? String(ntype) : null,
+      version: nversion != null ? String(nversion) : null,
+      lastActive: nlast,
+      totalCost: ncost,
+    };
+  }, [agent, agentId, agentName]);
+
   return (
     <Modal
       title={title}
@@ -83,9 +122,9 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
       <div className="sticky-header agent-header">
         <div className="agent-header-left">
           <div className="agent-title">
-            <span className="agent-title-name">{agentName || agent?.name || "Agent"}</span>
-            {agentId != null && agentId !== "" ? (
-              <span className="agent-title-id">ID: {String(agentId)}</span>
+            <span className="agent-title-name">{normalized.name || "Agent"}</span>
+            {normalized.id ? (
+              <span className="agent-title-id">ID: {normalized.id}</span>
             ) : null}
           </div>
         </div>
@@ -107,18 +146,22 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
           <div className="agent-details">
             {/* Quick summary chips */}
             <div className="agent-summary">
-              {agent?.name ? <span className="chip"><strong>Name:</strong> {agent.name}</span> : null}
-              {agentId != null ? <span className="chip"><strong>ID:</strong> {String(agentId)}</span> : null}
-              {agent?.last_active || agent?.lastActive ? (
+              {normalized.name ? <span className="chip"><strong>Name:</strong> {normalized.name}</span> : null}
+              {normalized.id ? <span className="chip"><strong>ID:</strong> {normalized.id}</span> : null}
+              {normalized.type ? <span className="chip"><strong>Type:</strong> {normalized.type}</span> : null}
+              {normalized.version ? <span className="chip"><strong>Version:</strong> {normalized.version}</span> : null}
+              {normalized.lastActive ? (
                 <span className="chip">
                   <strong>Last Active:</strong>{" "}
-                  {new Date(agent.last_active || agent.lastActive).toLocaleString()}
+                  {(() => {
+                    try { return new Date(normalized.lastActive).toLocaleString(); } catch { return String(normalized.lastActive); }
+                  })()}
                 </span>
               ) : null}
-              {agent?.total_cost != null || agent?.totalCost != null ? (
+              {normalized.totalCost != null ? (
                 <span className="chip">
                   <strong>Total Cost:</strong>{" "}
-                  {String(agent.total_cost ?? agent.totalCost)}
+                  {String(normalized.totalCost)}
                 </span>
               ) : null}
             </div>
@@ -132,10 +175,16 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
                 "name",
                 "_id",
                 "id",
+                "agent_id",
+                "agentId",
+                "type",
+                "agent_type",
+                "version",
                 "last_active",
                 "lastActive",
                 "total_cost",
                 "totalCost",
+                "metadata",
               ]}
             />
           </div>

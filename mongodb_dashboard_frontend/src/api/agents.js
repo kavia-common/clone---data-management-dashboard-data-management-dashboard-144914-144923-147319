@@ -3,8 +3,10 @@ import { getApiClient } from "./client";
 /**
  * PUBLIC_INTERFACE
  * getAgentById
- * Fetch an agent by ID. Returns null if the agent is not found (404) or if
- * the endpoint is not implemented on the backend yet.
+ * Fetch an agent by ID using GET /api/agents/:agentId. Returns null if the agent
+ * is not found (404) or if the endpoint is not implemented on the backend yet.
+ *
+ * The API client already prefixes with /api; we only append /agents/:id.
  *
  * Usage:
  *   const agent = await getAgentById(agentId);

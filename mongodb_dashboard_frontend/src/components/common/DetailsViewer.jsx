@@ -237,6 +237,33 @@ export default function DetailsViewer({
     return <span className={cls} title={String(v)}>{String(v)}</span>;
   }
 
+  // Try to extract an agent identity from a value. Returns { id, name } or nulls.
+  function extractAgentIdentity(item) {
+    if (!item || typeof item !== "object") return { id: null, name: null };
+    const id =
+      item.id ??
+      item._id ??
+      item.agent_id ??
+      item.agentId ??
+      item.user_id ?? // legacy fallbacks if costs embed user-like docs
+      item.userId ??
+      item.metadata?.agent_id ??
+      item.agent?.id ??
+      null;
+    const name =
+      item.name ??
+      item.agent_name ??
+      item.agentName ??
+      item.user_name ??
+      item.username ??
+      item.userName ??
+      item.displayName ??
+      item.metadata?.name ??
+      item.agent?.name ??
+      null;
+    return { id: id ?? null, name: name ?? null };
+  }
+
   function renderNode(value, path, depth, rootObj) {
     if (value == null || typeof value !== "object") {
       // Primitive
@@ -259,11 +286,8 @@ export default function DetailsViewer({
           {value.map((item, idx) => {
             const itemKey = `${path}.${idx}`;
             const isObj = typeof item === "object" && item !== null;
-            // Enhanced heuristics to locate identifiers and friendly names in agent items
-            const agentId =
-              (isObj && (item.id ?? item._id ?? item.agent_id ?? item.user_id ?? item.agentId ?? item.userId)) ?? null;
-            const agentName =
-              (isObj && (item.name ?? item.agent_name ?? item.user_name ?? item.username ?? item.agentName ?? item.userName ?? item.displayName)) ?? null;
+
+            const { id: candidateId, name: candidateName } = isObj ? extractAgentIdentity(item) : { id: null, name: null };
 
             return (
               <div key={itemKey} className="dv-array-item">
@@ -274,17 +298,17 @@ export default function DetailsViewer({
                   ) : (
                     renderPrimitiveVal(String(idx), item, rootObj)
                   )}
-                  {isAgentsArray && typeof onAgentSelect === "function" && (agentId != null || agentName != null) ? (
+                  {isAgentsArray && typeof onAgentSelect === "function" && candidateId != null ? (
                     <div className="dv-array-actions">
                       <button
                         className="btn btn-secondary"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          onAgentSelect({ agentId: agentId || agentName, agentName });
+                          onAgentSelect({ agentId: candidateId, agentName: candidateName || undefined });
                         }}
-                        title={`Open details for ${agentName || agentId || 'agent'}`}
-                        aria-label={`Open details for ${agentName || agentId || 'agent'}`}
+                        title={`Open details for ${candidateName || candidateId || 'agent'}`}
+                        aria-label={`Open details for ${candidateName || candidateId || 'agent'}`}
                         style={{ height: 28, padding: "0 8px", marginTop: 6 }}
                       >
                         Open details
@@ -311,7 +335,59 @@ export default function DetailsViewer({
 
     // Object
     const isTopLevelObj = path === "root";
-    const label = toLabel(path.split(".").pop() || "Object");
+    const keyName = path.split(".").pop();
+    const label = toLabel(keyName || "Object");
+
+    // Special handling: if this object is under a key named "agents", treat it like a map of agents.
+    if (String(keyName || "").toLowerCase() === "agents") {
+      const entries = Object.entries(value || {});
+      const body = (
+        <div className="dv-array">
+          {entries.length === 0 && <div className="dv-empty muted">Empty</div>}
+          {entries.map(([k, v], idx) => {
+            const itemKey = `${path}.${k}`;
+            const isObj = v && typeof v === "object";
+            const { id: candidateId, name: candidateName } = isObj ? extractAgentIdentity(v) : { id: null, name: null };
+            return (
+              <div key={itemKey} className="dv-array-item">
+                <div className="dv-array-index">{toLabel(k)}</div>
+                <div className="dv-array-body">
+                  {isObj ? renderEntries(v, itemKey, depth + 1, rootObj) : renderPrimitiveVal(String(k), v, rootObj)}
+                  {typeof onAgentSelect === "function" && candidateId != null ? (
+                    <div className="dv-array-actions">
+                      <button
+                        className="btn btn-secondary"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onAgentSelect({ agentId: candidateId, agentName: candidateName || toLabel(k) });
+                        }}
+                        title={`Open details for ${candidateName || toLabel(k)}`}
+                        aria-label={`Open details for ${candidateName || toLabel(k)}`}
+                        style={{ height: 28, padding: "0 8px", marginTop: 6 }}
+                      >
+                        Open details
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
+
+      // Agents object: wrap in a collapsible (unless top-level)
+      if (isTopLevelObj) {
+        return body;
+      }
+      return (
+        <Collapser id={path} label={label} summary={`${entries.length} item${entries.length === 1 ? "" : "s"}`} depth={depth}>
+          {body}
+        </Collapser>
+      );
+    }
+
     const keys = Object.keys(value);
     const sampleSummary =
       keys.length > 0 ? `${keys.slice(0, 2).join(", ")}${keys.length > 2 ? ` +${keys.length - 2} more` : ""}` : "empty";
