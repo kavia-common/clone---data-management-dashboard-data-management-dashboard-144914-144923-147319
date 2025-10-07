@@ -125,27 +125,9 @@ export default function DeploymentsOverTime({ height = 320, className = "" }) {
     >
       {error && <div className="error" role="alert">{error}</div>}
 
-      <div
-        className="toolbar chart-toolbar"
-        role="region"
-        aria-label="Chart controls"
-        style={{
-          justifyContent: "flex-start", // left align remaining controls
-          paddingTop: 8,
-          paddingBottom: 8,
-          gap: 8,
-        }}
-      >
-        <div
-          role="group"
-          aria-label="Time range"
-          style={{
-            display: "flex",
-            gap: 8,
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
+      <div className="toolbar chart-toolbar" role="region" aria-label="Chart controls">
+        <div style={{ flex: 1 }} />
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} role="group" aria-label="Time range">
           <Button
             variant={range === "7d" ? "primary" : "secondary"}
             onClick={() => setRange("7d")}
@@ -173,7 +155,7 @@ export default function DeploymentsOverTime({ height = 320, className = "" }) {
         </div>
       </div>
 
-      <div className="chart-wrapper" style={{ width: "100%", height, marginTop: 4 }}>
+      <div className="chart-wrapper" style={{ width: "100%", height, marginTop: 8 }}>
         {loading ? (
           <div>Loading chart...</div>
         ) : (

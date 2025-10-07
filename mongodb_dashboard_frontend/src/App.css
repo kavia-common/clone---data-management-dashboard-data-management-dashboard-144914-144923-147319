@@ -319,11 +319,6 @@
 .card-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--text-primary); }
 .card-subtitle { color: var(--text-tertiary); font-size: 12px; margin-top: 2px; }
 .card-content { padding: 16px; }
-.card-content .toolbar.only-filters {
-  padding-top: 4px;
-  padding-bottom: 4px;
-  gap: 8px;
-}
 
 /* KPI */
 .kpi-card .kpi { display: grid; gap: 6px; }
@@ -730,11 +725,6 @@ input:focus, select:focus, textarea:focus {
   top: auto;
   z-index: auto;
   background: transparent;
-  gap: 8px; /* normalize spacing after filter removals */
-  padding: 4px 0; /* collapse any leftover toolbar vertical space */
-}
-.chart-toolbar .spacer {
-  display: none !important; /* remove any legacy spacer usage */
 }
 .chart-wrapper {
   width: 100%;
