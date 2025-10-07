@@ -368,6 +368,10 @@ export default function DetailsViewer({
               width: 32,
               display: "inline-grid",
               placeItems: "center",
+              boxSizing: "border-box",
+              padding: 0,
+              lineHeight: 1,
+              fontSize: 16,
               border: "1px solid var(--border-subtle)",
               borderRadius: 8,
             }}
