@@ -294,8 +294,8 @@ export default function DetailsViewer({
         </div>
       );
 
-      // For top-level arrays (path === "root"), render plain list without a collapsible "Root" control.
-      if (isTopLevel) {
+      // For top-level arrays (path === "root"), or agents arrays, render plain list without a collapsible control.
+      if (isTopLevel || isAgentsArray) {
         return body;
       }
       return (
