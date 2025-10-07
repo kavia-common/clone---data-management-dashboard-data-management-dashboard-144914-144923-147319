@@ -456,13 +456,14 @@ export default function DetailsViewer({
 
         .dv-grid {
           display: grid;
-          grid-template-columns: 240px 1fr;
-          gap: 6px 16px;
+          grid-template-columns: minmax(140px, 200px) 1fr; /* tighter, consistent label column */
+          gap: 6px 10px; /* reduce horizontal gap between label and value */
           margin: 0;
         }
         @media (max-width: 640px) {
           .dv-grid { grid-template-columns: 1fr; }
-          .dv-key { margin-top: 8px; }
+          /* On narrow screens, let labels wrap and align left for readability */
+          .dv-key { margin-top: 8px; text-align: left; white-space: normal; }
         }
         .dv-row { display: contents; }
         .dv-key {
@@ -470,6 +471,7 @@ export default function DetailsViewer({
           font-weight: 600;
           font-size: 12px;
           align-self: center;
+          text-align: right; /* align labels close to their values on wider screens */
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
