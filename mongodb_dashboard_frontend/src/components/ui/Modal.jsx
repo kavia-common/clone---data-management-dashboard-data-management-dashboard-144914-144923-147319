@@ -14,6 +14,8 @@ import React, { useEffect, useMemo } from "react";
  *     Examples: 60 (px), "60px", "var(--header-height, 60px)". Defaults to CSS var.
  * - overlayZIndex: number (optional) - z-index for backdrop overlay (default 1190)
  * - modalZIndex: number (optional) - z-index for modal card (default 1200)
+ * - width: number|string (optional) - max modal width (e.g., 860 or "860px" or "min(96vw, 860px)")
+ * - footer: ReactNode (optional) - optional footer actions area that stays fixed at the bottom of the scrollable body
  *
  * Behavior:
  * - Positions overlay as fixed and offsets it from the top by headerOffset so content
@@ -29,6 +31,8 @@ export default function Modal({
   headerOffset,          // number|string|undefined
   overlayZIndex = 1190,
   modalZIndex = 1200,
+  width = "min(96vw, 860px)",
+  footer,
 }) {
   const headerVar = "var(--header-height, 60px)";
   // Normalize top offset. Prefer explicit prop; fall back to CSS var with 60px fallback.
@@ -77,11 +81,14 @@ export default function Modal({
         style={{
           zIndex: modalZIndex,
           maxHeight: cardMaxHeight,
+          width: typeof width === "number" ? `${width}px` : width,
+          maxWidth: "96vw",
         }}
       >
         {/* Children may include sticky header elements using 'sticky-header' */}
         <div className="modal-card-body-scroll">
           {children}
+          {footer ? <div className="modal-footer">{footer}</div> : null}
         </div>
       </div>
 
@@ -98,6 +105,7 @@ export default function Modal({
           margin: 0;
           transform: none;
           position: relative;
+          /* width controlled via inline style; keep a sensible fallback */
           width: min(96vw, 960px);
           /* max-height is set inline to use dynamic header offset, but keep a CSS fallback too */
           max-height: calc(100vh - var(--header-height, 60px) - 48px);
@@ -116,6 +124,16 @@ export default function Modal({
           display: flex;
           flex-direction: column;
           -webkit-overflow-scrolling: touch;
+        }
+        .modal-footer {
+          position: sticky;
+          bottom: 0;
+          background: linear-gradient(180deg, rgba(255,255,255,0.9), #ffffff);
+          border-top: 1px solid var(--border-subtle);
+          padding: 12px 16px;
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
         }
         /* Allow children to define sticky header inside */
         .modal-card-shell .sticky-header {

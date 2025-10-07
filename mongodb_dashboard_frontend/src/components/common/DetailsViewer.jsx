@@ -595,9 +595,10 @@ export default function DetailsViewer({
           overflow: hidden; 
         }
         .dv-val { 
-          white-space: nowrap; 
-          overflow: hidden; 
-          text-overflow: ellipsis; 
+          white-space: normal; 
+          word-break: break-word;
+          overflow: visible; 
+          text-overflow: clip; 
           display: inline-block; 
           max-width: 100%;
         }

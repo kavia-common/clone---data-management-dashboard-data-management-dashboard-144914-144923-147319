@@ -343,6 +343,10 @@ export default function Costs() {
         open={inspectOpen}
         onClose={closeInspector}
         headerOffset={60}
+        width="min(96vw, 880px)"
+        footer={
+          <button className="btn btn-ghost" onClick={closeInspector} aria-label="Close details">Close</button>
+        }
       >
         <DetailsViewer
           data={inspectPayload}
@@ -361,6 +365,9 @@ export default function Costs() {
             "project_id",
             "user",
             "user_id",
+            "metadata",
+            "details",
+            "agents",
           ]}
           collapsedDepth={1}
           onClose={closeInspector}

@@ -239,7 +239,7 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
           padding: 12px 16px 16px 16px; 
           display: grid; 
           gap: 12px; 
-          max-height: 60vh;
+          max-height: 70vh;
           overflow-y: auto;
         }
         .agent-summary { display: inline-flex; gap: 8px; flex-wrap: wrap; }
