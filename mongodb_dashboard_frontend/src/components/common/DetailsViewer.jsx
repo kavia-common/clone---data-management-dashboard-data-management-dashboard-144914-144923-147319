@@ -20,6 +20,7 @@ import { formatCurrencyAmount } from "../../utils/formatCurrency";
  * - collapsedDepth: number (optional, default 1) - Nesting depth at which to collapse children by default
  * - onClose: function (optional) - When provided, displays a top-right Close (X) button that calls this handler
  * - autoFocusClose: boolean (optional, default false) - If true and onClose is provided, focuses the Close button on mount
+ * - compactLeft: boolean (optional, default false) - When true, reduces left padding/margins and indentation for a tighter left alignment (used by Costs View Details modal)
  */
 export default function DetailsViewer({
   data,
@@ -28,6 +29,7 @@ export default function DetailsViewer({
   collapsedDepth = 1,
   onClose,
   autoFocusClose = false,
+  compactLeft = false,
 }) {
   const [showRaw, setShowRaw] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -329,7 +331,7 @@ export default function DetailsViewer({
   }
 
   return (
-    <div className="details-viewer">
+    <div className={`details-viewer ${compactLeft ? "dv-compact-left" : ""}`}>
       <div className="sticky-header dv-header">
         <div className="dv-header-left">
           <h2 className="dv-title" id="details-viewer-title">
@@ -547,6 +549,33 @@ export default function DetailsViewer({
         }
 
         .dv-empty { padding: 8px 0; }
+
+        /* Compact-left variant for Costs View Details modal */
+        .dv-compact-left .dv-header {
+          padding-left: 10px; /* tighter than default 16px */
+        }
+        .dv-compact-left .dv-body {
+          padding-left: 8px;  /* reduce left gutter to bring content closer to edge */
+        }
+        /* Reset default dl/dt/dd margins only within compact-left scope */
+        .dv-compact-left dl,
+        .dv-compact-left dt,
+        .dv-compact-left dd {
+          margin: 0;
+        }
+        .dv-compact-left dd.dv-valcell {
+          margin: 0; /* ensure no extra left offset on value cell */
+        }
+        /* Slightly tighten column gap between label and value */
+        .dv-compact-left .dv-grid {
+          gap: 6px 8px;
+        }
+        /* Reduce left indentation for nested sections to avoid large left empty space */
+        .dv-compact-left .dv-section {
+          margin-left: 4px;
+          padding-left: 8px;
+          border-left-width: 1px;
+        }
       `}</style>
     </div>
   );

@@ -340,6 +340,7 @@ export default function Costs() {
           collapsedDepth={1}
           onClose={closeInspector}
           autoFocusClose
+          compactLeft
         />
       </Modal>
 
