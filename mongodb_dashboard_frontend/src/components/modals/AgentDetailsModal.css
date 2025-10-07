@@ -191,3 +191,11 @@
   width: min(94vw, 960px);
   box-sizing: border-box;
 }
+
+/* Costs page: 80% viewport width variant (scoped to Costs page usage only via class) */
+.modal-card-shell.costs-agent-modal-80 {
+  /* Responsive: prefer ~80vw, capped for large screens, and never exceed safe viewport on tiny screens */
+  max-width: min(96vw, clamp(360px, 80vw, 1280px));
+  width: min(96vw, clamp(360px, 80vw, 1280px));
+  box-sizing: border-box;
+}

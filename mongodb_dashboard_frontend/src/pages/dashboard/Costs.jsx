@@ -387,8 +387,9 @@ export default function Costs() {
         onClose={closeAgentModal}
         agentId={selectedAgentId}
         agentName={selectedAgentName}
-        modalWidth="min(94vw, 960px)"
-        modalClassName="costs-agent-modal"
+        // Use ~80% viewport width with reasonable caps to remain usable on small screens
+        modalWidth="min(96vw, clamp(360px, 80vw, 1280px))"
+        modalClassName="costs-agent-modal-80"
       />
 
       {/* Structured costs modal removed */}
