@@ -1,0 +1,153 @@
+import React from "react";
+import DateDetails from "./DateDetails";
+
+/**
+ * PUBLIC_INTERFACE
+ * ProjectDetail
+ * Expanding card that shows project summary and agents list with date-wise costs/tokens.
+ *
+ * Props:
+ * - project: {
+ *     projectId: number|string,
+ *     projectName: string,
+ *     projectCost: number,
+ *     agents: Array<{ agentId, agentName, costByDate?: Record<string,number>, tokensByDate?: Record<string,number> }>
+ *   }
+ */
+export default function ProjectDetail({ project }) {
+  const [open, setOpen] = React.useState(false);
+
+  const totalCost = Number(project?.projectCost || 0);
+  const agents = Array.isArray(project?.agents) ? project.agents : [];
+
+  return (
+    <div
+      className="project-detail"
+      style={{
+        marginBottom: 12,
+        border: "1px solid var(--border-subtle, #E5E7EB)",
+        borderRadius: 12,
+        overflow: "hidden",
+        background: "var(--bg-surface, #fff)",
+        boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
+      }}
+      data-testid={`project-${project?.projectId}`}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={`project-panel-${project?.projectId}`}
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%",
+          textAlign: "left",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: 14,
+          background: "#F8FAFC",
+          border: "none",
+          cursor: "pointer",
+        }}
+      >
+        <div style={{ display: "grid", gap: 4 }}>
+          <span style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>
+            Project #{String(project?.projectId ?? "—")}: {project?.projectName || "Untitled"}
+          </span>
+          <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+            Total Cost:{" "}
+            <strong style={{ color: "#B45309" }}>
+              {(() => {
+                try {
+                  return new Intl.NumberFormat(undefined, {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 6,
+                  }).format(totalCost);
+                } catch {
+                  return `$${totalCost.toFixed(6)}`;
+                }
+              })()}
+            </strong>
+          </span>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: "#2563EB",
+              background: "#EFF6FF",
+              borderRadius: 999,
+              padding: "2px 8px",
+            }}
+          >
+            {agents.length} Agent{agents.length === 1 ? "" : "s"}
+          </span>
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            style={{ color: "var(--text-tertiary)", transform: open ? "rotate(180deg)" : "none", transition: ".2s" }}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+      </button>
+
+      <div
+        id={`project-panel-${project?.projectId}`}
+        style={{
+          transition: "max-height .3s ease",
+          overflow: "hidden",
+          maxHeight: open ? 2000 : 0,
+        }}
+      >
+        <div style={{ padding: 14 }}>
+          {agents.length ? (
+            <div style={{ display: "grid", gap: 10 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--text-secondary)", borderBottom: "1px solid var(--border-subtle)", paddingBottom: 8 }}>
+                Agents Involved:
+              </h3>
+              {agents.map((agent) => (
+                <div
+                  key={agent.agentId}
+                  style={{
+                    background: "#F8FAFC",
+                    border: "1px solid var(--border-subtle)",
+                    borderRadius: 10,
+                    padding: 12,
+                  }}
+                >
+                  <h4 style={{ margin: 0, marginBottom: 8, fontSize: 14, fontWeight: 800, color: "#1D4ED8" }}>
+                    Agent #{String(agent.agentId)}: {agent.agentName || "Agent"}
+                  </h4>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr",
+                      gap: 12,
+                    }}
+                  >
+                    <DateDetails title="Costs By Date" data={agent.costByDate} />
+                    <DateDetails title="Tokens By Date" data={agent.tokensByDate} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted" style={{ textAlign: "center", fontStyle: "italic", margin: "6px 0" }}>
+              No agents have logged costs for this project yet.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

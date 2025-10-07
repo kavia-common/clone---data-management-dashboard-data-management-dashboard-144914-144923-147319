@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import Modal from "../../components/ui/Modal.jsx";
-import DetailsViewer from "../../components/common/DetailsViewer.jsx";
 import AgentDetailsModal from "../../components/costs/AgentDetailsModal.jsx";
+import { ViewCostDetailsModal } from "../../components/costs";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
 import { listLlmCosts } from "../../api/client";
 
@@ -21,10 +20,9 @@ export default function Costs() {
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Inspector modal state
-  const [inspectOpen, setInspectOpen] = useState(false);
-  const [inspectTitle, setInspectTitle] = useState("Details");
-  const [inspectPayload, setInspectPayload] = useState(null);
+  // New Cost Details modal state
+  const [costModalOpen, setCostModalOpen] = useState(false);
+  const [costModalData, setCostModalData] = useState(null);
 
   // Agent details modal state
   const [agentModalOpen, setAgentModalOpen] = useState(false);
@@ -60,24 +58,51 @@ export default function Costs() {
   }
 
   // PUBLIC_INTERFACE
-  function openInspector(title, payload) {
-    setInspectTitle(title);
-    setInspectPayload(payload);
-    setInspectOpen(true);
+  function openCostDetails(row, fieldLabel = "Details") {
+    // Build a minimal aggregated structure from a single row; fallback to mock handled in modal
+    try {
+      const userId = row?.user_id || row?.userId || row?.user || "user-unknown";
+      const userName =
+        row?.user_name ||
+        row?.username ||
+        row?.userName ||
+        row?.user?.name ||
+        "User";
+
+      const projectId = row?.project_id || row?.projectId || row?.project?.id;
+      const projectName = row?.project_name || row?.projectName || row?.project?.name || "Project";
+      const totalCost = Number(row?.total_cost ?? row?.cost ?? 0);
+
+      const mockProject = {
+        projectId: projectId ?? "N/A",
+        projectName,
+        projectCost: Number.isFinite(totalCost) ? totalCost : 0,
+        agents: [], // unknown at row level
+      };
+
+      const agg = {
+        userId: String(userId),
+        userName: String(userName),
+        totalProjectCount: 1,
+        totalCostUSD: Number.isFinite(totalCost) ? totalCost : 0,
+        projects: [mockProject],
+      };
+      setCostModalData(agg);
+    } catch {
+      setCostModalData(null);
+    }
+    setCostModalOpen(true);
   }
-  function closeInspector() {
-    setInspectOpen(false);
-    setInspectPayload(null);
+  function closeCostDetails() {
+    setCostModalOpen(false);
+    setCostModalData(null);
   }
 
   function onAgentSelect({ agentId, agentName }) {
     try {
       console.debug("[Costs] Agent selected", { agentId, agentName });
     } catch {}
-    // Close inspector modal if open to prevent modal conflicts
-    if (inspectOpen) {
-      setInspectOpen(false);
-    }
+    // No other modal needs to be closed explicitly now
     setSelectedAgentId(agentId);
     setSelectedAgentName(agentName || "");
     setAgentModalOpen(true);
@@ -139,7 +164,7 @@ export default function Costs() {
     }
   };
 
-  function renderCompact(value, fieldLabel = "Details") {
+  function renderCompact(value, fieldLabel = "Details", row = null) {
     if (Array.isArray(value)) {
       const len = value.length;
       if (len === 0) return "0 items";
@@ -172,9 +197,10 @@ export default function Costs() {
           <button
             className="btn btn-ghost"
             style={{ padding: "4px 8px", height: 28 }}
-            onClick={() => openInspector(fieldLabel, value)}
+            onClick={() => openCostDetails(row, fieldLabel)}
             aria-label={`View details for ${fieldLabel}`}
             title={`View details for ${fieldLabel}`}
+            data-testid="costs-view-details"
           >
             View details
           </button>
@@ -193,9 +219,10 @@ export default function Costs() {
           <button
             className="btn btn-ghost"
             style={{ padding: "4px 8px", height: 28 }}
-            onClick={() => openInspector(fieldLabel, value)}
+            onClick={() => openCostDetails(row, fieldLabel)}
             aria-label={`View ${fieldLabel}`}
             title={`View ${fieldLabel}`}
+            data-testid="costs-view"
           >
             View
           </button>
@@ -247,7 +274,7 @@ export default function Costs() {
         nestedCols.push({
           key: name,
           label: toLabel(name),
-          render: (v) => renderCompact(v, toLabel(name)),
+          render: (v, row) => renderCompact(v, toLabel(name), row),
           priority: 3,
         });
       }
@@ -337,45 +364,12 @@ export default function Costs() {
         />
       </Card>
 
-      {/* Modal inspector for arrays/objects to avoid expanding inside table cells */}
-      <Modal
-        title={inspectTitle}
-        open={inspectOpen}
-        onClose={closeInspector}
-        headerOffset={60}
-        width="min(96vw, 880px)"
-        footer={
-          <button className="btn btn-ghost" onClick={closeInspector} aria-label="Close details">Close</button>
-        }
-      >
-        <DetailsViewer
-          data={inspectPayload}
-          title={inspectTitle || "Cost details"}
-          highlightKeys={[
-            "timestamp",
-            "model",
-            "llm_model",
-            "prompt_tokens",
-            "completion_tokens",
-            "total_tokens",
-            "currency",
-            "cost",
-            "total_cost",
-            "project",
-            "project_id",
-            "user",
-            "user_id",
-            "metadata",
-            "details",
-            "agents",
-          ]}
-          collapsedDepth={1}
-          onClose={closeInspector}
-          autoFocusClose
-          compactLeft
-          onAgentSelect={onAgentSelect}
-        />
-      </Modal>
+      {/* New cost details modal */}
+      <ViewCostDetailsModal
+        isOpen={costModalOpen}
+        onClose={closeCostDetails}
+        data={costModalData}
+      />
 
       {/* Agent details modal - opened when an agent is selected from the details view */}
       <AgentDetailsModal
