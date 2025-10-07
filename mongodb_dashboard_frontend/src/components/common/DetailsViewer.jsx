@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
 
 /**
@@ -18,16 +18,22 @@ import { formatCurrencyAmount } from "../../utils/formatCurrency";
  * - title: string (optional) - Heading for the details viewer
  * - highlightKeys: string[] (optional) - Keys to show first
  * - collapsedDepth: number (optional, default 1) - Nesting depth at which to collapse children by default
+ * - onClose: function (optional) - When provided, displays a top-right Close (X) button that calls this handler
+ * - autoFocusClose: boolean (optional, default false) - If true and onClose is provided, focuses the Close button on mount
  */
 export default function DetailsViewer({
   data,
   title = "Details",
   highlightKeys = [],
   collapsedDepth = 1,
+  onClose,
+  autoFocusClose = false,
 }) {
   const [showRaw, setShowRaw] = useState(false);
   const [copied, setCopied] = useState(false);
   const [openMap, setOpenMap] = useState(() => new Map()); // path => boolean
+  // Ref to support auto-focus on the close button for keyboard users
+  const closeBtnRef = useRef(null);
 
   const currencyHint = useMemo(() => {
     // Try to detect a currency from data if available.
@@ -60,6 +66,17 @@ export default function DetailsViewer({
       // no-op
     }
   }, [data]);
+
+  // When requested, move initial keyboard focus to the Close button for quick access
+  useEffect(() => {
+    if (autoFocusClose && onClose && closeBtnRef.current) {
+      try {
+        closeBtnRef.current.focus();
+      } catch {
+        // ignore focus errors
+      }
+    }
+  }, [autoFocusClose, onClose]);
 
   // PUBLIC_INTERFACE
   function safePretty(payload) {
@@ -339,6 +356,24 @@ export default function DetailsViewer({
             title="Copy raw JSON"
           >
             {copied ? "Copied" : "Copy JSON"}
+          </button>
+          <button
+            ref={closeBtnRef}
+            className="btn btn-ghost"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close"
+            style={{
+              height: 32,
+              width: 32,
+              display: "inline-grid",
+              placeItems: "center",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 8,
+            }}
+            disabled={!onClose}
+          >
+            ×
           </button>
         </div>
       </div>

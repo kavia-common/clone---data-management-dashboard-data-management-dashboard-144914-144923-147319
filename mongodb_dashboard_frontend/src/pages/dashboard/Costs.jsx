@@ -338,6 +338,8 @@ export default function Costs() {
             "user_id",
           ]}
           collapsedDepth={1}
+          onClose={closeInspector}
+          autoFocusClose
         />
       </Modal>
 
