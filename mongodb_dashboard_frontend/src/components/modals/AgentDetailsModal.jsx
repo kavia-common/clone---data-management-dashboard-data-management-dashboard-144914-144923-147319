@@ -4,10 +4,8 @@ import PropTypes from 'prop-types';
 // Keep existing API call intact
 import { getAgentById } from '../../api/agents';
 
-// Reuse existing UI primitives if available, otherwise safely fall back
+// Reuse existing UI primitives
 import Modal from '../ui/Modal';
-import Tabs from '../ui/Tabs';
-import Button from '../ui/Button';
 import DetailsViewer from '../common/DetailsViewer';
 
 import './AgentDetailsModal.css';
@@ -28,11 +26,73 @@ function safeFormatDate(value) {
 }
 
 /**
- * Lightweight internal horizontal scroller for small related content rows.
- * Ensures accessible buttons and visible labels.
+ * Helper: Get initials from a name string
  */
-function AgentHorizontalScroller({ items, onItemClick }) {
+function getInitials(name) {
+  if (!name || typeof name !== 'string') return '?';
+  return name
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase())
+    .slice(0, 2)
+    .join('');
+}
+
+/**
+ * Helper: Create a safe filename slug from name and id
+ */
+function createSafeSlug(name, id) {
+  const safeName = (name || 'agent').replace(/[^a-zA-Z0-9-_]/g, '_');
+  const safeId = (id || 'unknown').replace(/[^a-zA-Z0-9-_]/g, '_');
+  return `${safeName}_${safeId}`;
+}
+
+/**
+ * Helper: Copy text to clipboard with feedback
+ */
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Fallback for older browsers
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * Accessible horizontal scroller component for related content
+ */
+function AgentHorizontalScroller({ items, onItemClick, className = '' }) {
   const containerRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollButtons = useCallback(() => {
+    if (containerRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = containerRef.current;
+      setCanScrollLeft(scrollLeft > 0);
+      setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 1);
+    }
+  }, []);
+
+  useEffect(() => {
+    updateScrollButtons();
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('scroll', updateScrollButtons);
+      return () => container.removeEventListener('scroll', updateScrollButtons);
+    }
+  }, [updateScrollButtons, items]);
 
   const scrollBy = (delta) => {
     if (containerRef.current) {
@@ -45,38 +105,45 @@ function AgentHorizontalScroller({ items, onItemClick }) {
   }
 
   return (
-    <div className="agent-scroller">
+    <div className={`agent-scroller ${className}`}>
       <button
         type="button"
-        className="agent-btn agent-btn-ghost agent-scroller-btn"
+        className="agent-scroller-btn agent-scroller-btn-left"
         onClick={() => scrollBy(-240)}
         aria-label="Scroll left"
-        title="Scroll left"
+        disabled={!canScrollLeft}
+        tabIndex={canScrollLeft ? 0 : -1}
       >
         ‹
       </button>
-      <div className="agent-scroller-track" ref={containerRef} role="list">
-        {items.map((it, idx) => (
+      <div 
+        className="agent-scroller-track" 
+        ref={containerRef} 
+        role="list"
+        aria-label="Related items"
+      >
+        {items.map((item, idx) => (
           <button
-            key={it.id || it.key || idx}
+            key={item.id || item.key || idx}
             type="button"
             className="agent-chip"
-            onClick={() => onItemClick && onItemClick(it)}
+            onClick={() => onItemClick && onItemClick(item)}
             role="listitem"
-            title={String(it.label || it.name || it.id || 'Item')}
+            tabIndex={0}
           >
             <span className="agent-chip-text">
-              {it.label || it.name || it.id || `Item ${idx + 1}`}
+              {item.label || item.name || item.id || `Item ${idx + 1}`}
             </span>
           </button>
         ))}
       </div>
       <button
         type="button"
-        className="agent-btn agent-btn-ghost agent-scroller-btn"
+        className="agent-scroller-btn agent-scroller-btn-right"
         onClick={() => scrollBy(240)}
         aria-label="Scroll right"
-        title="Scroll right"
+        disabled={!canScrollRight}
+        tabIndex={canScrollRight ? 0 : -1}
       >
         ›
       </button>
@@ -87,6 +154,7 @@ function AgentHorizontalScroller({ items, onItemClick }) {
 AgentHorizontalScroller.propTypes = {
   items: PropTypes.arrayOf(PropTypes.object),
   onItemClick: PropTypes.func,
+  className: PropTypes.string,
 };
 
 /**
@@ -98,50 +166,46 @@ function useNormalizedAgent(agent) {
     if (!agent || typeof agent !== 'object') return null;
 
     const id = agent.id || agent._id || agent.agent_id || agent.uid || null;
-    const name =
-      agent.name ||
-      agent.agentName ||
-      agent.title ||
-      agent.display_name ||
-      agent.identifier ||
+    const name = 
+      agent.name || 
+      agent.agentName || 
+      agent.title || 
+      agent.display_name || 
+      agent.identifier || 
       null;
 
-    const createdAt =
-      agent.created_at || agent.createdAt || agent.timestamp || agent.created || null;
+    const type = agent.type || agent.agentType || agent.category || null;
+    const version = agent.version || agent.agentVersion || null;
+    const status = agent.status || agent.state || null;
+    
+    const createdAt = agent.created_at || agent.createdAt || agent.timestamp || agent.created || null;
     const updatedAt = agent.updated_at || agent.updatedAt || null;
+    const lastActive = agent.last_active || agent.lastActive || agent.lastActivityAt || null;
+    
+    const totalCost = agent.total_cost || agent.totalCost || agent.cost || 0;
 
-    // Basic metadata extraction with resilience
-    const metadata =
-      agent.metadata ||
-      agent.meta ||
-      agent.details ||
-      (agent.data && typeof agent.data === 'object' ? agent.data : null) ||
-      null;
-
-    // Optional tags/list-like fields
-    const tags =
-      agent.tags ||
-      agent.labels ||
-      agent.topics ||
-      (Array.isArray(agent.keywords) ? agent.keywords : null) ||
-      [];
+    // Extract metadata and tags
+    const metadata = agent.metadata || agent.meta || agent.details || null;
+    const tags = Array.isArray(agent.tags) ? agent.tags : 
+                 Array.isArray(agent.labels) ? agent.labels :
+                 Array.isArray(agent.keywords) ? agent.keywords : [];
 
     return {
       id,
       name,
+      type,
+      version,
+      status,
       createdAt,
       updatedAt,
-      tags: Array.isArray(tags) ? tags : [],
+      lastActive,
+      totalCost,
+      tags,
       metadata,
       raw: agent,
     };
   }, [agent]);
 }
-
-const DEFAULT_TABS = [
-  { key: 'summary', label: 'Summary' },
-  { key: 'raw', label: 'Raw Data' },
-];
 
 /**
  * AgentDetailsModal
@@ -156,6 +220,7 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
+  const [copyFeedback, setCopyFeedback] = useState('');
   const abortRef = useRef(null);
 
   // Fetch agent details (respects cancellation)
@@ -212,6 +277,7 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
       setErr(null);
       setLoading(false);
       setActiveTab('summary');
+      setCopyFeedback('');
       if (abortRef.current) {
         abortRef.current.abort();
         abortRef.current = null;
@@ -222,181 +288,294 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
 
   const normalized = useNormalizedAgent(agent);
 
-  const titleText = normalized?.name || agentName || 'Agent Details';
-  const subtitleText = normalized?.id ? `ID: ${normalized.id}` : agentId ? `ID: ${agentId}` : null;
+  // Handle copy ID functionality
+  const handleCopyId = useCallback(async () => {
+    const idToCopy = normalized?.id || agentId;
+    if (idToCopy) {
+      const success = await copyToClipboard(String(idToCopy));
+      setCopyFeedback(success ? 'Copied!' : 'Failed to copy');
+      setTimeout(() => setCopyFeedback(''), 2000);
+    }
+  }, [normalized?.id, agentId]);
 
   // Download JSON handler
-  const onDownload = useCallback(() => {
+  const handleDownload = useCallback(() => {
     const data = normalized?.raw || agent || {};
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const safeName = `${normalized?.name || 'agent'}_${normalized?.id || 'details'}.json`;
+    const filename = `${createSafeSlug(normalized?.name, normalized?.id)}.json`;
     a.href = url;
-    a.download = safeName; // proper template literal logic handled above
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
   }, [agent, normalized]);
 
-  // Accessible tab props
-  const tabListId = 'agent-details-tabs';
-  const panelIdSummary = 'agent-details-panel-summary';
-  const panelIdRaw = 'agent-details-panel-raw';
+  // Tab navigation with keyboard support
+  const handleTabKeyDown = useCallback((event, tabKey) => {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      const tabs = ['summary', 'raw'];
+      const currentIndex = tabs.indexOf(activeTab);
+      let newIndex;
+      
+      if (event.key === 'ArrowLeft') {
+        newIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1;
+      } else {
+        newIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0;
+      }
+      
+      setActiveTab(tabs[newIndex]);
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setActiveTab(tabKey);
+    }
+  }, [activeTab]);
 
-  // Build possible tag chips for scroller demo (optional)
+  // Build tag items for scroller
   const tagItems = useMemo(() => {
     if (!normalized?.tags?.length) return [];
-    return normalized.tags.map((t) => ({ id: t, label: t }));
+    return normalized.tags.map((tag) => ({ id: tag, label: tag }));
   }, [normalized]);
 
-  // Body content based on state
+  const titleText = normalized?.name || agentName || 'Agent Details';
+  const initials = getInitials(normalized?.name || agentName);
+
+  // Build status chips data
+  const statusChips = useMemo(() => {
+    const chips = [];
+    if (normalized?.lastActive) {
+      chips.push({
+        label: 'Last Active',
+        value: safeFormatDate(normalized.lastActive),
+        icon: '🕒',
+        type: 'info'
+      });
+    }
+    if (normalized?.totalCost && normalized.totalCost > 0) {
+      chips.push({
+        label: 'Total Cost',
+        value: `$${normalized.totalCost.toFixed(4)}`,
+        icon: '💰',
+        type: 'cost'
+      });
+    }
+    return chips;
+  }, [normalized]);
+
+  // Modal content based on state
   let bodyContent = null;
 
   if (loading) {
     bodyContent = (
       <div className="agent-loading" role="status" aria-live="polite">
-        <div className="agent-skeleton-header" />
-        <div className="agent-skeleton-line" />
-        <div className="agent-skeleton-line short" />
+        <div className="agent-skeleton-avatar"></div>
+        <div className="agent-skeleton-header"></div>
+        <div className="agent-skeleton-chips">
+          <div className="agent-skeleton-chip"></div>
+          <div className="agent-skeleton-chip"></div>
+        </div>
         <div className="agent-skeleton-grid">
-          <div className="agent-skeleton-card" />
-          <div className="agent-skeleton-card" />
-          <div className="agent-skeleton-card" />
+          <div className="agent-skeleton-card"></div>
+          <div className="agent-skeleton-card"></div>
+          <div className="agent-skeleton-card"></div>
+          <div className="agent-skeleton-card"></div>
         </div>
       </div>
     );
   } else if (err) {
     bodyContent = (
-      <div className="agent-state agent-error" role="alert" aria-live="assertive">
-        <div className="agent-state-title">We couldn’t load this agent</div>
-        <div className="agent-state-subtext">
-          {err?.message || 'An unexpected error occurred.'}
+      <div className="agent-error-state" role="alert" aria-live="assertive">
+        <div className="agent-error-icon">⚠️</div>
+        <div className="agent-error-title">Unable to Load Agent</div>
+        <div className="agent-error-message">
+          {err?.message || 'An unexpected error occurred while loading the agent details.'}
         </div>
-        <div className="agent-actions">
+        <div className="agent-error-actions">
           <button
             type="button"
             className="agent-btn agent-btn-primary"
-            title="Retry loading agent"
             onClick={retry}
           >
-            Retry
-          </button>
-          <button
-            type="button"
-            className="agent-btn agent-btn-ghost"
-            title="Close"
-            onClick={onClose}
-          >
-            Close
+            Try Again
           </button>
         </div>
       </div>
     );
   } else if (!normalized) {
     bodyContent = (
-      <div className="agent-state" role="status" aria-live="polite">
-        <div className="agent-icon">🤖</div>
-        <div className="agent-state-title">No agent data</div>
-        <div className="agent-state-subtext">
+      <div className="agent-empty-state" role="status" aria-live="polite">
+        <div className="agent-empty-icon">🤖</div>
+        <div className="agent-empty-title">No Agent Data</div>
+        <div className="agent-empty-message">
           {agentId || agentName
-            ? `No data available for ${agentName || 'Agent'} ${agentId ? `(ID: ${agentId})` : ''}.`
-            : 'Select an agent to view details.'}
+            ? `No details available for ${agentName || 'Agent'} ${agentId ? `(${agentId})` : ''}.`
+            : 'Select an agent to view its details.'}
         </div>
       </div>
     );
   } else {
     bodyContent = (
       <>
+        {/* Agent Header */}
+        <div className="agent-header">
+          <div className="agent-avatar">
+            <span className="agent-avatar-text">{initials}</span>
+          </div>
+          <div className="agent-header-info">
+            <h2 className="agent-name">{normalized.name}</h2>
+            <div className="agent-id-row">
+              <span className="agent-id">ID: {normalized.id}</span>
+              <button
+                type="button"
+                className="agent-copy-btn"
+                onClick={handleCopyId}
+                title="Copy ID to clipboard"
+                aria-label="Copy agent ID to clipboard"
+              >
+                📋
+              </button>
+              {copyFeedback && (
+                <span className="agent-copy-feedback" aria-live="polite">
+                  {copyFeedback}
+                </span>
+              )}
+            </div>
+            {(normalized.type || normalized.version) && (
+              <div className="agent-badge">
+                {normalized.type && <span className="agent-type">{normalized.type}</span>}
+                {normalized.version && <span className="agent-version">v{normalized.version}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Status Chips */}
+        {statusChips.length > 0 && (
+          <div className="agent-status-chips">
+            {statusChips.map((chip, index) => (
+              <div key={index} className={`agent-status-chip agent-status-${chip.type}`}>
+                <span className="agent-status-icon">{chip.icon}</span>
+                <div className="agent-status-content">
+                  <span className="agent-status-label">{chip.label}</span>
+                  <span className="agent-status-value">{chip.value}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tags Scroller */}
         {tagItems.length > 0 && (
           <div className="agent-section">
-            <div className="agent-section-title">Tags</div>
+            <h3 className="agent-section-title">Tags</h3>
             <AgentHorizontalScroller
               items={tagItems}
-              onItemClick={() => {
-                /* noop: could filter content by tag */
-              }}
+              onItemClick={() => {/* Could filter content by tag */}}
             />
           </div>
         )}
 
-        <div
-          className="agent-tabs"
-          role="tablist"
-          aria-label="Agent details tabs"
-          id={tabListId}
-        >
-          {DEFAULT_TABS.map((t) => (
-            <button
-              key={t.key}
-              role="tab"
-              aria-selected={activeTab === t.key}
-              aria-controls={t.key === 'summary' ? panelIdSummary : panelIdRaw}
-              className={`agent-tab ${activeTab === t.key ? 'active' : ''}`}
-              onClick={() => setActiveTab(t.key)}
-              title={t.label}
-            >
-              {t.label}
-            </button>
-          ))}
-          <div className="agent-tab-spacer" />
-          <button
-            type="button"
-            className="agent-btn agent-btn-primary-outline"
-            onClick={onDownload}
-            title="Download as JSON"
+        {/* Tabs */}
+        <div className="agent-tabs-container">
+          <div
+            className="agent-tabs"
+            role="tablist"
+            aria-label="Agent details sections"
           >
-            Download JSON
-          </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === 'summary'}
+              aria-controls="agent-panel-summary"
+              className={`agent-tab ${activeTab === 'summary' ? 'active' : ''}`}
+              onClick={() => setActiveTab('summary')}
+              onKeyDown={(e) => handleTabKeyDown(e, 'summary')}
+            >
+              Summary
+            </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === 'raw'}
+              aria-controls="agent-panel-raw"
+              className={`agent-tab ${activeTab === 'raw' ? 'active' : ''}`}
+              onClick={() => setActiveTab('raw')}
+              onKeyDown={(e) => handleTabKeyDown(e, 'raw')}
+            >
+              Raw Data
+            </button>
+          </div>
         </div>
 
-        <div className="agent-tabpanel-wrapper">
+        {/* Tab Panels */}
+        <div className="agent-tab-panels">
           {activeTab === 'summary' && (
             <div
-              id={panelIdSummary}
+              id="agent-panel-summary"
               role="tabpanel"
-              aria-labelledby={tabListId}
+              aria-labelledby="agent-tabs"
               className="agent-panel"
             >
-              <div className="agent-grid">
-                <div className="agent-card">
+              <div className="agent-summary-grid">
+                <div className="agent-summary-card">
                   <div className="agent-card-title">Name</div>
                   <div className="agent-card-value">{normalized.name || 'N/A'}</div>
                 </div>
-                <div className="agent-card">
+                <div className="agent-summary-card">
                   <div className="agent-card-title">ID</div>
                   <div className="agent-card-value">{normalized.id || 'N/A'}</div>
                 </div>
-                <div className="agent-card">
+                <div className="agent-summary-card">
+                  <div className="agent-card-title">Status</div>
+                  <div className="agent-card-value">{normalized.status || 'N/A'}</div>
+                </div>
+                <div className="agent-summary-card">
+                  <div className="agent-card-title">Type</div>
+                  <div className="agent-card-value">{normalized.type || 'N/A'}</div>
+                </div>
+                <div className="agent-summary-card">
                   <div className="agent-card-title">Created</div>
                   <div className="agent-card-value">{safeFormatDate(normalized.createdAt)}</div>
                 </div>
-                <div className="agent-card">
+                <div className="agent-summary-card">
                   <div className="agent-card-title">Updated</div>
                   <div className="agent-card-value">{safeFormatDate(normalized.updatedAt)}</div>
                 </div>
               </div>
 
-              <div className="agent-section">
-                <div className="agent-section-title">Metadata</div>
-                {normalized.metadata ? (
-                  <DetailsViewer data={normalized.metadata} />
-                ) : (
-                  <div className="agent-muted">No metadata available.</div>
-                )}
-              </div>
+              {normalized.metadata && (
+                <div className="agent-metadata-section">
+                  <h3 className="agent-section-title">Metadata</h3>
+                  <div className="agent-metadata-viewer">
+                    <DetailsViewer data={normalized.metadata} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
+
           {activeTab === 'raw' && (
             <div
-              id={panelIdRaw}
+              id="agent-panel-raw"
               role="tabpanel"
-              aria-labelledby={tabListId}
+              aria-labelledby="agent-tabs"
               className="agent-panel"
             >
-              <DetailsViewer data={normalized.raw} />
+              <div className="agent-raw-data">
+                <AgentHorizontalScroller
+                  items={[{ id: 'expand', label: 'Expand All' }, { id: 'collapse', label: 'Collapse All' }]}
+                  onItemClick={(item) => {
+                    // Could implement expand/collapse functionality
+                    console.log('Raw data action:', item.id);
+                  }}
+                  className="agent-raw-controls"
+                />
+                <div className="agent-raw-viewer">
+                  <DetailsViewer data={normalized.raw} />
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -404,50 +583,41 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
     );
   }
 
-  // Wrap with the Modal wrapper and proper header/body/footer
-  // Fallback to a simple container if Modal component is absent or incompatible
-  const ModalWrapper = Modal
-    ? Modal
-    : ({ open: isOpen, onClose: close, children }) =>
-        isOpen ? (
-          <div className="agent-fallback-modal">
-            <div className="agent-fallback-surface">
-              <button className="agent-fallback-close" onClick={close} title="Close modal">
-                ×
-              </button>
-              {children}
-            </div>
-          </div>
-        ) : null;
+  // Sticky footer actions
+  const footerActions = (
+    <div className="agent-footer-actions">
+      <button
+        type="button"
+        className="agent-btn agent-btn-outline"
+        onClick={handleDownload}
+        disabled={!normalized}
+        title="Download agent data as JSON"
+      >
+        Download JSON
+      </button>
+      <button
+        type="button"
+        className="agent-btn agent-btn-primary"
+        onClick={onClose}
+        title="Close modal"
+      >
+        Close
+      </button>
+    </div>
+  );
 
   return (
-    <ModalWrapper open={open} onClose={onClose}>
-      <div className="agent-modal">
-        <header className="agent-modal-header">
-          <div>
-            <h2 className="agent-title">{titleText}</h2>
-            {subtitleText && <div className="agent-subtitle">{subtitleText}</div>}
-          </div>
-          {/* Optional area for future right-aligned actions */}
-        </header>
-
-        <main className="agent-modal-body">{bodyContent}</main>
-
-        <footer className="agent-modal-footer">
-          <div className="agent-footer-left" />
-          <div className="agent-footer-right">
-            <button
-              type="button"
-              className="agent-btn agent-btn-ghost"
-              title="Close"
-              onClick={onClose}
-            >
-              Close
-            </button>
-          </div>
-        </footer>
+    <Modal 
+      open={open} 
+      onClose={onClose}
+      title={titleText}
+      footer={footerActions}
+      width="min(96vw, 920px)"
+    >
+      <div className="agent-modal-content">
+        {bodyContent}
       </div>
-    </ModalWrapper>
+    </Modal>
   );
 }
 
