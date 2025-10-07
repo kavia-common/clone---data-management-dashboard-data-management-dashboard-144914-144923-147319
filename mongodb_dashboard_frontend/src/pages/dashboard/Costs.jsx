@@ -81,6 +81,10 @@ export default function Costs() {
     setSelectedAgentId(agentId);
     setSelectedAgentName(agentName || "");
     setAgentModalOpen(true);
+    // Add debug logging for modal state
+    try {
+      console.debug('[Costs] render modal', { open: true, agentId: agentId });
+    } catch {}
   }
 
   function closeAgentModal() {
