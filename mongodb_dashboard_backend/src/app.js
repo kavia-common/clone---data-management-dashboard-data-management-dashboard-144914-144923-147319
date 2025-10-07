@@ -115,9 +115,6 @@ app.use('/api/data', require('./routes/data.routes'));
 app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
 app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
 
-// Costs details aggregation for modal
-app.use('/api/costs', require('./routes/costs'));
-
 // Tenants and Projects (mapping, hierarchy, credits, usage)
 app.use('/api/tenants', require('./routes/tenants.routes'));
 app.use('/api/projects', require('./routes/projects.routes'));
