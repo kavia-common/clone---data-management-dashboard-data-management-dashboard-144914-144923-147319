@@ -30,6 +30,8 @@ export default function DetailsViewer({
   onClose,
   autoFocusClose = false,
   compactLeft = false,
+  // Optional: when provided, enables agent selection actions within arrays rendered under "...agents" keys.
+  onAgentSelect,
 }) {
   const [showRaw, setShowRaw] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -244,25 +246,54 @@ export default function DetailsViewer({
 
     if (Array.isArray(value)) {
       const isTopLevel = path === "root";
-      const label = `${toLabel(path.split(".").pop() || "Items")}`;
+      const keyName = path.split(".").pop();
+      const label = `${toLabel(keyName || "Items")}`;
       const summary = `${value.length} item${value.length === 1 ? "" : "s"}`;
+
+      // Detect "agents" arrays specifically for enhanced interaction
+      const isAgentsArray = String(keyName || "").toLowerCase() === "agents";
+
       const body = (
         <div className="dv-array">
           {value.length === 0 && <div className="dv-empty muted">Empty</div>}
-          {value.map((item, idx) => (
-            <div key={`${path}.${idx}`} className="dv-array-item">
-              <div className="dv-array-index">#{idx + 1}</div>
-              <div className="dv-array-body">
-                {typeof item === "object" && item !== null ? (
-                  renderEntries(item, `${path}.${idx}`, depth + 1, rootObj)
-                ) : (
-                  renderPrimitiveVal(String(idx), item, rootObj)
-                )}
+          {value.map((item, idx) => {
+            const itemKey = `${path}.${idx}`;
+            const isObj = typeof item === "object" && item !== null;
+            // Heuristics to locate identifiers and friendly names in agent items
+            const agentId =
+              (isObj && (item.id ?? item._id ?? item.agent_id ?? item.user_id)) ?? null;
+            const agentName =
+              (isObj && (item.name ?? item.agent_name ?? item.user_name ?? item.username)) ?? null;
+
+            return (
+              <div key={itemKey} className="dv-array-item">
+                <div className="dv-array-index">#{idx + 1}</div>
+                <div className="dv-array-body">
+                  {isObj ? (
+                    renderEntries(item, itemKey, depth + 1, rootObj)
+                  ) : (
+                    renderPrimitiveVal(String(idx), item, rootObj)
+                  )}
+                  {isAgentsArray && typeof onAgentSelect === "function" && agentId != null ? (
+                    <div className="dv-array-actions">
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => onAgentSelect({ agentId, agentName })}
+                        title={`Open details for ${agentName || agentId}`}
+                        aria-label={`Open details for ${agentName || agentId}`}
+                        style={{ height: 28, padding: "0 8px", marginTop: 6 }}
+                      >
+                        Open details
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       );
+
       // For top-level arrays (path === "root"), render plain list without a collapsible "Root" control.
       if (isTopLevel) {
         return body;

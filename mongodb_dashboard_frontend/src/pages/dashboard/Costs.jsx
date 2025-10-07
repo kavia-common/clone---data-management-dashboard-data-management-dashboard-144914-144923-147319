@@ -3,6 +3,7 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import DetailsViewer from "../../components/common/DetailsViewer.jsx";
+import AgentDetailsModal from "../../components/costs/AgentDetailsModal.jsx";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
 import { listLlmCosts } from "../../api/client";
 
@@ -24,6 +25,11 @@ export default function Costs() {
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectTitle, setInspectTitle] = useState("Details");
   const [inspectPayload, setInspectPayload] = useState(null);
+
+  // Agent details modal state
+  const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState(null);
+  const [selectedAgentName, setSelectedAgentName] = useState("");
 
   const dateFieldHints = useMemo(
     () =>
@@ -62,6 +68,15 @@ export default function Costs() {
   function closeInspector() {
     setInspectOpen(false);
     setInspectPayload(null);
+  }
+
+  function onAgentSelect({ agentId, agentName }) {
+    try {
+      console.debug("[Costs] Agent selected", { agentId, agentName });
+    } catch {}
+    setSelectedAgentId(agentId);
+    setSelectedAgentName(agentName || "");
+    setAgentModalOpen(true);
   }
 
   const renderText = (value) => {
@@ -341,8 +356,17 @@ export default function Costs() {
           onClose={closeInspector}
           autoFocusClose
           compactLeft
+          onAgentSelect={onAgentSelect}
         />
       </Modal>
+
+      {/* Agent details modal - opened when an agent is selected from the details view */}
+      <AgentDetailsModal
+        open={agentModalOpen}
+        onClose={() => setAgentModalOpen(false)}
+        agentId={selectedAgentId}
+        agentName={selectedAgentName}
+      />
 
       {/* Structured costs modal removed */}
     </div>
