@@ -17,13 +17,19 @@ Key features:
 1) Configure MongoDB
 - The service reads the MongoDB connection string from the environment variable:
   - `MONGODB_URI`
-- You can optionally force the database name by setting:
-  - `MONGODB_DB` (e.g., develop_kaviaroot / qa_kaviaroot / pre_prod__kaviaroot)
+- You can optionally force the database name by setting (preferred first):
+  - `MONGODB_DB_NAME` (preferred)
+  - `MONGODB_DB` (backwards-compatible)
 - Automatic index creation is disabled by default to avoid failures on existing datasets.
   - To enable, set: `MONGOOSE_AUTO_INDEX=true`
 - A `.env.example` is provided. Copy it to `.env` (or set environment variables in your runtime):
   ```
   cp .env.example .env
+  ```
+  Then set at least:
+  ```
+  MONGODB_URI=<your-mongodb-uri>
+  MONGODB_DB_NAME=<your-db-name>
   ```
 - By default (if `MONGODB_URI` is not set), the service will use the following URI:
   ```
@@ -32,8 +38,9 @@ Key features:
 - To override or ensure explicit configuration, set:
   ```
   MONGODB_URI=<your-mongodb-uri>
-  MONGODB_DB=<your-db-name> # optional
-  MONGOOSE_AUTO_INDEX=true   # optional
+  MONGODB_DB_NAME=<your-db-name>  # preferred
+  # MONGODB_DB=<your-db-name>     # legacy fallback
+  MONGOOSE_AUTO_INDEX=true        # optional
   ```
 
 2) Configure CORS

@@ -1,6 +1,14 @@
 const mongoose = require('mongoose');
 
 /**
+ * Resolve the DB name from environment with backwards compatibility.
+ * Prefers MONGODB_DB_NAME but falls back to MONGODB_DB if present.
+ */
+function resolveDbNameFromEnv() {
+  return process.env.MONGODB_DB_NAME || process.env.MONGODB_DB || undefined;
+}
+
+/**
  * PUBLIC_INTERFACE
  * Establishes a connection to MongoDB using Mongoose.
  * - Reads the connection string from process.env.MONGODB_URI
@@ -31,7 +39,7 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = process.env.MONGODB_DB; // Optional; if not set, Mongo will use the URI/path default (often 'test')
+  const dbName = resolveDbNameFromEnv(); // Optional; if not set, Mongo will use the URI/path default (often 'test')
 
   const options = {
     autoIndex,
@@ -58,7 +66,15 @@ async function connectDB() {
     );
     if (dbName) {
       // eslint-disable-next-line no-console
-      console.log(`MongoDB dbName selected via env: ${dbName}`);
+      console.log(
+        `MongoDB dbName selected via env: ${
+          process.env.MONGODB_DB_NAME
+            ? `MONGODB_DB_NAME=${dbName}`
+            : process.env.MONGODB_DB
+            ? `MONGODB_DB=${dbName}`
+            : dbName
+        }`
+      );
     }
     // eslint-disable-next-line no-console
     console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
@@ -78,4 +94,92 @@ async function connectDB() {
   return mongoose.connection;
 }
 
-module.exports = { connectDB };
+/**
+ * Wait for a usable DB connection. If disconnected, attempts to connect.
+ */
+async function waitForConnection() {
+  // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+  const state = mongoose.connection.readyState;
+  if (state === 1) return; // connected
+  if (state === 2) {
+    // connecting - wait for 'connected' or 'error'
+    await new Promise((resolve, reject) => {
+      const onConnected = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = (err) => {
+        cleanup();
+        reject(err);
+      };
+      const cleanup = () => {
+        mongoose.connection.off('connected', onConnected);
+        mongoose.connection.off('error', onError);
+      };
+      mongoose.connection.once('connected', onConnected);
+      mongoose.connection.once('error', onError);
+    });
+    return;
+  }
+  // if disconnected (0) or disconnecting (3), try connect
+  await connectDB();
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Return the native MongoDB Db instance (awaits connection if necessary).
+ */
+async function getDb() {
+  await waitForConnection();
+  const db = mongoose.connection.db;
+  if (!db) {
+    throw new Error('MongoDB native database handle not available after connection.');
+  }
+  return db;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Resolve a MongoDB collection from a list of candidate names.
+ * Examples:
+ *   await getCollection('llm-costs')
+ *   await getCollection(['llm-costs', 'llm_costs'])
+ *
+ * Throws an error with code 'COLLECTION_NOT_FOUND' if no candidate exists.
+ */
+async function getCollection(candidates, options = {}) {
+  await waitForConnection();
+  const db = await getDb();
+  const candidateList = Array.isArray(candidates) ? candidates : [candidates];
+
+  // Include underscore/dash alternates automatically
+  const expanded = new Set();
+  for (const name of candidateList) {
+    if (!name) continue;
+    expanded.add(name);
+    // Add dash/underscore variant
+    if (name.includes('-')) expanded.add(name.replace(/-/g, '_'));
+    if (name.includes('_')) expanded.add(name.replace(/_/g, '-'));
+  }
+  const finalCandidates = Array.from(expanded);
+
+  const existing = await db.listCollections().toArray();
+  const existingNames = existing.map((c) => c.name);
+
+  for (const cand of finalCandidates) {
+    if (existingNames.includes(cand)) {
+      return db.collection(cand);
+    }
+  }
+
+  const err = new Error(
+    `Required MongoDB collection not found. Tried: ${finalCandidates.join(
+      ', '
+    )}. Existing collections: ${existingNames.join(', ')}`
+  );
+  // Attach a stable error code for route handlers to map status codes
+  err.code = 'COLLECTION_NOT_FOUND';
+  throw err;
+}
+
+module.exports = { connectDB, getDb, getCollection, waitForConnection, resolveDbNameFromEnv };

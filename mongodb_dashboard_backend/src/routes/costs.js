@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const LLMCost = require('../models/llmCosts.model');
+const { getCollection } = require('../config/db');
 const { asyncHandler } = require('../utils/http');
 const { resolveProjectNames } = require('../services/projects.service');
 
@@ -319,7 +319,23 @@ router.get(
       }
     );
 
-    const agg = await LLMCost.aggregate(pipeline);
+    // Resolve the correct collection name: prefer 'llm-costs' but support legacy 'llm_costs'
+    let agg;
+    try {
+      const collection = await getCollection(['llm-costs', 'llm_costs']);
+      const cursor = collection.aggregate(pipeline, { allowDiskUse: true });
+      agg = await cursor.toArray();
+    } catch (e) {
+      if (e && e.code === 'COLLECTION_NOT_FOUND') {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Costs collection not found. Expected \'llm-costs\' (preferred) or \'llm_costs\' (legacy). Please ensure the collection exists and is correctly named.',
+          detail: e.message,
+        });
+      }
+      throw e;
+    }
 
     if (!agg || agg.length === 0) {
       return res.status(404).json({ success: false, message: 'No cost data found' });
