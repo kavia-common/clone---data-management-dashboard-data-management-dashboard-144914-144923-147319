@@ -241,37 +241,51 @@ export default function DetailsViewer({
     }
 
     if (Array.isArray(value)) {
+      const isTopLevel = path === "root";
       const label = `${toLabel(path.split(".").pop() || "Items")}`;
       const summary = `${value.length} item${value.length === 1 ? "" : "s"}`;
+      const body = (
+        <div className="dv-array">
+          {value.length === 0 && <div className="dv-empty muted">Empty</div>}
+          {value.map((item, idx) => (
+            <div key={`${path}.${idx}`} className="dv-array-item">
+              <div className="dv-array-index">#{idx + 1}</div>
+              <div className="dv-array-body">
+                {typeof item === "object" && item !== null ? (
+                  renderEntries(item, `${path}.${idx}`, depth + 1, rootObj)
+                ) : (
+                  renderPrimitiveVal(String(idx), item, rootObj)
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+      // For top-level arrays (path === "root"), render plain list without a collapsible "Root" control.
+      if (isTopLevel) {
+        return body;
+      }
       return (
         <Collapser id={path} label={label} summary={summary} depth={depth}>
-          <div className="dv-array">
-            {value.length === 0 && <div className="dv-empty muted">Empty</div>}
-            {value.map((item, idx) => (
-              <div key={`${path}.${idx}`} className="dv-array-item">
-                <div className="dv-array-index">#{idx + 1}</div>
-                <div className="dv-array-body">
-                  {typeof item === "object" && item !== null ? (
-                    renderEntries(item, `${path}.${idx}`, depth + 1, rootObj)
-                  ) : (
-                    renderPrimitiveVal(String(idx), item, rootObj)
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          {body}
         </Collapser>
       );
     }
 
     // Object
+    const isTopLevelObj = path === "root";
     const label = toLabel(path.split(".").pop() || "Object");
     const keys = Object.keys(value);
     const sampleSummary =
       keys.length > 0 ? `${keys.slice(0, 2).join(", ")}${keys.length > 2 ? ` +${keys.length - 2} more` : ""}` : "empty";
+    const objBody = renderEntries(value, path, depth + 1, rootObj);
+    if (isTopLevelObj) {
+      // Render directly without a top-level "Root" collapsible.
+      return objBody;
+    }
     return (
       <Collapser id={path} label={label} summary={sampleSummary} depth={depth}>
-        {renderEntries(value, path, depth + 1, rootObj)}
+        {objBody}
       </Collapser>
     );
   }
