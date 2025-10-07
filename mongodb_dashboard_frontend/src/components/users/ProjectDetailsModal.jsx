@@ -2,22 +2,23 @@
  * PUBLIC_INTERFACE
  * ProjectDetailsModal
  * Displays project details for a given project (Project ID, Project Name, Updated At).
- * Fetches projectName from App Deployments enrichment by projectId.
+ * Fetches projectName via GET /api/projects/{projectId}/name.
  *
  * Props:
  * - open: boolean
  * - onClose: function
- * - project: { project_id?: string, projectId?: string, updated_at?: string, updatedAt?: string }
+ * - project: { project_id?: string, projectId?: string, updated_at?: string, updatedAt?: string, _id?: string }
  */
 
 import React, { useEffect, useMemo, useState } from "react";
 import Modal from "../ui/Modal.jsx";
 import DetailsViewer from "../common/DetailsViewer.jsx";
-import { fetchProjectNameByProjectId } from "../../api/projectName";
+import { fetchProjectNameDirect } from "../../api/projectName";
 
 export default function ProjectDetailsModal({ open, onClose, project }) {
   const [projectName, setProjectName] = useState("—");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const projectId = project?.project_id || project?.projectId || project?._id || null;
 
@@ -27,17 +28,23 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
       if (!open || !projectId) {
         setProjectName("—");
         setLoading(false);
+        setError(null);
         return;
       }
       try {
         setLoading(true);
-        const name = await fetchProjectNameByProjectId(projectId);
+        setError(null);
+        const name = await fetchProjectNameDirect(projectId);
         if (ignore) return;
+        if (!name) {
+          console.debug("[ProjectDetailsModal] No projectName returned for projectId", { projectId });
+        }
         setProjectName(name || "—");
       } catch (err) {
         if (!ignore) {
-          console.error("[ProjectDetailsModal] Error resolving project name", { projectId, error: err?.message || err });
+          console.error("[ProjectDetailsModal] Error fetching project name", { projectId, error: err?.message || err });
           setProjectName("—");
+          setError(err?.message || "Failed to load");
         }
       } finally {
         if (!ignore) setLoading(false);
@@ -52,7 +59,7 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
   const details = useMemo(() => {
     const rows = [];
     rows.push({ label: "Project ID", value: projectId || "—" });
-    rows.push({ label: "Project Name", value: loading ? "Loading…" : projectName || "—" });
+    rows.push({ label: "Project Name", value: loading ? "Loading…" : (projectName || "—") });
     rows.push({
       label: "Updated At",
       value: project?.updated_at || project?.updatedAt || "—",
@@ -64,9 +71,14 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
     <Modal title="Project Details" open={open} onClose={onClose}>
       <div className="space-y-4">
         <KeyValueList items={details} />
-        {!loading && projectName === "—" && projectId && (
+        {!loading && projectId && projectName === "—" && (
           <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
-            Project name could not be resolved from deployments.
+            Not available
+          </p>
+        )}
+        {error && (
+          <p className="text-sm" style={{ color: "var(--error, #EF4444)" }}>
+            {String(error)}
           </p>
         )}
       </div>
@@ -75,8 +87,7 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
 }
 
 function KeyValueList({ items = [] }) {
-  // Simple presentation aligned with Ocean Professional theme; DetailsViewer is more complex,
-  // but here we need a straightforward list for a compact modal section.
+  // Ocean Professional: subtle labels, clear values, consistent grid to avoid layout shift.
   return (
     <dl style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: "8px 12px", margin: 0 }}>
       {items.map((it, idx) => (
