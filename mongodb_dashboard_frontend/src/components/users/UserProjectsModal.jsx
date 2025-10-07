@@ -84,15 +84,13 @@ export default function UserProjectsModal({
           style={{ display: "grid", gap: 8 }}
         >
           {projects.map((p, idx) => {
-            const key = p._id || p.id || p.project_id || p.projectId || idx;
+            const key = p.project_id || p.projectId || idx;
             const name =
-              p.name ||
               p.project_name ||
               p.projectName ||
               p.project_id ||
               p.projectId ||
               "—";
-            const idVal = p._id || p.id || p.project_id || p.projectId || "—";
             const last = p.last_activity || p.lastActivity || null;
 
             return (
@@ -128,30 +126,9 @@ export default function UserProjectsModal({
                   <div
                     className="muted"
                     style={{ fontSize: 12, color: "var(--text-tertiary)" }}
-                    title={idVal !== "—" ? String(idVal) : undefined}
+                    title={String(p.project_id || p.projectId || "")}
                   >
-                    <span style={{ fontWeight: 700, letterSpacing: ".02em" }}>
-                      Project:
-                    </span>{" "}
-                    <span style={{ color: "var(--text-secondary)" }}>
-                      {String(name)}
-                    </span>{" "}
-                    <span style={{ fontWeight: 700, letterSpacing: ".02em" }}>
-                      (ID:
-                    </span>{" "}
-                    <span
-                      style={{
-                        fontFamily: "ui-monospace, monospace",
-                        fontWeight: 600,
-                        wordBreak: "break-all",
-                        whiteSpace: "normal",
-                      }}
-                    >
-                      {String(idVal)}
-                    </span>
-                    <span style={{ fontWeight: 700, letterSpacing: ".02em" }}>
-                      )
-                    </span>
+                    ID: {p.project_id || p.projectId || "—"}
                   </div>
                 </div>
                 <div
