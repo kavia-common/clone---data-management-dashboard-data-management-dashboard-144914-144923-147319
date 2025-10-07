@@ -74,9 +74,19 @@ export default function Costs() {
     try {
       console.debug("[Costs] Agent selected", { agentId, agentName });
     } catch {}
+    // Close inspector modal if open to prevent modal conflicts
+    if (inspectOpen) {
+      setInspectOpen(false);
+    }
     setSelectedAgentId(agentId);
     setSelectedAgentName(agentName || "");
     setAgentModalOpen(true);
+  }
+
+  function closeAgentModal() {
+    setAgentModalOpen(false);
+    setSelectedAgentId(null);
+    setSelectedAgentName("");
   }
 
   const renderText = (value) => {
@@ -363,7 +373,7 @@ export default function Costs() {
       {/* Agent details modal - opened when an agent is selected from the details view */}
       <AgentDetailsModal
         open={agentModalOpen}
-        onClose={() => setAgentModalOpen(false)}
+        onClose={closeAgentModal}
         agentId={selectedAgentId}
         agentName={selectedAgentName}
       />
@@ -373,19 +383,4 @@ export default function Costs() {
   );
 }
 
-/**
- * PUBLIC_INTERFACE
- * Pretty print helper for modal payload display.
- */
-function safePretty(payload) {
-  try {
-    if (typeof payload === "string") return payload;
-    return JSON.stringify(payload, null, 2);
-  } catch {
-    try {
-      return String(payload);
-    } catch {
-      return "Unable to render payload";
-    }
-  }
-}
+

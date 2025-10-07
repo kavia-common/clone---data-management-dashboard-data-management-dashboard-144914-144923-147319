@@ -259,11 +259,11 @@ export default function DetailsViewer({
           {value.map((item, idx) => {
             const itemKey = `${path}.${idx}`;
             const isObj = typeof item === "object" && item !== null;
-            // Heuristics to locate identifiers and friendly names in agent items
+            // Enhanced heuristics to locate identifiers and friendly names in agent items
             const agentId =
-              (isObj && (item.id ?? item._id ?? item.agent_id ?? item.user_id)) ?? null;
+              (isObj && (item.id ?? item._id ?? item.agent_id ?? item.user_id ?? item.agentId ?? item.userId)) ?? null;
             const agentName =
-              (isObj && (item.name ?? item.agent_name ?? item.user_name ?? item.username)) ?? null;
+              (isObj && (item.name ?? item.agent_name ?? item.user_name ?? item.username ?? item.agentName ?? item.userName ?? item.displayName)) ?? null;
 
             return (
               <div key={itemKey} className="dv-array-item">
@@ -274,13 +274,17 @@ export default function DetailsViewer({
                   ) : (
                     renderPrimitiveVal(String(idx), item, rootObj)
                   )}
-                  {isAgentsArray && typeof onAgentSelect === "function" && agentId != null ? (
+                  {isAgentsArray && typeof onAgentSelect === "function" && (agentId != null || agentName != null) ? (
                     <div className="dv-array-actions">
                       <button
                         className="btn btn-secondary"
-                        onClick={() => onAgentSelect({ agentId, agentName })}
-                        title={`Open details for ${agentName || agentId}`}
-                        aria-label={`Open details for ${agentName || agentId}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onAgentSelect({ agentId: agentId || agentName, agentName });
+                        }}
+                        title={`Open details for ${agentName || agentId || 'agent'}`}
+                        aria-label={`Open details for ${agentName || agentId || 'agent'}`}
                         style={{ height: 28, padding: "0 8px", marginTop: 6 }}
                       >
                         Open details
@@ -567,6 +571,22 @@ export default function DetailsViewer({
           place-items: center; 
         }
         .dv-array-body { min-width: 0; }
+        .dv-array-actions { 
+          margin-top: 8px; 
+          display: flex; 
+          gap: 8px; 
+          align-items: center; 
+        }
+        .dv-array-actions .btn {
+          font-size: 12px;
+          font-weight: 600;
+          white-space: nowrap;
+          transition: all 0.2s ease;
+        }
+        .dv-array-actions .btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
+        }
 
         .dv-raw {
           margin: 0;

@@ -28,13 +28,19 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
     return base;
   }, [agentName, agent, agentId]);
 
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!open) {
+      setAgent(null);
+      setError("");
+      setLoading(false);
+    }
+  }, [open]);
+
   useEffect(() => {
     let cancelled = false;
     async function fetchAgent() {
-      if (!open || !agentId) {
-        setAgent(null);
-        setError("");
-        setLoading(false);
+      if (!open || (!agentId && agentId !== 0)) {
         return;
       }
       setLoading(true);
@@ -44,6 +50,8 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
         const data = await getAgentById(agentId);
         if (!cancelled) {
           setAgent(data);
+          // Clear error if we successfully get data
+          setError("");
         }
       } catch (e) {
         if (!cancelled) {
@@ -153,6 +161,9 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
           padding: 16px;
           border-bottom: 1px solid var(--border-subtle);
           background: var(--bg-surface);
+          position: sticky;
+          top: 0;
+          z-index: 10;
         }
         .agent-title {
           display: inline-flex;
@@ -175,7 +186,13 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
         }
         .agent-actions { display: inline-flex; gap: 8px; }
 
-        .agent-body { padding: 12px 16px 16px 16px; display: grid; gap: 12px; }
+        .agent-body { 
+          padding: 12px 16px 16px 16px; 
+          display: grid; 
+          gap: 12px; 
+          max-height: 60vh;
+          overflow-y: auto;
+        }
         .agent-summary { display: inline-flex; gap: 8px; flex-wrap: wrap; }
         .chip {
           background: linear-gradient(90deg, rgba(37,99,235,0.08), rgba(249,250,251,1));
@@ -186,7 +203,21 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName })
           font-size: 12px;
           font-weight: 600;
         }
-        .agent-details { display: grid; gap: 12px; }
+        .agent-details { 
+          display: grid; 
+          gap: 12px; 
+        }
+        
+        /* Ensure no accordion/dropdown behavior in agent details */
+        .agent-details .dv-toggle {
+          pointer-events: auto;
+          cursor: pointer;
+        }
+        .agent-details .dv-section {
+          background: rgba(249, 250, 251, 0.5);
+          border-radius: 6px;
+          padding: 8px;
+        }
 
         .agent-loading { display: grid; gap: 8px; }
         .skeleton-line {
