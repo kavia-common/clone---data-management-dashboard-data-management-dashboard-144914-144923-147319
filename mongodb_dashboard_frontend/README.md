@@ -11,6 +11,80 @@ Modern, modular React dashboard styled with the "Ocean Professional" theme to ma
 - API Integration: Axios instance with interceptors, environment‑based base URL, standardized helpers.
 - Structure: Clean separation of pages, components, routes, and API client.
 
+## Tenant-wise Users Bar Chart
+
+The Users tab integrates a tenant-wise users bar chart above the Users table. It visualizes distinct active users by tenant and supports time range and status filters.
+
+- Component: src/components/users/UsersByTenantBarChart.jsx
+- Data helper: src/api/usersAnalytics.js (getTenantUsersSummary)
+- Backend endpoint: GET /api/users/tenant-summary
+
+### API usage (getTenantUsersSummary)
+
+getTenantUsersSummary(params?: { from?: string|Date, to?: string|Date, status?: string, includeInactive?: boolean }) returns:
+- { items: Array<{ tenant_id: string, tenant_name?: string|null, user_count: number }>, total: number }
+
+Request parameters:
+- from: ISO date-time lower bound (optional)
+- to: ISO date-time upper bound (optional)
+- status: Session status filter, default "completed|active"
+- includeInactive: When true, includes tenants without recent activity (default false)
+
+Example:
+```js
+import { getTenantUsersSummary } from "./src/api/usersAnalytics";
+
+const { items, total } = await getTenantUsersSummary({
+  from: "2024-09-01T00:00:00.000Z",
+  to: "2024-10-01T00:00:00.000Z",
+  status: "completed|active",
+  includeInactive: false,
+});
+```
+
+### Endpoint response shape
+
+- 200 OK
+```json
+{
+  "items": [
+    { "tenant_id": "org1", "tenant_name": "Organization One", "user_count": 12 }
+  ],
+  "total": 1
+}
+```
+
+Caching behavior:
+- The backend caches results in-memory for approximately 5 minutes per instance to reduce repeated aggregation cost. Cache is per-process and non-persistent.
+
+### Users tab integration and UI
+
+- Placement: UsersByTenantBarChart is rendered above the Users table on the Users dashboard screen (src/pages/dashboard/Users.jsx).
+- Controls:
+  - Date range select: Last 7, 14, 30, 90 days. This adjusts from/to ISO parameters used by the chart’s data call.
+  - Tenant filter: The chart provides a high-level overview across tenants. When a user row is opened, the tenant id is derived and may be used for future filtering enhancements.
+- Interaction:
+  - Bars are clickable; onBarClick is provided for future filtering of the table by tenant (currently logs selection).
+- Context with existing histogram:
+  - The screen also includes a session duration histogram elsewhere in the dashboard (Sessions area). The same general date-window pattern is followed to provide consistent time-range semantics across visualizations.
+
+### Component usage
+
+```jsx
+<UsersByTenantBarChart
+  from={fromIso}
+  to={toIso}
+  status={"completed|active"}
+  includeInactive={false}
+/>
+```
+
+Environment notes:
+- The API base is determined by REACT_APP_API_BASE_URL and REACT_APP_API_PREFIX.
+- The frontend container recognizes:
+  - REACT_APP_API_BASE_URL
+  - REACT_APP_DANGEROUSLY_DISABLE_HOST_CHECK (if present in your environment to relax host checks in dev tooling)
+
 ## Quickstart
 
 1) Install dependencies
