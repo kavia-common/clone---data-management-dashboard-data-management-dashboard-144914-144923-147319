@@ -6,6 +6,7 @@
  */
 
 const { getDb } = require('../config/db');
+const { usdToCredits } = require('../utils/credits');
 
 /**
  * Normalize potential field variants present in llm_costs collection.
@@ -341,28 +342,42 @@ async function aggregateHierarchy({ filter = {} } = {}) {
     return `$${num.toFixed(2)}`;
   };
 
-  const formatted = results.map((user) => ({
-    user_id: user.user_id,
-    type: 'llm_interaction',
-    user_cost: formatMoney(user.user_cost || 0),
-    projects: (user.projects || []).map((p) => ({
-      project_id: p.project_id,
-      project_cost: formatMoney(p.project_cost || 0),
-      agents: (p.agents || []).map((a) => {
-        // Convert costs_by_date numeric to $ string while keeping tokens object intact
-        const cbd = a.costs_by_date || {};
-        const formattedCostsByDate = Object.fromEntries(
-          Object.entries(cbd).map(([k, v]) => [k, formatMoney(typeof v === 'number' ? v : 0)])
-        );
-        return {
-          agent_name: a.agent_name,
-          total_cost: formatMoney(a.total_cost || 0),
-          costs_by_date: formattedCostsByDate,
-          tokens_by_date: a.tokens_by_date || {},
-        };
+  const formatted = results.map((user) => {
+    const userCostNum = Number(user.user_cost || 0);
+    return ({
+      user_id: user.user_id,
+      type: 'llm_interaction',
+      user_cost: formatMoney(userCostNum),
+      user_credits: usdToCredits(userCostNum),
+      projects: (user.projects || []).map((p) => {
+        const projectCostNum = Number(p.project_cost || 0);
+        return ({
+          project_id: p.project_id,
+          project_cost: formatMoney(projectCostNum),
+          project_credits: usdToCredits(projectCostNum),
+          agents: (p.agents || []).map((a) => {
+            // Convert costs_by_date numeric to $ string while keeping tokens object intact
+            const cbd = a.costs_by_date || {};
+            const formattedCostsByDate = Object.fromEntries(
+              Object.entries(cbd).map(([k, v]) => [k, formatMoney(typeof v === 'number' ? v : 0)])
+            );
+            const creditsByDate = Object.fromEntries(
+              Object.entries(cbd).map(([k, v]) => [k, usdToCredits(Number(v || 0))])
+            );
+            const agentCostNum = Number(a.total_cost || 0);
+            return {
+              agent_name: a.agent_name,
+              total_cost: formatMoney(agentCostNum),
+              total_credits: usdToCredits(agentCostNum),
+              costs_by_date: formattedCostsByDate,
+              costs_by_date_credits: creditsByDate,
+              tokens_by_date: a.tokens_by_date || {},
+            };
+          }),
+        });
       }),
-    })),
-  }));
+    });
+  });
 
   return formatted;
 }

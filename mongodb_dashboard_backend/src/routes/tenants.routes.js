@@ -3,6 +3,7 @@ const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const Tenant = require('../models/tenant.model');
 const { getSessionDurations, getCosts } = require('../services/analytics');
+const { usdToCredits } = require('../utils/credits');
 
 const router = express.Router();
 const controller = buildCrudController(Tenant, '-created_at');
@@ -104,19 +105,29 @@ router.get(
 
     const costs = await getCosts({ tenant_id: tenantId });
 
+    // Treat allocated_credits as credits (organization-level quota).
     const allocated = Number(tenant.allocated_credits || 0);
-    const used = Number(costs.total_cost || 0);
-    const balance = allocated - used;
+    // Convert usage (USD) to credits for consistency across the app
+    const usedCredits = usdToCredits(Number(costs.total_cost || 0));
+    const balance = allocated - usedCredits;
+
+    // Convert breakdown aggregates (USD) to credits too
+    const byUserCredits = Object.fromEntries(
+      Object.entries(costs.cost_by_user || {}).map(([k, v]) => [k, usdToCredits(Number(v || 0))])
+    );
+    const byProjectCredits = Object.fromEntries(
+      Object.entries(costs.cost_by_project || {}).map(([k, v]) => [k, usdToCredits(Number(v || 0))])
+    );
 
     return res.status(200).json({
       tenant_id: tenant.tenant_id,
-      credits_unit: tenant.credits_unit || 'USD',
+      credits_unit: 'credits',
       allocated_credits: allocated,
-      used_credits: used,
+      used_credits: usedCredits,
       balance_credits: balance,
       breakdown: {
-        by_user: costs.cost_by_user,
-        by_project: costs.cost_by_project,
+        by_user: byUserCredits,
+        by_project: byProjectCredits,
       },
     });
   })

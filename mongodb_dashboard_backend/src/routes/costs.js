@@ -5,6 +5,7 @@ const router = express.Router();
 const { getCollection } = require('../config/db');
 const { asyncHandler } = require('../utils/http');
 const { resolveProjectNames } = require('../services/projects.service');
+const { usdToCredits } = require('../utils/credits');
 
 /**
  * Utility: parse an ISO date-time string defensively.
@@ -372,27 +373,43 @@ router.get(
         // Normalize agents structure and ensure numeric values
         const agents = (p.agents || []).map((a) => {
           // Flatten and ensure defaults
+          const costByDate = a.costByDate || {};
+          // Also provide credits per day for convenience
+          const costByDateCredits = Object.fromEntries(
+            Object.entries(costByDate).map(([k, v]) => [k, usdToCredits(Number(v || 0))])
+          );
+          const totalCredits = usdToCredits(Number(a.total_cost || a.totalCost || 0));
           return {
             agentId: a.agentId || a.agent_id || a.agentName || 'unknown',
             agentName: a.agentName || 'unknown',
-            costByDate: a.costByDate || {},
+            costByDate,
+            costByDateCredits,
             tokensByDate: a.tokensByDate || {},
+            totalCredits,
           };
         });
+
+        const projectCost = Number(p.projectCost || 0);
+        const projectCredits = usdToCredits(projectCost);
 
         return {
           projectId: p.projectId,
           projectName,
-          projectCost: Number(p.projectCost || 0),
+          projectCost,
+          projectCredits,
           agents,
         };
       });
+
+      const totalCostUSD = Number(u.totalCostUSD || 0);
+      const totalCredits = usdToCredits(totalCostUSD);
 
       return {
         userId: String(u.userId),
         userName: u.userName || null,
         totalProjectCount: Number(u.totalProjectCount || projects.length),
-        totalCostUSD: Number(u.totalCostUSD || 0),
+        totalCostUSD,
+        totalCredits,
         projects,
       };
     };
