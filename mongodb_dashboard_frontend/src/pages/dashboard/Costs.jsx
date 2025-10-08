@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
-import DetailsViewer from "../../components/common/DetailsViewer.jsx";
+
 import AgentDetailsModal from "../../components/modals/AgentDetailsModal.jsx";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
 import { listLlmCosts } from "../../api/client";
@@ -352,33 +352,27 @@ export default function Costs() {
           <button className="btn btn-ghost" onClick={closeInspector} aria-label="Close details">Close</button>
         }
       >
-        <DetailsViewer
-          data={inspectPayload}
-          title={inspectTitle || "Cost details"}
-          highlightKeys={[
-            "timestamp",
-            "model",
-            "llm_model",
-            "prompt_tokens",
-            "completion_tokens",
-            "total_tokens",
-            "currency",
-            "cost",
-            "total_cost",
-            "project",
-            "project_id",
-            "user",
-            "user_id",
-            "metadata",
-            "details",
-            "agents",
-          ]}
-          collapsedDepth={1}
-          onClose={closeInspector}
-          autoFocusClose
-          compactLeft
-          onAgentSelect={onAgentSelect}
-        />
+        <div style={{ padding: "1rem" }}>
+          {inspectPayload ? (
+            <pre
+              style={{
+                background: "#f8fafc",
+                padding: "12px",
+                borderRadius: "6px",
+                maxHeight: "60vh",
+                overflow: "auto",
+                fontSize: "0.9rem",
+                lineHeight: 1.4,
+                margin: 0,
+                width: "100%",
+              }}
+            >
+              {JSON.stringify(inspectPayload, null, 2)}
+            </pre>
+          ) : (
+            <div>No item selected</div>
+          )}
+        </div>
       </Modal>
 
       {/* Agent details modal - opened when an agent is selected from the details view */}
