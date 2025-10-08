@@ -9,6 +9,55 @@ const router = express.Router();
 const controller = buildCrudController(AppDeployment, '-created_at');
 
 /**
+ * Lightweight in-memory cache for projectId -> projectName lookups.
+ * TTL: 5 minutes. Cache is module-scoped (per-process) and non-persistent.
+ * The cache is invalidated on app-deployments create/update/delete by
+ * removing entries for projectIds mentioned in request payloads, or
+ * inferred from affected records when possible.
+ */
+const PROJECT_NAME_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const projectNameCache = new Map(); // key: normalized projectId (string) => { projectName, expiresAt:number }
+
+/**
+ * Get a cache entry by normalized projectId if not expired.
+ */
+function cacheGet(pid) {
+  const entry = projectNameCache.get(pid);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    projectNameCache.delete(pid);
+    return null;
+  }
+  return entry.projectName;
+}
+
+/**
+ * Set a cache entry for normalized projectId.
+ */
+function cacheSet(pid, projectName) {
+  projectNameCache.set(pid, {
+    projectName: projectName == null ? null : String(projectName),
+    expiresAt: Date.now() + PROJECT_NAME_TTL_MS,
+  });
+}
+
+/**
+ * Attempt to extract a projectId from various payload shapes and normalize it.
+ * Returns null if none found.
+ */
+function extractNormalizedProjectId(payload) {
+  const candidate =
+    payload?.projectId ??
+    payload?.project_id ??
+    payload?.metadata?.projectId ??
+    payload?.project?.id ??
+    null;
+
+  const normalized = normalizeProjectId(candidate) || (candidate != null ? String(candidate).trim() : '');
+  return normalized || null;
+}
+
+/**
  * @swagger
  * tags:
  *   name: AppDeployments
@@ -90,10 +139,16 @@ router.get(
     const pid = normalizeProjectId(originalId) || String(originalId || '').trim();
 
     if (!pid) {
+      // Keep response shape intact
       return res.status(200).json({ projectId: originalId || '', projectName: null });
     }
 
-    // TODO: introduce short-lived in-memory cache for resolutions (e.g., LRU) in a follow-up change.
+    // Cache check: return cached value if present and not expired
+    // TTL behavior: entries expire after 5 minutes; stale entries are purged on access.
+    const cached = cacheGet(pid);
+    if (cached !== null && cached !== undefined) {
+      return res.status(200).json({ projectId: pid, projectName: cached });
+    }
 
     // Build OR query across possible id fields in deployments
     const idQuery = {
@@ -128,6 +183,9 @@ router.get(
       dep?.metadata?.projectName ||
       dep?.project?.name ||
       null;
+
+    // Populate cache only after successful resolution attempt (even if null)
+    cacheSet(pid, name);
 
     return res.status(200).json({ projectId: pid, projectName: name ? String(name) : null });
   })
@@ -167,7 +225,22 @@ router.get('/:id', asyncHandler(controller.getById));
  *       422: { description: Validation failed }
  *       400: { description: Bad request }
  */
-router.post('/', validateAppDeployment, asyncHandler(controller.create));
+router.post(
+  '/',
+  validateAppDeployment,
+  asyncHandler(async (req, res) => {
+    // Invalidation note:
+    // We proactively invalidate cache entries for any projectId found in the incoming payload
+    // because a create may introduce a new projectName or update known fields.
+    const pid = extractNormalizedProjectId(req.body);
+    if (pid) {
+      projectNameCache.delete(pid);
+    }
+
+    // Delegate to existing controller (do not change response shape)
+    return controller.create(req, res);
+  })
+);
 
 /**
  * @swagger
@@ -191,7 +264,30 @@ router.post('/', validateAppDeployment, asyncHandler(controller.create));
  *       400: { description: Invalid id or payload }
  *       422: { description: Validation failed }
  */
-router.put('/:id', validateAppDeployment, asyncHandler(controller.update));
+router.put(
+  '/:id',
+  validateAppDeployment,
+  asyncHandler(async (req, res) => {
+    // Invalidate for projectId present in payload
+    const pidFromBody = extractNormalizedProjectId(req.body);
+    if (pidFromBody) {
+      projectNameCache.delete(pidFromBody);
+    } else {
+      // If not present, try to find existing record to infer its project id
+      const existing = await AppDeployment.findById(req.params.id, {
+        projectId: 1,
+        project_id: 1,
+        'metadata.projectId': 1,
+        'project.id': 1,
+      }).lean();
+      const inferred = extractNormalizedProjectId(existing || {});
+      if (inferred) projectNameCache.delete(inferred);
+    }
+
+    // Delegate to existing controller (response shape unchanged)
+    return controller.update(req, res);
+  })
+);
 
 /**
  * @swagger
@@ -209,6 +305,24 @@ router.put('/:id', validateAppDeployment, asyncHandler(controller.update));
  *       404: { description: Not found }
  *       400: { description: Invalid id }
  */
-router.delete('/:id', asyncHandler(controller.remove));
+router.delete(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    // Before delete, try to load the record to determine project id for invalidation
+    const existing = await AppDeployment.findById(req.params.id, {
+      projectId: 1,
+      project_id: 1,
+      'metadata.projectId': 1,
+      'project.id': 1,
+    }).lean();
+    const inferred = extractNormalizedProjectId(existing || {});
+    if (inferred) {
+      projectNameCache.delete(inferred);
+    }
+
+    // Delegate to existing controller (response shape unchanged)
+    return controller.remove(req, res);
+  })
+);
 
 module.exports = router;
