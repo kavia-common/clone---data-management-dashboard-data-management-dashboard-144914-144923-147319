@@ -1,32 +1,25 @@
 import React, { useEffect, useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
-import UsersDurationHistogram from "../../components/users/UsersDurationHistogram.jsx";
 
 /**
  * PUBLIC_INTERFACE
  * Users page
  * Refactored to use a single TabbedUserModal that merges Profile (Details) and Projects into tabs.
- * Adds a Session Duration Histogram above the Users table with tenant and scope controls.
+ * - Centralizes selectedUser and modal open state in this page.
+ * - When selecting a user from UsersList, opens the modal with defaultTab="details".
+ * - When invoking "View Projects" triggers, opens with defaultTab="projects".
  */
 export default function Users() {
   // Centralized state for one modal
   const [open, setOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [defaultTab, setDefaultTab] = useState("details"); // 'details' | 'projects'
-  const [selectedTenantId, setSelectedTenantId] = useState("");
 
   // Derive tenant id from user object using known keys
-  const derivedTenantFromUser = useMemo(() => {
+  const tenantId = useMemo(() => {
     const u = selectedUser || {};
-    return (
-      u.tenant_id ??
-      u.tenantId ??
-      u.organization_name ??
-      u.organization ??
-      u.organization_id ??
-      ""
-    );
+    return u.tenant_id ?? u.organization_name ?? u.organization ?? u.organization_id ?? "";
   }, [selectedUser]);
 
   // Called when a user is chosen from UsersList (row click)
@@ -35,6 +28,8 @@ export default function Users() {
     setDefaultTab("details");
     setOpen(true);
   }
+
+
 
   function closeModal() {
     setOpen(false);
@@ -73,31 +68,8 @@ export default function Users() {
     };
   }, [open]);
 
-  // Tenant options: currently derived from the UsersList internal data is not exposed.
-  // As a simple fallback, build a list from the selected user and a derived tenant id if available.
-  const tenantOptions = useMemo(() => {
-    const opts = [];
-    const current = selectedTenantId || derivedTenantFromUser;
-    if (current) {
-      opts.push({ value: String(current), label: String(current) });
-    }
-    return opts;
-  }, [selectedTenantId, derivedTenantFromUser]);
-
-  const selectedUserId = selectedUser?._id || selectedUser?.id || null;
-
   return (
     <div>
-      {/* Session Duration Histogram */}
-      <UsersDurationHistogram
-        selectedUserId={selectedUserId}
-        selectedTenantId={selectedTenantId || (tenantOptions[0]?.value ?? undefined)}
-        tenantOptions={tenantOptions}
-        onTenantChange={setSelectedTenantId}
-        defaultDays={30}
-        defaultBinSizeMin={10}
-      />
-
       <UsersList
         title="Users"
         subtitle="All users"
@@ -113,7 +85,7 @@ export default function Users() {
         open={open}
         onClose={closeModal}
         user={selectedUser}
-        tenantId={selectedTenantId || derivedTenantFromUser}
+        tenantId={tenantId}
         defaultTab={defaultTab}
       />
     </div>
