@@ -44,8 +44,18 @@ export default function ActiveUsersTrendChart({
         const res = await getActiveUsersTrend({ from, to, granularity, status, tenant_id });
         if (!mounted) return;
         const items = Array.isArray(res?.items) ? res.items : [];
-        // Ensure sorted by date asc
-        const sorted = [...items].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+        // console debug to verify backend payload for troubleshooting empty states
+        if (process.env.NODE_ENV !== "production") {
+          // eslint-disable-next-line no-console
+          console.debug("[ActiveUsersTrendChart] items received:", items.length);
+        }
+        // Ensure sorted by date asc and coerce shapes
+        const sorted = [...items]
+          .map((it) => ({
+            date: String(it?.date || ""),
+            total: Number(isFinite(it?.total) ? it.total : 0),
+          }))
+          .sort((a, b) => String(a.date).localeCompare(String(b.date)));
         setRows(sorted);
       } catch (e) {
         if (!mounted) return;
