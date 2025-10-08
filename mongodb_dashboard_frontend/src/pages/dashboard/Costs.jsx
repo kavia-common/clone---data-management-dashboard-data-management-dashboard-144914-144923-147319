@@ -379,9 +379,51 @@ function CostsTreeInspector({ payload }) {
   const [search, setSearch] = React.useState("");
   const treeRef = React.useRef(null);
 
-  const expandAll = React.useCallback(() => treeRef.current?.expandAll?.(), []);
-  const collapseAll = React.useCallback(() => treeRef.current?.collapseAll?.(), []);
+  // Progressive expansion controller hook
+  // eslint-disable-next-line import/no-useless-path-segments
+  // PUBLIC_INTERFACE
+  // useProgressiveExpand is a React hook that wraps a progressive controller to batch-expand tree nodes without blocking the UI.
+  const { default: useProgressiveExpand } = require("../../hooks/useProgressiveExpand");
+  const { running, progress, counts, startFromItems, cancel } = useProgressiveExpand({
+    // Apply one batch by passing it to TreeView's batch expander
+    applyBatch: (batch) => treeRef.current?.applyExpandBatch?.(batch),
+    // Slightly larger slices for big payloads; default inside hook is adaptive too
+    timeSliceMs: 8,
+    onDone: () => {
+      // no-op; UI state handled by hook
+    },
+    onCancel: () => {
+      // no-op
+    },
+  });
+
   const onSearchChange = (e) => setSearch(e.target.value);
+
+  const expandAll = React.useCallback(() => {
+    const all = treeRef.current?.getAllExpandablePaths?.() || [];
+    // Fast path for small datasets to preserve minimal overhead and UX
+    if (all.length <= 300) {
+      treeRef.current?.expandAll?.();
+      return;
+    }
+    // Progressive expansion for large datasets
+    startFromItems(all);
+  }, [startFromItems]);
+
+  const collapseAll = React.useCallback(() => {
+    // Cancel any in-flight expansion to avoid racing updates
+    if (running) cancel();
+    treeRef.current?.collapseAll?.();
+  }, [running, cancel]);
+
+  // Auto-cancel if unmounted while expansion is running
+  React.useEffect(() => {
+    return () => {
+      try {
+        if (running) cancel();
+      } catch {}
+    };
+  }, [running, cancel]);
 
   if (!payload) {
     return <div style={{ padding: "1rem" }}>No item selected</div>;
@@ -409,7 +451,46 @@ function CostsTreeInspector({ payload }) {
           style={{ flex: "1 1 260px", minWidth: 200 }}
         />
         <div style={{ flex: 1 }} />
-        <button className="btn btn-secondary" onClick={expandAll} title="Expand all">Expand all</button>
+
+        {/* Progress indicator */}
+        {running ? (
+          <div aria-live="polite" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <div title={`Expanding... ${progress}%`} style={{
+              width: 120,
+              height: 8,
+              borderRadius: 999,
+              background: "#E5E7EB",
+              overflow: "hidden",
+              border: "1px solid #E5E7EB"
+            }}>
+              <div style={{
+                width: `${Math.max(4, progress)}%`,
+                height: "100%",
+                background: "#2563EB",
+                transition: "width 120ms linear",
+              }} />
+            </div>
+            <span style={{ fontSize: 12, color: "#0F172A" }}>
+              {counts.processed}/{counts.total}
+            </span>
+          </div>
+        ) : null}
+
+        <button
+          className="btn btn-secondary"
+          onClick={expandAll}
+          title="Expand all"
+          disabled={running}
+        >
+          {running ? "Expanding..." : "Expand all"}
+        </button>
+
+        {running ? (
+          <button className="btn btn-secondary" onClick={cancel} title="Stop expanding">
+            Stop
+          </button>
+        ) : null}
+
         <button className="btn btn-secondary" onClick={collapseAll} title="Collapse all">Collapse all</button>
       </div>
 

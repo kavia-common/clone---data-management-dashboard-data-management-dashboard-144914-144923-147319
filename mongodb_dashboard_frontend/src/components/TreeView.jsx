@@ -128,19 +128,71 @@ const TreeView = forwardRef(function TreeView(
   useImperativeHandle(
     ref,
     () => ({
+      /**
+       * PUBLIC_INTERFACE
+       * Expand all nodes immediately (synchronous). Suitable for small datasets.
+       */
       expandAll: () => {
         setExpanded(new Set(allExpandablePathsRef.current));
       },
+      /**
+       * PUBLIC_INTERFACE
+       * Collapse all nodes immediately.
+       */
       collapseAll: () => {
         setExpanded(new Set()); // defaultExpandedDepth still controls root/initial expansion
       },
-      // Optional: expand to matches (handy if parent wants to force open results)
+      /**
+       * PUBLIC_INTERFACE
+       * Expand to reveal matched paths from the current search term.
+       */
       expandToMatches: () => {
         setExpanded((prev) => {
           const next = new Set(prev);
           autoExpandPaths.forEach((p) => next.add(p));
           return next;
         });
+      },
+      /**
+       * PUBLIC_INTERFACE
+       * getAllExpandablePaths
+       * Returns an array of path strings for all expandable nodes (objects/arrays).
+       */
+      getAllExpandablePaths: () => {
+        return Array.from(allExpandablePathsRef.current || []);
+      },
+      /**
+       * PUBLIC_INTERFACE
+       * applyExpandBatch
+       * Adds the given array of paths to the expanded set as a single batched update.
+       */
+      applyExpandBatch: (pathsBatch) => {
+        if (!Array.isArray(pathsBatch) || pathsBatch.length === 0) return;
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          for (const p of pathsBatch) next.add(p);
+          return next;
+        });
+      },
+      /**
+       * PUBLIC_INTERFACE
+       * setExpandedPaths
+       * Replace or merge the expanded set with the provided collection of paths.
+       * @param {Iterable<string>} paths
+       * @param {boolean} replace - when true, replaces the entire set; otherwise merges.
+       */
+      setExpandedPaths: (paths, replace = false) => {
+        if (!paths) return;
+        const incoming = Array.isArray(paths) ? paths : Array.from(paths);
+        if (replace) {
+          setExpanded(new Set(incoming));
+        } else {
+          setExpanded((prev) => {
+            const next = new Set(prev);
+            for (const p of incoming) next.add(p);
+            return next;
+          });
+        }
       },
     }),
     [autoExpandPaths]
