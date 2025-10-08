@@ -93,9 +93,16 @@ router.get(
       return res.status(200).json({ projectId: originalId || '', projectName: null });
     }
 
+    // TODO: introduce short-lived in-memory cache for resolutions (e.g., LRU) in a follow-up change.
+
     // Build OR query across possible id fields in deployments
     const idQuery = {
-      $or: [{ projectId: pid }, { project_id: pid }, { 'metadata.projectId': pid }, { 'project.id': pid }],
+      $or: [
+        { projectId: pid },
+        { project_id: pid },
+        { 'metadata.projectId': pid },
+        { 'project.id': pid },
+      ],
     };
 
     // Project only known name fields
@@ -110,7 +117,7 @@ router.get(
       created_at: 1,
     };
 
-    // Prefer the latest record if multiple exist
+    // Prefer the latest record if multiple exist (fallback across common timestamp fields)
     const dep = await AppDeployment.findOne(idQuery, projection)
       .sort({ updatedAt: -1, updated_at: -1, createdAt: -1, created_at: -1 })
       .lean();
