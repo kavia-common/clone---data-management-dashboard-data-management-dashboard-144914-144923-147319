@@ -2,6 +2,7 @@ import React from "react";
 import ProjectDetail from "./ProjectDetail";
 
 import { renderCreditsWithUsd } from "../../utils/currency";
+import { CREDITS_PER_USD } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -15,7 +16,9 @@ import { renderCreditsWithUsd } from "../../utils/currency";
  *     userId: string;
  *     userName: string;
  *     totalProjectCount: number;
- *     totalCostUSD: number;
+ *     // May include any of the following (numeric or numeric strings):
+ *     // - totalCostUSD | total_usd | total_cost | totalCost | cost | price | amount
+ *     // - total_credits | user_credits | project_credits | credits
  *     projects: Array<{ projectId, projectName, projectCost, agents: Array<{ agentId, agentName, costByDate?: Record<string,number>, tokensByDate?: Record<string,number> }> }>;
  *   }
  */
@@ -73,6 +76,70 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
   );
 
   const costData = data || MOCK_DATA;
+
+  // Robust numeric parser for USD/credits fields (handles numeric strings like "0.12" or "$0.12")
+  const toNumber = React.useCallback((v) => {
+    if (v == null || v === "") return 0;
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    if (typeof v === "string") {
+      const s = v.replace(/[$,]/g, "");
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }, []);
+
+  /**
+   * Returns a normalized pair of { usd, credits } for top-level summary.
+   * - Prefers USD-like fields; when present, compute credits from USD.
+   * - If only credits-like fields exist, back-compute USD from credits using the configured rate.
+   */
+  const topLevelAmounts = React.useMemo(() => {
+    // Try common USD/cost keys from various APIs
+    const usdCandidates = [
+      "totalCostUSD",
+      "total_usd",
+      "total_cost",
+      "totalCost",
+      "usd",
+      "usd_cost",
+      "cost",
+      "price",
+      "amount",
+      "user_cost",
+      "project_cost",
+      "charge",
+    ];
+    const creditsCandidates = ["total_credits", "user_credits", "project_credits", "credits"];
+
+    let usd = 0;
+    for (const k of usdCandidates) {
+      if (Object.prototype.hasOwnProperty.call(costData || {}, k)) {
+        usd = toNumber(costData[k]);
+        if (usd) break;
+      }
+    }
+
+    let credits = 0;
+    for (const k of creditsCandidates) {
+      if (Object.prototype.hasOwnProperty.call(costData || {}, k)) {
+        credits = toNumber(costData[k]);
+        if (credits) break;
+      }
+    }
+
+    if (usd > 0) {
+      return { usd, credits: Math.round(usd * CREDITS_PER_USD) };
+    }
+    if (credits > 0) {
+      const computedUsd = credits / CREDITS_PER_USD;
+      return { usd: computedUsd, credits };
+    }
+    // Fallback to 0s; allows UI to still render
+    return { usd: 0, credits: 0 };
+  }, [costData, toNumber]);
+
   const rawJson = React.useMemo(() => {
     try {
       return JSON.stringify(costData, null, 2);
@@ -277,9 +344,9 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                   </span>
                 </p>
                 <h3 style={{ margin: "6px 0 0 0", fontSize: 18, fontWeight: 800, color: "#1E3A8A" }}>
-                  Total Credits:{" "}
-                  <span style={{ fontSize: 24, fontWeight: 900 }}>
-                    {renderCreditsWithUsd(Number(costData?.totalCostUSD || 0), { maximumFractionDigits: 6 })}
+                  Credits Used:{" "}
+                  <span style={{ fontSize: 24, fontWeight: 900 }} data-testid="credits-used-topline">
+                    {renderCreditsWithUsd(topLevelAmounts.usd, { maximumFractionDigits: 6 })}
                   </span>
                 </h3>
                 <p style={{ margin: "4px 0 0 0", fontSize: 14, color: "#1E40AF", fontWeight: 600 }}>

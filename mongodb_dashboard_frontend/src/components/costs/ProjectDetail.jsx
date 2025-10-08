@@ -103,7 +103,7 @@ export default function ProjectDetail({ project }) {
             Project #{String(project?.projectId ?? "—")}: {project?.projectName || "Untitled"}
           </span>
           <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            Total Credits{" "}
+            Credits Used{" "}
             <strong style={{ color: "#B45309" }}>
               {renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 })}
             </strong>
