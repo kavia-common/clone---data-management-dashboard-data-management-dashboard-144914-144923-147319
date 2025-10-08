@@ -1,167 +1,98 @@
-//
-// Generic API client for the frontend
-// - Reads base URL from REACT_APP_API_BASE_URL or defaults to '/api'
-// - Exposes a simple apiGet helper that returns parsed JSON with basic error handling
-//
-
+import axios from "axios";
 /**
- * Resolve the API base URL from environment or default.
- * We avoid hard-coding service URLs to support multiple environments.
+ * API client configuration (static pod URL version)
+ * This connects directly to the backend running in your specific pod.
+ * Used when environment-based resolution is unavailable or unstable.
  */
-const API_BASE_URL =
-  (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_BASE_URL) ||
-  '/api';
-
-/**
- * Build a full URL for an endpoint. Handles cases where path already begins with '/api'.
- * @param {string} path - Endpoint path, e.g. '/users' or 'users'
- * @returns {string} - Full absolute or relative URL
- */
-function buildUrl(path) {
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  // If API_BASE_URL already ends with '/', avoid double slash
-  const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-  return `${base}${normalizedPath}`;
+// :red_circle: Static backend base URL (replace with your active pod if it changes)
+const RAW_BASE_URL = "https://vscode-internal-40577-beta.beta01.cloud.kavia.ai:3001";
+const API_PREFIX = "/api";
+// Combine base + prefix safely
+function joinUrl(base, path) {
+  if (!base) return path || "";
+  const b = base.endsWith("/") ? base.slice(0, -1) : base;
+  const p = path ? (path.startsWith("/") ? path : `/${path}`) : "";
+  return `${b}${p}`;
 }
-
-/**
- * PUBLIC_INTERFACE
- * Perform a GET request and return parsed JSON.
- * This is a thin wrapper over fetch with simple error handling.
- * @param {string} path - Relative API path beginning with '/' or without (e.g. '/users' or 'users')
- * @param {RequestInit} [options] - Optional fetch options (headers, etc.)
- * @returns {Promise<any>} - Parsed JSON response
- */
-export async function apiGet(path, options = {}) {
-  /** This is a public function. */
-  const url = buildUrl(path);
-  let res;
-  try {
-    res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {}),
-      },
-      ...options,
-      method: 'GET',
-    });
-  } catch (networkError) {
-    // Network-level error (DNS, connection refused, etc.)
-    const err = new Error(`Network error while GET ${url}: ${networkError?.message || networkError}`);
-    err.cause = networkError;
-    err.status = 0;
-    throw err;
-  }
-
-  // Attempt to parse response
-  let data = null;
-  const text = await res.text();
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch (parseErr) {
-      // Non-JSON responses
-      const err = new Error(`Failed to parse JSON from ${url}: ${parseErr?.message || parseErr}`);
-      err.cause = parseErr;
-      err.status = res.status;
-      err.rawBody = text;
-      if (!res.ok) {
-        // If server reported error status, throw with context
-        throw err;
-      }
-      // For ok responses with non-JSON, just return raw text
-      return text;
-    }
-  }
-
-  if (!res.ok) {
-    const err = new Error(`GET ${url} failed with status ${res.status}`);
-    err.status = res.status;
-    err.data = data;
-    throw err;
-  }
-
-  return data;
+const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
+// :white_tick: Create configured Axios instance
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: { "Content-Type": "application/json" },
+});
+// Helper: normalize list/envelope responses
+function normalizeListResponse(res) {
+  const payload = res?.data || {};
+  const items = Array.isArray(payload) ? payload : payload.data || [];
+  const total =
+    (payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
+    (Array.isArray(items) ? items.length : 0);
+  return { items, total, meta: payload.meta || null };
 }
-
-/**
- * PUBLIC_INTERFACE
- * Backward-compatible API client factory to avoid breaking existing imports.
- * Returns an object exposing apiBaseUrl, buildUrl, and helper methods like get.
- * Example usage in legacy code:
- *   const api = getApiClient();
- *   const data = await api.get('/users');
- */
+// PUBLIC_INTERFACE
 export function getApiClient() {
-  /** This is a public function. */
-  return {
-    apiBaseUrl: API_BASE_URL,
-    buildUrl,
-    get: apiGet,
-  };
+  /** Returns the configured Axios instance */
+  return api;
 }
-
-/**
- * PUBLIC_INTERFACE
- * Backward-compatible export stub for legacy imports that expected listUsers from client.js.
- * Modern code should import from './users' or use apiGet directly.
- * We keep this here to avoid build failures; it calls the proper users API if present.
- */
+// Health endpoint
+export async function health() {
+  /** GET / - backend health check */
+  const res = await axios.get(RAW_BASE_URL);
+  return res.data;
+}
+// === USERS ===
 export async function listUsers(params = {}) {
-  /** This is a public function. */
-  // Construct query string from params
-  const qs = new URLSearchParams();
-  Object.entries(params || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') qs.append(k, String(v));
-  });
-  const path = `/users${qs.toString() ? `?${qs.toString()}` : ''}`;
-  return apiGet(path);
+  const res = await api.get("/users", { params });
+  return normalizeListResponse(res);
 }
-
-/**
- * PUBLIC_INTERFACE
- * Backward-compatible export stub for legacy imports that expected listDeployments from client.js.
- * Delegates to GET /app-deployments with optional query params.
- */
-export async function listDeployments(params = {}) {
-  /** This is a public function. */
-  const qs = new URLSearchParams();
-  Object.entries(params || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') qs.append(k, String(v));
-  });
-  const path = `/app-deployments${qs.toString() ? `?${qs.toString()}` : ''}`;
-  return apiGet(path);
+export async function createUser(body) {
+  const res = await api.post("/users", body);
+  return res.data?.data ?? res.data;
 }
-
-/**
- * PUBLIC_INTERFACE
- * Backward-compatible export stub for legacy imports that expected listSessions from client.js.
- * Delegates to GET /session-tracking with optional query params.
- */
+export async function updateUser(id, body) {
+  const res = await api.put(`/users/${id}`, body);
+  return res.data?.data ?? res.data;
+}
+export async function deleteUser(id) {
+  const res = await api.delete(`/users/${id}`);
+  return res.data?.data ?? res.data;
+}
+// === SESSION TRACKING ===
 export async function listSessions(params = {}) {
-  /** This is a public function. */
-  const qs = new URLSearchParams();
-  Object.entries(params || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') qs.append(k, String(v));
-  });
-  const path = `/session-tracking${qs.toString() ? `?${qs.toString()}` : ''}`;
-  return apiGet(path);
+  const res = await api.get("/session-tracking", { params });
+  return normalizeListResponse(res);
 }
-
-/**
- * PUBLIC_INTERFACE
- * Backward-compatible export stub for legacy imports that expected listLlmCosts from client.js.
- * Delegates to GET /llm-costs with optional query params.
- */
+export async function createSession(body) {
+  const res = await api.post("/session-tracking", body);
+  return res.data?.data ?? res.data;
+}
+export async function updateSession(id, body) {
+  const res = await api.put(`/session-tracking/${id}`, body);
+  return res.data?.data ?? res.data;
+}
+export async function deleteSession(id) {
+  const res = await api.delete(`/session-tracking/${id}`);
+  return res.data?.data ?? res.data;
+}
+// === APP DEPLOYMENTS ===
+export async function listDeployments(params = {}) {
+  const res = await api.get("/app-deployments", { params });
+  return normalizeListResponse(res);
+}
+// === LLM COSTS ===
 export async function listLlmCosts(params = {}) {
-  /** This is a public function. */
-  const qs = new URLSearchParams();
-  Object.entries(params || {}).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') qs.append(k, String(v));
-  });
-  const path = `/llm-costs${qs.toString() ? `?${qs.toString()}` : ''}`;
-  return apiGet(path);
+  const res = await api.get("/llm-costs", { params });
+  return normalizeListResponse(res);
 }
-
-export { API_BASE_URL };
+// === USER COSTS ===
+export async function getUserCosts(userId) {
+  if (!userId) throw new Error("userId is required");
+  const res = await api.get(`/users`);
+  return res.data?.data ?? res.data;
+}
+// === USER PROJECT COSTS ===
+export async function getUserProjectsCosts(userId) {
+  if (!userId) throw new Error("userId is required");
+  const res = await api.get(`/users`);
+  return res.data?.data ?? res.data;
+}

@@ -3,7 +3,6 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import { listDeployments } from "../../api/client";
 import DeploymentsOverTime from "../../components/charts/DeploymentsOverTime.jsx";
-import useProjectName from "../../hooks/useProjectName";
 
 /**
  * PUBLIC_INTERFACE
@@ -47,30 +46,20 @@ export default function Deployments() {
   }
 
   // Renderers per column
-  function ProjectNameCell({ row }) {
-    /** Cell component to resolve and display project name with graceful fallback and loading state. */
+  function renderProject(v, row) {
+    const projectName = row?.project_name || row?.projectName || "";
     const projectId = row?.project_id || row?.projectId || "";
-    const { projectName, loading } = useProjectName(projectId);
+    const primary = projectName || projectId || "—";
 
-    const primary = (projectName && projectName.trim()) || projectId || "—";
-    const showLoading = loading && !projectName;
-
-    // Include deployment_id as secondary detail via tooltip
+    // Include deployment_id as secondary detail via tooltip, not visible as primary label
     const deploymentId = row?.deployment_id || row?._id || "";
     const tooltip = deploymentId ? `Deployment ID: ${deploymentId}` : undefined;
 
     return (
-      <span
-        title={tooltip}
-        style={{ display: "inline-block", whiteSpace: "normal", overflowWrap: "anywhere", fontWeight: 600 }}
-      >
-        {showLoading ? "…" : String(primary)}
+      <span title={tooltip} style={{ display: "inline-block", whiteSpace: "normal", overflowWrap: "anywhere", fontWeight: 600 }}>
+        {String(primary)}
       </span>
     );
-  }
-
-  function renderProject(v, row) {
-    return <ProjectNameCell row={row} />;
   }
 
   function renderDeploymentId(v, row) {
@@ -118,10 +107,9 @@ export default function Deployments() {
       const mapped = (arr || []).map((it) => {
         const projectName = it?.project_name || it?.projectName || "";
         const projectId = it?.project_id || it?.projectId || "";
-        // Precompute display used for sort/search; live render may show fresher name via hook.
         return {
           ...it,
-          project_display: (projectName && projectName.trim()) || projectId || "",
+          project_display: projectName || projectId || "",
         };
       });
       setItems(mapped);
