@@ -1,58 +1,46 @@
-/**
- * Resolve project name via dedicated endpoint.
- * Uses GET /api/app-deployments/project/{projectId}/name which returns { projectId, projectName } with 200.
- * Provides fallback to base URL utility if configured client isn't available.
- */
+//
+// API client for resolving a project's display name by projectId
+//
 
-import axios from 'axios';
-import { getApiBaseUrl } from './util';
-import { getApiClient } from './client';
+import { apiGet, API_BASE_URL } from './client';
 
 /**
  * PUBLIC_INTERFACE
+ * Fetch the project name for a given projectId from App Deployments.
+ * Calls GET /api/app-deployments/project/{projectId}/name on the backend.
+ *
+ * Behavior:
+ * - On success, returns { projectId, projectName }.
+ * - If projectName is missing or undefined, returns projectName: null.
+ * - On error, throws an Error with contextual information.
+ *
+ * @param {string} projectId - The project identifier to resolve.
+ * @returns {Promise<{ projectId: string, projectName: string|null }>}
  */
-// PUBLIC_INTERFACE
-export async function fetchProjectNameDirect(projectId) {
-  /** Returns the project's friendly name or null if not found/failed. */
-  if (!projectId) return null;
+export async function getProjectName(projectId) {
+  /** This is a public function. */
+  if (!projectId || typeof projectId !== 'string') {
+    throw new Error('getProjectName(projectId) requires a non-empty string projectId');
+  }
+
+  // Construct path relative to API base. The client will prepend API_BASE_URL or '/api'.
+  const path = `/app-deployments/project/${encodeURIComponent(projectId)}/name`;
 
   try {
-    const path = `/app-deployments/project/${encodeURIComponent(String(projectId))}/name`;
-    const api = typeof getApiClient === 'function' ? getApiClient() : null;
-    if (api) {
-      const res = await api.get(path);
-      const data = res?.data || {};
-      if (typeof data?.projectName === 'undefined') {
-        console.debug('[ProjectName] Missing projectName in response (api client path)', { projectId, data });
-      }
-      return data?.projectName ?? null;
-    }
-    // Fallback to base URL + axios
-    const base = (typeof getApiBaseUrl === 'function' && getApiBaseUrl()) || '/api';
-    const url = `${String(base).replace(/\/$/, '')}${path}`;
-    const res = await axios.get(url);
-    const data = res?.data || {};
-    if (typeof data?.projectName === 'undefined') {
-      console.debug('[ProjectName] Missing projectName in response (fallback path)', { projectId, data });
-    }
-    return data?.projectName ?? null;
-  } catch (e) {
-    // API guarantees 200 with null when not found, but still guard.
-    const status = e?.response?.status;
-    if (status === 404) {
-      console.debug('[ProjectName] 404 when fetching project name', { projectId });
-      return null;
-    }
-    console.error('[ProjectName] Failed to fetch project name', { projectId, error: e?.message || e });
-    return null;
+    const result = await apiGet(path);
+    // Backend contract: returns { projectId, projectName } with projectName possibly null
+    const normalized = {
+      projectId: result?.projectId ?? projectId,
+      projectName: result?.projectName ?? null,
+    };
+    return normalized;
+  } catch (err) {
+    // Provide helpful context and rethrow so callers can decide what to do (e.g., show fallback UI)
+    const url = `${API_BASE_URL.replace(/\/$/, '')}${path}`;
+    const e = new Error(`Failed to fetch project name for ${projectId} from ${url}: ${err?.message || err}`);
+    e.cause = err;
+    throw e;
   }
 }
 
-/**
- * Deprecated alias retained for compatibility.
- */
-// PUBLIC_INTERFACE
-export async function fetchProjectNameByProjectId(projectId) {
-  /** Returns the project's friendly name or null if not found/failed. */
-  return fetchProjectNameDirect(projectId);
-}
+export default getProjectName;
