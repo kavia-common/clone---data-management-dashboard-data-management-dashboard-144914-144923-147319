@@ -1,7 +1,7 @@
 import React from "react";
 import ProjectDetail from "./ProjectDetail";
-import { formatCurrencyAmount } from "../../utils/formatCurrency";
-import { usdToCredits, formatCredits } from "../../utils/currency";
+
+import { renderUsdWithCredits } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -279,22 +279,7 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                 <h3 style={{ margin: "6px 0 0 0", fontSize: 18, fontWeight: 800, color: "#1E3A8A" }}>
                   Total Account Cost:{" "}
                   <span style={{ fontSize: 24, fontWeight: 900 }}>
-                    {(() => {
-                      const n = Number(costData?.totalCostUSD || 0);
-                      try {
-                        const usdTxt = formatCurrencyAmount(n, { currency: "USD", maximumFractionDigits: 6 });
-                        const creditsTxt = formatCredits(usdToCredits(n));
-                        // Example (modal summary): "$1.90 (38,000 credits)"
-                        return (
-                          <span title={`${usdTxt} (${creditsTxt})`} style={{ whiteSpace: "nowrap" }}>
-                            {usdTxt}
-                            <span className="credits-inline muted">({creditsTxt})</span>
-                          </span>
-                        );
-                      } catch {
-                        return `$${n.toFixed(4)}`;
-                      }
-                    })()}
+                    {renderUsdWithCredits(Number(costData?.totalCostUSD || 0), { maximumFractionDigits: 6 })}
                   </span>
                 </h3>
                 <p style={{ margin: "4px 0 0 0", fontSize: 14, color: "#1E40AF", fontWeight: 600 }}>

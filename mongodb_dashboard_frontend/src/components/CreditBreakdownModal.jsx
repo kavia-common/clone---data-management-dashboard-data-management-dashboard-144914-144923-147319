@@ -1,7 +1,6 @@
 import React from "react";
 import Modal from "./ui/Modal.jsx";
-import { formatUsdUpTo8 } from "./utils/numberFormat";
-import { usdToCredits, formatCredits } from "../utils/currency";
+import { renderUsdWithCredits } from "../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -46,10 +45,7 @@ export default function CreditBreakdownModal({ open, onClose, title = "Credit Br
                   <td className="td">{b.projectName || b.project_name || b.projectId || b.project_id || "—"}</td>
                   <td className="td num">
                     {typeof b.totalCost === "number" ? (
-                      <span title={`${formatUsdUpTo8(b.totalCost)} (${formatCredits(usdToCredits(b.totalCost))})`}>
-                        {formatUsdUpTo8(b.totalCost)}
-                        <span className="credits-inline muted">({formatCredits(usdToCredits(b.totalCost))})</span>
-                      </span>
+                      renderUsdWithCredits(b.totalCost, { maximumFractionDigits: 8 })
                     ) : "—"}
                   </td>
                   <td className="td num">

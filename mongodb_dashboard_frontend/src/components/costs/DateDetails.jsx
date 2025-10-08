@@ -1,6 +1,6 @@
 import React from "react";
-import { formatCurrencyAmount } from "../../utils/formatCurrency";
-import { usdToCredits, formatCredits } from "../../utils/currency";
+
+import { renderUsdWithCredits } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -60,17 +60,7 @@ export default function DateDetails({ title, data }) {
           let displayNode;
           if (isCost) {
             const n = Number(value);
-            const usdTxt = formatCurrencyAmount(n, { currency: "USD", maximumFractionDigits: 6 });
-            const creditsTxt = formatCredits(usdToCredits(n));
-            const title = `${usdTxt} (${creditsTxt})`;
-            // Example (tooltip):
-            //   title="$0.25 (5,000 credits)"
-            displayNode = (
-              <span title={title}>
-                {usdTxt}
-                <span className="credits-inline muted">({creditsTxt})</span>
-              </span>
-            );
+            displayNode = renderUsdWithCredits(n, { maximumFractionDigits: 6 });
           } else {
             try {
               const num = Number(value);
