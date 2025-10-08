@@ -6,7 +6,7 @@ import TreeView from "../../components/TreeView.jsx";
 
 import AgentDetailsModal from "../../components/modals/AgentDetailsModal.jsx";
 
-import { renderUsdWithCredits } from "../../utils/currency";
+import { renderCreditsWithUsd } from "../../utils/currency";
 import { listLlmCosts } from "../../api/client";
 
 /**
@@ -119,7 +119,7 @@ export default function Costs() {
     if (currencyFieldHints.has(key) && typeof value === "number") {
       return (
         <span className="amount-positive" style={{ whiteSpace: "nowrap" }}>
-          {renderUsdWithCredits(value)}
+          {renderCreditsWithUsd(value)}
         </span>
       );
     }

@@ -1,6 +1,6 @@
 import React from "react";
 import Modal from "./ui/Modal.jsx";
-import { renderUsdWithCredits } from "../utils/currency";
+import { renderCreditsWithUsd } from "../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -28,7 +28,7 @@ export default function CreditBreakdownModal({ open, onClose, title = "Credit Br
             <thead>
               <tr>
                 <th className="th">Project</th>
-                <th className="th">Total Cost</th>
+                <th className="th">Total Credits</th>
                 <th className="th">Total Minutes</th>
               </tr>
             </thead>
@@ -45,7 +45,7 @@ export default function CreditBreakdownModal({ open, onClose, title = "Credit Br
                   <td className="td">{b.projectName || b.project_name || b.projectId || b.project_id || "—"}</td>
                   <td className="td num">
                     {typeof b.totalCost === "number" ? (
-                      renderUsdWithCredits(b.totalCost, { maximumFractionDigits: 8 })
+                      renderCreditsWithUsd(b.totalCost, { maximumFractionDigits: 8 })
                     ) : "—"}
                   </td>
                   <td className="td num">

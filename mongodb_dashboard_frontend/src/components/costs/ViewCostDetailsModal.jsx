@@ -1,7 +1,7 @@
 import React from "react";
 import ProjectDetail from "./ProjectDetail";
 
-import { renderUsdWithCredits } from "../../utils/currency";
+import { renderCreditsWithUsd } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -277,9 +277,9 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                   </span>
                 </p>
                 <h3 style={{ margin: "6px 0 0 0", fontSize: 18, fontWeight: 800, color: "#1E3A8A" }}>
-                  Total Account Cost:{" "}
+                  Total Credits:{" "}
                   <span style={{ fontSize: 24, fontWeight: 900 }}>
-                    {renderUsdWithCredits(Number(costData?.totalCostUSD || 0), { maximumFractionDigits: 6 })}
+                    {renderCreditsWithUsd(Number(costData?.totalCostUSD || 0), { maximumFractionDigits: 6 })}
                   </span>
                 </h3>
                 <p style={{ margin: "4px 0 0 0", fontSize: 14, color: "#1E40AF", fontWeight: 600 }}>

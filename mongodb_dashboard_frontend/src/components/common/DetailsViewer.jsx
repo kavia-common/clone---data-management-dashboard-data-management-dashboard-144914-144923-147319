@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
+import { usdToCredits } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -146,15 +147,10 @@ export default function DetailsViewer({
         return value.toLocaleString();
       }
       if (/^(total_cost|cost|organization_cost|price)$/i.test(key)) {
-        const cur =
-          (rootData && (rootData.currency || rootData.credits_unit || rootData.cost_currency)) ||
-          currencyHint ||
-          "USD";
-        try {
-          return formatCurrencyAmount(value, { currency: cur });
-        } catch {
-          return formatCurrencyAmount(value, { currency: "USD" });
-        }
+        const usdTxt = formatCurrencyAmount(value, { currency: "USD" });
+        const credits = usdToCredits(value);
+        const txt = `${credits.toLocaleString()} credits`;
+        return <span title={`${txt} (${usdTxt})`}>{txt}</span>;
       }
       if (isDurationLike(key)) {
         return formatDuration(value, key);

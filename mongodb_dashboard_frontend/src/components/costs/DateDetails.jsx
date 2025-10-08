@@ -1,6 +1,6 @@
 import React from "react";
 
-import { renderUsdWithCredits } from "../../utils/currency";
+import { renderCreditsWithUsd } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -60,7 +60,7 @@ export default function DateDetails({ title, data }) {
           let displayNode;
           if (isCost) {
             const n = Number(value);
-            displayNode = renderUsdWithCredits(n, { maximumFractionDigits: 6 });
+            displayNode = renderCreditsWithUsd(n, { maximumFractionDigits: 6 });
           } else {
             try {
               const num = Number(value);

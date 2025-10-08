@@ -7,7 +7,10 @@ import React from "react";
 import { formatCurrencyAmount } from "./formatCurrency";
 
 // PUBLIC_INTERFACE
-export const CREDITS_PER_USD = 20000;
+export const CREDITS_PER_USD =
+  Number(process.env.REACT_APP_CREDITS_PER_USD) > 0
+    ? Number(process.env.REACT_APP_CREDITS_PER_USD)
+    : 20000;
 
 /**
  * PUBLIC_INTERFACE
@@ -51,36 +54,30 @@ export function formatUSD(usd, options = {}) {
   return formatCurrencyAmount(n, { currency: "USD", ...options });
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Render credits first with USD secondary: "N credits ($X)".
+ * Accepts numeric or numeric string; preserves non-numeric strings as-is.
+ */
 // PUBLIC_INTERFACE
-export function renderUsdWithCredits(usd, options = {}) {
-  /**
-   * Render a React element showing "$X (Y credits)" with a helpful title tooltip.
-   * - Credits computed with CREDITS_PER_USD (currently 20,000 credits per $1).
-   * - Muted credits styling via .credits-inline.muted (Ocean Professional theme).
-   * - Guards non-numeric/undefined inputs:
-   *    - If the input is a numeric string or number, formats as USD + credits.
-   *    - If it is a non-numeric string, returns that string as-is.
-   *    - Otherwise returns an em dash.
-   *
-   * @param {number|string} usd
-   * @param {object} options - forwarded to formatCurrencyAmount (e.g., { maximumFractionDigits: 6 })
-   * @returns {React.ReactNode}
-   */
+export function renderCreditsWithUsd(usd, options = {}) {
   if (usd == null || usd === "") return "—";
   const n = typeof usd === "number" ? usd : Number(usd);
   if (!Number.isFinite(n)) {
-    // Preserve original string when not numeric
     return typeof usd === "string" ? usd : "—";
   }
-
-  const usdTxt = formatCurrencyAmount(n, { currency: "USD", ...options });
   const creditsTxt = formatCredits(usdToCredits(n));
-  const title = `${usdTxt} (${creditsTxt})`;
-
+  const usdTxt = formatCurrencyAmount(n, { currency: "USD", ...options });
+  const title = `${creditsTxt} (${usdTxt})`;
   return (
     <span title={title} style={{ whiteSpace: "nowrap" }}>
-      {usdTxt}
-      <span className="credits-inline muted">({creditsTxt})</span>
+      {creditsTxt}
+      <span className="credits-inline muted">({usdTxt})</span>
     </span>
   );
+}
+
+// Keep the original export for compatibility where needed
+export function renderUsdWithCredits(usd, options = {}) {
+  return renderCreditsWithUsd(usd, options);
 }

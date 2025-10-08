@@ -1,7 +1,7 @@
 import React from "react";
 import DateDetails from "./DateDetails";
 
-import { renderUsdWithCredits } from "../../utils/currency";
+import { renderCreditsWithUsd, usdToCredits } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -103,9 +103,9 @@ export default function ProjectDetail({ project }) {
             Project #{String(project?.projectId ?? "—")}: {project?.projectName || "Untitled"}
           </span>
           <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            Total Cost{" "}
+            Total Credits{" "}
             <strong style={{ color: "#B45309" }}>
-              {renderUsdWithCredits(totalCost, { maximumFractionDigits: 6 })}
+              {renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 })}
             </strong>
           </span>
         </div>
