@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
-import UsersByTenantBarChart from "../../components/users/UsersByTenantBarChart.jsx";
+import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -120,19 +120,31 @@ export default function Users() {
     <div>
       {/* Users by Tenant chart above the table */}
       <div style={{ marginBottom: 12 }}>
-        {chartToolbar}
-        <UsersByTenantBarChart
-          from={fromIso}
-          to={toIso}
-          status={"completed|active"}
-          includeInactive={false}
-          // If a user is selected, gently emphasize their tenant by clicking action (no-op for now)
-          onBarClick={(item) => {
-            // Future enhancement: filter the table by tenant selection
-            // eslint-disable-next-line no-console
-            console.debug("Tenant bar clicked:", item);
-          }}
-        />
+        <div className="card">
+          <div className="card-header" style={{ paddingBottom: 0 }}>
+            <div>
+              <h3 className="card-title">Users by Tenant</h3>
+              <div className="card-subtitle">Distinct active users by tenant</div>
+            </div>
+            <div className="card-actions">{chartToolbar}</div>
+          </div>
+          <div className="card-content">
+            <UsersByTenantChart
+              title="Users by Tenant"
+              subtitle="Distinct active users by tenant"
+              from={fromIso}
+              to={toIso}
+              status={"completed|active"}
+              includeInactive={false}
+              maxBars={12}
+              onBarClick={(item) => {
+                // Future: filter table by tenant
+                // eslint-disable-next-line no-console
+                console.debug("Tenant bar clicked:", item);
+              }}
+            />
+          </div>
+        </div>
       </div>
 
       <UsersList
