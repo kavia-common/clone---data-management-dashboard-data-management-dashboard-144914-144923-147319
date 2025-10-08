@@ -1,5 +1,20 @@
-import { get } from './client';
-import { buildQueryString } from './util';
+import { getApiClient } from './client';
+// Local helper for building query strings since ./util doesn't export it
+function buildQueryString(params = {}) {
+  const usp = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === '') return;
+    if (Array.isArray(v)) {
+      v.forEach((item) => usp.append(k, String(item)));
+    } else if (typeof v === 'object') {
+      // Encode objects as JSON strings
+      usp.append(k, JSON.stringify(v));
+    } else {
+      usp.append(k, String(v));
+    }
+  });
+  return usp.toString();
+}
 
 /**
  * PUBLIC_INTERFACE
@@ -18,7 +33,7 @@ import { buildQueryString } from './util';
  * - On success: { bins: Array<{ start: number, end: number, count: number }>, meta?: any } or the raw backend payload.
  * - On failure: a safe fallback { bins: [], error: true, message?: string }
  */
-// PUBLIC_INTERFACE
+ // PUBLIC_INTERFACE
 export async function getDurationHistogram({
   scope = 'all',
   userId,
@@ -26,6 +41,13 @@ export async function getDurationHistogram({
   startDate,
   endDate,
   binSizeMinutes = 10,
+  // Backwards-compat alternative keys the UI might pass:
+  tenant_id,
+  user_id,
+  from,
+  to,
+  bin_size_min,
+  unit,
 } = {}) {
   /** This function builds a GET request to /api/session-tracking/duration-histogram
    *  using existing api client utilities for base URL handling and GET.
@@ -48,13 +70,21 @@ export async function getDurationHistogram({
     }
   };
 
+  // Normalize potential alternate inputs from UI
+  const effTenant = tenantId ?? tenant_id;
+  const effUser = (scope === 'user' ? (userId ?? user_id) : undefined);
+  const effStart = toIso(startDate) || (from ? toIso(from) : undefined) || defaultStart;
+  const effEnd = toIso(endDate) || (to ? toIso(to) : undefined) || defaultEnd;
+  const effBin = typeof binSizeMinutes === 'number' ? binSizeMinutes : (typeof bin_size_min === 'number' ? bin_size_min : 10);
+
   const params = {
     scope,
-    tenant_id: tenantId, // follow snake_case commonly used in backend params
-    user_id: scope === 'user' ? userId : undefined,
-    start: toIso(startDate) || defaultStart,
-    end: toIso(endDate) || defaultEnd,
-    bin_size: typeof binSizeMinutes === 'number' ? binSizeMinutes : 10,
+    tenant_id: effTenant, // follow snake_case commonly used in backend params
+    user_id: effUser,
+    start: effStart,
+    end: effEnd,
+    bin_size: effBin,
+    unit: unit || 'minutes',
   };
 
   // Remove undefined params for a clean query string
@@ -66,20 +96,22 @@ export async function getDurationHistogram({
   const url = `/api/session-tracking/duration-histogram${query ? `?${query}` : ''}`;
 
   try {
-    const res = await get(url);
+    const res = await getApiClient().get(url);
+    const payload = res?.data ?? res;
+
     // Basic validation: expect object with bins array, but pass through data if present
-    if (res && Array.isArray(res.bins)) {
-      return res;
+    if (payload && Array.isArray(payload.bins)) {
+      return payload;
     }
-    // Some backends may return { data: [...] }
-    if (res && res.data && Array.isArray(res.data.bins)) {
-      return res.data;
+    // Some backends may return { data: { bins: [...] } }
+    if (payload && payload.data && Array.isArray(payload.data.bins)) {
+      return payload.data;
     }
     // Fallback: try to coerce common shapes to our expected output
-    if (Array.isArray(res)) {
-      return { bins: res };
+    if (Array.isArray(payload)) {
+      return { bins: payload };
     }
-    return { bins: [], meta: { raw: res } };
+    return { bins: [], meta: { raw: payload } };
   } catch (err) {
     // Minimal error handling with safe fallback
     // eslint-disable-next-line no-console
