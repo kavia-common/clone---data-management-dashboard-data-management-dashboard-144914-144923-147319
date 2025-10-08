@@ -138,25 +138,55 @@ export default function DetailsViewer({
     return parts.join(" ");
   }
 
+  // Normalize currency-like field names consistently
+  const DV_CURRENCY_FIELDS = new Set(
+    [
+      "total_cost",
+      "totalcost",
+      "cost",
+      "organization_cost",
+      "organizationcost",
+      "price",
+      "amount",
+      "usd",
+      "usd_cost",
+      "total_usd",
+      "totalusd",
+      "amount_usd",
+      "charge",
+    ].map((s) => s.toLowerCase())
+  );
+  function isCurrencyKeyLoose(k) {
+    const key = String(k || "").toLowerCase();
+    if (DV_CURRENCY_FIELDS.has(key)) return true;
+    if (/_usd\b|\busd_|\busd$/i.test(key)) return true;
+    return false;
+  }
+
   function formatValueByKey(key, value, rootData) {
     if (value == null) return "—";
 
+    // Attempt coercion for numeric-like strings
+    const asNumber = typeof value === "number" ? value : Number(String(value).replace(/[$,]/g, ""));
+
     // Primitive formatting
-    if (typeof value === "number") {
+    if (typeof value === "number" || Number.isFinite(asNumber)) {
+      const n = typeof value === "number" ? value : asNumber;
+
       if (isTokenLike(key)) {
-        return value.toLocaleString();
+        return n.toLocaleString();
       }
-      if (/^(total_cost|cost|organization_cost|price)$/i.test(key)) {
-        const usdTxt = formatCurrencyAmount(value, { currency: "USD" });
-        const credits = usdToCredits(value);
+      if (isCurrencyKeyLoose(key)) {
+        const usdTxt = formatCurrencyAmount(n, { currency: "USD" });
+        const credits = usdToCredits(n);
         const txt = `${credits.toLocaleString()} credits`;
         return <span title={`${txt} (${usdTxt})`}>{txt}</span>;
       }
       if (isDurationLike(key)) {
-        return formatDuration(value, key);
+        return formatDuration(n, key);
       }
       // Generic number formatting
-      return new Intl.NumberFormat().format(value);
+      return new Intl.NumberFormat().format(n);
     }
 
     if (typeof value === "string") {

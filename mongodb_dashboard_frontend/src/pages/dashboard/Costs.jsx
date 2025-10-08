@@ -45,10 +45,37 @@ export default function Costs() {
       ]),
     []
   );
-  const currencyFieldHints = useMemo(
-    () => new Set(["total_cost", "cost", "organization_cost"]),
+  // Normalize currency-like field names across various API shapes.
+  // Handles: snake_case, camelCase, and *_usd variants.
+  const CURRENCY_FIELDS = useMemo(
+    () =>
+      new Set(
+        [
+          "total_cost",
+          "totalcost",
+          "cost",
+          "organization_cost",
+          "organizationcost",
+          "price",
+          "amount",
+          "usd",
+          "usd_cost",
+          "total_usd",
+          "totalusd",
+          "amount_usd",
+          "charge",
+        ].map((s) => s.toLowerCase())
+      ),
     []
   );
+
+  function isCurrencyKey(key) {
+    const k = String(key || "").toLowerCase();
+    if (CURRENCY_FIELDS.has(k)) return true;
+    // Also treat anything ending with _usd or usd_... as currency-like
+    if (/_usd\b|\busd_|\busd$/i.test(k)) return true;
+    return false;
+  }
   const numericPrettyHints = useMemo(
     () =>
       new Set(["total_tokens", "input_tokens", "output_tokens", "tokens", "count"]),
@@ -116,21 +143,28 @@ export default function Costs() {
 
   const renderNumber = (value, key) => {
     if (value == null || value === "") return "—";
-    if (currencyFieldHints.has(key) && typeof value === "number") {
+
+    // Coerce to number when possible (e.g., "0.123", "$0.12")
+    const num = typeof value === "number" ? value : Number(String(value).replace(/[$,]/g, ""));
+    const isFiniteNum = Number.isFinite(num);
+
+    if (isCurrencyKey(key) && isFiniteNum) {
       return (
         <span className="amount-positive" style={{ whiteSpace: "nowrap" }}>
-          {renderCreditsWithUsd(value)}
+          {renderCreditsWithUsd(num)}
         </span>
       );
     }
-    if (typeof value === "number" && (numericPrettyHints.has(key) || /token|count|total/i.test(key))) {
-      const txt = value.toLocaleString();
+
+    if (isFiniteNum && (numericPrettyHints.has(key) || /token|count|total/i.test(String(key)))) {
+      const txt = num.toLocaleString();
       return (
         <span title={txt} style={{ whiteSpace: "nowrap" }}>
           {txt}
         </span>
       );
     }
+
     return renderText(value);
   };
 
