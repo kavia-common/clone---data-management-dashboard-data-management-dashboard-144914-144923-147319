@@ -29,8 +29,10 @@ import { getTenantUsersSummary } from "../../api/usersAnalytics";
  * - onBarClick?: (datum) => void
  */
 export default function UsersByTenantChart({
-  title = "Users by Tenant",
-  subtitle = "Distinct active users by tenant",
+  // Title/subtitle are intentionally ignored here to avoid duplicate headers.
+  // They are kept in the props for backward compatibility with existing callers.
+  title = "Users by Tenant", // deprecated in this component (use page-level Card header)
+  subtitle = "Distinct active users by tenant", // deprecated in this component
   from,
   to,
   status = "completed|active",
@@ -153,36 +155,27 @@ export default function UsersByTenantChart({
     );
   };
 
+  // Render chart visualization only; outer page provides Card header and layout.
   return (
-    <section
-      className="card"
-      role="region"
-      aria-label="Users by Tenant chart"
-      style={{ width: "100%" }}
-    >
-      <header className="card-header" style={{ paddingBottom: 8 }}>
-        <div>
-          <h3 className="card-title">{title}</h3>
-          {subtitle && <div className="card-subtitle">{subtitle}</div>}
-        </div>
-        <div className="card-actions" aria-hidden="true">
-          <span
-            style={{
-              background: "linear-gradient(90deg, rgba(37,99,235,0.08), rgba(245,158,11,0.08))",
-              border: "1px solid #E5E7EB",
-              color: "#111827",
-              fontSize: 12,
-              padding: "6px 8px",
-              borderRadius: 999,
-            }}
-            title={`Total users summed across shown tenants: ${totalUsers}`}
-          >
-            Total: {totalUsers}
-          </span>
-        </div>
-      </header>
-
-      <div className="card-content" style={{ height: 360 }}>
+    <div role="region" aria-label="Users by Tenant chart" style={{ width: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <span
+          style={{
+            background:
+              "linear-gradient(90deg, rgba(37,99,235,0.08), rgba(245,158,11,0.08))",
+            border: "1px solid #E5E7EB",
+            color: "#111827",
+            fontSize: 12,
+            padding: "6px 8px",
+            borderRadius: 999,
+          }}
+          title={`Total users summed across shown tenants: ${totalUsers}`}
+          aria-label={`Total users displayed: ${totalUsers}`}
+        >
+          Total: {totalUsers}
+        </span>
+      </div>
+      <div style={{ height: 360 }}>
         {loading ? (
           <div aria-busy="true">
             <div className="skeleton" style={{ height: 16, width: "35%", marginBottom: 8 }} />
@@ -219,20 +212,13 @@ export default function UsersByTenantChart({
                   fontSize: 12,
                 }}
               />
-              <YAxis
-                type="category"
-                dataKey="name"
-                tick={{ fontSize: 12 }}
-                width={80}
-              />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={80} />
               <Tooltip content={<CustomTooltip />} />
               <Legend
                 verticalAlign="top"
                 height={24}
                 wrapperStyle={{ fontSize: 12 }}
-                payload={[
-                  { id: "Users", value: "Users", type: "square", color: primary },
-                ]}
+                payload={[{ id: "Users", value: "Users", type: "square", color: primary }]}
               />
               <Bar
                 dataKey="user_count"
@@ -252,7 +238,7 @@ export default function UsersByTenantChart({
           </ResponsiveContainer>
         )}
       </div>
-    </section>
+    </div>
   );
 }
 

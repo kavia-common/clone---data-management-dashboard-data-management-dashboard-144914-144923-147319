@@ -130,8 +130,6 @@ export default function Users() {
           </div>
           <div className="card-content">
             <UsersByTenantChart
-              title="Users by Tenant"
-              subtitle="Distinct active users by tenant"
               from={fromIso}
               to={toIso}
               status={"completed|active"}
