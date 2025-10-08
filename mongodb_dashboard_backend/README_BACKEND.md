@@ -95,6 +95,40 @@ Service:
 
 ## Verification (Real-time Data)
 
+### Project name resolution endpoint
+
+The backend exposes a lightweight resolver to map a project_id to a human‑friendly project name, primarily from the App Deployments collection.
+
+- Method: GET
+- Path: /api/app-deployments/project/{projectId}/name
+- Description: Attempts to match the provided projectId across multiple common fields in app_deployments: projectId, project_id, metadata.projectId, project.id. If a name is available, it is returned from any of: projectName, project_name, metadata.projectName, or project.name. The endpoint always returns 200 with a normalized id and a projectName that may be null if a name cannot be found.
+
+Parameters:
+- path projectId (string) — the identifier to resolve
+
+Response example:
+{
+  "projectId": "my-project-123",
+  "projectName": "My Project"
+}
+
+If not found:
+{
+  "projectId": "my-project-123",
+  "projectName": null
+}
+
+Caching:
+- 5-minute in-memory cache per process is used for projectId -> projectName results.
+- Cache entries are invalidated automatically when App Deployments are modified:
+  - POST /api/app-deployments: invalidates the project id found in the payload
+  - PUT /api/app-deployments/{id}: invalidates the project id in the payload, or inferred from the existing record
+  - DELETE /api/app-deployments/{id}: invalidates the project id inferred from the deleted record
+- This cache is non-persistent and per-instance; in multi-instance deployments, each instance maintains its own cache.
+
+OpenAPI:
+- The resolver is documented in the generated OpenAPI at /openapi.json under the AppDeployments tag.
+
 To confirm the backend is connected to the correct MongoDB cluster and the dashboard uses real-time data:
 
 - On startup, check logs for a message similar to:
