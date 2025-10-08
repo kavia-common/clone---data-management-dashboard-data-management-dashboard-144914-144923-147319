@@ -280,4 +280,262 @@ router.put('/:id', asyncHandler(controller.update));
  */
 router.delete('/:id', asyncHandler(controller.remove));
 
+/**
+ * Simple in-memory cache with TTL for aggregation responses.
+ * Keyed by a stringified set of query params.
+ */
+const histogramCache = new Map();
+const HISTOGRAM_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCache(key) {
+  const hit = histogramCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    histogramCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+function setCache(key, value) {
+  histogramCache.set(key, { value, expiresAt: Date.now() + HISTOGRAM_TTL_MS });
+}
+
+/**
+ * Build a deterministic cache key for histogram params.
+ */
+function buildCacheKey(params) {
+  const ordered = {
+    scope: params.scope || 'all',
+    userId: params.userId || null,
+    tenantId: params.tenantId || null,
+    startDate: params.startDate || null,
+    endDate: params.endDate || null,
+    binSizeMinutes: Number.isFinite(+params.binSizeMinutes) ? +params.binSizeMinutes : 10,
+    status: params.status || 'completed',
+  };
+  return `duration-hist:${JSON.stringify(ordered)}`;
+}
+
+/**
+ * Compute percentiles on a numeric array.
+ * Returns { count, min, max, median, p90, p95 }
+ */
+function computePercentiles(values) {
+  const n = values.length;
+  if (n === 0) {
+    return { count: 0, min: null, max: null, median: null, p90: null, p95: null };
+  }
+  const sorted = values.slice().sort((a, b) => a - b);
+  const pick = (p) => {
+    if (n === 1) return sorted[0];
+    const idx = Math.min(n - 1, Math.max(0, Math.floor((p / 100) * (n - 1))));
+    return sorted[idx];
+  };
+  const median = pick(50);
+  const p90 = pick(90);
+  const p95 = pick(95);
+  return {
+    count: n,
+    min: sorted[0],
+    max: sorted[n - 1],
+    median,
+    p90,
+    p95,
+  };
+}
+
+/**
+ * Helper to validate and parse query params for the histogram endpoint.
+ */
+function parseHistogramParams(q) {
+  const scope = (q.scope === 'user' || q.scope === 'all') ? q.scope : 'all';
+  const userId = q.userId ? String(q.userId) : null;
+  const tenantId = q.tenantId ? String(q.tenantId) : null;
+  const status = q.status ? String(q.status) : 'completed';
+
+  const binSize = parseInt(q.binSizeMinutes, 10);
+  const binSizeMinutes = Number.isFinite(binSize) && binSize > 0 ? binSize : 10;
+
+  const startDate = q.startDate ? new Date(q.startDate) : null;
+  const endDate = q.endDate ? new Date(q.endDate) : null;
+
+  if (q.startDate && isNaN(startDate)) {
+    throw Object.assign(new Error('Invalid startDate'), { status: 400 });
+  }
+  if (q.endDate && isNaN(endDate)) {
+    throw Object.assign(new Error('Invalid endDate'), { status: 400 });
+  }
+  if (scope === 'user' && !userId) {
+    throw Object.assign(new Error('userId is required when scope=user'), { status: 400 });
+  }
+  return { scope, userId, tenantId, status, startDate, endDate, binSizeMinutes };
+}
+
+/**
+ * Construct Mongo match filter based on params.
+ */
+function buildMatchFilter({ scope, userId, tenantId, status, startDate, endDate }) {
+  const match = {};
+  if (status) match.status = status;
+  if (tenantId) match.tenant_id = tenantId;
+  if (scope === 'user' && userId) match.user_id = userId;
+
+  // Date filter on session_start
+  if (startDate || endDate) {
+    match.session_start = {};
+    if (startDate) match.session_start.$gte = startDate;
+    if (endDate) match.session_start.$lte = endDate;
+  }
+  return match;
+}
+
+/**
+ * Build bins from histogram buckets result
+ */
+function buildBinsFromGroups(groups, binSizeMinutes) {
+  // groups: [{ _id: { start: <number> }, count: <int> }]
+  const bins = groups
+    .map((g) => ({
+      start: g._id.start,
+      end: g._id.start + binSizeMinutes,
+      count: g.count,
+    }))
+    .sort((a, b) => a.start - b.start);
+  return bins;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/session-tracking/duration-histogram
+ * Returns histogram bins of session durations (in minutes) with optional filters
+ * and summary percentiles. Uses in-memory cache with 5 minute TTL.
+ */
+router.get(
+  '/duration-histogram',
+  asyncHandler(async (req, res) => {
+    // Parse query params and validate
+    let params;
+    try {
+      params = parseHistogramParams(req.query);
+    } catch (e) {
+      return res
+        .status(e.status || 400)
+        .json({ success: false, message: e.message || 'Invalid parameters' });
+    }
+
+    // Serve from cache if available
+    const cacheKey = buildCacheKey(params);
+    const cached = getCache(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
+    const { scope, userId, tenantId, status, startDate, endDate, binSizeMinutes } = params;
+
+    // Build $match filter
+    const match = buildMatchFilter(params);
+
+    // Stage 1: project durationMinutes
+    const projectStage = {
+      $project: {
+        durationMinutes: {
+          $divide: [{ $subtract: ['$session_end', '$session_start'] }, 60000],
+        },
+        session_start: 1,
+        user_id: 1,
+        tenant_id: 1,
+        status: 1,
+      },
+    };
+
+    // Stage 2: filter by duration >= 0 (exclude null/negative)
+    const durationFilterStage = { $match: { durationMinutes: { $gte: 0 } } };
+
+    // First aggregation to get min and max
+    const minMaxPipeline = [{ $match: match }, projectStage, durationFilterStage, {
+      $group: {
+        _id: null,
+        minDuration: { $min: '$durationMinutes' },
+        maxDuration: { $max: '$durationMinutes' },
+        count: { $sum: 1 },
+      },
+    }];
+
+    const [minMax] = await SessionTracking.aggregate(minMaxPipeline).allowDiskUse(true);
+
+    // If no data, return empty response with meta
+    if (!minMax || minMax.count === 0 || minMax.minDuration == null || minMax.maxDuration == null) {
+      const response = {
+        scope,
+        userId: userId || null,
+        tenantId: tenantId || null,
+        dateRange: {
+          start: startDate ? new Date(startDate).toISOString() : null,
+          end: endDate ? new Date(endDate).toISOString() : null,
+        },
+        binSizeMinutes,
+        bins: [],
+        summary: { count: 0, min: null, max: null, median: null, p90: null, p95: null },
+      };
+      setCache(cacheKey, response);
+      return res.status(200).json(response);
+    }
+
+    const minD = Math.max(0, Math.floor(minMax.minDuration));
+    const maxD = Math.ceil(minMax.maxDuration);
+    // Build grouping boundaries
+    const groupStage = {
+      $group: {
+        _id: {
+          start: {
+            $multiply: [
+              { $floor: { $divide: ['$durationMinutes', binSizeMinutes] } },
+              binSizeMinutes,
+            ],
+          },
+        },
+        count: { $sum: 1 },
+      },
+    };
+
+    // Pipeline for histogram buckets
+    const histogramPipeline = [{ $match: match }, projectStage, durationFilterStage, groupStage];
+
+    const groups = await SessionTracking.aggregate(histogramPipeline).allowDiskUse(true);
+
+    const bins = buildBinsFromGroups(groups, binSizeMinutes);
+
+    // Try to compute percentiles server-side if available; else fallback to client-side (Node)
+    // We do a simple fetch of all durations with minimal fields to compute percentiles.
+    const durationsDocs = await SessionTracking.aggregate([
+      { $match: match },
+      projectStage,
+      durationFilterStage,
+      { $project: { durationMinutes: 1, _id: 0 } },
+    ]).allowDiskUse(true);
+
+    const durations = durationsDocs
+      .map((d) => (typeof d.durationMinutes === 'number' ? d.durationMinutes : null))
+      .filter((v) => Number.isFinite(v));
+
+    const summary = computePercentiles(durations);
+
+    const response = {
+      scope,
+      userId: userId || null,
+      tenantId: tenantId || null,
+      dateRange: {
+        start: startDate ? new Date(startDate).toISOString() : null,
+        end: endDate ? new Date(endDate).toISOString() : null,
+      },
+      binSizeMinutes,
+      bins,
+      summary,
+    };
+
+    setCache(cacheKey, response);
+    return res.status(200).json(response);
+  })
+);
+
 module.exports = router;
