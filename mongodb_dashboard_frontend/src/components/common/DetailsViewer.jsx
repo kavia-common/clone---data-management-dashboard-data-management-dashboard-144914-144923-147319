@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
-import { usdToCredits } from "../../utils/currency";
+import { usdToCredits, formatCredits } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -178,9 +178,13 @@ export default function DetailsViewer({
       }
       if (isCurrencyKeyLoose(key)) {
         const usdTxt = formatCurrencyAmount(n, { currency: "USD" });
-        const credits = usdToCredits(n);
-        const txt = `${credits.toLocaleString()} credits`;
-        return <span title={`${txt} (${usdTxt})`}>{txt}</span>;
+        const creditsTxt = formatCredits(usdToCredits(n));
+        return (
+          <span title={`${usdTxt} (${creditsTxt})`} style={{ whiteSpace: "nowrap" }}>
+            {usdTxt}
+            <span className="credits-inline muted">({creditsTxt})</span>
+          </span>
+        );
       }
       if (isDurationLike(key)) {
         return formatDuration(n, key);

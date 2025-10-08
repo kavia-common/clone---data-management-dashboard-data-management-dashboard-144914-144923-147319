@@ -1,4 +1,5 @@
 //
+//
 // Currency-to-credits conversion utility.
 // Centralizes the conversion rate so the entire app stays consistent.
 //
@@ -56,28 +57,40 @@ export function formatUSD(usd, options = {}) {
 
 /**
  * PUBLIC_INTERFACE
- * Render credits first with USD secondary: "N credits ($X)".
+ * Format a value as "$X (Y credits)" string.
+ * Returns '—' on invalid input.
+ */
+export function formatUsdWithCredits(usd, options = {}) {
+  const n = Number(usd);
+  if (!Number.isFinite(n)) return "—";
+  // Leverage includeCredits support to ensure consistent text output
+  return formatCurrencyAmount(n, { currency: "USD", includeCredits: true, ...options });
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Render USD first with credits in parentheses: "$X (N credits)".
  * Accepts numeric or numeric string; preserves non-numeric strings as-is.
  */
-// PUBLIC_INTERFACE
-export function renderCreditsWithUsd(usd, options = {}) {
+export function renderUsdWithCredits(usd, options = {}) {
   if (usd == null || usd === "") return "—";
   const n = typeof usd === "number" ? usd : Number(usd);
   if (!Number.isFinite(n)) {
     return typeof usd === "string" ? usd : "—";
   }
-  const creditsTxt = formatCredits(usdToCredits(n));
   const usdTxt = formatCurrencyAmount(n, { currency: "USD", ...options });
-  const title = `${creditsTxt} (${usdTxt})`;
+  const creditsTxt = formatCredits(usdToCredits(n));
+  const title = `${usdTxt} (${creditsTxt})`;
   return (
     <span title={title} style={{ whiteSpace: "nowrap" }}>
-      {creditsTxt}
-      <span className="credits-inline muted">({usdTxt})</span>
+      {usdTxt}
+      <span className="credits-inline muted">({creditsTxt})</span>
     </span>
   );
 }
 
-// Keep the original export for compatibility where needed
-export function renderUsdWithCredits(usd, options = {}) {
-  return renderCreditsWithUsd(usd, options);
+// PUBLIC_INTERFACE
+export function renderCreditsWithUsd(usd, options = {}) {
+  /** Backward-compatible alias; now renders USD first with credits in parentheses. */
+  return renderUsdWithCredits(usd, options);
 }
