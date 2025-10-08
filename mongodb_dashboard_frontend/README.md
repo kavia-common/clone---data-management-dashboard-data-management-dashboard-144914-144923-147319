@@ -89,6 +89,44 @@ App will run at http://localhost:3000 (or your environment preview URL)
 
 Note: Do not commit .env; use .env.example as reference.
 
+## Project Name Resolution (Deployments UI)
+
+To display a project's friendly name from a project_id, the frontend provides both a direct API call and a React hook.
+
+Environment
+- REACT_APP_API_BASE_URL (e.g., http://localhost:3001)
+- REACT_APP_API_PREFIX (default /api)
+- Optional: REACT_APP_DANGEROUSLY_DISABLE_HOST_CHECK (used by dev server; not required for this feature)
+
+Direct API helper
+- Function: getProjectName(projectId)
+- Location: src/api/projectName.js
+- Behavior: Calls GET /api/app-deployments/project/{projectId}/name and returns { projectId, projectName } with projectName possibly null. Throws on network or server errors.
+
+React hook
+- Hook: useProjectName(projectId)
+- Location: src/hooks/useProjectName.js
+- Returns: { projectName, loading, error }
+- Client-side cache: In-memory 5‑minute TTL per projectId with in-flight request de-duplication to avoid duplicate network calls.
+- Fallback behavior: If projectName is null or an error occurs, render a safe fallback (e.g., the raw project_id or “Unknown Project”).
+
+Example usage in a Deployments table cell:
+```jsx
+import { useProjectName } from '../../hooks/useProjectName';
+
+function ProjectNameCell({ projectId }) {
+  const { projectName, loading, error } = useProjectName(projectId);
+
+  if (loading) return <span title={projectId}>Resolving…</span>;
+  if (error) return <span title={projectId}>{projectId}</span>;
+  return <span title={projectId}>{projectName ?? projectId}</span>;
+}
+```
+
+Notes
+- The hook is SSR-safe and fetches on the client. It reads/writes a small in-memory cache scoped to the module and tab.
+- The backend also maintains a 5‑minute in-memory cache and invalidates it on App Deployments CRUD, so subsequent calls are fast.
+
 ## API Endpoints
 
 The frontend expects conventional REST endpoints:
