@@ -13,6 +13,10 @@ const controller = buildCrudController(User, '-created_at');
 const TENANT_SUMMARY_CACHE = new Map();
 const TENANT_SUMMARY_TTL_MS = 5 * 60 * 1000;
 
+// Simple in-memory cache for active trend (5 minutes TTL)
+const ACTIVE_TREND_CACHE = new Map();
+const ACTIVE_TREND_TTL_MS = 5 * 60 * 1000;
+
 function buildTenantSummaryCacheKey(q) {
   // Normalize known params
   const key = {
@@ -22,6 +26,32 @@ function buildTenantSummaryCacheKey(q) {
     includeInactive: String(q.includeInactive || 'false') === 'true',
   };
   return `tenant-summary:${JSON.stringify(key)}`;
+}
+/**
+ * Build cache key for active trend queries
+ */
+function buildActiveTrendCacheKey(q) {
+  const key = {
+    from: q.from || null,
+    to: q.to || null,
+    granularity: q.granularity || 'day',
+    // default status: include active and completed
+    status: q.status || 'completed|active',
+    tenant_id: q.tenant_id || null,
+  };
+  return `active-trend:${JSON.stringify(key)}`;
+}
+function getActiveTrendCache(key) {
+  const hit = ACTIVE_TREND_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    ACTIVE_TREND_CACHE.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+function setActiveTrendCache(key, value) {
+  ACTIVE_TREND_CACHE.set(key, { value, expiresAt: Date.now() + ACTIVE_TREND_TTL_MS });
 }
 
 function getCache(key) {
@@ -147,7 +177,7 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
  *                   type: integer
  *                   description: Number of tenant groups returned
  */
- // PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
 router.get(
   '/tenant-summary',
   asyncHandler(async (req, res) => {
@@ -204,21 +234,33 @@ router.get(
         ? { $match: { ...match, $or: timeClauses } }
         : { $match: match };
 
-    // Aggregate distinct user count per tenant_id from session_tracking
+    // Aggregate distinct user count per tenant_id; compute last_activity per tenant
     const pipeline = [
       matchStage,
       {
         $group: {
-          _id: { tenant_id: '$tenant_id', user_id: { $toString: '$user_id' } },
+          _id: {
+            tenant_id: '$tenant_id',
+            user_id: { $toString: '$user_id' },
+          },
+          tenant_last_activity: {
+            $max: {
+              $ifNull: [
+                '$last_updated',
+                { $ifNull: ['$session_end', { $ifNull: ['$timestamp', '$session_start'] }] },
+              ],
+            },
+          },
         },
       },
       {
         $group: {
           _id: '$_id.tenant_id',
           user_count: { $sum: 1 },
+          last_activity: { $max: '$tenant_last_activity' },
         },
       },
-      { $project: { _id: 0, tenant_id: '$_id', user_count: 1 } },
+      { $project: { _id: 0, tenant_id: '$_id', user_count: 1, last_activity: 1 } },
       { $sort: { user_count: -1, tenant_id: 1 } },
     ];
 
@@ -244,6 +286,7 @@ router.get(
         ? tenantMap[i.tenant_id]
         : null,
       user_count: i.user_count || 0,
+      last_activity: i.last_activity ? new Date(i.last_activity).toISOString() : null,
     }));
 
     // If includeInactive and there are tenants with no activity, include them with user_count from users collection or zero
@@ -267,6 +310,7 @@ router.get(
             tenant_id: t.tenant_id,
             tenant_name: t.tenant_name || null,
             user_count: fallbackCount,
+            last_activity: null,
           });
         }
       }
@@ -543,6 +587,202 @@ router.delete('/:id', asyncHandler(controller.remove));
 
 /**
  * @swagger
+ * /api/users/active-trend:
+ *   get:
+ *     summary: Active users trend (time series)
+ *     description: >
+ *       Returns time-bucketed counts of distinct active users based on session_tracking.
+ *       Prefers `last_updated` if present; falls back to `session_start`. Supports optional tenant scope,
+ *       status filter (pipe-separated), and granularity day|week. Default granularity=day and status=completed|active.
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *         description: ISO start of range (inclusive). Default is 30 days ago if not provided.
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ *         description: ISO end of range (exclusive for bucketing upper bound). Default is now if not provided.
+ *       - in: query
+ *         name: granularity
+ *         schema: { type: string, enum: [day, week], default: day }
+ *         description: Bucket size for the time series.
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *         description: Session status filter. Default "completed|active".
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
+ *         description: Optional tenant filter to scope the trend.
+ *     responses:
+ *       200:
+ *         description: Active users time series
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 items:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       date: { type: string, description: "YYYY-MM-DD" }
+ *                       total: { type: integer }
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     granularity: { type: string }
+ *                     from: { type: string, format: date-time }
+ *                     to: { type: string, format: date-time }
+ */
+// PUBLIC_INTERFACE
+router.get(
+  '/active-trend',
+  asyncHandler(async (req, res) => {
+    const now = new Date();
+    const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const fromStr = req.query.from || defaultFrom.toISOString();
+    const toStr = req.query.to || now.toISOString();
+    const granularity = (req.query.granularity || 'day').toLowerCase() === 'week' ? 'week' : 'day';
+    const statusParam = (req.query.status || 'completed|active').trim();
+    const tenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
+
+    // Validate dates
+    const fromDate = new Date(fromStr);
+    const toDate = new Date(toStr);
+    if (Number.isNaN(fromDate.getTime()))
+      return res.status(400).json({ success: false, message: 'Invalid "from" date' });
+    if (Number.isNaN(toDate.getTime()))
+      return res.status(400).json({ success: false, message: 'Invalid "to" date' });
+    if (toDate <= fromDate)
+      return res.status(400).json({ success: false, message: '"to" must be after "from"' });
+
+    // Cache
+    const cacheKey = buildActiveTrendCacheKey({
+      from: fromDate.toISOString(),
+      to: toDate.toISOString(),
+      granularity,
+      status: statusParam,
+      tenant_id: tenantId,
+    });
+    const cached = getActiveTrendCache(cacheKey);
+    if (cached) return res.status(200).json(cached);
+
+    // Build match
+    const match = {};
+    if (tenantId) match.tenant_id = tenantId;
+
+    if (statusParam.includes('|')) {
+      const parts = statusParam.split('|').map((s) => s.trim()).filter(Boolean);
+      if (parts.length > 0) match.status = { $in: parts };
+    } else if (statusParam) {
+      match.status = statusParam;
+    }
+
+    // Build activity timestamp and bucket key based on granularity
+    // activity_ts = coalesce(last_updated, session_start)
+    const addFieldsStage = {
+      $addFields: {
+        activity_ts: {
+          $ifNull: ['$last_updated', '$session_start'],
+        },
+      },
+    };
+
+    const dateMatchStage = {
+      $match: {
+        ...match,
+        activity_ts: { $gte: fromDate, $lte: toDate },
+      },
+    };
+
+    // Bucket expression
+    const projectBucketStage = granularity === 'week'
+      ? {
+          $project: {
+            tenant_id: 1,
+            user_id_str: { $toString: '$user_id' },
+            bucket: {
+              $dateToString: {
+                format: '%G-%V', // ISO week-year-week
+                date: '$activity_ts',
+                timezone: 'UTC',
+              },
+            },
+            weekStart: {
+              $dateFromParts: {
+                isoWeekYear: { $isoWeekYear: '$activity_ts' },
+                isoWeek: { $isoWeek: '$activity_ts' },
+                isoDayOfWeek: 1,
+              },
+            },
+          },
+        }
+      : {
+          $project: {
+            tenant_id: 1,
+            user_id_str: { $toString: '$user_id' },
+            bucket: {
+              $dateToString: { format: '%Y-%m-%d', date: '$activity_ts', timezone: 'UTC' },
+            },
+          },
+        };
+
+    // Distinct users per bucket (and tenant in match if given)
+    const pipeline = [
+      addFieldsStage,
+      dateMatchStage,
+      projectBucketStage,
+      {
+        $group: {
+          _id: { bucket: '$bucket', user_id: '$user_id_str' },
+        },
+      },
+      {
+        $group: {
+          _id: '$_id.bucket',
+          total: { $sum: 1 },
+          weekStart: granularity === 'week' ? { $first: '$weekStart' } : undefined,
+        },
+      },
+      { $project: { _id: 0, bucket: '$_id', total: 1, weekStart: 1 } },
+      { $sort: { bucket: 1 } },
+    ];
+
+    let rows = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+
+    // Normalize to output shape with YYYY-MM-DD date (for week use weekStart)
+    const items = rows.map((r) => {
+      if (granularity === 'week' && r.weekStart) {
+        const d = new Date(r.weekStart);
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(d.getUTCDate()).padStart(2, '0');
+        return { date: `${yyyy}-${mm}-${dd}`, total: r.total || 0 };
+      }
+      // r.bucket already '%Y-%m-%d'
+      return { date: String(r.bucket), total: r.total || 0 };
+    });
+
+    const response = {
+      items,
+      meta: {
+        granularity,
+        from: fromDate.toISOString(),
+        to: toDate.toISOString(),
+      },
+    };
+    setActiveTrendCache(cacheKey, response);
+    return res.status(200).json(response);
+  })
+);
+
+/**
+ * @swagger
  * /api/users/{userId}/projects:
  *   get:
  *     summary: Get projects associated with a user (from session tracking)
@@ -591,7 +831,7 @@ router.delete('/:id', asyncHandler(controller.remove));
  *       400:
  *         description: Missing required parameters or invalid input
  */
- // PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
 router.get(
   '/:userId/projects',
   asyncHandler(async (req, res) => {
