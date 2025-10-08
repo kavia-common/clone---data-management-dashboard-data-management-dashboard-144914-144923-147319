@@ -3,203 +3,8 @@ import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import ActiveUsersTrendChart from "../../components/charts/ActiveUsersTrendChart.jsx";
-import ActiveUsersTrendChart from "../../components/charts/ActiveUsersTrendChart.jsx";
->>>>>>> REPLACE   
-````   
-````edit file="data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/pages/dashboard/Users.jsx"      
-<<<<<<< SEARCH
-  const chartToolbar = (
-    <div className="toolbar" aria-label="Users filters" style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-=======
-  const chartToolbar = (
-    <div className="toolbar" aria-label="Users filters" style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
->>>>>>> REPLACE   
-````   
-````edit file="data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/pages/dashboard/Users.jsx"      
-<<<<<<< SEARCH
-        <select
-          aria-label="Date range"
-          value={rangeDays}
-          onChange={(e) => setRangeDays(Number(e.target.value))}
-          style={{
-            padding: "6px 8px",
-            borderRadius: 8,
-            border: "1px solid #d1d5db",
-            background: "white",
-            color: "#111827",
-          }}
-        >
-          <option value={7}>Last 7 days</option>
-          <option value={14}>Last 14 days</option>
-          <option value={30}>Last 30 days</option>
-          <option value={90}>Last 90 days</option>
-        </select>
-      </label>
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: "#6B7280" }}>Granularity</span>
-        <select
-          aria-label="Granularity"
-          defaultValue="day"
-          onChange={(e) => setGranularity(e.target.value)}
-          style={{
-            padding: "6px 8px",
-            borderRadius: 8,
-            border: "1px solid #d1d5db",
-            background: "white",
-            color: "#111827",
-          }}
-        >
-          <option value="day">Day</option>
-          <option value="week">Week</option>
-        </select>
-=======
-        <select
-          aria-label="Date range"
-          value={rangeDays}
-          onChange={(e) => setRangeDays(Number(e.target.value))}
-          style={{
-            padding: "6px 8px",
-            borderRadius: 8,
-            border: "1px solid #d1d5db",
-            background: "white",
-            color: "#111827",
-          }}
-        >
-          <option value={7}>Last 7 days</option>
-          <option value={14}>Last 14 days</option>
-          <option value={30}>Last 30 days</option>
-          <option value={90}>Last 90 days</option>
-        </select>
-      </label>
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: "#6B7280" }}>Granularity</span>
-        <select
-          aria-label="Granularity"
-          defaultValue="day"
-          onChange={(e) => setGranularity(e.target.value)}
-          style={{
-            padding: "6px 8px",
-            borderRadius: 8,
-            border: "1px solid #d1d5db",
-            background: "white",
-            color: "#111827",
-          }}
-        >
-          <option value="day">Day</option>
-          <option value="week">Week</option>
-        </select>
->>>>>>> REPLACE   
-````   
-````edit file="data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/pages/dashboard/Users.jsx"      
-<<<<<<< SEARCH
-  // Chart filters - add granularity for trend
-  const [granularity, setGranularity] = useState("day");
-
-  return (
-    <div>
-      {/* Active Users Trend */}
-      <div style={{ marginBottom: 12 }}>
-        <div className="card">
-          <div className="card-header" style={{ paddingBottom: 0 }}>
-            <div>
-              <h3 className="card-title">Active Users Trend</h3>
-              <div className="card-subtitle">Distinct active users over time</div>
-            </div>
-            <div className="card-actions">{chartToolbar}</div>
-          </div>
-          <div className="card-content">
-            <ActiveUsersTrendChart
-              from={fromIso}
-              to={toIso}
-              granularity={granularity}
-              status={"completed|active"}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Top Tenants by Active Users */}
-      <div style={{ marginBottom: 12 }}>
-        <div className="card">
-          <div className="card-header" style={{ paddingBottom: 0 }}>
-            <div>
-              <h3 className="card-title">Top Tenants by Active Users</h3>
-              <div className="card-subtitle">Distinct active users by tenant</div>
-            </div>
-            <div className="card-actions" />
-          </div>
-          <div className="card-content">
-            <UsersByTenantChart
-              from={fromIso}
-              to={toIso}
-              status={"completed|active"}
-              includeInactive={false}
-              maxBars={12}
-              onBarClick={(item) => {
-                // Future: filter table by tenant
-                // eslint-disable-next-line no-console
-                console.debug("Tenant bar clicked:", item);
-              }}
-            />
-          </div>
-        </div>
-      </div>
-=======
-  // Chart filters - add granularity for trend
-  const [granularity, setGranularity] = useState("day");
-
-  return (
-    <div>
-      {/* Active Users Trend */}
-      <div style={{ marginBottom: 12 }}>
-        <div className="card">
-          <div className="card-header" style={{ paddingBottom: 0 }}>
-            <div>
-              <h3 className="card-title">Active Users Trend</h3>
-              <div className="card-subtitle">Distinct active users over time</div>
-            </div>
-            <div className="card-actions">{chartToolbar}</div>
-          </div>
-          <div className="card-content">
-            <ActiveUsersTrendChart
-              from={fromIso}
-              to={toIso}
-              granularity={granularity}
-              status={"completed|active"}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Top Tenants by Active Users */}
-      <div style={{ marginBottom: 12 }}>
-        <div className="card">
-          <div className="card-header" style={{ paddingBottom: 0 }}>
-            <div>
-              <h3 className="card-title">Top Tenants by Active Users</h3>
-              <div className="card-subtitle">Distinct active users by tenant</div>
-            </div>
-            <div className="card-actions" />
-          </div>
-          <div className="card-content">
-            <UsersByTenantChart
-              from={fromIso}
-              to={toIso}
-              status={"completed|active"}
-              includeInactive={false}
-              maxBars={12}
-              onBarClick={(item) => {
-                // Future: filter table by tenant
-                // eslint-disable-next-line no-console
-                console.debug("Tenant bar clicked:", item);
-              }}
-            />
-          </div>
-        </div>
-      </div>
 
 /**
- * PUBLIC_INTERFACE
  * Users page
  * Refactored to use a single TabbedUserModal that merges Profile (Details) and Projects into tabs.
  * - Centralizes selectedUser and modal open state in this page.
@@ -216,9 +21,12 @@ export default function Users() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [defaultTab, setDefaultTab] = useState("details"); // 'details' | 'projects'
 
-  // Local filter state for the chart to stay consistent across the page.
+  // Local filter state for the charts to stay consistent across the page.
   // We keep a simple relative date window like the histogram (default 30 days).
   const [rangeDays, setRangeDays] = useState(30);
+  // Chart filters - add granularity for trend
+  const [granularity, setGranularity] = useState("day");
+
   // Selected tenant is derived from the selected user when a row is opened; otherwise empty (all tenants).
   const selectedTenantId = useMemo(() => {
     const u = selectedUser || {};
@@ -282,9 +90,9 @@ export default function Users() {
     };
   }, [open]);
 
-  // Inline controls for the chart to align with existing patterns (Ocean Professional style).
+  // Inline controls for the charts (Ocean Professional style).
   const chartToolbar = (
-    <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8 }}>
+    <div className="toolbar" aria-label="Users filters" style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 12, color: "#6B7280" }}>Date range</span>
         <select
@@ -305,23 +113,59 @@ export default function Users() {
           <option value={90}>Last 90 days</option>
         </select>
       </label>
-      <div className="spacer" />
-      {/* Tenant filter is implicitly applied by UsersList table; for the chart we scope to the selected user tenant when a user is opened.
-          If no user is selected, we show all tenants to provide an overview. */}
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, color: "#6B7280" }}>Granularity</span>
+        <select
+          aria-label="Granularity"
+          value={granularity}
+          onChange={(e) => setGranularity(e.target.value)}
+          style={{
+            padding: "6px 8px",
+            borderRadius: 8,
+            border: "1px solid #d1d5db",
+            background: "white",
+            color: "#111827",
+          }}
+        >
+          <option value="day">Day</option>
+          <option value="week">Week</option>
+        </select>
+      </label>
     </div>
   );
 
   return (
     <div>
-      {/* Users by Tenant chart above the table */}
+      {/* Active Users Trend */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
           <div className="card-header" style={{ paddingBottom: 0 }}>
             <div>
-              <h3 className="card-title">Users by Tenant</h3>
-              <div className="card-subtitle">Distinct active users by tenant</div>
+              <h3 className="card-title">Active Users Trend</h3>
+              <div className="card-subtitle">Distinct active users over time</div>
             </div>
             <div className="card-actions">{chartToolbar}</div>
+          </div>
+          <div className="card-content">
+            <ActiveUsersTrendChart
+              from={fromIso}
+              to={toIso}
+              granularity={granularity}
+              status={"completed|active"}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Top Tenants by Active Users */}
+      <div style={{ marginBottom: 12 }}>
+        <div className="card">
+          <div className="card-header" style={{ paddingBottom: 0 }}>
+            <div>
+              <h3 className="card-title">Top Tenants by Active Users</h3>
+              <div className="card-subtitle">Distinct active users by tenant</div>
+            </div>
+            <div className="card-actions" />
           </div>
           <div className="card-content">
             <UsersByTenantChart
