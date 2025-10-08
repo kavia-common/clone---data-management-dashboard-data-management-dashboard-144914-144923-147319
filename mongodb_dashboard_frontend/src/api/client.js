@@ -1,12 +1,11 @@
 import axios from "axios";
 /**
- * API client configuration
- * Prefers environment-configured base URL (REACT_APP_API_BASE_URL) and falls back
- * to the static pod URL if not provided. Appends '/api' prefix.
+ * API client configuration (static pod URL version)
+ * This connects directly to the backend running in your specific pod.
+ * Used when environment-based resolution is unavailable or unstable.
  */
-const ENV_BASE = (process.env.REACT_APP_API_BASE_URL || "").replace(/\/+$/, "");
-const FALLBACK_BASE = "https://vscode-internal-38191-beta.beta01.cloud.kavia.ai:3001";
-const RAW_BASE_URL = ENV_BASE || FALLBACK_BASE;
+// :red_circle: Static backend base URL (replace with your active pod if it changes)
+const RAW_BASE_URL = "https://vscode-internal-38191-beta.beta01.cloud.kavia.ai:3001";
 const API_PREFIX = "/api";
 // Combine base + prefix safely
 function joinUrl(base, path) {
@@ -16,7 +15,7 @@ function joinUrl(base, path) {
   return `${b}${p}`;
 }
 const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
-// Create configured Axios instance
+// :white_tick: Create configured Axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },

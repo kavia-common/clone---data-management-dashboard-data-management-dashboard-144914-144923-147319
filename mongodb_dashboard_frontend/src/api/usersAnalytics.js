@@ -97,51 +97,6 @@ export async function getTenantUsersSummary(params = {}) {
   }
 }
 
-/**
- * PUBLIC_INTERFACE
- * getActiveUsersTrend
- * Calls GET /api/users/active-trend with query params:
- * - from, to: ISO date strings (defaults handled server-side to last 30d)
- * - granularity: 'day' | 'week' (default 'day')
- * - status: string (default 'completed|active')
- * - tenant_id: optional string
- *
- * Returns: { items: [{ date: 'YYYY-MM-DD', total: number }], meta: { granularity, from, to } }
- */
-export async function getActiveUsersTrend(params = {}) {
-  const api = getApiClient();
-  const query = normalizeQuery(params);
-
-  if (process.env.NODE_ENV !== 'production') {
-    // eslint-disable-next-line no-console
-    console.debug('[UsersAnalytics] GET /users/active-trend', query);
-  }
-
-  try {
-    const res = await api.get('/users/active-trend', { params: query });
-    const payload = res?.data ?? {};
-    const items = Array.isArray(payload?.items) ? payload.items : [];
-    const meta = payload?.meta || {};
-    return { items, meta };
-  } catch (err) {
-    const status = err?.response?.status;
-    const serverMsg =
-      err?.response?.data?.message ||
-      err?.response?.data?.error ||
-      err?.message;
-
-    // eslint-disable-next-line no-console
-    console.error('[UsersAnalytics] Failed to fetch active users trend', {
-      status,
-      message: serverMsg,
-    });
-
-    // Return an empty response gracefully for client UI
-    return { items: [], meta: { granularity: params?.granularity || 'day', from: params?.from || null, to: params?.to || null } };
-  }
-}
-
 export default {
   getTenantUsersSummary,
-  getActiveUsersTrend,
 };
