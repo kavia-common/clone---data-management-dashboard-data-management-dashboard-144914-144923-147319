@@ -3,6 +3,7 @@ import PropTypes from "prop-types";
 import Modal from "../ui/Modal";
 import { getAgentById } from "../../api/agents";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
+import { usdToCredits, formatCredits } from "../../utils/currency";
 
 import "./AgentDetailsModal.css";
 
@@ -161,13 +162,22 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName, m
   // Formatting helpers
   const renderCurrency = (val) => {
     if (val == null) return "—";
-    // If numeric or numeric string, use formatter, else passthrough string
+    // If numeric or numeric string, use formatter + credits; else passthrough string
     const n = typeof val === "number" ? val : Number(val);
     if (Number.isFinite(n)) {
-      return formatCurrencyAmount(n, { currency: "USD" });
+      const usdTxt = formatCurrencyAmount(n, { currency: "USD" });
+      const creditsTxt = formatCredits(usdToCredits(n));
+      // Example (detail row):
+      //   $0.25 (5,000 credits)
+      return (
+        <span title={`${usdTxt} (${creditsTxt})`} style={{ whiteSpace: "nowrap" }}>
+          {usdTxt}
+          <span className="credits-inline muted">({creditsTxt})</span>
+        </span>
+      );
     }
     return String(val);
-    };
+  };
 
   const renderProjects = (count) => {
     if (count == null) return "—";

@@ -6,6 +6,7 @@ import TreeView from "../../components/TreeView.jsx";
 
 import AgentDetailsModal from "../../components/modals/AgentDetailsModal.jsx";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
+import { usdToCredits, formatCredits } from "../../utils/currency";
 import { listLlmCosts } from "../../api/client";
 
 /**
@@ -116,10 +117,16 @@ export default function Costs() {
   const renderNumber = (value, key) => {
     if (value == null || value === "") return "—";
     if (currencyFieldHints.has(key) && typeof value === "number") {
-      const txt = formatCurrencyAmount(value, { currency: "USD" });
+      const usdTxt = formatCurrencyAmount(value, { currency: "USD" });
+      const creditsNum = usdToCredits(value);
+      const creditsTxt = formatCredits(creditsNum);
+      const tooltip = `${usdTxt} (${creditsTxt})`;
+      // Example (table cell):
+      //   <td>$5.00 <span className="credits-inline muted">(100,000 credits)</span></td>
       return (
-        <span className="amount-positive" title={txt} style={{ whiteSpace: "nowrap" }}>
-          {txt}
+        <span className="amount-positive" title={tooltip} style={{ whiteSpace: "nowrap" }}>
+          {usdTxt}
+          <span className="credits-inline muted">({creditsTxt})</span>
         </span>
       );
     }

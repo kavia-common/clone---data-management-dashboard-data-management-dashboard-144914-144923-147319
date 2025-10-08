@@ -1,4 +1,6 @@
 import React from "react";
+import { formatCurrencyAmount } from "../../utils/formatCurrency";
+import { usdToCredits, formatCredits } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -55,26 +57,28 @@ export default function DateDetails({ title, data }) {
         }}
       >
         {entries.map(([date, value]) => {
-          const display = isCost
-            ? (() => {
-                try {
-                  return new Intl.NumberFormat(undefined, {
-                    style: "currency",
-                    currency: "USD",
-                    maximumFractionDigits: 6,
-                  }).format(Number(value));
-                } catch {
-                  return `$${Number(value).toFixed(6)}`;
-                }
-              })()
-            : (() => {
-                try {
-                  const num = Number(value);
-                  return Number.isFinite(num) ? num.toLocaleString() : String(value);
-                } catch {
-                  return String(value);
-                }
-              })();
+          let displayNode;
+          if (isCost) {
+            const n = Number(value);
+            const usdTxt = formatCurrencyAmount(n, { currency: "USD", maximumFractionDigits: 6 });
+            const creditsTxt = formatCredits(usdToCredits(n));
+            const title = `${usdTxt} (${creditsTxt})`;
+            // Example (tooltip):
+            //   title="$0.25 (5,000 credits)"
+            displayNode = (
+              <span title={title}>
+                {usdTxt}
+                <span className="credits-inline muted">({creditsTxt})</span>
+              </span>
+            );
+          } else {
+            try {
+              const num = Number(value);
+              displayNode = Number.isFinite(num) ? num.toLocaleString() : String(value);
+            } catch {
+              displayNode = String(value);
+            }
+          }
 
           return (
             <div
@@ -89,7 +93,7 @@ export default function DateDetails({ title, data }) {
                   color: "#1D4ED8",
                 }}
               >
-                {display}
+                {displayNode}
               </span>
             </div>
           );

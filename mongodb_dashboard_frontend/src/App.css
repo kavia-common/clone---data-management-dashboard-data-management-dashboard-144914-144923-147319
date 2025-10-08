@@ -593,6 +593,10 @@ input:focus, select:focus, textarea:focus {
 .auth-form { padding: 16px; display: grid; gap: 12px; }
 .auth-footer { padding: 16px; text-align: center; }
 .muted { color: var(--text-tertiary); }
+/* Inline credits display next to USD values */
+.credits-inline { margin-left: 6px; color: var(--text-tertiary); }
+/* Slightly muted credits text when used standalone */
+.credits-muted { color: var(--text-tertiary); }
 
 /* FAB (floating action button) */
 .fab {

@@ -1,5 +1,7 @@
 import React from "react";
 import DateDetails from "./DateDetails";
+import { formatCurrencyAmount } from "../../utils/formatCurrency";
+import { usdToCredits, formatCredits } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -101,17 +103,24 @@ export default function ProjectDetail({ project }) {
             Project #{String(project?.projectId ?? "—")}: {project?.projectName || "Untitled"}
           </span>
           <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            Total Cost:{" "}
+            Total Cost{" "}
             <strong style={{ color: "#B45309" }}>
               {(() => {
                 try {
-                  return new Intl.NumberFormat(undefined, {
-                    style: "currency",
-                    currency: "USD",
-                    maximumFractionDigits: 6,
-                  }).format(totalCost);
+                  // PUBLIC_INTERFACE
+                  // Display USD with equivalent credits, reactive to totalCost changes.
+                  const usdTxt = formatCurrencyAmount(totalCost, { currency: "USD", maximumFractionDigits: 6 });
+                  const creditsTxt = formatCredits(usdToCredits(totalCost));
+                  // Example (tooltip): "$0.85 (17,016 credits)"
+                  return (
+                    <span title={`${usdTxt} (${creditsTxt})`} style={{ whiteSpace: "nowrap" }}>
+                      {usdTxt}
+                      <span className="credits-inline muted">({creditsTxt})</span>
+                    </span>
+                  );
                 } catch {
-                  return `$${totalCost.toFixed(6)}`;
+                  // Fallback if formatter fails for any reason
+                  return `$${Number(totalCost || 0).toFixed(6)}`;
                 }
               })()}
             </strong>

@@ -1,5 +1,7 @@
 import React from "react";
 import ProjectDetail from "./ProjectDetail";
+import { formatCurrencyAmount } from "../../utils/formatCurrency";
+import { usdToCredits, formatCredits } from "../../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -280,11 +282,15 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                     {(() => {
                       const n = Number(costData?.totalCostUSD || 0);
                       try {
-                        return new Intl.NumberFormat(undefined, {
-                          style: "currency",
-                          currency: "USD",
-                          maximumFractionDigits: 6,
-                        }).format(n);
+                        const usdTxt = formatCurrencyAmount(n, { currency: "USD", maximumFractionDigits: 6 });
+                        const creditsTxt = formatCredits(usdToCredits(n));
+                        // Example (modal summary): "$1.90 (38,000 credits)"
+                        return (
+                          <span title={`${usdTxt} (${creditsTxt})`} style={{ whiteSpace: "nowrap" }}>
+                            {usdTxt}
+                            <span className="credits-inline muted">({creditsTxt})</span>
+                          </span>
+                        );
                       } catch {
                         return `$${n.toFixed(4)}`;
                       }
