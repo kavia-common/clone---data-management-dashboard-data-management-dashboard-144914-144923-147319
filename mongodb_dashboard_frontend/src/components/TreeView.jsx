@@ -17,8 +17,6 @@ import "./TreeView.css";
  * Features:
  * - Recursive nodes for objects, arrays, and primitives.
  * - Root expanded and children collapsed by default (configurable via defaultExpandedDepth).
- * - Per-node copy actions: value only, or "key + value" pair.
- * - Top-level "Copy JSON" handled by parent (this component exposes a helper via ref if needed).
  * - Search: case-insensitive match against keys and primitive values; auto-expands to reveal matches.
  *   Matching substrings are highlighted.
  * - Expand all / Collapse all helpers exposed via ref.
@@ -168,14 +166,6 @@ const TreeView = forwardRef(function TreeView(
     [defaultExpandedDepth, expanded, autoExpandPaths]
   );
 
-  const handleCopy = useCallback(async (text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      fallbackCopy(text);
-    }
-  }, []);
-
   // Render functions
   const renderNode = useCallback(
     (value, path, keyLabel, depth) => {
@@ -208,20 +198,6 @@ const TreeView = forwardRef(function TreeView(
           </span>
         ) : null;
 
-      // Copy handlers
-      const handleCopyValue = (e) => {
-        e.stopPropagation();
-        const text = isObj ? safeJSONString(value) : toCopyString(value);
-        handleCopy(text);
-      };
-      const handleCopyPair = (e) => {
-        e.stopPropagation();
-        const pairKey = keyLabel == null ? "" : String(keyLabel);
-        const valText = isObj ? safeJSONString(value) : toCopyString(value);
-        const text = pairKey ? `"${pairKey}": ${valText}` : valText;
-        handleCopy(text);
-      };
-
       return (
         <div key={path} className="tv-row" style={{ paddingLeft: padLeft }}>
           <div className="tv-row-main">
@@ -234,7 +210,7 @@ const TreeView = forwardRef(function TreeView(
                 title={open ? "Collapse" : "Expand"}
               >
                 <span className="tv-chevron" aria-hidden="true">
-                  {open ? "▾" : "▸"}
+                  {open ? "\u25be" : "\u25b8"}
                 </span>
               </button>
             ) : (
@@ -248,11 +224,7 @@ const TreeView = forwardRef(function TreeView(
             ) : null}
             {!isObj ? <span className="tv-colon">: </span> : null}
             {valContent}
-            {/* per-node copy actions */}
-            <div className="tv-actions">
-              <button className="tv-action" onClick={handleCopyValue} title="Copy value" aria-label="Copy value">⧉</button>
-              <button className="tv-action" onClick={handleCopyPair} title="Copy key and value" aria-label="Copy key and value">≣</button>
-            </div>
+            {/* Note: per-node copy actions removed per requirements */}
           </div>
 
           {expandable && open ? (
@@ -267,7 +239,7 @@ const TreeView = forwardRef(function TreeView(
         </div>
       );
     },
-    [handleCopy, isExpanded, toggle]
+    [isExpanded, toggle, searchRegex]
   );
 
   return (
@@ -293,18 +265,6 @@ export default TreeView;
 
 /* ===== Helpers ===== */
 
-function safeJSONString(obj) {
-  try {
-    return JSON.stringify(obj, null, 2);
-  } catch {
-    try {
-      return String(obj);
-    } catch {
-      return "null";
-    }
-  }
-}
-
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -320,12 +280,6 @@ function toDisplayString(v) {
     return String(v);
   }
 }
-function toCopyString(v) {
-  if (v === null) return "null";
-  if (typeof v === "string") return JSON.stringify(v);
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  return safeJSONString(v);
-}
 
 function shouldTruncate(v) {
   if (v == null) return false;
@@ -335,7 +289,7 @@ function shouldTruncate(v) {
 function truncateIfNeeded(s, max = 120) {
   if (typeof s !== "string") return s;
   if (s.length <= max) return s;
-  return s.slice(0, max - 1) + "…";
+  return s.slice(0, max - 1) + "\u2026";
 }
 
 function highlight(text, regex) {
@@ -364,21 +318,5 @@ function addAncestors(path, set) {
   for (let i = 1; i < parts.length; i++) {
     const p = parts.slice(0, i).join(".");
     set.add(p);
-  }
-}
-
-function fallbackCopy(text) {
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "absolute";
-    ta.style.left = "-9999px";
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-  } catch {
-    // ignore
   }
 }
