@@ -11,7 +11,7 @@ import DateDetails from "./DateDetails";
  *     projectId: number|string,
  *     projectName: string,
  *     projectCost: number,
- *     agents: Array<{ agentId, agentName, costByDate?: Record<string,number>, tokensByDate?: Record<string,number> }>
+ *     agents: Array<{ agentId, agentName, costByDate?: Record<string,number>, tokensByDate?: Record<string,number>, cost?: number|string, price?: number|string, amount?: number|string }>
  *   }
  */
 export default function ProjectDetail({ project }) {
@@ -19,6 +19,52 @@ export default function ProjectDetail({ project }) {
 
   const totalCost = Number(project?.projectCost || 0);
   const agents = Array.isArray(project?.agents) ? project.agents : [];
+
+  // Safe numeric parser for various inputs, including currency strings
+  const toNumber = React.useCallback((v) => {
+    if (v == null) return 0;
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    if (typeof v === "string") {
+      const s = v.replace(/[$,]/g, "");
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }, []);
+
+  // Determine an agent's total cost:
+  // - Prefer explicit fields: cost | price | amount
+  // - Otherwise, sum values of costByDate if present
+  const getAgentTotalCost = React.useCallback(
+    (agent) => {
+      if (!agent || typeof agent !== "object") return 0;
+      const explicit =
+        agent.cost != null ? agent.cost :
+        agent.price != null ? agent.price :
+        agent.amount != null ? agent.amount :
+        null;
+
+      if (explicit != null) return toNumber(explicit);
+
+      const cbd = agent.costByDate;
+      if (cbd && typeof cbd === "object") {
+        try {
+          return Object.values(cbd).reduce((sum, v) => sum + toNumber(v), 0);
+        } catch {
+          return 0;
+        }
+      }
+      return 0;
+    },
+    [toNumber]
+  );
+
+  // Filter agents to only those with cost > 0
+  const billableAgents = React.useMemo(() => {
+    if (!agents.length) return [];
+    return agents.filter((a) => getAgentTotalCost(a) > 0);
+  }, [agents, getAgentTotalCost]);
 
   return (
     <div
@@ -81,8 +127,9 @@ export default function ProjectDetail({ project }) {
               borderRadius: 999,
               padding: "2px 8px",
             }}
+            title={`${billableAgents.length} billable agent${billableAgents.length === 1 ? "" : "s"}`}
           >
-            {agents.length} Agent{agents.length === 1 ? "" : "s"}
+            {billableAgents.length} Agent{billableAgents.length === 1 ? "" : "s"}
           </span>
           <svg
             width="20"
@@ -110,12 +157,12 @@ export default function ProjectDetail({ project }) {
         }}
       >
         <div style={{ padding: 14 }}>
-          {agents.length ? (
+          {billableAgents.length ? (
             <div style={{ display: "grid", gap: 10 }}>
               <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--text-secondary)", borderBottom: "1px solid var(--border-subtle)", paddingBottom: 8 }}>
                 Agents Involved:
               </h3>
-              {agents.map((agent) => (
+              {billableAgents.map((agent) => (
                 <div
                   key={agent.agentId}
                   style={{
@@ -143,7 +190,7 @@ export default function ProjectDetail({ project }) {
             </div>
           ) : (
             <p className="muted" style={{ textAlign: "center", fontStyle: "italic", margin: "6px 0" }}>
-              No agents have logged costs for this project yet.
+              No billable agents for this item.
             </p>
           )}
         </div>
