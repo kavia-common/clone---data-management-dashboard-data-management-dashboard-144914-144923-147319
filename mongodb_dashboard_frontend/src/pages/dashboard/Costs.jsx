@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
+import TreeView from "../../components/TreeView.jsx";
 
 import AgentDetailsModal from "../../components/modals/AgentDetailsModal.jsx";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
@@ -352,27 +353,9 @@ export default function Costs() {
           <button className="btn btn-ghost" onClick={closeInspector} aria-label="Close details">Close</button>
         }
       >
-        <div style={{ padding: "1rem" }}>
-          {inspectPayload ? (
-            <pre
-              style={{
-                background: "#f8fafc",
-                padding: "12px",
-                borderRadius: "6px",
-                maxHeight: "60vh",
-                overflow: "auto",
-                fontSize: "0.9rem",
-                lineHeight: 1.4,
-                margin: 0,
-                width: "100%",
-              }}
-            >
-              {JSON.stringify(inspectPayload, null, 2)}
-            </pre>
-          ) : (
-            <div>No item selected</div>
-          )}
-        </div>
+        <CostsTreeInspector
+          payload={inspectPayload}
+        />
       </Modal>
 
       {/* Agent details modal - opened when an agent is selected from the details view */}
@@ -391,4 +374,98 @@ export default function Costs() {
   );
 }
 
+// Inline helper component for the Costs inspector modal body with TreeView actions
+function CostsTreeInspector({ payload }) {
+  const [search, setSearch] = React.useState("");
+  const [copied, setCopied] = React.useState("");
+  const treeRef = React.useRef(null);
 
+  const handleCopyJSON = React.useCallback(() => {
+    const txt = (() => {
+      try {
+        return JSON.stringify(payload ?? {}, null, 2);
+      } catch {
+        return String(payload);
+      }
+    })();
+    try {
+      navigator.clipboard.writeText(txt).then(
+        () => setCopied("Copied!"),
+        () => { fallbackCopy(txt); setCopied("Copied!"); }
+      );
+    } catch {
+      fallbackCopy(txt);
+      setCopied("Copied!");
+    } finally {
+      setTimeout(() => setCopied(""), 1400);
+    }
+  }, [payload]);
+
+  const expandAll = React.useCallback(() => treeRef.current?.expandAll?.(), []);
+  const collapseAll = React.useCallback(() => treeRef.current?.collapseAll?.(), []);
+  const onSearchChange = (e) => setSearch(e.target.value);
+
+  if (!payload) {
+    return <div style={{ padding: "1rem" }}>No item selected</div>;
+  }
+
+  return (
+    <div style={{ padding: "0" }}>
+      <div className="sticky-header" style={{
+        top: 0,
+        zIndex: 1,
+        background: "var(--bg-surface, #fff)",
+        borderBottom: "1px solid var(--border-subtle)",
+        padding: "12px 16px",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap",
+      }}>
+        <input
+          className="input-search"
+          placeholder="Search keys and values..."
+          aria-label="Search in details"
+          value={search}
+          onChange={onSearchChange}
+          style={{ flex: "1 1 260px", minWidth: 200 }}
+        />
+        <button className="btn btn-secondary" onClick={expandAll} title="Expand all">Expand all</button>
+        <button className="btn btn-secondary" onClick={collapseAll} title="Collapse all">Collapse all</button>
+        <button className="btn btn-primary" onClick={handleCopyJSON} title="Copy JSON">
+          {copied || "Copy JSON"}
+        </button>
+      </div>
+
+      <div style={{
+        padding: "12px 16px",
+        maxHeight: "60vh",
+        overflow: "auto",
+        background: "#f8fafc",
+      }}>
+        <TreeView
+          ref={treeRef}
+          data={payload}
+          defaultExpandedDepth={1}
+          searchTerm={search}
+        />
+      </div>
+    </div>
+  );
+}
+
+function fallbackCopy(text) {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "absolute";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  } catch {
+    // no-op
+  }
+}
