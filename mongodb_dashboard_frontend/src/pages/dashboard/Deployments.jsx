@@ -21,7 +21,7 @@ export default function Deployments() {
   /** App deployments viewer: read-only list; no actions column. */
   const [items, setItems] = useState([]);
   const [columns, setColumns] = useState([
-    { key: "deployment_id", label: "Deployment Id" },
+    { key: "project_display", label: "Project" },
     { key: "branch_name", label: "Branch Name" },
     { key: "status", label: "Status" },
     { key: "created_at", label: "Created At" },
@@ -32,7 +32,7 @@ export default function Deployments() {
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   const allowedOrdered = useMemo(
-    () => ["deployment_id", "branch_name", "status", "created_at", "updated_at"],
+    () => ["project_display", "branch_name", "status", "created_at", "updated_at"],
     []
   );
 
@@ -46,6 +46,22 @@ export default function Deployments() {
   }
 
   // Renderers per column
+  function renderProject(v, row) {
+    const projectName = row?.project_name || row?.projectName || "";
+    const projectId = row?.project_id || row?.projectId || "";
+    const primary = projectName || projectId || "—";
+
+    // Include deployment_id as secondary detail via tooltip, not visible as primary label
+    const deploymentId = row?.deployment_id || row?._id || "";
+    const tooltip = deploymentId ? `Deployment ID: ${deploymentId}` : undefined;
+
+    return (
+      <span title={tooltip} style={{ display: "inline-block", whiteSpace: "normal", overflowWrap: "anywhere", fontWeight: 600 }}>
+        {String(primary)}
+      </span>
+    );
+  }
+
   function renderDeploymentId(v, row) {
     // Show full deployment ID with no truncation and no copy button.
     const full = v || row?.deployment_id || row?._id || "";
@@ -67,7 +83,13 @@ export default function Deployments() {
 
   function buildColumns() {
     return [
-      { key: "deployment_id", label: "Deployment Id", render: renderDeploymentId, priority: 1 },
+      // Primary visible label: Project (project_name with fallback to project_id)
+      {
+        key: "project_display",
+        label: "Project",
+        render: (v, row) => renderProject(v, row),
+        priority: 1,
+      },
       { key: "branch_name", label: "Branch Name", render: (v) => (v == null || v === "" ? "—" : String(v)), priority: 2 },
       { key: "status", label: "Status", render: renderStatus, priority: 2 },
       { key: "created_at", label: "Created At", render: (v) => fmtDate(v), priority: 3 },
@@ -81,7 +103,16 @@ export default function Deployments() {
     try {
       const res = await listDeployments({ page, limit });
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      setItems(arr);
+      // Map items to inject a computed 'project_display' for sorting/search convenience.
+      const mapped = (arr || []).map((it) => {
+        const projectName = it?.project_name || it?.projectName || "";
+        const projectId = it?.project_id || it?.projectId || "";
+        return {
+          ...it,
+          project_display: projectName || projectId || "",
+        };
+      });
+      setItems(mapped);
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,
