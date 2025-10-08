@@ -3,9 +3,39 @@ const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const User = require('../models/user.model');
 const { getUserProjectsFromSessions } = require('../services/users.service');
+const SessionTracking = require('../models/sessionTracking.model');
+const Tenant = require('../models/tenant.model');
 
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
+
+// Simple in-memory cache for tenant summary (5 minutes TTL)
+const TENANT_SUMMARY_CACHE = new Map();
+const TENANT_SUMMARY_TTL_MS = 5 * 60 * 1000;
+
+function buildTenantSummaryCacheKey(q) {
+  // Normalize known params
+  const key = {
+    from: q.from || null,
+    to: q.to || null,
+    status: q.status || 'completed|active',
+    includeInactive: String(q.includeInactive || 'false') === 'true',
+  };
+  return `tenant-summary:${JSON.stringify(key)}`;
+}
+
+function getCache(key) {
+  const val = TENANT_SUMMARY_CACHE.get(key);
+  if (!val) return null;
+  if (Date.now() > val.expiresAt) {
+    TENANT_SUMMARY_CACHE.delete(key);
+    return null;
+  }
+  return val.value;
+}
+function setCache(key, value) {
+  TENANT_SUMMARY_CACHE.set(key, { value, expiresAt: Date.now() + TENANT_SUMMARY_TTL_MS });
+}
 
 /**
  * PUBLIC_INTERFACE
@@ -69,6 +99,185 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
  *   name: Users
  *   description: Users collection endpoints
  */
+
+/**
+ * @swagger
+ * /api/users/tenant-summary:
+ *   get:
+ *     summary: Tenant-wise users summary
+ *     description: >
+ *       Aggregates distinct active users per tenant primarily from the session_tracking collection.
+ *       Accepts optional time range and status filters. If includeInactive=true, falls back to the
+ *       users collection joined with known tenants to include tenants without recent activity.
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO date-time lower bound
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO date-time upper bound
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *         description: Session status filter. Default "completed|active" (i.e., completed or active).
+ *       - in: query
+ *         name: includeInactive
+ *         schema: { type: boolean, default: false }
+ *         description: When true, includes tenants from tenants/users collections even if no activity is found.
+ *     responses:
+ *       200:
+ *         description: Aggregated tenant user counts
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 items:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       tenant_id: { type: string }
+ *                       tenant_name: { type: string, nullable: true }
+ *                       user_count: { type: integer }
+ *                 total:
+ *                   type: integer
+ *                   description: Number of tenant groups returned
+ */
+ // PUBLIC_INTERFACE
+router.get(
+  '/tenant-summary',
+  asyncHandler(async (req, res) => {
+    const { from, to } = req.query || {};
+    const includeInactive = String(req.query.includeInactive || 'false') === 'true';
+    // Default status filter: "completed|active" means include either completed or active sessions.
+    const statusParam = (req.query.status || 'completed|active').trim();
+
+    // Build cache key and attempt to serve from cache
+    const cacheKey = buildTenantSummaryCacheKey({ from, to, status: statusParam, includeInactive });
+    const cached = getCache(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
+    // Parse date filters
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+    if (from && Number.isNaN(fromDate?.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid "from" date' });
+    }
+    if (to && Number.isNaN(toDate?.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid "to" date' });
+    }
+
+    // Prepare match filter over session_tracking
+    const match = {};
+    // Status filter handling
+    if (statusParam.includes('|')) {
+      const parts = statusParam.split('|').map((s) => s.trim()).filter(Boolean);
+      if (parts.length > 0) {
+        match.status = { $in: parts };
+      }
+    } else if (statusParam) {
+      match.status = statusParam;
+    }
+
+    // Apply time range: we consider any of timestamp, session_start, last_updated being in range.
+    const timeClauses = [];
+    if (fromDate || toDate) {
+      const makeRange = (field) => {
+        const r = {};
+        if (fromDate) r.$gte = fromDate;
+        if (toDate) r.$lte = toDate;
+        return { [field]: r };
+      };
+      timeClauses.push(makeRange('timestamp'));
+      timeClauses.push(makeRange('session_start'));
+      timeClauses.push(makeRange('last_updated'));
+    }
+
+    const matchStage =
+      timeClauses.length > 0
+        ? { $match: { ...match, $or: timeClauses } }
+        : { $match: match };
+
+    // Aggregate distinct user count per tenant_id from session_tracking
+    const pipeline = [
+      matchStage,
+      {
+        $group: {
+          _id: { tenant_id: '$tenant_id', user_id: { $toString: '$user_id' } },
+        },
+      },
+      {
+        $group: {
+          _id: '$_id.tenant_id',
+          user_count: { $sum: 1 },
+        },
+      },
+      { $project: { _id: 0, tenant_id: '$_id', user_count: 1 } },
+      { $sort: { user_count: -1, tenant_id: 1 } },
+    ];
+
+    let items = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+
+    // Optionally enrich with tenant_name from tenants collection
+    const tenantIds = items.map((i) => i.tenant_id).filter(Boolean);
+    let tenantMap = {};
+    if (tenantIds.length > 0) {
+      const tenants = await Tenant.find(
+        { tenant_id: { $in: tenantIds } },
+        { _id: 0, tenant_id: 1, tenant_name: 1 }
+      ).lean();
+      tenantMap = tenants.reduce((acc, t) => {
+        acc[t.tenant_id] = t.tenant_name || null;
+        return acc;
+      }, {});
+    }
+
+    items = items.map((i) => ({
+      tenant_id: i.tenant_id,
+      tenant_name: Object.prototype.hasOwnProperty.call(tenantMap, i.tenant_id)
+        ? tenantMap[i.tenant_id]
+        : null,
+      user_count: i.user_count || 0,
+    }));
+
+    // If includeInactive and there are tenants with no activity, include them with user_count from users collection or zero
+    if (includeInactive) {
+      // Fetch all tenants for union
+      const allTenants = await Tenant.find({}, { _id: 0, tenant_id: 1, tenant_name: 1 }).lean();
+      const existing = new Map(items.map((x) => [x.tenant_id, x]));
+      for (const t of allTenants) {
+        if (!existing.has(t.tenant_id)) {
+          // Attempt to count distinct users via the denormalized association in Tenant.users if present,
+          // otherwise fallback to 0 (we don't have a direct users<->tenant mapping collection).
+          const tenantDoc = await Tenant.findOne(
+            { tenant_id: t.tenant_id },
+            { users: 1, tenant_id: 1 }
+          ).lean();
+          const fallbackCount = Array.isArray(tenantDoc?.users)
+            ? new Set(tenantDoc.users.map((u) => String(u.user_id))).size
+            : 0;
+
+          existing.set(t.tenant_id, {
+            tenant_id: t.tenant_id,
+            tenant_name: t.tenant_name || null,
+            user_count: fallbackCount,
+          });
+        }
+      }
+      items = Array.from(existing.values()).sort((a, b) => b.user_count - a.user_count || a.tenant_id.localeCompare(b.tenant_id));
+    }
+
+    const response = { items, total: items.length };
+    setCache(cacheKey, response);
+    return res.status(200).json(response);
+  })
+);
 
 /**
  * @swagger
