@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Modal from "../ui/Modal.jsx";
 import Button from "../ui/Button.jsx";
 import { useUserProjects } from "../../hooks/useUserProjects";
 import ProjectDetailsModal from "./ProjectDetailsModal.jsx";
+import { getUserBasic } from "../../api/users";
 
 /**
  * PUBLIC_INTERFACE
@@ -36,6 +37,38 @@ export default function UserProjectsModal({
     enabled: open,
   });
 
+  // Minimal fetch of user name if not provided by caller
+  const [fetchedUserName, setFetchedUserName] = useState("");
+  const [fetchingName, setFetchingName] = useState(false);
+
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      if (!open || !userId) {
+        setFetchedUserName("");
+        setFetchingName(false);
+        return;
+      }
+      if ((userName || "").trim()) {
+        setFetchedUserName("");
+        return;
+      }
+      try {
+        setFetchingName(true);
+        const res = await getUserBasic(String(userId));
+        if (!ignore) setFetchedUserName(res?.name || "");
+      } catch {
+        if (!ignore) setFetchedUserName("");
+      } finally {
+        if (!ignore) setFetchingName(false);
+      }
+    }
+    load();
+    return () => {
+      ignore = true;
+    };
+  }, [open, userId, userName]);
+
   const title = useMemo(() => {
     const base = "User Projects";
     if (userName) return `${base} — ${userName}`;
@@ -54,6 +87,16 @@ export default function UserProjectsModal({
 
   const [selectedProject, setSelectedProject] = useState(null);
 
+  // Derive display name with fallback
+  const displayName = useMemo(() => {
+    if (fetchingName) return "Loading…";
+    const f = (fetchedUserName || "").trim();
+    if (f) return f;
+    const u = (userName || "").trim();
+    if (u) return u;
+    return "Not available";
+  }, [fetchedUserName, userName, fetchingName]);
+
   return (
     <>
       <Modal
@@ -67,6 +110,42 @@ export default function UserProjectsModal({
           </div>
         }
       >
+        {/* Standardized header lines for user identity */}
+        <div
+          role="region"
+          aria-label="User identity"
+          style={{
+            border: "1px solid var(--border-subtle)",
+            borderRadius: 10,
+            padding: 12,
+            background: "var(--bg-surface, #fff)",
+            marginBottom: 10,
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8" }}>
+            User ID:
+            <span
+              style={{
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                color: "#1E3A8A",
+                marginLeft: 8,
+              }}
+              title={userId || undefined}
+            >
+              {userId || "—"}
+            </span>
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#0F172A", marginTop: 6 }}>
+            User Name:
+            <span
+              style={{ marginLeft: 8, fontWeight: 800, color: fetchingName ? "#64748B" : "#111827" }}
+              title={displayName}
+            >
+              {displayName}
+            </span>
+          </div>
+        </div>
+
         {/* Loading, Error, Empty states */}
         {loading && <div className="table-empty">Loading projects...</div>}
         {!loading && error && (

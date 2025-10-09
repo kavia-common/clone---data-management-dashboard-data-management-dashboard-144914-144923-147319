@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../ui/Modal.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName } from '../../utils/stringFormatters.js';
 import { formatLabel } from '../../utils/formatLabel';
 import { usdToCredits, formatCredits, parseUsdToNumber } from '../../utils/currency.js';
 import { formatCurrencyAmount } from '../../utils/formatCurrency';
+import { getUserBasic } from '../../api/users';
 
 /**
  * PUBLIC_INTERFACE
@@ -28,6 +29,10 @@ function SessionDetailsModal({ open, onClose, session }) {
   const contentRef = useRef(null);
   const { users } = useDataContext?.() || { users: [] };
 
+  // User name fetch state (for cases where DataContext doesn't have a match)
+  const [fetchedUserName, setFetchedUserName] = useState('');
+  const [fetchingUserName, setFetchingUserName] = useState(false);
+
   // Focus modal content when opened for accessibility
   useEffect(() => {
     if (open && contentRef.current) {
@@ -38,24 +43,24 @@ function SessionDetailsModal({ open, onClose, session }) {
   // Helpers
   const formatDate = (val) => {
     // Render a formatted local date-time or an em-dash placeholder if missing/invalid.
-    if (!val) return '—';
+    if (!val) return '\u2014';
     try {
       const d = new Date(val);
-      if (isNaN(d.getTime())) return '—';
+      if (isNaN(d.getTime())) return '\u2014';
       return d.toLocaleString();
     } catch {
-      return '—';
+      return '\u2014';
     }
   };
 
   // PUBLIC_INTERFACE
   const computeDuration = (start, end) => {
     /** Compute human-readable duration given start and end timestamps (ms or ISO). */
-    if (!start || !end) return '—';
+    if (!start || !end) return '\u2014';
     try {
       const s = new Date(start).getTime();
       const e = new Date(end).getTime();
-      if (isNaN(s) || isNaN(e)) return '—';
+      if (isNaN(s) || isNaN(e)) return '\u2014';
       let ms = Math.max(0, e - s);
       const secs = Math.floor(ms / 1000);
       const h = Math.floor(secs / 3600);
@@ -67,7 +72,7 @@ function SessionDetailsModal({ open, onClose, session }) {
       parts.push(`${sRem}s`);
       return parts.join(' ');
     } catch {
-      return '—';
+      return '\u2014';
     }
   };
 
@@ -127,45 +132,40 @@ function SessionDetailsModal({ open, onClose, session }) {
     return 'Unknown User';
   };
 
-  // Collect required and requested details; preserve previously approved fields.
-  const coreDetails = useMemo(() => {
-    if (!session || typeof session !== 'object') return {};
-
-    const s = session;
-
-    // Utility: safely pick the first defined value by probing dot/flat aliases
-    const pick = (keys) => {
-      for (const k of keys) {
-        if (k.includes('.')) {
-          const parts = k.split('.');
-          let cur = s;
-          let found = true;
-          for (const p of parts) {
-            if (cur && Object.prototype.hasOwnProperty.call(cur, p)) {
-              cur = cur[p];
-            } else {
-              found = false;
-              break;
-            }
+  // Utility: safely pick the first defined value by probing dot/flat aliases
+  const pickFrom = (s, keys) => {
+    for (const k of keys) {
+      if (k.includes('.')) {
+        const parts = k.split('.');
+        let cur = s;
+        let found = true;
+        for (const p of parts) {
+          if (cur && Object.prototype.hasOwnProperty.call(cur, p)) {
+            cur = cur[p];
+          } else {
+            found = false;
+            break;
           }
-          if (found && cur != null) return cur;
-        } else if (s && s[k] !== undefined && s[k] !== null) {
-          return s[k];
         }
+        if (found && cur != null) return cur;
+      } else if (s && s[k] !== undefined && s[k] !== null) {
+        return s[k];
       }
-      return undefined;
-    };
+    }
+    return undefined;
+  };
 
-    // Normalize created_at (startedAt aliases)
-    const createdAtRaw = pick([
+  // Extract normalized references up-front for user and timestamps
+  const { userIdRef, displayUserResolved, createdAt, lastUpdatedAt, sessionId } = useMemo(() => {
+    const s = session || {};
+    const createdAtRaw = pickFrom(s, [
       'created_at', 'createdAt', 'startedAt', 'started_at', 'start_time', 'startTime', 'created', 'timestamp', 'session_start', 'sessionStart', 'begin_time', 'beginTime'
     ]);
 
-    // Last Updated: prefer session.last_updated directly; only if absent, fall back to prior aliases
-    const lastUpdatedPrimary = pick(['last_updated']);
+    const lastUpdatedPrimary = pickFrom(s, ['last_updated']);
     let normalizedLastUpdatedAt = lastUpdatedPrimary;
     if (!normalizedLastUpdatedAt) {
-      normalizedLastUpdatedAt = pick([
+      normalizedLastUpdatedAt = pickFrom(s, [
         'updatedAt', 'updated_at',
         'modifiedAt', 'modified_at',
         'lastModified', 'last_modified',
@@ -176,51 +176,121 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
 
     const normalizedCreatedAt = createdAtRaw || undefined;
+    const id = pickFrom(s, ['sessionId', '_id', 'id']);
 
-    const sessionId = pick(['sessionId', '_id', 'id']);
+    // Resolve user ID robustly (may be in different shapes)
+    const uId = pickFrom(s, [
+      'userId',
+      'user_id',
+      'user._id',
+      'user.id',
+      'user',
+      'owner_id',
+      'owner',
+    ]);
 
-    // Strict user display: session.user_name first, then resolved user name, then Unknown
-    const resolvedUserName = resolveUserName(pick(['user', 'userId', 'user_id', 'username', 'email', 'owner', 'ownerEmail']));
-    // Title Case normalization for display; preserve null-safe fallback
-    const rawName = s?.User_name ?? resolvedUserName ?? 'Unknown User';
-    const displayUser = typeof rawName === 'string' ? toTitleCaseName(rawName) : rawName; // e.g., 'john_doe-smith' -> 'John Doe Smith'
+    const displayUser = (() => {
+      const resolved = resolveUserName(
+        pickFrom(s, ['user', 'userId', 'user_id', 'username', 'email', 'owner', 'ownerEmail'])
+      );
+      const rawName = s?.User_name ?? resolved ?? 'Unknown User';
+      return typeof rawName === 'string' ? toTitleCaseName(rawName) : rawName;
+    })();
 
-    const projectId = pick(['project_id', 'projectId', 'project', 'projectSlug']);
-    const projectName = pick(['projectName', 'project_name', 'projectLabel', 'project_label']);
-    const serviceType = pick(['serviceType', 'service_type', 'provider', 'modelProvider']);
-    const tenant = pick(['tenant', 'tenantId', 'tenant_id', 'organization', 'organization_id', 'organizationId', 'tenantName', 'tenant_name']);
+    return {
+      userIdRef: uId ? String(uId) : '',
+      displayUserResolved: displayUser,
+      createdAt: normalizedCreatedAt,
+      lastUpdatedAt: normalizedLastUpdatedAt,
+      sessionId: id || '',
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, users]);
 
-    // Compute duration using created_at and the normalized last_updated
-    const durationStr = computeDuration(normalizedCreatedAt, normalizedLastUpdatedAt);
+  // Fetch a basic user name when DataContext could not resolve a meaningful name
+  useEffect(() => {
+    let ignore = false;
+    async function load() {
+      if (!open || !userIdRef) {
+        setFetchedUserName('');
+        setFetchingUserName(false);
+        return;
+      }
+
+      // If displayUserResolved is already meaningful (not Unknown User), skip fetch
+      if (displayUserResolved && !/^unknown user$/i.test(String(displayUserResolved))) {
+        setFetchedUserName('');
+        return;
+      }
+
+      try {
+        setFetchingUserName(true);
+        const res = await getUserBasic(userIdRef);
+        if (!ignore) {
+          setFetchedUserName(res?.name || '');
+        }
+      } catch {
+        if (!ignore) {
+          setFetchedUserName('');
+        }
+      } finally {
+        if (!ignore) setFetchingUserName(false);
+      }
+    }
+    load();
+    return () => {
+      ignore = true;
+    };
+  }, [open, userIdRef, displayUserResolved]);
+
+  // Collect required and requested details; preserve previously approved fields.
+  const coreDetails = useMemo(() => {
+    if (!session || typeof session !== 'object') return {};
+
+    // Compute duration using startedAt (createdAt alias) and the normalized last_updated
+    const durationStr = computeDuration(createdAt, lastUpdatedAt);
 
     // Dev-only diagnostics per instructions
     if (process.env.NODE_ENV !== 'production') {
       try {
         // eslint-disable-next-line no-console
         console.log('[SessionDetailsModal:debug]', {
-          user_name: s?.user_name,
-          user_id: s?.userId || s?.user_id,
-          last_updated: s?.last_updated,
+          user_id: userIdRef,
+          last_updated: lastUpdatedAt,
         });
       } catch {
         // ignore logging errors
       }
     }
 
+    // Determine display name with fetch fallback
+    const nameCandidate = (() => {
+      if (fetchingUserName) return 'Loading...';
+      const fetched = fetchedUserName?.trim();
+      if (fetched) return fetched;
+      const resolved = String(displayUserResolved || '').trim();
+      if (resolved && !/^unknown user$/i.test(resolved)) return resolved;
+      return 'Not available';
+    })();
+
     const details = {
-      'User': displayUser,
-      'Session ID': sessionId ?? '—',
-      'Project ID': projectId ?? projectName ?? '—',
-      'Service Type': serviceType ?? '—',
-      Tenant: tenant ?? '—',
-      'Created At': formatDate(normalizedCreatedAt),
-      'Last Updated At': formatDate(normalizedLastUpdatedAt),
+      'User ID': userIdRef || '\u2014',
+      'User Name': nameCandidate,
+      'Session ID': sessionId || '\u2014',
+      'Project ID': pickFrom(session || {}, ['project_id', 'projectId', 'project', 'projectSlug']) ??
+        pickFrom(session || {}, ['projectName', 'project_name', 'projectLabel', 'project_label']) ??
+        '\u2014',
+      'Service Type': pickFrom(session || {}, ['serviceType', 'service_type', 'provider', 'modelProvider']) ?? '\u2014',
+      Tenant: pickFrom(session || {}, ['tenant', 'tenantId', 'tenant_id', 'organization', 'organization_id', 'organizationId', 'tenantName', 'tenant_name']) ?? '\u2014',
+      'Started At': formatDate(createdAt),
+      'Last Updated At': formatDate(lastUpdatedAt),
       Duration: durationStr,
     };
 
     // Enhance: If the session payload includes a user cost field (any casing/spacing),
     // render "User Cost: $X • Credits Used: N" inline without mutating data.
     try {
+      const s = session;
       const findUserCostNumber = () => {
         if (!s || typeof s !== 'object') return null;
         for (const [k, v] of Object.entries(s)) {
@@ -242,19 +312,19 @@ function SessionDetailsModal({ open, onClose, session }) {
       if (userCostNum != null) {
         const usdText = formatCurrencyAmount(userCostNum, { currency: 'USD' });
         const creditsText = formatCredits(usdToCredits(userCostNum));
-        details['User Cost'] = `${usdText} • Credits Used: ${creditsText}`;
+        details['User Cost'] = `${usdText} \u2022 Credits Used: ${creditsText}`;
       }
     } catch {
       // do not block rendering on formatter errors
     }
 
     return details;
-  }, [session, users]);
+  }, [session, userIdRef, displayUserResolved, fetchedUserName, fetchingUserName, createdAt, lastUpdatedAt, sessionId]);
 
   // Title must be "Session Details - <sessionId>"
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';
-    return `Session Details - ${id || '—'}`;
+    return `Session Details - ${id || '\u2014'}`;
   }, [session]);
 
   return (
@@ -324,7 +394,7 @@ function SessionDetailsModal({ open, onClose, session }) {
             }}
           >
             {Object.entries(coreDetails).map(([label, value]) => {
-              const isPlaceholder = value === '—' || value === 'Unknown User';
+              const isPlaceholder = value === '\u2014' || value === 'Unknown User' || value === 'Not available' || value === 'Loading...';
               return (
                 <div key={label} style={{ minWidth: 0 }}>
                   <div

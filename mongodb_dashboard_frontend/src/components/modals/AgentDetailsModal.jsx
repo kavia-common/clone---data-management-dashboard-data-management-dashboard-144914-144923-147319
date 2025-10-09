@@ -250,7 +250,7 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName, m
               <div className="adm-value">{renderCurrency(normalized.cost)}</div>
             </div>
             <div className="adm-row">
-              <div className="adm-label">User Id</div>
+              <div className="adm-label">User ID</div>
               <div className="adm-value">{normalized.userId ?? "—"}</div>
             </div>
             <div className="adm-row">
