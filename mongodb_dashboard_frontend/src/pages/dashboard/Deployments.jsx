@@ -97,13 +97,33 @@ export default function Deployments() {
     ];
   }
 
-  async function load(page = 1, limit = meta.limit || 10) {
+  async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
+    /**
+     * Loads deployments with server-side sorting.
+     * The backend supports a `sort` query parameter where:
+     *  - asc: field
+     *  - desc: -field
+     * We map UI column keys to backend field names where necessary.
+     */
     setLoading(true);
     setError("");
     try {
-      const res = await listDeployments({ page, limit });
+      const sortFieldMap = {
+        project_display: "project_name", // derived UI field -> backend uses project_name
+        branch_name: "branch_name",
+        status: "status",
+        created_at: "created_at",
+        updated_at: "updated_at",
+      };
+      const params = { page, limit };
+      if (sortKey) {
+        const backendField = sortFieldMap[sortKey] || String(sortKey);
+        params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
+      }
+
+      const res = await listDeployments(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      // Map items to inject a computed 'project_display' for sorting/search convenience.
+      // Map items to inject a computed 'project_display' for display convenience.
       const mapped = (arr || []).map((it) => {
         const projectName = it?.project_name || it?.projectName || "";
         const projectId = it?.project_id || it?.projectId || "";
@@ -151,8 +171,8 @@ export default function Deployments() {
             pageSize={meta.limit || 10}
             initialPage={meta.page || 1}
             serverTotal={meta.total}
-            fetchPage={async (page, limit) => {
-              await load(page, limit);
+            fetchPage={async (page, limit, sortKey, sortDir) => {
+              await load(page, limit, sortKey, sortDir);
             }}
             paginationTitle="Deployment pages"
           />
