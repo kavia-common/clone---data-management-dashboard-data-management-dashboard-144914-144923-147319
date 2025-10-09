@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
+import UsersOverTimeChart from "../../components/users/UsersOverTimeChart.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -118,6 +119,15 @@ export default function Users() {
 
   return (
     <div>
+      {/* New Users Over Time chart */}
+      <div style={{ marginBottom: 12 }}>
+        <div className="card">
+          <div className="card-content" style={{ paddingTop: 16 }}>
+            <UsersOverTimeChart />
+          </div>
+        </div>
+      </div>
+
       {/* Users by Tenant chart above the table */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
