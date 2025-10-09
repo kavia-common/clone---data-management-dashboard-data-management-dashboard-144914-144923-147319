@@ -354,18 +354,59 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                 </p>
               </div>
 
-              <h3
+              <div
                 style={{
-                  fontSize: 16,
-                  fontWeight: 800,
-                  color: "var(--text-primary)",
+                  display: "flex",
+                  alignItems: "baseline",
+                  justifyContent: "space-between",
+                  gap: 12,
                   borderBottom: "1px solid var(--border-subtle)",
                   paddingBottom: 8,
-                  margin: 0,
                 }}
               >
-                Project Breakdown
-              </h3>
+                <h3
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 800,
+                    color: "var(--text-primary)",
+                    margin: 0,
+                  }}
+                >
+                  Project Breakdown
+                </h3>
+
+                {/* Credits used shown adjacent to project cost summary */}
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    color: "#1F2937",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  <span style={{ color: "#6B7280", fontWeight: 700 }}>Credits used</span>
+                  <span
+                    data-testid="credits-used-inline"
+                    style={{
+                      color: "#111827",
+                      background: "rgba(37,99,235,0.06)",
+                      border: "1px solid #DBEAFE",
+                      padding: "2px 8px",
+                      borderRadius: 8,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                    title="Credits used (derived from total cost)"
+                  >
+                    {topLevelAmounts?.credits
+                      ? topLevelAmounts.credits.toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        })
+                      : "—"}
+                  </span>
+                </div>
+              </div>
 
               {(Array.isArray(costData?.projects) ? costData.projects : []).map((p) => (
                 <ProjectDetail key={String(p.projectId)} project={p} />
