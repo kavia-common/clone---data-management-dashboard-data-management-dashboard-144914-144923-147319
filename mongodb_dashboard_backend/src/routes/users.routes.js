@@ -6,6 +6,7 @@ const { getUserProjectsFromSessions } = require('../services/users.service');
 const SessionTracking = require('../models/sessionTracking.model');
 const Tenant = require('../models/tenant.model');
 const { getReferralSources } = require('../controllers/users.analytics.controller');
+const mongoose = require('mongoose');
 
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
@@ -512,7 +513,57 @@ router.get(
  *       400:
  *         description: Invalid id
  */
-router.get('/:id', asyncHandler(controller.getById));
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/:id
+ * Returns a minimal user payload with just { id, name }.
+ * - 400 for invalid ObjectId
+ * - 404 when not found
+ * - 200 with { id, name } when found (name may be null if not available)
+ */
+router.get(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid id' });
+    }
+
+    // Fetch user document
+    const doc = await User.findById(id).lean();
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Not found' });
+    }
+
+    // Try to resolve a friendly name from common fields or fallback structures
+    const nameCandidates = [
+      doc.name,
+      doc.displayName,
+      doc.display_name,
+      doc.full_name,
+      doc.fullName,
+      doc.username,
+      doc.email,
+      doc.user_name,
+      doc?.profile?.name,
+      doc?.profile?.fullName,
+    ].filter((v) => typeof v === 'string' && v.trim().length > 0);
+
+    let name = nameCandidates.length > 0 ? nameCandidates[0] : null;
+
+    // Fallback: look into referral_history if present
+    if (!name && Array.isArray(doc?.referral_history)) {
+      const rh = doc.referral_history.find((it) => typeof it?.user_name === 'string' && it.user_name.trim());
+      if (rh) {
+        name = rh.user_name.trim();
+      }
+    }
+
+    return res.status(200).json({ id: String(doc._id), name: name || null });
+  })
+);
 
 /**
  * @swagger
