@@ -2,7 +2,7 @@ import React, { useState, useContext } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import '../../styles/theme.css';
 import '../../index.css';
-import { getApiClient } from '../../api/client';
+import { getApiClient, loginUser } from '../../api/client';
 import { AuthContext } from '../../context/AuthContext';
 
 const colors = {
@@ -17,7 +17,7 @@ const colors = {
 /**
  * PUBLIC_INTERFACE
  * Login form for authenticating with email/password and organization ID.
- * - Uses named getApiClient() from ../../api/client (no default import)
+ * - Uses named loginUser() from ../../api/client (no default import)
  * - Calls POST /auth/login
  * - On success, stores token as 'auth_token', updates AuthContext if present,
  *   and redirects to /overview (or previous location if provided).
@@ -38,20 +38,22 @@ export default function Login() {
 
   // PUBLIC_INTERFACE
   async function onSubmit(e) {
-    /** Handles login by posting to /auth/login using getApiClient(). */
+    /**
+     * Handles login by posting to /auth/login using loginUser(), with robust error handling:
+     * - Shows server message/status for HTTP errors
+     * - For network/CORS/baseURL issues, shows actionable guidance with current baseURL
+     */
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const client = getApiClient();
-      const res = await client.post('/auth/login', {
+      const data = await loginUser({
         organization_id: form.organization_id,
         email: form.email,
         password: form.password,
       });
 
       // Extract token from common shapes: string body, or { token|access_token|jwt }
-      const data = res?.data;
       const token =
         (typeof data === 'string' && data) ||
         data?.token ||
@@ -63,12 +65,13 @@ export default function Login() {
         throw new Error('No token received from server.');
       }
 
-      // Save token for interceptors
+      // Save token for interceptors and protected routes
       localStorage.setItem('auth_token', token);
 
       // Update auth context if available
       if (auth && typeof auth.login === 'function') {
         try {
+          const client = getApiClient();
           await auth.login(
             { organization_id: form.organization_id, email: form.email, password: form.password },
             client
@@ -81,12 +84,29 @@ export default function Login() {
       // Redirect so other modules load with auth
       navigate(from, { replace: true });
     } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.response?.data ||
-        err?.message ||
-        'Invalid credentials. Please try again.';
-      setError(typeof msg === 'string' ? msg : 'Login failed.');
+      // Axios style error parsing
+      const hasResponse = !!err?.response;
+      if (hasResponse) {
+        const status = err.response.status;
+        const serverMsg =
+          err.response.data?.message ||
+          (typeof err.response.data === 'string' ? err.response.data : null);
+        const details = serverMsg || 'Login failed.';
+        setError(`Error ${status}: ${details}`);
+      } else {
+        // Network error (likely CORS or wrong base URL)
+        // Try to read the client baseURL for guidance
+        let baseURLHint = '';
+        try {
+          const client = getApiClient();
+          baseURLHint = client?.defaults?.baseURL ? ` Current API base: ${client.defaults.baseURL}` : '';
+        } catch {}
+        const tip =
+          'Network error. Please check that the backend is reachable and CORS is enabled.' +
+          baseURLHint +
+          ' If running locally, ensure REACT_APP_API_BASE or REACT_APP_API_BASE_URL points to your backend (e.g., http://localhost:3001).';
+        setError(tip);
+      }
     } finally {
       setLoading(false);
     }
