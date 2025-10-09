@@ -1,6 +1,8 @@
 import React from 'react';
 import Modal from './ui/Modal';
 import { formatLabel } from '../utils/formatLabel';
+import { usdToCredits, formatCredits } from '../utils/currency';
+import { formatCurrencyAmount } from '../utils/formatCurrency';
 
 // PUBLIC_INTERFACE
 export type ViewDetailsModalProps = {
@@ -42,8 +44,42 @@ const ViewDetailsModal: React.FC<ViewDetailsModalProps> = ({
     }
   }, [data]);
 
+  // Loose matcher to identify user cost keys without mutating data
+  const isUserCostKeyLoose = (key?: string) => {
+    if (!key) return false;
+    const k = String(key).toLowerCase();
+    return /(^|[_\s])user[_\s]?cost($|[_\s])/.test(k) || k === 'usercost';
+  };
+
+  const toNumberLike = (v: any): number | null => {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v === 'string') {
+      const cleaned = v.replace(/[$,]/g, '');
+      const n = Number(cleaned);
+      return Number.isFinite(n) ? n : null;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
   // Convert value to a string for display while preserving original value in memory.
-  const renderValue = (value: any) => {
+  const renderValue = (value: any, key?: string) => {
+    // Special display: when key looks like user cost, show "$X • Credits Used: N credits"
+    if (key && isUserCostKeyLoose(key)) {
+      const num = toNumberLike(value);
+      if (num != null) {
+        const usdText = formatCurrencyAmount(num, { currency: 'USD' });
+        const creditsText = formatCredits(usdToCredits(num));
+        return (
+          <span title={`${usdText} • Credits Used: ${creditsText}`} style={{ whiteSpace: 'nowrap' }}>
+            {usdText}
+            <span className="credits-inline muted"> • Credits Used: {creditsText}</span>
+          </span>
+        );
+      }
+    }
+
     if (value == null) return '—';
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
       return String(value);
@@ -87,7 +123,7 @@ const ViewDetailsModal: React.FC<ViewDetailsModalProps> = ({
                     fontSize: typeof value === 'object' ? '0.85rem' : 'inherit',
                   }}
                 >
-                  {renderValue(value)}
+                  {renderValue(value, key)}
                 </dd>
               </div>
             ))}

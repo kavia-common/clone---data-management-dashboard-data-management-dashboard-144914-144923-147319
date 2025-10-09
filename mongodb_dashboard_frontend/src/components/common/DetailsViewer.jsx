@@ -155,6 +155,8 @@ export default function DetailsViewer({
       "totalusd",
       "amount_usd",
       "charge",
+      "user_cost",   // ensure user cost keys render as currency with credits
+      "usercost",
     ].map((s) => s.toLowerCase())
   );
   function isCurrencyKeyLoose(k) {
@@ -181,9 +183,9 @@ export default function DetailsViewer({
         const usdTxt = formatCurrencyAmount(n, { currency: "USD" });
         const creditsTxt = formatCredits(usdToCredits(n));
         return (
-          <span title={`${usdTxt} (${creditsTxt})`} style={{ whiteSpace: "nowrap" }}>
+          <span title={`${usdTxt} • Credits Used: ${creditsTxt}`} style={{ whiteSpace: "nowrap" }}>
             {usdTxt}
-            <span className="credits-inline muted">({creditsTxt})</span>
+            <span className="credits-inline muted"> • Credits Used: {creditsTxt}</span>
           </span>
         );
       }
