@@ -120,3 +120,13 @@ body.modal-open--dim-header .topbar {
 
 /* Remove transform-based centering utilities to avoid conflicts with shared Modal */
 .center-fixed-transform { all: unset; }
+
+/* App-level theme tokens (ensure presence for Login page and new components) */
+:root{
+  --color-primary:#2563EB;
+  --color-secondary:#F59E0B;
+  --color-error:#EF4444;
+  --bg:#f9fafb;
+  --surface:#ffffff;
+  --text:#111827;
+}
