@@ -1,9 +1,9 @@
-import React, { useState, useContext } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import api from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import '../../styles/theme.css';
 import '../../index.css';
-import { getApiClient, loginUser } from '../../api/client';
-import { AuthContext } from '../../context/AuthContext';
 
 const colors = {
   primary: '#2563EB',
@@ -17,15 +17,13 @@ const colors = {
 /**
  * PUBLIC_INTERFACE
  * Login form for authenticating with email/password and organization ID.
- * - Uses named loginUser() from ../../api/client (no default import)
- * - Calls POST /auth/login
- * - On success, stores token as 'auth_token', updates AuthContext if present,
- *   and redirects to /overview (or previous location if provided).
+ * On success, stores token and redirects to /overview (or prior location).
  */
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const auth = useContext(AuthContext); // optional; may be undefined if not wrapped
+  const { login } = useAuth();
+
   const [form, setForm] = useState({ organization_id: 'org_123', email: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -36,81 +34,24 @@ export default function Login() {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
   };
 
-  // PUBLIC_INTERFACE
-  async function onSubmit(e) {
-    /**
-     * Handles login by posting to /auth/login using loginUser(), with robust error handling:
-     * - Shows server message/status for HTTP errors
-     * - For network/CORS/baseURL issues, shows actionable guidance with current baseURL
-     */
+  const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const data = await loginUser({
-        organization_id: form.organization_id,
-        email: form.email,
-        password: form.password,
-      });
-
-      // Extract token from common shapes: string body, or { token|access_token|jwt }
-      const token =
-        (typeof data === 'string' && data) ||
-        data?.token ||
-        data?.access_token ||
-        data?.jwt ||
-        '';
-
-      if (!token) {
-        throw new Error('No token received from server.');
-      }
-
-      // Save token for interceptors and protected routes
-      localStorage.setItem('auth_token', token);
-
-      // Update auth context if available
-      if (auth && typeof auth.login === 'function') {
-        try {
-          const client = getApiClient();
-          await auth.login(
-            { organization_id: form.organization_id, email: form.email, password: form.password },
-            client
-          );
-        } catch {
-          // ignore context errors; localStorage + interceptors will handle auth
-        }
-      }
-
-      // Redirect so other modules load with auth
+      await login(form, api);
       navigate(from, { replace: true });
     } catch (err) {
-      // Axios style error parsing
-      const hasResponse = !!err?.response;
-      if (hasResponse) {
-        const status = err.response.status;
-        const serverMsg =
-          err.response.data?.message ||
-          (typeof err.response.data === 'string' ? err.response.data : null);
-        const details = serverMsg || 'Login failed.';
-        setError(`Error ${status}: ${details}`);
-      } else {
-        // Network error (likely CORS or wrong base URL)
-        // Try to read the client baseURL for guidance
-        let baseURLHint = '';
-        try {
-          const client = getApiClient();
-          baseURLHint = client?.defaults?.baseURL ? ` Current API base: ${client.defaults.baseURL}` : '';
-        } catch {}
-        const tip =
-          'Network error. Please check that the backend is reachable and CORS is enabled.' +
-          baseURLHint +
-          ' If running locally, ensure REACT_APP_API_BASE or REACT_APP_API_BASE_URL points to your backend (e.g., http://localhost:3001).';
-        setError(tip);
-      }
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data ||
+        err?.message ||
+        'Invalid credentials. Please try again.';
+      setError(typeof msg === 'string' ? msg : 'Login failed.');
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: colors.background, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
