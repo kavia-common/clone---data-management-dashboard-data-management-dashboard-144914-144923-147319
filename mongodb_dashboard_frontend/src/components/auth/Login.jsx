@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import api from '../../api/client';
-import { useAuth } from '../../context/AuthContext';
 import '../../styles/theme.css';
 import '../../index.css';
+import { getApiClient } from '../../api/client';
+import { AuthContext } from '../../context/AuthContext';
 
 const colors = {
   primary: '#2563EB',
@@ -17,13 +17,15 @@ const colors = {
 /**
  * PUBLIC_INTERFACE
  * Login form for authenticating with email/password and organization ID.
- * On success, stores token and redirects to /overview (or prior location).
+ * - Uses named getApiClient() from ../../api/client (no default import)
+ * - Calls POST /auth/login
+ * - On success, stores token as 'auth_token', updates AuthContext if present,
+ *   and redirects to /overview (or previous location if provided).
  */
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
-
+  const auth = useContext(AuthContext); // optional; may be undefined if not wrapped
   const [form, setForm] = useState({ organization_id: 'org_123', email: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -34,12 +36,49 @@ export default function Login() {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
   };
 
-  const onSubmit = async (e) => {
+  // PUBLIC_INTERFACE
+  async function onSubmit(e) {
+    /** Handles login by posting to /auth/login using getApiClient(). */
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await login(form, api);
+      const client = getApiClient();
+      const res = await client.post('/auth/login', {
+        organization_id: form.organization_id,
+        email: form.email,
+        password: form.password,
+      });
+
+      // Extract token from common shapes: string body, or { token|access_token|jwt }
+      const data = res?.data;
+      const token =
+        (typeof data === 'string' && data) ||
+        data?.token ||
+        data?.access_token ||
+        data?.jwt ||
+        '';
+
+      if (!token) {
+        throw new Error('No token received from server.');
+      }
+
+      // Save token for interceptors
+      localStorage.setItem('auth_token', token);
+
+      // Update auth context if available
+      if (auth && typeof auth.login === 'function') {
+        try {
+          await auth.login(
+            { organization_id: form.organization_id, email: form.email, password: form.password },
+            client
+          );
+        } catch {
+          // ignore context errors; localStorage + interceptors will handle auth
+        }
+      }
+
+      // Redirect so other modules load with auth
       navigate(from, { replace: true });
     } catch (err) {
       const msg =
@@ -51,7 +90,7 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: colors.background, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
