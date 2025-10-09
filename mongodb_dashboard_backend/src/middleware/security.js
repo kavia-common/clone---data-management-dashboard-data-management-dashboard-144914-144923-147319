@@ -147,20 +147,28 @@ function helmetMiddleware() {
 
 /**
  * PUBLIC_INTERFACE
- * Build a rate limiter middleware.
+ * Build a rate limiter middleware suitable for dashboards.
  *
  * Env vars:
  * - RATE_LIMIT_WINDOW_MS: Window in ms (default: 900000 -> 15 minutes)
  * - RATE_LIMIT_MAX: Max requests per IP per window (default: 200)
+ * - RATE_LIMIT_SKIP_GET: When "true" (default), skip limiting for GET requests to reduce 429s on table interactions.
  */
 function rateLimiter() {
   const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10);
   const max = parseInt(process.env.RATE_LIMIT_MAX || '200', 10);
+  const skipGet = String(process.env.RATE_LIMIT_SKIP_GET ?? 'true').toLowerCase() !== 'false';
+
   return rateLimit({
     windowMs,
     max,
     standardHeaders: true,
     legacyHeaders: false,
+    skip: (req) => {
+      // By default, skip throttling for GET endpoints (listing, sorting, pagination)
+      if (skipGet && req.method === 'GET') return true;
+      return false;
+    },
     message: { success: false, message: 'Too many requests, please try again later.' },
   });
 }

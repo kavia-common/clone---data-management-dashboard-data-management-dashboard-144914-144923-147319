@@ -1,6 +1,44 @@
 const { parsePagination, success, failure } = require('../utils/http');
 
 /**
+ * Lightweight micro-cache for list endpoints to coalesce identical rapid requests.
+ * Default TTL: 2000ms. Intended to mitigate bursts from quick sort/page toggles.
+ * Note: In-memory and per-process only.
+ */
+const MICRO_CACHE_TTL_MS = parseInt(process.env.MICRO_CACHE_TTL_MS || '2000', 10);
+const listMicroCache = new Map(); // key -> { expiresAt:number, payload:any }
+
+/**
+ * PUBLIC_INTERFACE
+ * Get a micro-cached value if not expired.
+ */
+function microGet(key) {
+  const hit = listMicroCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    listMicroCache.delete(key);
+    return null;
+  }
+  return hit.payload;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Set a micro-cached value with TTL.
+ */
+function microSet(key, payload) {
+  listMicroCache.set(key, { payload, expiresAt: Date.now() + MICRO_CACHE_TTL_MS });
+}
+
+/**
+ * Build a stable cache key for list requests.
+ */
+function buildListKey(req, filter, sort, page, limit, skip, explicit) {
+  // baseUrl+path are stable per router mount; include query-shaping inputs.
+  return `list:${req.baseUrl}${req.path}:${JSON.stringify({ filter, sort, page, limit, skip, explicit })}`;
+}
+
+/**
  * Build a REST controller for a Mongoose model.
  * Supports list with basic filtering, get by id, create, update, delete.
  * This implementation adds robust error handling to avoid runtime 500s for:
@@ -49,13 +87,21 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       const sort = req.query.sort || listDefaultSort;
 
       try {
-        // If pagination explicitly requested, respect pagination and provide envelope + meta
-        if (explicit) {
+        // Micro-cache only explicit (paginated) GET list responses
+        if (req.method === 'GET' && explicit) {
+          const key = buildListKey(req, filter, sort, page, limit, skip, explicit);
+          const cached = microGet(key);
+          if (cached) {
+            return res.status(200).json(cached);
+          }
+
           const [items, total] = await Promise.all([
             Model.find(filter).sort(sort).skip(skip).limit(limit).lean(),
             Model.countDocuments(filter),
           ]);
-          return success(res, items, { page, limit, total }, 200);
+          const payload = { success: true, data: items, meta: { page, limit, total } };
+          microSet(key, payload);
+          return res.status(200).json(payload);
         }
 
         // No explicit pagination: return the raw array of documents (no envelope)

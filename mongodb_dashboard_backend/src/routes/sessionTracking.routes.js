@@ -127,6 +127,24 @@ function normalizeSessionDoc(doc) {
  *       400:
  *         description: Invalid filter
  */
+/**
+ * Local micro-cache for sessions list to mitigate back-to-back identical requests.
+ */
+const SESS_LIST_TTL_MS = parseInt(process.env.MICRO_CACHE_TTL_MS || '2000', 10);
+const sessionsListCache = new Map(); // key -> { payload, expiresAt }
+function slGet(key) {
+  const hit = sessionsListCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    sessionsListCache.delete(key);
+    return null;
+  }
+  return hit.payload;
+}
+function slSet(key, payload) {
+  sessionsListCache.set(key, { payload, expiresAt: Date.now() + SESS_LIST_TTL_MS });
+}
+
 // PUBLIC_INTERFACE
 router.get(
   '/',
@@ -177,13 +195,26 @@ router.get(
 
     try {
       if (explicit) {
+        // Micro-cache explicit list result by params
+        const cacheKey = `sessions-list:${JSON.stringify({
+          path: req.path,
+          page,
+          limit,
+          sort,
+          filter: finalFilter,
+        })}`;
+        const cached = slGet(cacheKey);
+        if (cached) return res.status(200).json(cached);
+
         const [docs, total] = await Promise.all([
           // Use model documents (no lean) so Mongoose applies basic casting; still normalize to be safe
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
           SessionTracking.countDocuments(finalFilter),
         ]);
         const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
-        return res.status(200).json({ success: true, data: items, meta: { page, limit, total } });
+        const payload = { success: true, data: items, meta: { page, limit, total } };
+        slSet(cacheKey, payload);
+        return res.status(200).json(payload);
       }
 
       const docs = await SessionTracking.find(finalFilter).sort(sort);
