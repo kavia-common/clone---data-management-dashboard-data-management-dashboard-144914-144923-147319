@@ -25,6 +25,24 @@ export function usdToCredits(usd) {
   return Math.round(n * CREDITS_PER_USD);
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Parse a USD-like value into a number.
+ * Accepts numbers, numeric strings, and currency strings like "$46.017913" or "1,234.56".
+ * Returns null when not parseable.
+ */
+export function parseUsdToNumber(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[$,]/g, "").trim();
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 // PUBLIC_INTERFACE
 export function formatCredits(n) {
   /** Formats numeric credits with thousands separators and a "credits" suffix.

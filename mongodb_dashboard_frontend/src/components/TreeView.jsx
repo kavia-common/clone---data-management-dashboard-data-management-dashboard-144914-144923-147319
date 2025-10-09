@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import "./TreeView.css";
 import { formatLabel } from "../utils/formatLabel";
+import { usdToCredits, formatCredits, parseUsdToNumber } from "../utils/currency";
 
 /**
  * PUBLIC_INTERFACE
@@ -249,11 +250,36 @@ const TreeView = forwardRef(function TreeView(
 
       // Display primitive value (inline, truncation and tooltip)
       const valContent =
-        !isObj ? (
-          <span className={`tv-value ${shouldTruncate(value) ? "tv-ellipsis" : ""}`} title={toDisplayString(value)}>
-            {highlight(truncateIfNeeded(toDisplayString(value)), searchRegex)}
-          </span>
-        ) : null;
+        !isObj ? (() => {
+          // Detect user_cost keys (robust: casing/spacing/underscore-insensitive)
+          const normKey =
+            typeof keyLabel === "string"
+              ? keyLabel.toLowerCase().replace(/\s+/g, "_")
+              : "";
+          const looksUserCost = /(^|[_\s])user[_\s]?cost($|[_\s])/.test(normKey) || normKey === "usercost";
+          if (looksUserCost) {
+            const num = parseUsdToNumber(value);
+            if (num != null) {
+              const credits = usdToCredits(num);
+              const creditsText = formatCredits(credits);
+              const baseText = truncateIfNeeded(toDisplayString(value));
+              return (
+                <span
+                  className={`tv-value ${shouldTruncate(value) ? "tv-ellipsis" : ""}`}
+                  title={`${toDisplayString(value)} • Credits Used: ${creditsText}`}
+                >
+                  {highlight(baseText, searchRegex)}
+                  <span className="tv-credits-inline" style={{ color: "#6b7280" }}> • Credits Used: {creditsText}</span>
+                </span>
+              );
+            }
+          }
+          return (
+            <span className={`tv-value ${shouldTruncate(value) ? "tv-ellipsis" : ""}`} title={toDisplayString(value)}>
+              {highlight(truncateIfNeeded(toDisplayString(value)), searchRegex)}
+            </span>
+          );
+        })() : null;
 
       return (
         <div key={path} className="tv-row" style={{ paddingLeft: padLeft }}>

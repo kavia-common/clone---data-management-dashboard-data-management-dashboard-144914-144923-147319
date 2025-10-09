@@ -1,7 +1,7 @@
 import React from 'react';
 import Modal from './ui/Modal';
 import { formatLabel } from '../utils/formatLabel';
-import { usdToCredits, formatCredits } from '../utils/currency';
+import { usdToCredits, formatCredits, parseUsdToNumber } from '../utils/currency';
 import { formatCurrencyAmount } from '../utils/formatCurrency';
 
 // PUBLIC_INTERFACE
@@ -52,15 +52,8 @@ const ViewDetailsModal: React.FC<ViewDetailsModalProps> = ({
   };
 
   const toNumberLike = (v: any): number | null => {
-    if (v == null || v === '') return null;
-    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-    if (typeof v === 'string') {
-      const cleaned = v.replace(/[$,]/g, '');
-      const n = Number(cleaned);
-      return Number.isFinite(n) ? n : null;
-    }
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
+    const n = parseUsdToNumber(v as any);
+    return n == null ? null : n;
   };
 
   // Convert value to a string for display while preserving original value in memory.

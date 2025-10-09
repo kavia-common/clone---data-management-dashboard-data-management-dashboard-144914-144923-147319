@@ -3,6 +3,8 @@ import Modal from '../ui/Modal.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName } from '../../utils/stringFormatters.js';
 import { formatLabel } from '../../utils/formatLabel';
+import { usdToCredits, formatCredits, parseUsdToNumber } from '../../utils/currency.js';
+import { formatCurrencyAmount } from '../../utils/formatCurrency';
 
 /**
  * PUBLIC_INTERFACE
@@ -215,6 +217,36 @@ function SessionDetailsModal({ open, onClose, session }) {
       'Last Updated At': formatDate(normalizedLastUpdatedAt),
       Duration: durationStr,
     };
+
+    // Enhance: If the session payload includes a user cost field (any casing/spacing),
+    // render "User Cost: $X • Credits Used: N" inline without mutating data.
+    try {
+      const findUserCostNumber = () => {
+        if (!s || typeof s !== 'object') return null;
+        for (const [k, v] of Object.entries(s)) {
+          const norm = String(k || '')
+            .toLowerCase()
+            .replace(/\s+/g, '_')
+            .replace(/[^a-z0-9_]/g, '');
+          if (norm === 'user_cost' || norm === 'usercost') {
+            if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+            const parsed = parseUsdToNumber(v);
+            if (parsed != null) return parsed;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+          }
+        }
+        return null;
+      };
+      const userCostNum = findUserCostNumber();
+      if (userCostNum != null) {
+        const usdText = formatCurrencyAmount(userCostNum, { currency: 'USD' });
+        const creditsText = formatCredits(usdToCredits(userCostNum));
+        details['User Cost'] = `${usdText} • Credits Used: ${creditsText}`;
+      }
+    } catch {
+      // do not block rendering on formatter errors
+    }
 
     return details;
   }, [session, users]);
