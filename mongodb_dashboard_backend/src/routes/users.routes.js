@@ -5,6 +5,7 @@ const User = require('../models/user.model');
 const { getUserProjectsFromSessions } = require('../services/users.service');
 const SessionTracking = require('../models/sessionTracking.model');
 const Tenant = require('../models/tenant.model');
+const { getReferralSources } = require('../controllers/users.analytics.controller');
 
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
@@ -861,5 +862,46 @@ router.get(
     return res.status(200).json(payload);
   })
 );
+
+/**
+ * @swagger
+ * /api/users/referral-sources:
+ *   get:
+ *     summary: Top referral sources
+ *     description: Aggregates users.referral_history by source (or infers from referral_code) and returns top N sources by count.
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 200, default: 10 }
+ *         description: Limit number of top sources to return.
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO date-time lower bound (applied to referred_at or created_at fallback).
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO date-time upper bound (applied to referred_at or created_at fallback).
+ *     responses:
+ *       200:
+ *         description: Top referral sources response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 items:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       source: { type: string }
+ *                       count:  { type: integer }
+ *                 totalSources:
+ *                   type: integer
+ */
+// PUBLIC_INTERFACE
+router.get('/referral-sources', asyncHandler(getReferralSources));
 
 module.exports = router;
