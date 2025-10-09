@@ -6,8 +6,14 @@
  * - Allow configuration of CREDITS_PER_USD via env (CREDITS_PER_USD), defaulting to 20000.
  * - Provide helpers for converting USD to credits and formatting values.
  *
+ * Business rule:
+ *  - credits = Math.round(total_cost_usd * CREDITS_PER_USD)
+ *
  * Env:
  *  - CREDITS_PER_USD: number of credits per 1 USD (default 20000)
+ *
+ * Note:
+ *  - Reasonable default avoids dependency on .env for local/CI. To customize, set CREDITS_PER_USD in environment.
  */
 
 // PUBLIC_INTERFACE

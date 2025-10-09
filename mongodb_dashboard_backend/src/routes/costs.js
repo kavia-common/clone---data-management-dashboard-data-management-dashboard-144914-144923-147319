@@ -392,11 +392,14 @@ router.get(
         const projectCost = Number(p.projectCost || 0);
         const projectCredits = usdToCredits(projectCost);
 
+        // Provide both snake_case and camelCase for compatibility with different clients
         return {
           projectId: p.projectId,
           projectName,
           projectCost,
           projectCredits,
+          credits_used: projectCredits,
+          creditsUsed: projectCredits,
           agents,
         };
       });
@@ -404,12 +407,15 @@ router.get(
       const totalCostUSD = Number(u.totalCostUSD || 0);
       const totalCredits = usdToCredits(totalCostUSD);
 
+      // Provide both snake_case and camelCase for compatibility with different clients
       return {
         userId: String(u.userId),
         userName: u.userName || null,
         totalProjectCount: Number(u.totalProjectCount || projects.length),
         totalCostUSD,
         totalCredits,
+        credits_used: totalCredits,
+        creditsUsed: totalCredits,
         projects,
       };
     };
