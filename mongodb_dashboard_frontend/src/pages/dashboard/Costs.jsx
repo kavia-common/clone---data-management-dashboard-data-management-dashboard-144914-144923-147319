@@ -7,8 +7,7 @@ import TreeView from "../../components/TreeView.jsx";
 import AgentDetailsModal from "../../components/modals/AgentDetailsModal.jsx";
 
 import { renderCreditsWithUsd } from "../../utils/currency";
-import { listLlmCosts, costsByAgent } from "../../api/client";
-import TopAgentsByCostChart from "../../components/costs/TopAgentsByCostChart.jsx";
+import { listLlmCosts } from "../../api/client";
 
 /**
  * PUBLIC_INTERFACE
@@ -23,12 +22,6 @@ export default function Costs() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
-
-  // Top agents chart state
-  const [topAgents, setTopAgents] = useState([]);
-  const [topAgentsLoading, setTopAgentsLoading] = useState(false);
-  const [topAgentsError, setTopAgentsError] = useState("");
-  const [topLimit, setTopLimit] = useState(10);
 
   // Inspector modal state
   const [inspectOpen, setInspectOpen] = useState(false);
@@ -326,24 +319,6 @@ export default function Costs() {
     load();
   }, []);
 
-  async function loadTopAgents(limit = topLimit) {
-    setTopAgentsLoading(true);
-    setTopAgentsError("");
-    try {
-      const res = await costsByAgent({ limit });
-      setTopAgents(res?.items || []);
-    } catch (e) {
-      setTopAgents([]);
-      setTopAgentsError(e?.response?.data?.message || e?.message || "Failed to load top agents.");
-    } finally {
-      setTopAgentsLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadTopAgents(topLimit);
-  }, [topLimit]);
-
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) {
@@ -399,36 +374,6 @@ export default function Costs() {
           }}
           paginationTitle="Cost records pages"
         />
-      </Card>
-
-      <Card
-        title="Top agents by total cost"
-        subtitle="Aggregated by agent name across filtered dataset"
-      >
-        <div className="toolbar" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <label htmlFor="limit-select" style={{ fontSize: 13, color: "#334155" }}>
-            Show
-          </label>
-          <select
-            id="limit-select"
-            className="input-select"
-            value={topLimit}
-            onChange={(e) => setTopLimit(parseInt(e.target.value, 10) || 10)}
-            aria-label="Top agents limit"
-          >
-            {[5, 10, 15, 20].map((n) => (
-              <option key={n} value={n}>
-                Top {n}
-              </option>
-            ))}
-          </select>
-          <div style={{ flex: 1 }} />
-          <button className="btn" onClick={() => loadTopAgents(topLimit)} aria-label="Refresh top agents">
-            Refresh
-          </button>
-        </div>
-
-        <TopAgentsByCostChart data={topAgents} loading={topAgentsLoading} error={topAgentsError} height={320} />
       </Card>
 
       {/* Modal inspector for arrays/objects to avoid expanding inside table cells */}
