@@ -79,10 +79,29 @@ export async function listDeployments(params = {}) {
   const res = await api.get("/app-deployments", { params });
   return normalizeListResponse(res);
 }
-// === LLM COSTS ===
+ // === LLM COSTS ===
 export async function listLlmCosts(params = {}) {
   const res = await api.get("/llm-costs", { params });
   return normalizeListResponse(res);
+}
+
+// PUBLIC_INTERFACE
+export async function costsByAgent(params = {}) {
+  /**
+   * Fetch top agents by total cost.
+   * Query: { tenant_id?, project_id?, user_id?, llm_model?, start_date?, end_date?, limit? }
+   * Response: { items: [{ agent_name, total_cost }], meta: { limit } }
+   */
+  const res = await api.get("/costs/by-agent", { params });
+  const data = res?.data || {};
+  const items = Array.isArray(data.items) ? data.items : [];
+  const meta = data.meta || {};
+  // Coerce totals to numbers
+  const normalized = items.map((it) => ({
+    agent_name: String(it?.agent_name ?? 'unknown'),
+    total_cost: Number(it?.total_cost ?? 0),
+  }));
+  return { items: normalized, meta };
 }
 // === USER COSTS ===
 export async function getUserCosts(userId) {
