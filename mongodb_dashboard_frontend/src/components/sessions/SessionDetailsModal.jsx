@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import Modal from '../ui/Modal.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName } from '../../utils/stringFormatters.js';
+import { formatLabel } from '../../utils/formatLabel';
 
 /**
  * PUBLIC_INTERFACE

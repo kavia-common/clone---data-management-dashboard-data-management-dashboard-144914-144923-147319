@@ -98,12 +98,13 @@ export default function DetailsViewer({
     }
   }
 
+  // Use centralized label formatter to ensure consistency across app
+  // This affects only visual labels, not the underlying data keys.
+  import { formatLabel } from '../../utils/formatLabel';
+
   function toLabel(key) {
     if (!key && key !== 0) return "";
-    if (key === "_id") return "ID";
-    return String(key)
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (m) => m.toUpperCase());
+    return formatLabel(key);
   }
 
   function isTimestampLike(key) {

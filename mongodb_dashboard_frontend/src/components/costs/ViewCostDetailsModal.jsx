@@ -3,6 +3,7 @@ import ProjectDetail from "./ProjectDetail";
 
 import { renderCreditsWithUsd } from "../../utils/currency";
 import { CREDITS_PER_USD } from "../../utils/currency";
+import { formatLabel } from "../../utils/formatLabel";
 
 /**
  * PUBLIC_INTERFACE
@@ -424,6 +425,31 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
               {(Array.isArray(costData?.projects) ? costData.projects : []).map((p) => (
                 <ProjectDetail key={String(p.projectId)} project={p} />
               ))}
+
+              {/* Example: If we decide to show any extra details from a dynamic object, format labels only for display */}
+              {costData?.extraDetails && typeof costData.extraDetails === 'object' ? (
+                <div
+                  style={{
+                    marginTop: 8,
+                    borderTop: '1px solid var(--border-subtle)',
+                    paddingTop: 8,
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(140px, 200px) 1fr',
+                    gap: '6px 10px',
+                  }}
+                >
+                  {Object.entries(costData.extraDetails).map(([k, v]) => (
+                    <React.Fragment key={k}>
+                      <div style={{ color: 'var(--text-tertiary)', fontWeight: 600, fontSize: 12 }}>
+                        {formatLabel(k)}
+                      </div>
+                      <div style={{ whiteSpace: typeof v === 'object' ? 'pre-wrap' : 'normal', fontFamily: typeof v === 'object' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' : 'inherit', fontSize: typeof v === 'object' ? 12 : 14 }}>
+                        {typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)}
+                      </div>
+                    </React.Fragment>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : (
             <div style={{ position: "relative" }}>
