@@ -4,9 +4,6 @@ import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import TreeView from "../../components/TreeView.jsx";
 
-import AgentDetailsModal from "../../components/modals/AgentDetailsModal.jsx";
-import ViewCostDetailsModal from "../../components/costs/ViewCostDetailsModal.jsx";
-
 import { renderCreditsWithUsd } from "../../utils/currency";
 import { listLlmCosts } from "../../api/client";
 
@@ -28,17 +25,6 @@ export default function Costs() {
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectTitle, setInspectTitle] = useState("Details");
   const [inspectPayload, setInspectPayload] = useState(null);
-
-  // Agent details modal state
-  const [agentModalOpen, setAgentModalOpen] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState(null);
-  const [selectedAgentName, setSelectedAgentName] = useState("");
-
-  // Costs details modal state
-  const [costDetailsOpen, setCostDetailsOpen] = useState(false);
-  const [costDetailsLoading, setCostDetailsLoading] = useState(false);
-  const [costDetailsError, setCostDetailsError] = useState("");
-  const [costDetailsData, setCostDetailsData] = useState(null);
 
   const dateFieldHints = useMemo(
     () =>
@@ -104,63 +90,6 @@ export default function Costs() {
   function closeInspector() {
     setInspectOpen(false);
     setInspectPayload(null);
-  }
-
-  async function openCostDetailsForUser(userId, opts = {}) {
-    const base = process.env.REACT_APP_API_BASE_URL || "";
-    setCostDetailsOpen(true);
-    setCostDetailsLoading(true);
-    setCostDetailsError("");
-    setCostDetailsData(null);
-    try {
-      const params = new URLSearchParams();
-      if (userId) params.set("userId", String(userId));
-      if (opts.from) params.set("from", opts.from);
-      if (opts.to) params.set("to", opts.to);
-      const res = await fetch(`${base}/api/costs/details?${params.toString()}`, {
-        headers: { "Accept": "application/json" },
-      });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`Failed to load cost details (${res.status}): ${txt || res.statusText}`);
-      }
-      const json = await res.json();
-      setCostDetailsData(json);
-    } catch (e) {
-      setCostDetailsError(e.message || "Failed to load cost details");
-    } finally {
-      setCostDetailsLoading(false);
-    }
-  }
-
-  function closeCostDetails() {
-    setCostDetailsOpen(false);
-    setCostDetailsLoading(false);
-    setCostDetailsError("");
-    setCostDetailsData(null);
-  }
-
-  function onAgentSelect({ agentId, agentName }) {
-    try {
-      console.debug("[Costs] Agent selected", { agentId, agentName });
-    } catch {}
-    // Close inspector modal if open to prevent modal conflicts
-    if (inspectOpen) {
-      setInspectOpen(false);
-    }
-    setSelectedAgentId(agentId);
-    setSelectedAgentName(agentName || "");
-    setAgentModalOpen(true);
-    // Add debug logging for modal state
-    try {
-      console.debug('[Costs] render modal', { open: true, agentId: agentId });
-    } catch {}
-  }
-
-  function closeAgentModal() {
-    setAgentModalOpen(false);
-    setSelectedAgentId(null);
-    setSelectedAgentName("");
   }
 
   const renderText = (value) => {
@@ -385,36 +314,7 @@ export default function Costs() {
 
   const columns = useMemo(() => {
     const base = buildColumnsFromSample(items || []);
-    const cols = base.slice();
-
-    // Infer a user id field from sample row for actions
-    const sample = (items && items[0]) || {};
-    const userIdKey = "_id" in sample && typeof sample._id === "string" && sample._id.startsWith("user_")
-      ? "_id"
-      : ("user_id" in sample ? "user_id" : ("userId" in sample ? "userId" : ("user" in sample ? "user" : null)));
-
-    cols.push({
-      key: "__actions",
-      label: "Actions",
-      render: (v, row) => {
-        const id = userIdKey ? row?.[userIdKey] : null;
-        if (!id) return "—";
-        return (
-          <div style={{ display: "inline-flex", gap: 8 }}>
-            <button
-              className="btn btn-ghost"
-              title="View cost details"
-              onClick={() => openCostDetailsForUser(id)}
-            >
-              View costs
-            </button>
-          </div>
-        );
-      },
-      priority: 3,
-    });
-
-    return cols;
+    return base.slice();
   }, [items]);
 
   return (
@@ -464,29 +364,6 @@ export default function Costs() {
           payload={inspectPayload}
         />
       </Modal>
-
-      {/* Agent details modal - opened when an agent is selected from the details view */}
-      <AgentDetailsModal
-        open={agentModalOpen}
-        onClose={closeAgentModal}
-        agentId={selectedAgentId}
-        agentName={selectedAgentName}
-        // Use ~80% viewport width with reasonable caps to remain usable on small screens
-        modalWidth="min(96vw, clamp(360px, 80vw, 1280px))"
-        modalClassName="costs-agent-modal-80"
-      />
-
-      {/* Cost details modal (shows Credits used and project breakdown) */}
-      <ViewCostDetailsModal
-        isOpen={costDetailsOpen}
-        onClose={closeCostDetails}
-        data={costDetailsLoading ? { userName: "Loading...", userId: "", totalProjectCount: 0, totalCostUSD: 0, projects: [] } : costDetailsData}
-      />
-      {costDetailsError ? (
-        <div role="alert" style={{ marginTop: 8 }} className="error">
-          {costDetailsError}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -627,5 +504,3 @@ function CostsTreeInspector({ payload }) {
     </div>
   );
 }
-
-
