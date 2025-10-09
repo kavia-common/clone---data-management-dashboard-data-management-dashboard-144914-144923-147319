@@ -1,64 +1,102 @@
 'use strict';
 
-const { getNewUsersOverTime } = require('../services/analytics.users.newOverTime.service');
+const { ObjectId } = require('mongodb');
 
 /**
  * PUBLIC_INTERFACE
  * GET /api/analytics/users/new-over-time
  * Returns new users count aggregated over time.
- * Query:
- *  - granularity=day|week|month (default day)
- *  - start=<ISO> & end=<ISO>
- *    Defaults:
- *      day: last 90 days
- *      week: last 26 weeks
- *      month: last 12 months
- * Response:
- * {
- *   granularity, start, end,
- *   points: [ { bucket: 'YYYY-MM-DD'|'YYYY-[W]WW'|'YYYY-MM', count: Number } ]
- * }
+ *
+ * Query params:
+ * - from (optional ISO)
+ * - to (optional ISO)
+ * - granularity (optional): 'day' | 'week' | 'month'
+ *
+ * Behavior:
+ * - If granularity is omitted, defaults to daily aggregation over the full available range.
+ * - If from/to omitted, computes full available range from users.created_at.
+ *
+ * Response: { items: [{ date: 'YYYY-MM-DD', total: number }] }
  */
 async function newUsersOverTime(req, res) {
   try {
-    const qGran = String((req.query.granularity || 'day')).toLowerCase();
-    const granularity = ['day', 'week', 'month'].includes(qGran) ? qGran : 'day';
+    const db = req.app.get('db');
+    const collection = db.collection('users');
 
-    // Default windows based on granularity if not provided
-    const now = new Date();
-    let startDefault;
-    if (granularity === 'day') {
-      startDefault = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-    } else if (granularity === 'week') {
-      startDefault = new Date(now.getTime() - 26 * 7 * 24 * 60 * 60 * 1000);
-    } else {
-      // month: approximate 12 months as 365 days for simplicity; visualization tolerant
-      startDefault = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    const { from, to } = req.query;
+    let { granularity } = req.query;
+
+    if (!granularity) {
+      granularity = 'day';
+    }
+    if (granularity && !['day', 'week', 'month'].includes(granularity)) {
+      return res.status(400).json({ success: false, message: 'invalid granularity: expected day|week|month' });
     }
 
-    const startStr = req.query.start || startDefault.toISOString();
-    const endStr = req.query.end || now.toISOString();
+    // Determine range from DB if not provided
+    let start = from ? new Date(from) : null;
+    let end = to ? new Date(to) : null;
 
-    const start = new Date(startStr);
-    const end = new Date(endStr);
+    if (!start || !end) {
+      const minMax = await collection
+        .aggregate([
+          {
+            $group: {
+              _id: null,
+              min: { $min: '$created_at' },
+              max: { $max: '$created_at' },
+            },
+          },
+        ])
+        .toArray();
 
-    if (Number.isNaN(start.getTime())) {
-      return res.status(400).json({ success: false, message: 'Invalid "start" date' });
+      const min = minMax?.[0]?.min ? new Date(minMax[0].min) : new Date();
+      const max = minMax?.[0]?.max ? new Date(minMax[0].max) : new Date();
+
+      start = start || min;
+      end = end || max;
     }
-    if (Number.isNaN(end.getTime())) {
-      return res.status(400).json({ success: false, message: 'Invalid "end" date' });
-    }
-    if (end < start) {
-      return res.status(400).json({ success: false, message: '"end" must be after "start"' });
-    }
 
-    const result = await getNewUsersOverTime({ granularity, start, end });
+    // Make end exclusive by adding 1 day to include last bucket cleanly
+    const endExclusive = new Date(end);
+    endExclusive.setDate(endExclusive.getDate() + 1);
 
-    return res.status(200).json(result);
+    const unit = granularity === 'day' ? 'day' : granularity === 'week' ? 'week' : 'month';
+
+    const pipeline = [
+      {
+        $match: {
+          created_at: { $gte: start, $lt: endExclusive },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateTrunc: {
+              date: '$created_at',
+              unit,
+            },
+          },
+          total: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+      {
+        $project: {
+          _id: 0,
+          date: { $dateToString: { format: '%Y-%m-%d', date: '$_id' } },
+          total: 1,
+        },
+      },
+    ];
+
+    const items = await collection.aggregate(pipeline).toArray();
+
+    return res.status(200).json({ items });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('GET /api/analytics/users/new-over-time failed:', err?.message || err);
-    const status = err.status || 500;
+    const status = err?.status || 500;
     return res.status(status).json({
       success: false,
       message: err?.message || 'Failed to compute new users over time',
