@@ -57,6 +57,9 @@ export default function DataTable({
   const bodyRef = useRef(null);
   const headerRef = useRef(null);
 
+  // Determine server mode up-front so we can control sorting and pagination behavior consistently.
+  const isServerMode = typeof fetchPage === "function" && typeof serverTotal === "number";
+
   function getValue(row, path) {
     if (!row || !path) return undefined;
     try {
@@ -69,7 +72,9 @@ export default function DataTable({
     }
   }
 
+  // In server mode, do not apply client-side sorting: trust server ordering for global sort correctness.
   const sorted = useMemo(() => {
+    if (isServerMode) return data || [];
     if (!sortKey) return data || [];
     const copy = [...(data || [])];
     copy.sort((a, b) => {
@@ -83,20 +88,19 @@ export default function DataTable({
         : String(bv ?? "").localeCompare(String(av ?? ""));
     });
     return copy;
-  }, [data, sortDir, sortKey]);
+  }, [data, sortDir, sortKey, isServerMode]);
 
   // Determine total and pagination mode
   const clientTotal = sorted?.length || 0;
-  const isServerMode = typeof fetchPage === "function" && typeof serverTotal === "number";
   const total = isServerMode ? Math.max(0, serverTotal) : clientTotal;
 
   const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
   const currentPage = Math.min(Math.max(1, page), totalPages);
 
-  // In client mode slice locally; in server mode assume data already corresponds to current page
+  // In client mode slice locally; in server mode assume data already corresponds to current page (and is globally sorted by server)
   const start = (currentPage - 1) * Math.max(1, pageSize);
   const end = start + Math.max(1, pageSize);
-  const pageRows = isServerMode ? (sorted || []) : sorted.slice(start, end);
+  const pageRows = isServerMode ? (data || []) : sorted.slice(start, end);
 
   async function setPageAndNotify(p) {
     const next = Math.min(Math.max(1, p), totalPages);
@@ -128,14 +132,19 @@ export default function DataTable({
       nextDir = "asc";
       setSortDir("asc");
     }
-    // Reset to first page
+    // Reset to first page; in server mode fetch the page once here (avoid double fetch)
     if (typeof fetchPage === "function") {
       try {
         await fetchPage(1, Math.max(1, pageSize), key, nextDir);
       } catch {
         // ignore errors; parent handles UI
       }
+      setPage(1);
+      if (typeof onPageChange === "function") onPageChange(1);
+      if (bodyRef.current) bodyRef.current.scrollTop = 0;
+      return;
     }
+    // Client mode: just update to first page; slicing/sorting handled locally
     setPageAndNotify(1);
   }
 
