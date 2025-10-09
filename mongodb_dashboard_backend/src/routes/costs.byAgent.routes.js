@@ -71,9 +71,10 @@ function buildMatchFromQuery(q = {}) {
  *
  * Response:
  * {
- *   items: [ { agent_name: string, total: number } ],
+ *   items: [ { agent_name: string, total: number, total_cost: number } ],
  *   total: number, // number of agents returned
- *   meta: { limit: number }
+ *   limit: number, // requested limit
+ *   meta: { limit: number } // kept for backward compatibility with frontend
  * }
  */
 router.get(
@@ -88,7 +89,7 @@ router.get(
       // Pre-filter if any
       ...(Object.keys(match).length ? [{ $match: match }] : []),
 
-      // Project normalized agent name and numeric total cost
+      // Project normalized agent name and prepare likely cost fields
       {
         $project: {
           // Pick best-effort agent name from multiple possible fields
@@ -103,64 +104,67 @@ router.get(
               },
             ],
           },
-          raw_cost: {
+          // Common variants for cost fields
+          total_cost: '$total_cost',
+          cost: '$cost',
+          costUSD: '$costUSD',
+          cost_usd: '$cost_usd',
+          usage_cost: '$usage.cost',
+        },
+      },
+
+      // Coerce cost to number with defensive handling (no bare '$' field paths)
+      // total_num = $ifNull([$toDouble($ifNull(['$total_cost', '$cost', 0])), 0])
+      // plus additional fallbacks: costUSD, cost_usd, usage.cost
+      {
+        $addFields: {
+          total_num: {
             $ifNull: [
-              '$total_cost',
               {
-                $ifNull: [
-                  '$cost',
-                  { $ifNull: ['$costUSD', { $ifNull: ['$cost_usd', { $ifNull: ['$usage.cost', 0] }] }] },
-                ],
+                $toDouble: {
+                  $ifNull: [
+                    '$total_cost',
+                    {
+                      $ifNull: [
+                        '$cost',
+                        {
+                          $ifNull: [
+                            '$costUSD',
+                            {
+                              $ifNull: ['$cost_usd', { $ifNull: ['$usage_cost', 0] }],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
               },
+              0,
             ],
           },
         },
       },
-      // Coerce cost to number with defensive handling (strip $ if needed)
-      {
-        $addFields: {
-          total_cost_num: {
-            $convert: {
-              input: {
-                $cond: [
-                  { $isNumber: '$raw_cost' },
-                  '$raw_cost',
-                  {
-                    $cond: [
-                      {
-                        $and: [
-                          { $eq: [{ $type: '$raw_cost' }, 'string'] },
-                          { $eq: [{ $substrCP: ['$raw_cost', 0, 1] }, '$'] },
-                        ],
-                      },
-                      { $substrCP: ['$raw_cost', 1, { $strLenCP: '$raw_cost' }] },
-                      { $toString: '$raw_cost' },
-                    ],
-                  },
-                ],
-              },
-              to: 'double',
-              onError: 0,
-              onNull: 0,
-            },
-          },
-        },
-      },
+
       // Group by agent_name
       {
         $group: {
           _id: { $ifNull: ['$agent_name', 'unknown'] },
-          total_cost: { $sum: '$total_cost_num' },
+          total: { $sum: '$total_num' },
         },
       },
-      // Shape and round
+
+      // Shape output, include both "total" and "total_cost" for frontend compatibility
       {
         $project: {
           _id: 0,
           agent_name: '$_id',
-          total: { $round: ['$total_cost', 6] },
+          total: { $round: ['$total', 6] },
+          total_cost: { $round: ['$total', 6] },
         },
       },
+
+      // Sorting and limit for Top N
       { $sort: { total: -1 } },
       { $limit: limit },
     ];
@@ -169,7 +173,8 @@ router.get(
     const collection = await getCollection(['llm-costs', 'llm_costs']);
     const items = await collection.aggregate(pipeline, { allowDiskUse: true }).toArray();
 
-    return res.status(200).json({ items, total: items.length, meta: { limit } });
+    // Return shape compatible with frontend and instruction
+    return res.status(200).json({ items, total: items.length, limit, meta: { limit } });
   })
 );
 
