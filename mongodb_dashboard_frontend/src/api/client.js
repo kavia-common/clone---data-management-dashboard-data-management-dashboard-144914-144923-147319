@@ -57,9 +57,9 @@ export async function deleteUser(id) {
   const res = await api.delete(`/users/${id}`);
   return res.data?.data ?? res.data;
 }
- // === SESSION TRACKING ===
-export async function listSessions(params = {}, options = {}) {
-  const res = await api.get("/session-tracking", { params, signal: options.signal });
+// === SESSION TRACKING ===
+export async function listSessions(params = {}) {
+  const res = await api.get("/session-tracking", { params });
   return normalizeListResponse(res);
 }
 export async function createSession(body) {
@@ -75,13 +75,13 @@ export async function deleteSession(id) {
   return res.data?.data ?? res.data;
 }
 // === APP DEPLOYMENTS ===
-export async function listDeployments(params = {}, options = {}) {
-  const res = await api.get("/app-deployments", { params, signal: options.signal });
+export async function listDeployments(params = {}) {
+  const res = await api.get("/app-deployments", { params });
   return normalizeListResponse(res);
 }
 // === LLM COSTS ===
-export async function listLlmCosts(params = {}, options = {}) {
-  const res = await api.get("/llm-costs", { params, signal: options.signal });
+export async function listLlmCosts(params = {}) {
+  const res = await api.get("/llm-costs", { params });
   return normalizeListResponse(res);
 }
 // === USER COSTS ===

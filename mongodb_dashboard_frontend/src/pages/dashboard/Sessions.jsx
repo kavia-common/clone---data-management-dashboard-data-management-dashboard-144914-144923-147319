@@ -67,12 +67,6 @@ export default function Sessions() {
   const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
 
-  // AbortControllers to cancel inflight requests
-  const requestAbortRef = useRef(null);
-  const aggAbortRef = useRef(null);
-  // Debounce timer for table fetches (sort/page change)
-  const fetchTimerRef = useRef(null);
-
   async function loadAggregates(qStr = "") {
     /**
      * Fetch sessions data across multiple pages (capped) and build client-side aggregates
@@ -81,19 +75,12 @@ export default function Sessions() {
     setAggLoading(true);
     setAggError("");
     try {
-      // Cancel prior aggregate requests
-      if (aggAbortRef.current) {
-        try { aggAbortRef.current.abort(); } catch {}
-      }
-      aggAbortRef.current = new AbortController();
-
       const limit = 200;
       const maxPages = 10;
       let page = 1;
       const all = [];
       while (page <= maxPages) {
-        // Respect cancellation between pages
-        const res = await listSessions({ page, limit, q: qStr }, { signal: aggAbortRef.current.signal });
+        const res = await listSessions({ page, limit, q: qStr });
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
         if (arr.length < limit) break;
@@ -148,13 +135,6 @@ export default function Sessions() {
      *  - desc: -field
      */
     const requestId = ++activeRequestRef.current;
-
-    // Cancel any previous in-flight list request
-    if (requestAbortRef.current) {
-      try { requestAbortRef.current.abort(); } catch {}
-    }
-    requestAbortRef.current = new AbortController();
-
     setLoading(true);
     setError("");
     try {
@@ -169,7 +149,7 @@ export default function Sessions() {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
       }
-      const res = await listSessions(params, { signal: requestAbortRef.current.signal });
+      const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
@@ -312,11 +292,7 @@ export default function Sessions() {
             } else if (!lastSortRef.current) {
               lastSortRef.current = { key: "", dir: "asc" };
             }
-            // Debounce to avoid burst fetches on rapid clicks
-            if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
-            fetchTimerRef.current = setTimeout(() => {
-              load(page, limit, (query || "").trim(), sortKey, sortDir);
-            }, 150);
+            await load(page, limit, (query || "").trim(), sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
