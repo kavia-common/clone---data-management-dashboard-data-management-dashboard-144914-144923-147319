@@ -345,7 +345,7 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                 </p>
                 <h3 style={{ margin: "6px 0 0 0", fontSize: 18, fontWeight: 800, color: "#1E3A8A" }}>
                   Credits Used:{" "}
-                  <span style={{ fontSize: 24, fontWeight: 900 }} data-testid="credits-used-topline">
+                  <span style={{ fontSize: 24, fontWeight: 900 }} data-testid="credits-used-topline" title="Credits with USD equivalent">
                     {renderCreditsWithUsd(topLevelAmounts.usd, { maximumFractionDigits: 6 })}
                   </span>
                 </h3>
@@ -397,13 +397,21 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                       borderRadius: 8,
                       fontVariantNumeric: "tabular-nums",
                     }}
-                    title="Credits used (derived from total cost)"
+                    title="Credits used (from API, with computed fallback)"
                   >
-                    {topLevelAmounts?.credits
-                      ? topLevelAmounts.credits.toLocaleString(undefined, {
-                          maximumFractionDigits: 0,
-                        })
-                      : "—"}
+                    {(() => {
+                      // Prefer backend-provided creditsUsed/credits_used; fallback to computed
+                      const apiCreditsRaw = costData?.creditsUsed ?? costData?.credits_used ?? null;
+                      const apiCredits =
+                        typeof apiCreditsRaw === "string" ? Number(apiCreditsRaw) : apiCreditsRaw;
+                      const credits = Number.isFinite(apiCredits)
+                        ? apiCredits
+                        : (topLevelAmounts?.credits || 0);
+                      // Handle loading/empty gracefully
+                      return credits
+                        ? credits.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                        : (costData?.userName === "Loading..." ? "Loading…" : "—");
+                    })()}
                   </span>
                 </div>
               </div>
