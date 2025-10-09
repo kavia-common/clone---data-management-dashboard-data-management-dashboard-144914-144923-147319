@@ -1,31 +1,45 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersOverTimeChart from "../../components/users/UsersOverTimeChart.jsx";
+import { fetchNewUsersOverTime } from "../../api/usersAnalyticsNewOverTime";
 
 /**
  * PUBLIC_INTERFACE
  * Users page
- * Refactored to use a single TabbedUserModal that merges Profile (Details) and Projects into tabs.
- * - Centralizes selectedUser and modal open state in this page.
- * - When selecting a user from UsersList, opens the modal with defaultTab="details".
- * - When invoking "View Projects" triggers, opens with defaultTab="projects".
- *
- * Enhancement:
- * - Integrates UsersByTenantBarChart above the users table, wired to date range and tenant filters
- *   (uses a simple relative date window for consistency with existing histogram controls).
+ * Shows "New Users Over Time – All Data" without granularity filters.
+ * Existing content (tenant chart, users list, modal) preserved.
  */
 export default function Users() {
-  // Centralized state for one modal
+  // For UsersOverTimeChart
+  const [series, setSeries] = useState([]);
+  const [seriesLoading, setSeriesLoading] = useState(true);
+  const [seriesError, setSeriesError] = useState(null);
+
+  const loadSeries = useCallback(async () => {
+    setSeriesLoading(true);
+    setSeriesError(null);
+    try {
+      const res = await fetchNewUsersOverTime();
+      setSeries(res?.items ?? []);
+    } catch (e) {
+      setSeriesError(e?.message || "Failed to load new users over time");
+    } finally {
+      setSeriesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSeries();
+  }, [loadSeries]);
+
+  // Existing state (from prior implementation) retained
   const [open, setOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [defaultTab, setDefaultTab] = useState("details"); // 'details' | 'projects'
 
-  // Local filter state for the chart to stay consistent across the page.
-  // We keep a simple relative date window like the histogram (default 30 days).
   const [rangeDays, setRangeDays] = useState(30);
-  // Selected tenant is derived from the selected user when a row is opened; otherwise empty (all tenants).
   const selectedTenantId = useMemo(() => {
     const u = selectedUser || {};
     return (
@@ -37,14 +51,12 @@ export default function Users() {
     );
   }, [selectedUser]);
 
-  // Compute from/to ISO using relative window; recomputed when rangeDays changes.
   const { fromIso, toIso } = useMemo(() => {
     const now = new Date();
     const from = new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000);
     return { fromIso: from.toISOString(), toIso: now.toISOString() };
   }, [rangeDays]);
 
-  // Called when a user is chosen from UsersList (row click)
   function handleUserSelect(user) {
     setSelectedUser(user);
     setDefaultTab("details");
@@ -55,7 +67,6 @@ export default function Users() {
     setOpen(false);
   }
 
-  // Dim/deactivate headbar while modal is open
   useEffect(() => {
     const body = document?.body;
     if (!body) return;
@@ -64,7 +75,6 @@ export default function Users() {
     const apply = () => {
       if (open) {
         body.classList.add(CLASS);
-        // Mark the header as hidden from assistive tech while modal is active
         const headerEl = document.querySelector(".app-headbar, .topbar");
         if (headerEl) {
           headerEl.setAttribute("aria-hidden", "true");
@@ -88,7 +98,6 @@ export default function Users() {
     };
   }, [open]);
 
-  // Inline controls for the chart to align with existing patterns (Ocean Professional style).
   const chartToolbar = (
     <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8 }}>
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -112,8 +121,6 @@ export default function Users() {
         </select>
       </label>
       <div className="spacer" />
-      {/* Tenant filter is implicitly applied by UsersList table; for the chart we scope to the selected user tenant when a user is opened.
-          If no user is selected, we show all tenants to provide an overview. */}
     </div>
   );
 
@@ -123,7 +130,7 @@ export default function Users() {
       <div style={{ marginBottom: 12 }}>
         <div className="card">
           <div className="card-content" style={{ paddingTop: 16 }}>
-            <UsersOverTimeChart />
+            <UsersOverTimeChart data={series} loading={seriesLoading} error={seriesError} />
           </div>
         </div>
       </div>
@@ -146,7 +153,6 @@ export default function Users() {
               includeInactive={false}
               maxBars={12}
               onBarClick={(item) => {
-                // Future: filter table by tenant
                 // eslint-disable-next-line no-console
                 console.debug("Tenant bar clicked:", item);
               }}
@@ -162,10 +168,8 @@ export default function Users() {
         onUserSelect={handleUserSelect}
       />
 
-      {/* Spacer preserved after removing helper text and button to maintain layout rhythm */}
       <div style={{ marginTop: 12 }} aria-hidden="true" />
 
-      {/* Single tabbed modal: Details and Projects */}
       <TabbedUserModal
         open={open}
         onClose={closeModal}

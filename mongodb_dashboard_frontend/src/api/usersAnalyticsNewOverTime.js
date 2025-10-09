@@ -2,23 +2,20 @@ import { getApiClient } from "./client";
 
 /**
  * PUBLIC_INTERFACE
- * Fetch "new users over time" analytics.
- * @param {"day"|"week"|"month"} granularity
- * @returns {Promise<{ items: Array<{ date: string, total: number }>, meta?: any }>}
+ * Fetch the full-range "new users over time" analytics with no granularity parameter.
+ * The backend defaults to daily aggregation across the full available range when no granularity is provided.
+ * Expected response shape: { items: [{ date: "YYYY-MM-DD", total: number }], meta?: any }
  */
-export async function fetchNewUsersOverTime(granularity = "day") {
-  // Validate granularity
-  const g = ["day", "week", "month"].includes(granularity) ? granularity : "day";
+export async function fetchNewUsersOverTime() {
   try {
     const api = getApiClient();
-    const res = await api.get(`/analytics/users/new-over-time?granularity=${g}`);
-    // Expect either { items: [...] } or raw array fallback
+    const res = await api.get(`/analytics/users/new-over-time`);
+    // Normalize potential raw array responses to { items }
     if (Array.isArray(res.data)) {
       return { items: res.data };
     }
     return res.data;
   } catch (err) {
-    // Normalize error for caller
     const message =
       err?.response?.data?.message ||
       err?.message ||
