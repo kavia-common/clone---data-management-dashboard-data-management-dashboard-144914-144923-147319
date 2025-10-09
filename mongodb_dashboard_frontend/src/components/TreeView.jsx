@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import "./TreeView.css";
+import { formatLabel } from "../utils/formatLabel";
 
 /**
  * PUBLIC_INTERFACE
@@ -235,10 +236,14 @@ const TreeView = forwardRef(function TreeView(
         : null;
 
       // Display key with highlight
+      // Apply label formatter only for display; underlying data is not mutated.
+      const displayKey =
+        typeof keyLabel === "string" ? formatLabel(keyLabel) : keyLabel;
+
       const keyContent =
         keyLabel != null ? (
-          <span className="tv-key" title={String(keyLabel)}>
-            {highlight(String(keyLabel), searchRegex)}
+          <span className="tv-key" title={String(displayKey)}>
+            {highlight(String(displayKey), searchRegex)}
           </span>
         ) : null;
 

@@ -421,7 +421,9 @@ export default function DetailsViewer({
 
     const keys = Object.keys(value);
     const sampleSummary =
-      keys.length > 0 ? `${keys.slice(0, 2).join(", ")}${keys.length > 2 ? ` +${keys.length - 2} more` : ""}` : "empty";
+      keys.length > 0
+        ? `${keys.slice(0, 2).map((k) => toLabel(k)).join(", ")}${keys.length > 2 ? ` +${keys.length - 2} more` : ""}`
+        : "empty";
     const objBody = renderEntries(value, path, depth + 1, rootObj);
     if (isTopLevelObj) {
       // Render directly without a top-level "Root" collapsible.
