@@ -95,8 +95,14 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
    * - Prefers USD-like fields; when present, compute credits from USD.
    * - If only credits-like fields exist, back-compute USD from credits using the configured rate.
    */
+  // Select top-level USD and credits, explicitly preferring backend-provided creditsUsed/credits_used
   const topLevelAmounts = React.useMemo(() => {
-    // Try common USD/cost keys from various APIs
+    // Prefer API-provided credits first for alignment with backend calculation
+    const preferredCreditsRaw = costData?.creditsUsed ?? costData?.credits_used ?? null;
+    const preferredCredits =
+      typeof preferredCreditsRaw === "string" ? Number(preferredCreditsRaw) : preferredCreditsRaw;
+
+    // Fallback: derive from available USD-like fields
     const usdCandidates = [
       "totalCostUSD",
       "total_usd",
@@ -111,7 +117,6 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
       "project_cost",
       "charge",
     ];
-    const creditsCandidates = ["total_credits", "user_credits", "project_credits", "credits"];
 
     let usd = 0;
     for (const k of usdCandidates) {
@@ -121,22 +126,29 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
       }
     }
 
-    let credits = 0;
-    for (const k of creditsCandidates) {
-      if (Object.prototype.hasOwnProperty.call(costData || {}, k)) {
-        credits = toNumber(costData[k]);
-        if (credits) break;
-      }
+    if (Number.isFinite(preferredCredits) && preferredCredits > 0) {
+      // Back-compute USD from credits using configured rate to keep display consistent
+      const computedUsd = preferredCredits / CREDITS_PER_USD;
+      return { usd: computedUsd, credits: preferredCredits };
     }
 
     if (usd > 0) {
       return { usd, credits: Math.round(usd * CREDITS_PER_USD) };
     }
-    if (credits > 0) {
-      const computedUsd = credits / CREDITS_PER_USD;
-      return { usd: computedUsd, credits };
+
+    // Fallback legacy credits keys if present (e.g., total_credits)
+    const legacyCredits =
+      toNumber(costData?.total_credits) ||
+      toNumber(costData?.user_credits) ||
+      toNumber(costData?.project_credits) ||
+      toNumber(costData?.credits) ||
+      0;
+
+    if (legacyCredits > 0) {
+      const computedUsd = legacyCredits / CREDITS_PER_USD;
+      return { usd: computedUsd, credits: legacyCredits };
     }
-    // Fallback to 0s; allows UI to still render
+
     return { usd: 0, credits: 0 };
   }, [costData, toNumber]);
 
@@ -400,14 +412,7 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                     title="Credits used (from API, with computed fallback)"
                   >
                     {(() => {
-                      // Prefer backend-provided creditsUsed/credits_used; fallback to computed
-                      const apiCreditsRaw = costData?.creditsUsed ?? costData?.credits_used ?? null;
-                      const apiCredits =
-                        typeof apiCreditsRaw === "string" ? Number(apiCreditsRaw) : apiCreditsRaw;
-                      const credits = Number.isFinite(apiCredits)
-                        ? apiCredits
-                        : (topLevelAmounts?.credits || 0);
-                      // Handle loading/empty gracefully
+                      const credits = topLevelAmounts?.credits || 0;
                       return credits
                         ? credits.toLocaleString(undefined, { maximumFractionDigits: 0 })
                         : (costData?.userName === "Loading..." ? "Loading…" : "—");
