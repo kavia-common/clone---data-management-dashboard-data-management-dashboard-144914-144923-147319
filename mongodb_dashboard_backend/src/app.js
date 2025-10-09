@@ -111,7 +111,10 @@ app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
  // Sample data endpoint (demonstration): /api/data
 app.use('/api/data', require('./routes/data.routes'));
 
-  // LLM costs endpoints (CRUD/list/get)
+// Costs aggregate endpoints (custom analytics-like)
+app.use('/api/costs', require('./routes/costs.byAgent.routes'));
+
+// LLM costs endpoints (CRUD/list/get)
 app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
 app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
 
