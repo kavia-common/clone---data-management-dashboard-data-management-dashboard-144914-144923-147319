@@ -267,15 +267,29 @@ export default function Costs() {
     return cols.length ? cols : [{ key: "_id", label: "ID" }];
   }
 
-  async function load(page = 1, limit = meta.limit || 10) {
+  async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
+    /**
+     * Loads costs with optional server-side sorting.
+     * When sortKey is provided, we pass `sort` param to backend using the format:
+     *  - asc: field
+     *  - desc: -field
+     */
     setLoading(true);
     setError("");
     try {
-      const res = await listLlmCosts({ page, limit });
+      const params = { page, limit };
+      if (sortKey) {
+        params.sort = sortDir === "desc" ? `-${sortKey}` : String(sortKey);
+      }
+      const res = await listLlmCosts(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
-      setMeta({ page: res?.meta?.page || page, limit: res?.meta?.limit || limit, total: res?.meta?.total ?? arr.length });
+      setMeta({
+        page: res?.meta?.page || page,
+        limit: res?.meta?.limit || limit,
+        total: res?.meta?.total ?? arr.length,
+      });
     } catch (e) {
       setAllItems([]);
       setItems([]);
@@ -342,8 +356,8 @@ export default function Costs() {
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
-          fetchPage={async (page, limit) => {
-            await load(page, limit);
+          fetchPage={async (page, limit, sortKey, sortDir) => {
+            await load(page, limit, sortKey, sortDir);
           }}
           paginationTitle="Cost records pages"
         />
