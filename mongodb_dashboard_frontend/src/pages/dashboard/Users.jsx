@@ -1,39 +1,14 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
-import UsersOverTimeChart from "../../components/users/UsersOverTimeChart.jsx";
-import { fetchNewUsersOverTime } from "../../api/usersAnalyticsNewOverTime";
 
 /**
  * PUBLIC_INTERFACE
  * Users page
- * Shows "New Users Over Time – All Data" without granularity filters.
- * Existing content (tenant chart, users list, modal) preserved.
+ * Shows Users by Tenant chart and Users list with modal details.
  */
 export default function Users() {
-  // For UsersOverTimeChart
-  const [series, setSeries] = useState([]);
-  const [seriesLoading, setSeriesLoading] = useState(true);
-  const [seriesError, setSeriesError] = useState(null);
-
-  const loadSeries = useCallback(async () => {
-    setSeriesLoading(true);
-    setSeriesError(null);
-    try {
-      const res = await fetchNewUsersOverTime();
-      setSeries(res?.items ?? []);
-    } catch (e) {
-      setSeriesError(e?.message || "Failed to load new users over time");
-    } finally {
-      setSeriesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadSeries();
-  }, [loadSeries]);
-
   // Existing state (from prior implementation) retained
   const [open, setOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -126,15 +101,6 @@ export default function Users() {
 
   return (
     <div>
-      {/* New Users Over Time chart */}
-      <div style={{ marginBottom: 12 }}>
-        <div className="card">
-          <div className="card-content" style={{ paddingTop: 16 }}>
-            <UsersOverTimeChart data={series} loading={seriesLoading} error={seriesError} />
-          </div>
-        </div>
-      </div>
-
       {/* Users by Tenant chart above the table */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
