@@ -27,8 +27,13 @@ function buildMatchFromQuery(q = {}) {
   });
 
   // Time range: prefer 'timestamp' field but be flexible
-  const start = q.start_date ? new Date(q.start_date) : null;
-  const end = q.end_date ? new Date(q.end_date) : null;
+  const parseDate = (v) => {
+    if (!v) return null;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const start = parseDate(q.start_date);
+  const end = parseDate(q.end_date);
 
   if ((q.start_date && !start) || (q.end_date && !end)) {
     const err = new Error('Invalid ISO date in start_date/end_date');
@@ -66,7 +71,8 @@ function buildMatchFromQuery(q = {}) {
  *
  * Response:
  * {
- *   items: [ { agent_name: string, total_cost: number } ],
+ *   items: [ { agent_name: string, total: number } ],
+ *   total: number, // number of agents returned
  *   meta: { limit: number }
  * }
  */
@@ -152,10 +158,10 @@ router.get(
         $project: {
           _id: 0,
           agent_name: '$_id',
-          total_cost: { $round: ['$total_cost', 6] },
+          total: { $round: ['$total_cost', 6] },
         },
       },
-      { $sort: { total_cost: -1 } },
+      { $sort: { total: -1 } },
       { $limit: limit },
     ];
 
