@@ -120,6 +120,10 @@ app.use('/api/tenants', require('./routes/tenants.routes'));
 app.use('/api/projects', require('./routes/projects.routes'));
 // Tenants and Projects (mapping, hierarchy, credits, usage)
 app.use('/api/tenants', require('./routes/tenants.routes'));
+
+// Analytics endpoints
+app.use('/api/analytics', require('./routes/analytics.routes'));
+
 // JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
 app.use((req, res) => {
   return res.status(404).json({
