@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { formatCurrencyAmount } from "../../utils/formatCurrency";
 import { usdToCredits, formatCredits } from "../../utils/currency";
+import { formatLabel } from "../../utils/formatLabel";
 
 /**
  * PUBLIC_INTERFACE
@@ -100,7 +101,6 @@ export default function DetailsViewer({
 
   // Use centralized label formatter to ensure consistency across app
   // This affects only visual labels, not the underlying data keys.
-  import { formatLabel } from '../../utils/formatLabel';
 
   function toLabel(key) {
     if (!key && key !== 0) return "";
