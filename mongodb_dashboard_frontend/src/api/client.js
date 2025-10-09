@@ -1,8 +1,14 @@
 import axios from 'axios';
 
 const resolveBaseURL = () => {
+  // Primary env var (existing behavior)
   const env = process.env.REACT_APP_API_BASE;
   if (env && env.trim().length > 0) return env;
+
+  // Optional fallback env var (new, without breaking existing setups)
+  const envAlt = process.env.REACT_APP_API_BASE_URL;
+  if (envAlt && envAlt.trim().length > 0) return envAlt;
+
   // Fallback: if frontend on 3000, backend on 3001 same host
   try {
     const url = new URL(window.location.href);

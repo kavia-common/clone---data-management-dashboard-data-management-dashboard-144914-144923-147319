@@ -18,21 +18,49 @@ export default function Overview() {
   const [trend, setTrend] = useState([]);
   const [error, setError] = useState("");
 
+  // Helper to normalize totals across possible response shapes:
+  // - Array: use length
+  // - Envelope: { meta: { total } } or { total } or { data/items: [] } fallback to array length
+  function getTotal(payload) {
+    if (!payload) return 0;
+    // direct array
+    if (Array.isArray(payload)) return payload.length;
+
+    // envelope with meta.total
+    const metaTotal = payload?.meta?.total;
+    if (Number.isFinite(metaTotal)) return Number(metaTotal);
+
+    // plain total
+    if (Number.isFinite(payload?.total)) return Number(payload.total);
+
+    // if data or items array present, use its length
+    if (Array.isArray(payload?.data)) return payload.data.length;
+    if (Array.isArray(payload?.items)) return payload.items.length;
+
+    // sometimes axios returns { data: <actual> } already unwrapped by us, but safeguard:
+    const inner = payload?.data ?? payload?.items;
+    if (Array.isArray(inner)) return inner.length;
+    if (inner && Number.isFinite(inner?.total)) return Number(inner.total);
+    if (inner && Number.isFinite(inner?.meta?.total)) return Number(inner.meta.total);
+
+    return 0;
+  }
+
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
       setError("");
       try {
-        // Fetch small samples; we only need totals. API normalizer returns { items, total, meta }
+        // Fetch small samples; we only need totals.
         const [usersRes, sessionsRes, deploymentsRes] = await Promise.all([
           listUsers({ page: 1, limit: 1 }),
           listSessions({ page: 1, limit: 1 }),
           listDeployments({ page: 1, limit: 1 }),
         ]);
 
-        const usersCount = usersRes?.total ?? (Array.isArray(usersRes) ? usersRes.length : 0);
-        const sessionsCount = sessionsRes?.total ?? (Array.isArray(sessionsRes) ? sessionsRes.length : 0);
-        const deploymentsCount = deploymentsRes?.total ?? (Array.isArray(deploymentsRes) ? deploymentsRes.length : 0);
+        const usersCount = getTotal(usersRes);
+        const sessionsCount = getTotal(sessionsRes);
+        const deploymentsCount = getTotal(deploymentsRes);
 
         setMetrics({
           users: usersCount,
