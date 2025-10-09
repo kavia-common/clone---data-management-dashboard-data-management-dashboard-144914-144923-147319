@@ -97,68 +97,6 @@ export async function getTenantUsersSummary(params = {}) {
   }
 }
 
-/**
- * PUBLIC_INTERFACE
- * getReferralSources
- * Calls GET /api/users/referral-sources with optional query params:
- * - from?: string | Date (ISO lower bound)
- * - to?: string | Date (ISO upper bound)
- * - top?: number (maps to backend "limit")
- *
- * Returns:
- * - On success: { items: Array<{ source: string, count: number }>, totalSources: number }
- * - On failure: returns { items: [], totalSources: 0 } for 400/404; otherwise throws an Error.
- */
-export async function getReferralSources(params = {}) {
-  const api = getApiClient();
-  const { top, ...rest } = params || {};
-  const query = normalizeQuery(rest);
-  if (typeof top === 'number' && top > 0) {
-    query.limit = top;
-  }
-
-  if (process.env.NODE_ENV !== 'production') {
-    // eslint-disable-next-line no-console
-    console.debug('[UsersAnalytics] GET /users/referral-sources', query);
-  }
-
-  try {
-    const res = await api.get('/users/referral-sources', { params: query });
-    const payload = res?.data ?? {};
-    const items = Array.isArray(payload?.items) ? payload.items : [];
-    const totalSources =
-      typeof payload?.totalSources === 'number'
-        ? payload.totalSources
-        : (Array.isArray(items) ? items.length : 0);
-
-    // Normalize item fields
-    const normItems = items.map((it) => ({
-      source: String(it?.source ?? 'Unknown'),
-      count: Number(isFinite(it?.count) ? it.count : 0),
-    }));
-
-    return { items: normItems, totalSources };
-  } catch (err) {
-    const status = err?.response?.status;
-    const serverMsg =
-      err?.response?.data?.message ||
-      err?.response?.data?.error ||
-      err?.message;
-
-    // eslint-disable-next-line no-console
-    console.error('[UsersAnalytics] Failed to fetch referral sources', {
-      status,
-      message: serverMsg,
-    });
-
-    if (status === 404 || status === 400) {
-      return { items: [], totalSources: 0 };
-    }
-    throw new Error(serverMsg || 'Failed to fetch referral sources');
-  }
-}
-
 export default {
   getTenantUsersSummary,
-  getReferralSources,
 };

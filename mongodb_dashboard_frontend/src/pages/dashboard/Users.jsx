@@ -2,12 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
-import TopReferralSourcesBarChart from "../../components/users/TopReferralSourcesBarChart.jsx";
 
 /**
  * PUBLIC_INTERFACE
  * Users page
- * Shows Users by Tenant chart, Top Referral Sources chart, and Users list with modal details.
+ * Shows Users by Tenant chart and Users list with modal details.
  */
 export default function Users() {
   // Existing state (from prior implementation) retained
@@ -75,7 +74,7 @@ export default function Users() {
   }, [open]);
 
   const chartToolbar = (
-    <div className="toolbar" aria-label="Users charts filters" style={{ marginBottom: 8 }}>
+    <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8 }}>
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 12, color: "#6B7280" }}>Date range</span>
         <select
@@ -102,7 +101,7 @@ export default function Users() {
 
   return (
     <div>
-      {/* Users by Tenant chart */}
+      {/* Users by Tenant chart above the table */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
           <div className="card-header" style={{ paddingBottom: 0 }}>
@@ -124,22 +123,6 @@ export default function Users() {
                 console.debug("Tenant bar clicked:", item);
               }}
             />
-          </div>
-        </div>
-      </div>
-
-      {/* Top Referral Sources chart */}
-      <div style={{ marginBottom: 12 }}>
-        <div className="card">
-          <div className="card-header" style={{ paddingBottom: 0 }}>
-            <div>
-              <h3 className="card-title">Top Referral Sources</h3>
-              <div className="card-subtitle">Where new users are coming from</div>
-            </div>
-            <div className="card-actions" />
-          </div>
-          <div className="card-content">
-            <TopReferralSourcesBarChart from={fromIso} to={toIso} top={10} />
           </div>
         </div>
       </div>
