@@ -75,8 +75,6 @@ function corsMiddleware() {
 
   // Preview environment frontend
   whitelist.add('https://vscode-internal-24669-beta.beta01.cloud.kavia.ai:3000');
-  // Additional preview domain as per request (24699 beta environment)
-  whitelist.add('https://vscode-internal-24699-beta.beta01.cloud.kavia.ai:3000');
 
   const allowCredentials =
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
