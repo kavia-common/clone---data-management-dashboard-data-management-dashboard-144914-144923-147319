@@ -7,7 +7,7 @@ const { getCollection } = require('../config/db');
 
 /**
  * Build a MongoDB $match stage from query filters with defensive parsing.
- * Supports: tenant_id, project_id, user_id, llm_model, start_date, end_date
+ * Supports: tenant_id, project_id, user_id, llm_model, start/start_date, end/end_date
  */
 function buildMatchFromQuery(q = {}) {
   const and = [];
@@ -19,7 +19,7 @@ function buildMatchFromQuery(q = {}) {
     if (val != null && String(val).trim() !== '') {
       if (field === 'user_id') {
         // Some datasets store user_id as string or ObjectId-mixed. Normalize via $toString match in pipeline elsewhere.
-        and.push({ $expr: { $eq: [{ $toString: '$user_id' }, String(val)] } });
+        and.push({ $expr: { $eq: [{ $toString: '$user_id' }, String(val) ] } });
       } else {
         and.push({ [field]: String(val) });
       }
@@ -32,11 +32,15 @@ function buildMatchFromQuery(q = {}) {
     const d = new Date(v);
     return Number.isNaN(d.getTime()) ? null : d;
   };
-  const start = parseDate(q.start_date);
-  const end = parseDate(q.end_date);
+  // Accept both start/end and start_date/end_date
+  const startRaw = q.start ?? q.start_date;
+  const endRaw = q.end ?? q.end_date;
 
-  if ((q.start_date && !start) || (q.end_date && !end)) {
-    const err = new Error('Invalid ISO date in start_date/end_date');
+  const start = parseDate(startRaw);
+  const end = parseDate(endRaw);
+
+  if ((startRaw && !start) || (endRaw && !end)) {
+    const err = new Error('Invalid ISO date in start/end (or start_date/end_date)');
     err.status = 400;
     throw err;
   }
@@ -66,7 +70,7 @@ function buildMatchFromQuery(q = {}) {
  *
  * Query params:
  * - tenant_id, project_id, user_id, llm_model (string exact matches)
- * - start_date, end_date (ISO strings)
+ * - start, end (or start_date, end_date) ISO strings
  * - limit (number, default 10, max 100)
  *
  * Response:
@@ -89,67 +93,137 @@ router.get(
       // Pre-filter if any
       ...(Object.keys(match).length ? [{ $match: match }] : []),
 
-      // Project normalized agent name and prepare likely cost fields
+      // Project normalized agent candidate fields and cost candidates
       {
         $project: {
-          // Pick best-effort agent name from multiple possible fields
-          agent_name: {
+          // Agent candidates
+          agent_candidate: {
             $ifNull: [
               '$agent_name',
               {
                 $ifNull: [
                   '$agent',
-                  { $ifNull: ['$service_type', { $ifNull: ['$operation', 'unknown'] }] },
+                  {
+                    $ifNull: [
+                      '$tool',
+                      {
+                        $ifNull: [
+                          '$agentName',
+                          { $ifNull: ['$service_type', { $ifNull: ['$operation', null] }] },
+                        ],
+                      },
+                    ],
+                  },
                 ],
               },
             ],
           },
-          // Common variants for cost fields
-          total_cost: '$total_cost',
-          cost: '$cost',
-          costUSD: '$costUSD',
-          cost_usd: '$cost_usd',
-          usage_cost: '$usage.cost',
+          // Cost candidates
+          cost_total_cost: '$total_cost',
+          cost_cost: '$cost',
+          cost_costUSD: '$costUSD',
+          cost_cost_usd: '$cost_usd',
+          cost_usage_cost: '$usage.cost',
+          cost_usd: '$usd', // some datasets may use 'usd'
+          cost_price: '$price',
+          cost_amount: '$amount',
         },
       },
 
-      // Coerce cost to number with defensive handling (no bare '$' field paths)
-      // total_num = $ifNull([$toDouble($ifNull(['$total_cost', '$cost', 0])), 0])
-      // plus additional fallbacks: costUSD, cost_usd, usage.cost
+      // Derive normalized agent_name and numeric total
       {
         $addFields: {
-          total_num: {
-            $ifNull: [
-              {
-                $toDouble: {
-                  $ifNull: [
-                    '$total_cost',
-                    {
-                      $ifNull: [
-                        '$cost',
-                        {
-                          $ifNull: [
-                            '$costUSD',
-                            {
-                              $ifNull: ['$cost_usd', { $ifNull: ['$usage_cost', 0] }],
-                            },
-                          ],
-                        },
-                      ],
-                    },
+          // Trim and fallback to "Unknown" if empty or null
+          agent_name: {
+            $let: {
+              vars: {
+                raw: {
+                  $cond: [
+                    { $eq: [{ $type: '$agent_candidate' }, 'string'] },
+                    { $trim: { input: '$agent_candidate' } },
+                    '$agent_candidate',
                   ],
                 },
               },
-              0,
+              in: {
+                $cond: [
+                  {
+                    $or: [
+                      { $eq: ['$$raw', null] },
+                      { $eq: ['$$raw', ''] },
+                    ],
+                  },
+                  'Unknown',
+                  '$$raw',
+                ],
+              },
+            },
+          },
+          // Build a single raw cost value preferring total_cost, cost, costUSD, cost_usd, usage.cost, usd, price, amount
+          cost_raw: {
+            $ifNull: [
+              '$cost_total_cost',
+              {
+                $ifNull: [
+                  '$cost_cost',
+                  {
+                    $ifNull: [
+                      '$cost_costUSD',
+                      {
+                        $ifNull: [
+                          '$cost_cost_usd',
+                          {
+                            $ifNull: [
+                              '$cost_usage_cost',
+                              { $ifNull: ['$cost_usd', { $ifNull: ['$cost_price', { $ifNull: ['$cost_amount', 0] }] }] },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
             ],
           },
         },
       },
 
-      // Group by agent_name
+      // Safe numeric coercion for cost (supports strings like "$0.10")
+      {
+        $addFields: {
+          total_num: {
+            $convert: {
+              input: {
+                $cond: [
+                  { $isNumber: '$cost_raw' },
+                  '$cost_raw',
+                  {
+                    $cond: [
+                      {
+                        $and: [
+                          { $eq: [{ $type: '$cost_raw' }, 'string'] },
+                          { $eq: [{ $substrCP: ['$cost_raw', 0, 1] }, '$'] },
+                        ],
+                      },
+                      { $substrCP: ['$cost_raw', 1, { $strLenCP: '$cost_raw' }] },
+                      { $toString: '$cost_raw' },
+                    ],
+                  },
+                ],
+              },
+              to: 'double',
+              onError: 0,
+              onNull: 0,
+            },
+          },
+        },
+      },
+
+      // Group by normalized agent_name
       {
         $group: {
-          _id: { $ifNull: ['$agent_name', 'unknown'] },
+          _id: { $ifNull: ['$agent_name', 'Unknown'] },
           total: { $sum: '$total_num' },
         },
       },
@@ -173,7 +247,6 @@ router.get(
     const collection = await getCollection(['llm-costs', 'llm_costs']);
     const items = await collection.aggregate(pipeline, { allowDiskUse: true }).toArray();
 
-    // Return shape compatible with frontend and instruction
     return res.status(200).json({ items, total: items.length, limit, meta: { limit } });
   })
 );
