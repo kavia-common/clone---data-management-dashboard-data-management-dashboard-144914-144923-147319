@@ -21,6 +21,13 @@ export default function Costs() {
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
+  // AbortController for list requests and debounce timer for table fetch
+  const requestAbortRef = React.useRef(null);
+  const fetchTimerRef = React.useRef(null);
+
+  // Debounced query for client-side search
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
   // Inspector modal state
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectTitle, setInspectTitle] = useState("Details");
@@ -274,6 +281,12 @@ export default function Costs() {
      *  - asc: field
      *  - desc: -field
      */
+    // Cancel any prior in-flight request
+    if (requestAbortRef.current) {
+      try { requestAbortRef.current.abort(); } catch {}
+    }
+    requestAbortRef.current = new AbortController();
+
     setLoading(true);
     setError("");
     try {
@@ -281,7 +294,7 @@ export default function Costs() {
       if (sortKey) {
         params.sort = sortDir === "desc" ? `-${sortKey}` : String(sortKey);
       }
-      const res = await listLlmCosts(params);
+      const res = await listLlmCosts(params, { signal: requestAbortRef.current.signal });
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
@@ -303,8 +316,14 @@ export default function Costs() {
     load();
   }, []);
 
+  // Debounce search input to reduce re-filtering bursts
   useEffect(() => {
-    const q = (query || "").trim().toLowerCase();
+    const t = setTimeout(() => setDebouncedQuery((query || "").trim().toLowerCase()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    const q = (debouncedQuery || "").trim();
     if (!q) {
       setItems(allItems);
       return;
@@ -324,7 +343,7 @@ export default function Costs() {
       });
     });
     setItems(filtered);
-  }, [query, allItems]);
+  }, [debouncedQuery, allItems]);
 
   const columns = useMemo(() => {
     const base = buildColumnsFromSample(items || []);
@@ -357,7 +376,10 @@ export default function Costs() {
           initialPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
-            await load(page, limit, sortKey, sortDir);
+            if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+            fetchTimerRef.current = setTimeout(() => {
+              load(page, limit, sortKey, sortDir);
+            }, 150);
           }}
           paginationTitle="Cost records pages"
         />

@@ -31,6 +31,10 @@ export default function Deployments() {
   const [error, setError] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
+  // AbortController and debounce timer
+  const requestAbortRef = React.useRef(null);
+  const fetchTimerRef = React.useRef(null);
+
   const allowedOrdered = useMemo(
     () => ["project_display", "branch_name", "status", "created_at", "updated_at"],
     []
@@ -105,6 +109,12 @@ export default function Deployments() {
      *  - desc: -field
      * We map UI column keys to backend field names where necessary.
      */
+    // Cancel any prior in-flight request
+    if (requestAbortRef.current) {
+      try { requestAbortRef.current.abort(); } catch {}
+    }
+    requestAbortRef.current = new AbortController();
+
     setLoading(true);
     setError("");
     try {
@@ -121,7 +131,7 @@ export default function Deployments() {
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
       }
 
-      const res = await listDeployments(params);
+      const res = await listDeployments(params, { signal: requestAbortRef.current.signal });
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       // Map items to inject a computed 'project_display' for display convenience.
       const mapped = (arr || []).map((it) => {
@@ -172,7 +182,11 @@ export default function Deployments() {
             initialPage={meta.page || 1}
             serverTotal={meta.total}
             fetchPage={async (page, limit, sortKey, sortDir) => {
-              await load(page, limit, sortKey, sortDir);
+              // Debounce to avoid multiple immediate requests
+              if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+              fetchTimerRef.current = setTimeout(() => {
+                load(page, limit, sortKey, sortDir);
+              }, 150);
             }}
             paginationTitle="Deployment pages"
           />
