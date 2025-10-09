@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import Modal from "../ui/Modal";
 import { getAgentById } from "../../api/agents";
+import { getUserBasic } from "../../api/users";
 
 import { renderUsdWithCredits } from "../../utils/currency";
 
@@ -33,6 +34,11 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName, m
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [agent, setAgent] = useState(null);
+
+  // User name fetch state
+  const [userName, setUserName] = useState("");
+  const [userNameLoading, setUserNameLoading] = useState(false);
+  const [userNameError, setUserNameError] = useState("");
 
   const title = useMemo(() => {
     return agentName ? `Agent Details — ${agentName}` : "Agent Details";
@@ -144,6 +150,36 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName, m
     if (agentId) fetchAgent(agentId);
   }, [agentId, fetchAgent]);
 
+  // Fetch user name from backend using userId
+  useEffect(() => {
+    let ignore = false;
+    async function loadUserName() {
+      const id = normalized?.userId;
+      if (!open || !id) {
+        setUserName("");
+        setUserNameLoading(false);
+        setUserNameError("");
+        return;
+      }
+      try {
+        setUserNameLoading(true);
+        setUserNameError("");
+        const res = await getUserBasic(String(id));
+        if (ignore) return;
+        setUserName(res?.name || "");
+      } catch (e) {
+        if (!ignore) {
+          setUserName("");
+          setUserNameError(e?.response?.data?.message || e?.message || "Failed to load");
+        }
+      } finally {
+        if (!ignore) setUserNameLoading(false);
+      }
+    }
+    loadUserName();
+    return () => { ignore = true; };
+  }, [open, normalized?.userId]);
+
   const handleDownloadJson = useCallback(() => {
     if (!normalized?.raw) return;
     const json = JSON.stringify(normalized.raw, null, 2);
@@ -216,6 +252,16 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName, m
             <div className="adm-row">
               <div className="adm-label">User Id</div>
               <div className="adm-value">{normalized.userId ?? "—"}</div>
+            </div>
+            <div className="adm-row">
+              <div className="adm-label">User Name</div>
+              <div className="adm-value">
+                {userNameLoading
+                  ? "Loading..."
+                  : (userName?.trim()
+                      ? userName
+                      : (userNameError ? "N/A" : "N/A"))}
+              </div>
             </div>
             <div className="adm-row">
               <div className="adm-label">Projects</div>
