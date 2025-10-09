@@ -26,6 +26,8 @@ export default function Sessions() {
 
   // Lock to prevent race conditions when multiple loads are inflight (e.g., debounce vs pagination)
   const activeRequestRef = useRef(0);
+  // Remember the last known sort so search/debounced reloads preserve sort order across pages
+  const lastSortRef = useRef({ key: "", dir: "asc" });
 
   // Allowed and ordered fields (column visibility)
   const allowedOrdered = useMemo(
@@ -125,13 +127,29 @@ export default function Sessions() {
   }
 
   // PUBLIC_INTERFACE
-  async function load(page = 1, limit = meta.limit || 10, qStr = "") {
-    /** Load sessions from server with pagination and optional query string. */
+  async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
+    /**
+     * Load sessions from server with pagination, optional query string, and server-driven sorting.
+     * When sortKey is provided, pass `sort` using:
+     *  - asc: field
+     *  - desc: -field
+     */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
     try {
-      const res = await listSessions({ page, limit, q: qStr });
+      const sortFieldMap = {
+        task_id: "task_id",
+        tenant_id: "tenant_id",
+        organization_name: "organization_name",
+        service_type: "service_type",
+      };
+      const params = { page, limit, q: qStr };
+      if (sortKey) {
+        const backendField = sortFieldMap[sortKey] || String(sortKey);
+        params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
+      }
+      const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
@@ -156,7 +174,8 @@ export default function Sessions() {
 
   // Initial load
   useEffect(() => {
-    load(1, meta.limit || 10, "");
+    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    load(1, meta.limit || 10, "", key, dir);
     loadAggregates("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -165,8 +184,9 @@ export default function Sessions() {
   useEffect(() => {
     const handle = setTimeout(() => {
       const q = (query || "").trim();
-      // Reset to first page when searching
-      load(1, meta.limit || 10, q);
+      const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+      // Reset to first page when searching and preserve sort across dataset
+      load(1, meta.limit || 10, q, key, dir);
       // Sync charts to the same query
       loadAggregates(q);
     }, 300);
@@ -265,8 +285,14 @@ export default function Sessions() {
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
-          fetchPage={async (page, limit) => {
-            await load(page, limit, (query || "").trim());
+          fetchPage={async (page, limit, sortKey, sortDir) => {
+            // Remember current sort so external triggers (search) keep ordering consistent
+            if (sortKey) {
+              lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
+            } else if (!lastSortRef.current) {
+              lastSortRef.current = { key: "", dir: "asc" };
+            }
+            await load(page, limit, (query || "").trim(), sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
