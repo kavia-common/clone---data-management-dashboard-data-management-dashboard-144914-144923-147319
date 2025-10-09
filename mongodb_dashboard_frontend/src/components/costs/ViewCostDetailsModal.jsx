@@ -415,7 +415,7 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                           ? userName
                           : (costData?.userName?.trim()
                               ? costData.userName
-                              : "Unknown user"))}
+                              : "Not available"))}
                   </span>
                 </p>
                 <h3 style={{ margin: "6px 0 0 0", fontSize: 18, fontWeight: 800, color: "#1E3A8A" }}>

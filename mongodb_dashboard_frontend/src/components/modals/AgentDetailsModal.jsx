@@ -260,7 +260,7 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName, m
                   ? "Loading..."
                   : (userName?.trim()
                       ? userName
-                      : (userNameError ? "N/A" : "N/A"))}
+                      : "Not available")}
               </div>
             </div>
             <div className="adm-row">
