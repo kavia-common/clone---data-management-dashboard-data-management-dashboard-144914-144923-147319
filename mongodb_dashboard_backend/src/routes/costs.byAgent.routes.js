@@ -163,7 +163,7 @@ router.get(
     const collection = await getCollection(['llm-costs', 'llm_costs']);
     const items = await collection.aggregate(pipeline, { allowDiskUse: true }).toArray();
 
-    return res.status(200).json({ items, meta: { limit } });
+    return res.status(200).json({ items, total: items.length, meta: { limit } });
   })
 );
 
