@@ -525,15 +525,59 @@ router.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const { id } = req.params;
+    const idStr = String(id);
 
-    // Validate ObjectId
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: 'Invalid id' });
+    // Helper: resolve a user document by flexible id (ObjectId or denormalized fields)
+    async function findUserByFlexibleId(candidate) {
+      // Try ObjectId lookup first when valid
+      if (mongoose.Types.ObjectId.isValid(candidate)) {
+        const byId = await User.findById(candidate).lean();
+        if (byId) return byId;
+      }
+
+      // Fallback: common id fields found in heterogeneous datasets
+      const orFields = [
+        { id: candidate },
+        { user_id: candidate },
+        { username: candidate },
+        { email: candidate },
+        { 'profile.id': candidate },
+        { 'profile.user_id': candidate },
+        { 'referral_history.user_id': candidate }, // direct match when stored as string
+      ];
+
+      const direct = await User.findOne({ $or: orFields }).lean();
+      if (direct) return direct;
+
+      // Final fallback: match referral_history.user_id after string coercion (covers ObjectId/number)
+      const agg = await User.aggregate([
+        {
+          $match: {
+            referral_history: { $exists: true, $type: 'array', $ne: [] },
+          },
+        },
+        {
+          $addFields: {
+            _rh_ids: {
+              $map: {
+                input: '$referral_history',
+                as: 'rh',
+                in: { $toString: '$$rh.user_id' },
+              },
+            },
+          },
+        },
+        { $match: { _rh_ids: { $in: [String(candidate)] } } },
+        { $limit: 1 },
+      ]);
+      if (agg && agg[0]) return agg[0];
+
+      return null;
     }
 
-    // Fetch user document
-    const doc = await User.findById(id).lean();
+    const doc = await findUserByFlexibleId(idStr);
     if (!doc) {
+      // Align with existing behavior for not-found
       return res.status(404).json({ success: false, message: 'Not found' });
     }
 
@@ -555,7 +599,9 @@ router.get(
 
     // Fallback: look into referral_history if present
     if (!name && Array.isArray(doc?.referral_history)) {
-      const rh = doc.referral_history.find((it) => typeof it?.user_name === 'string' && it.user_name.trim());
+      const rh = doc.referral_history.find(
+        (it) => typeof it?.user_name === 'string' && it.user_name.trim()
+      );
       if (rh) {
         name = rh.user_name.trim();
       }
