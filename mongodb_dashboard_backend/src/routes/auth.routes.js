@@ -1,6 +1,7 @@
 const express = require('express');
 
 const router = express.Router();
+// Note: This router is mounted at /api/auth in app.js, so POST /api/auth/login is the effective path.
 
 /**
  * @swagger

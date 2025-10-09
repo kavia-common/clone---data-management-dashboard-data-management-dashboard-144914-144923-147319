@@ -8,6 +8,9 @@ const HOST = process.env.HOST || '0.0.0.0';
 const server = app.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
   console.log(`Server running at http://${HOST}:${PORT}`);
+  // Minimal health log to confirm important routes are registered
+  // eslint-disable-next-line no-console
+  console.log('Routes mounted: / (health), /api/auth (login), /api/users, /api/session-tracking, /api/llm-costs, etc.');
 });
 // Graceful shutdown
 const shutdown = (signal) => {
