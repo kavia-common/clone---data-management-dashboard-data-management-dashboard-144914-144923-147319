@@ -4,6 +4,7 @@ import ProjectDetail from "./ProjectDetail";
 import { renderCreditsWithUsd } from "../../utils/currency";
 import { CREDITS_PER_USD } from "../../utils/currency";
 import { formatLabel } from "../../utils/formatLabel";
+import { getUserBasic } from "../../api/users";
 
 /**
  * PUBLIC_INTERFACE
@@ -26,6 +27,10 @@ import { formatLabel } from "../../utils/formatLabel";
 export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
   const [activeTab, setActiveTab] = React.useState("summary");
   const [copyStatus, setCopyStatus] = React.useState("");
+  // User name fetch state
+  const [userName, setUserName] = React.useState(data?.userName || "");
+  const [userNameLoading, setUserNameLoading] = React.useState(false);
+  const [userNameError, setUserNameError] = React.useState(null);
 
   React.useEffect(() => {
     if (isOpen) setActiveTab("summary");
@@ -77,6 +82,44 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
   );
 
   const costData = data || MOCK_DATA;
+
+  // Fetch user name when modal opens or when userId changes
+  React.useEffect(() => {
+    let ignore = false;
+    async function loadName() {
+      const id = costData?.userId;
+      if (!isOpen || !id) {
+        setUserName(data?.userName || "");
+        setUserNameLoading(false);
+        setUserNameError(null);
+        return;
+      }
+      // If caller already provided a name, prefer it without fetching.
+      if (data?.userName) {
+        setUserName(String(data.userName));
+        setUserNameLoading(false);
+        setUserNameError(null);
+        return;
+      }
+      try {
+        setUserNameLoading(true);
+        setUserNameError(null);
+        const resp = await getUserBasic(String(id));
+        if (ignore) return;
+        setUserName(resp?.name || "");
+      } catch (err) {
+        if (!ignore) {
+          // Gracefully degrade to "Unknown user"
+          setUserName("");
+          setUserNameError(err?.response?.data?.message || err?.message || "Failed to load");
+        }
+      } finally {
+        if (!ignore) setUserNameLoading(false);
+      }
+    }
+    loadName();
+    return () => { ignore = true; };
+  }, [isOpen, costData?.userId, data?.userName]);
 
   // Robust numeric parser for USD/credits fields (handles numeric strings like "0.12" or "$0.12")
   const toNumber = React.useCallback((v) => {
@@ -354,6 +397,25 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                     }}
                   >
                     {costData?.userId || "—"}
+                  </span>
+                </p>
+                <p style={{ margin: "6px 0 0 0", fontSize: 12, fontWeight: 700, color: "#0F172A" }}>
+                  User Name:
+                  <span
+                    style={{
+                      marginLeft: 8,
+                      color: userNameLoading ? "#64748B" : "#111827",
+                      fontWeight: 800,
+                    }}
+                    title={userNameError ? String(userNameError) : undefined}
+                  >
+                    {userNameLoading
+                      ? "Loading name…"
+                      : (userName?.trim()
+                          ? userName
+                          : (costData?.userName?.trim()
+                              ? costData.userName
+                              : "Unknown user"))}
                   </span>
                 </p>
                 <h3 style={{ margin: "6px 0 0 0", fontSize: 18, fontWeight: 800, color: "#1E3A8A" }}>

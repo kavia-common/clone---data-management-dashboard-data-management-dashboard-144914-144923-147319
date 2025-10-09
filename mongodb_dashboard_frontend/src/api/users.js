@@ -48,3 +48,30 @@ export async function getUserProjects(userId, params = {}) {
   // Response shape: { user_id, tenant_id, projects: [{ project_id, project_name?, last_activity? }]}
   return res.data?.data ?? res.data;
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * getUserBasic
+ * Fetch minimal user info by MongoDB ObjectId.
+ * GET /api/users/:id -> { id, name }
+ *
+ * @param {string} userId - MongoDB ObjectId as string
+ * @returns {Promise<{ id: string, name: string|null }>}
+ */
+export async function getUserBasic(userId) {
+  const api = getApiClient();
+  if (!userId) throw new Error("userId is required");
+  try {
+    const res = await api.get(`/users/${encodeURIComponent(userId)}`);
+    // Backend returns { id, name }
+    return res.data;
+  } catch (err) {
+    const status = err?.response?.status;
+    if (status === 404) {
+      // Not found: return a graceful minimal payload
+      return { id: String(userId), name: null };
+    }
+    // Invalid ID or other failures should be handled by the caller for displaying 'Unknown user'
+    throw err;
+  }
+}
