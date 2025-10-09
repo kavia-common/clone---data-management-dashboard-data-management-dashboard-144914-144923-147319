@@ -127,7 +127,10 @@ router.post('/login', (req, res) => {
   }
 
   // Placeholder success (no real auth yet)
-  return res.status(200).json('ok');
+  // Return a simple bearer-like token string in an object to match frontend expectations.
+  // In a real implementation, sign a JWT here with user claims and expiry.
+  const token = Buffer.from(`${organization_id}:${email}`).toString('base64');
+  return res.status(200).json({ token });
 });
 
 module.exports = router;
