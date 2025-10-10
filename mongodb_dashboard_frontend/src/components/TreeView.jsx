@@ -263,36 +263,37 @@ const TreeView = forwardRef(function TreeView(
               const credits = usdToCredits(num);
               const creditsText = formatCredits(credits);
               const valueString = `$${num}`; // User Cost formatted
+
               return (
                 <span className={`tv-value ${shouldTruncate(value) ? "tv-ellipsis" : ""}`}>
                   {/* Line 1 — User Cost */}
                   <span
                     style={{
+                      display: "block",        // ensures new line
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
-                      display: "block", // optional for line 1 as well
                     }}
                   >
-                    {valueString}
+                    User Cost: {valueString}
                   </span>
 
-                  {/* Line 2 — Credits Consumed */}
+                  {/* Line 2 — Consumed Credits */}
                   <span
                     style={{
+                      display: "block",        // new line
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
-                      display: "block", // forces new line
                     }}
                   >
-                    Credits Consumed: {creditsText}
+                    Consumed Credits: {creditsText}
                   </span>
                 </span>
               );
-
             }
           }
+
 
           return (
             <span className={`tv-value ${shouldTruncate(value) ? "tv-ellipsis" : ""}`} title={toDisplayString(value)}>

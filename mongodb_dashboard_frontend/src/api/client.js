@@ -4,7 +4,7 @@ import axios from "axios";
  * This connects directly to the backend running in your specific pod.
  * Replace RAW_BASE_URL with your active pod if it changes.
  */
-const RAW_BASE_URL = "https://vscode-internal-39919-beta.beta01.cloud.kavia.ai:3001";
+const RAW_BASE_URL = "https://vscode-internal-31738-beta.beta01.cloud.kavia.ai:3001";
 const API_PREFIX = "/api";
 /** Combine base + prefix safely */
 function joinUrl(base, path) {
