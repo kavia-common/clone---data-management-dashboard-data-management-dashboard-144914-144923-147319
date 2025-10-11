@@ -233,8 +233,8 @@ const TreeView = forwardRef(function TreeView(
       const typeBadge = isArr
         ? `Array(${value.length})`
         : isObj
-          ? "Object"
-          : null;
+        ? "Object"
+        : null;
 
       // Display key with highlight
       // Apply label formatter only for display; underlying data is not mutated.
@@ -262,39 +262,18 @@ const TreeView = forwardRef(function TreeView(
             if (num != null) {
               const credits = usdToCredits(num);
               const creditsText = formatCredits(credits);
-              const valueString = `$${num}`; // User Cost formatted
-
+              const baseText = truncateIfNeeded(toDisplayString(value));
               return (
-                <span className={`tv-value ${shouldTruncate(value) ? "tv-ellipsis" : ""}`}>
-                  {/* Line 1 — User Cost */}
-                  <span
-                    style={{
-                      display: "block",        // ensures new line
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    User Cost: {valueString}
-                  </span>
-
-                  {/* Line 2 — Consumed Credits */}
-                  <span
-                    style={{
-                      display: "block",        // new line
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    Consumed Credits: {creditsText}
-                  </span>
+                <span
+                  className={`tv-value ${shouldTruncate(value) ? "tv-ellipsis" : ""}`}
+                  title={`${toDisplayString(value)} • Credits Used: ${creditsText}`}
+                >
+                  {highlight(baseText, searchRegex)}
+                  <span className="tv-credits-inline" style={{ color: "#6b7280" }}> • Credits Used: {creditsText}</span>
                 </span>
               );
             }
           }
-
-
           return (
             <span className={`tv-value ${shouldTruncate(value) ? "tv-ellipsis" : ""}`} title={toDisplayString(value)}>
               {highlight(truncateIfNeeded(toDisplayString(value)), searchRegex)}
@@ -336,8 +315,8 @@ const TreeView = forwardRef(function TreeView(
               {isArr
                 ? value.map((item, idx) => renderNode(item, `${path}.${idx}`, idx, depth + 1))
                 : Object.keys(value || {}).map((k) =>
-                  renderNode(value[k], `${path}.${k}`, k, depth + 1)
-                )}
+                    renderNode(value[k], `${path}.${k}`, k, depth + 1)
+                  )}
             </div>
           ) : null}
         </div>

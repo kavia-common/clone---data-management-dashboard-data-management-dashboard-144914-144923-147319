@@ -29,7 +29,7 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName, m
   // Single debug line requested
   try {
     console.debug("[AgentDetailsModal:new]", { open, agentId });
-  } catch { }
+  } catch {}
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -259,8 +259,8 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName, m
                 {userNameLoading
                   ? "Loading..."
                   : (userName?.trim()
-                    ? userName
-                    : "Not available")}
+                      ? userName
+                      : "Not available")}
               </div>
             </div>
             <div className="adm-row">
@@ -275,11 +275,6 @@ export default function AgentDetailsModal({ open, onClose, agentId, agentName, m
               <div className="adm-label">User Cost</div>
               <div className="adm-value">{renderCurrency(normalized.userCost)}</div>
             </div>
-            <div className="adm-row">
-              <div className="adm-label">Consumed Credits</div>
-              <div className="adm-value">{renderCurrency(normalized.userCost)}</div>
-            </div>
-
           </div>
         </div>
       </>
