@@ -1,4 +1,18 @@
-import { FASTAPI_BASE_URL } from '../config/auth';
+import { resolveAuthEndpointUrl } from './urlOverrides';
+
+// Keep a fallback base for other auth endpoints (login etc.)
+// We intentionally avoid introducing new envs here to satisfy the requirement.
+// Prefer window location 3001 backend if available, else default localhost:3001.
+const LOCAL_AUTH_BASE =
+  (typeof process !== 'undefined' && process.env && (process.env as any).REACT_APP_API_BASE_URL) ||
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return `${u.protocol}//${u.hostname}:3001`;
+    } catch {
+      return 'http://localhost:3001';
+    }
+  })();
 
 type Organization = {
   id: string;
@@ -12,10 +26,14 @@ type LoginPayload = {
   password: string;
 };
 
-// PUBLIC_INTERFACE
+/* PUBLIC_INTERFACE */
 export async function getUserOrganizations(email: string): Promise<Organization[]> {
-  /** Fetch organizations for a given user email from external FastAPI. */
-  const url = `${FASTAPI_BASE_URL}/api/auth/user-organizations?email=${encodeURIComponent(email)}`;
+  /** Fetch organizations for a given user email.
+   * Special-case: this must call the absolute external domain for user-organizations.
+   * We use resolveAuthEndpointUrl to force the absolute URL while retaining local base for others.
+   */
+  const relativePath = `/api/auth/user-organizations?email=${encodeURIComponent(email)}`;
+  const url = resolveAuthEndpointUrl(relativePath, LOCAL_AUTH_BASE);
   const res = await fetch(url, {
     method: 'GET',
     headers: {
@@ -44,10 +62,12 @@ export async function getUserOrganizations(email: string): Promise<Organization[
   }
 }
 
-// PUBLIC_INTERFACE
+/* PUBLIC_INTERFACE */
 export async function login(payload: LoginPayload): Promise<any> {
-  /** Log in via external FastAPI service using encrypted organization_id. */
-  const url = `${FASTAPI_BASE_URL}/api/auth/login`;
+  /** Log in using the existing base URL logic (local/proxied).
+   * Do NOT special-case this. Only the user-organizations lookup is forced external.
+   */
+  const url = `${LOCAL_AUTH_BASE}/api/auth/login`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {

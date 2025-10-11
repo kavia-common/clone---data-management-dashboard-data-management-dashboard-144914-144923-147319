@@ -1,13 +1,18 @@
 import { API_BASE_URL } from '../config/auth';
 import { encryptTenantId } from '../utils/crypto';
+import { resolveAuthEndpointUrl } from './urlOverrides';
 
 // PUBLIC_INTERFACE
 export async function fetchUserOrganizationsByEmail(email) {
   /** Calls GET /api/auth/user-organizations?email=<email> and returns response as-is:
    * { email: string, organizations: Array<{ id: string, name: string }>}
    * Throws on non-2xx (other than 404). For 404 returns { email, organizations: [] }.
+   *
+   * Special handling: This endpoint is forced to use the absolute external domain
+   * https://kaviaqa-worktool.cloud.kavia.ai by design. Other endpoints continue to use API_BASE_URL.
    */
-  const url = `${API_BASE_URL}/api/auth/user-organizations?email=${encodeURIComponent(email)}`;
+  const relativePath = `/api/auth/user-organizations?email=${encodeURIComponent(email)}`;
+  const url = resolveAuthEndpointUrl(relativePath, API_BASE_URL);
   const res = await fetch(url, {
     method: 'GET',
     headers: { Accept: 'application/json' },
