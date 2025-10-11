@@ -48,7 +48,9 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
   if (!password) throw new Error('password is required');
 
   const encryptedOrg = encryptTenantId(organizationId, salt);
-  const url = `${API_BASE_URL}/api/auth/login`;
+  // Route login via resolveAuthEndpointUrl so that only this endpoint is forced to the external domain.
+  // Other non-auth endpoints should keep using the base client logic.
+  const url = resolveAuthEndpointUrl(`/api/auth/login`, API_BASE_URL);
   const body = { organization_id: encryptedOrg, email, password };
 
   const res = await fetch(url, {

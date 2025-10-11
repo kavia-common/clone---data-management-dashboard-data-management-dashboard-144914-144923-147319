@@ -64,10 +64,10 @@ export async function getUserOrganizations(email: string): Promise<Organization[
 
 /* PUBLIC_INTERFACE */
 export async function login(payload: LoginPayload): Promise<any> {
-  /** Log in using the existing base URL logic (local/proxied).
-   * Do NOT special-case this. Only the user-organizations lookup is forced external.
+  /** Log in using the override helper so that only /api/auth/login is routed to the external domain.
+   * This mirrors the user-organizations special-casing and keeps other API calls on the normal base URL logic.
    */
-  const url = `${LOCAL_AUTH_BASE}/api/auth/login`;
+  const url = resolveAuthEndpointUrl(`/api/auth/login`, LOCAL_AUTH_BASE);
   const res = await fetch(url, {
     method: 'POST',
     headers: {
