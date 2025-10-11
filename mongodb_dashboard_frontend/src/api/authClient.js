@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '../config/auth';
-import { encryptTenantId } from '../utils/crypto';
+import { encryptTenantId, isTenantSaltValid } from '../utils/crypto';
 import { resolveAuthEndpointUrl } from './urlOverrides';
 
 // PUBLIC_INTERFACE
@@ -37,17 +37,32 @@ export async function fetchUserOrganizationsByEmail(email) {
   throw err;
 }
 
- // PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
 export async function loginWithOrgEmailPassword({ organizationId, email, password }) {
   /** Calls POST /api/auth/login with body { organization_id: <encrypted>, email, password }.
    * Encrypts org id using AES-128-ECB and base64 without padding.
    * Returns token (if any) and the raw response text/json.
+   * If the salt is not configured, throws a user-friendly error without crashing.
    */
   if (!organizationId) throw new Error('organizationId is required');
   if (!email) throw new Error('email is required');
   if (!password) throw new Error('password is required');
 
-  const encryptedOrg = encryptTenantId(organizationId);
+  if (!isTenantSaltValid()) {
+    const err = new Error('Login cannot proceed: QA tenant encryption salt is not configured.');
+    err.code = 'SALT_NOT_CONFIGURED';
+    throw err;
+  }
+
+  let encryptedOrg;
+  try {
+    encryptedOrg = encryptTenantId(organizationId);
+  } catch (e) {
+    const err = new Error('Failed to encrypt organization id. Please contact support.');
+    err.cause = e;
+    throw err;
+  }
+
   // Route login via resolveAuthEndpointUrl so that only this endpoint is forced to the external domain.
   // Other non-auth endpoints should keep using the base client logic.
   const url = resolveAuthEndpointUrl(`/api/auth/login`, API_BASE_URL);
@@ -72,12 +87,17 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
   }
 
   if (!res.ok) {
-    const msg =
+    const baseMsg =
       typeof payload === 'string'
         ? payload
         : payload?.message ||
           (payload?.detail && Array.isArray(payload.detail) ? payload.detail.map(d => d.msg).join(', ') : null) ||
-          'Login failed';
+          `Login failed (${res.status})`;
+
+    const msg = res.status === 500
+      ? `${baseMsg}. The server reported an internal error. If you are using a placeholder QA salt, please configure a valid salt.`
+      : baseMsg;
+
     const err = new Error(msg);
     err.status = res.status;
     err.payload = payload;

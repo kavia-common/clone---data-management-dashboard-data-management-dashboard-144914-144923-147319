@@ -1,4 +1,5 @@
 import { resolveAuthEndpointUrl } from './urlOverrides';
+import { isTenantSaltValid } from '../utils/crypto';
 
 // Keep a fallback base for other auth endpoints (login etc.)
 // We intentionally avoid introducing new envs here to satisfy the requirement.
@@ -26,7 +27,7 @@ type LoginPayload = {
   password: string;
 };
 
-/* PUBLIC_INTERFACE */
+// PUBLIC_INTERFACE
 export async function getUserOrganizations(email: string): Promise<Organization[]> {
   /** Fetch organizations for a given user email.
    * Special-case: this must call the absolute external domain for user-organizations.
@@ -62,11 +63,16 @@ export async function getUserOrganizations(email: string): Promise<Organization[
   }
 }
 
-/* PUBLIC_INTERFACE */
+// PUBLIC_INTERFACE
 export async function login(payload: LoginPayload): Promise<any> {
   /** Log in using the override helper so that only /api/auth/login is routed to the external domain.
    * This mirrors the user-organizations special-casing and keeps other API calls on the normal base URL logic.
+   * If the environment salt is not configured, returns a descriptive error early.
    */
+  if (!isTenantSaltValid()) {
+    throw new Error('Login cannot proceed: QA tenant encryption salt is not configured.');
+  }
+
   const url = resolveAuthEndpointUrl(`/api/auth/login`, LOCAL_AUTH_BASE);
   const res = await fetch(url, {
     method: 'POST',
@@ -83,6 +89,9 @@ export async function login(payload: LoginPayload): Promise<any> {
       const data = await res.json();
       // FastAPI may return { detail: ... } or string
       message = data?.message || data?.detail || (typeof data === 'string' ? data : message);
+      if (res.status === 500) {
+        message = `${message}. If you are using a placeholder QA salt, please configure a valid salt.`;
+      }
     } catch {
       // ignore
     }

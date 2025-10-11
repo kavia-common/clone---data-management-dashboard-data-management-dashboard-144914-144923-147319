@@ -3,14 +3,17 @@
  * API_BASE_URL must be absolute and point to external FastAPI by default.
  * If REACT_APP_API_BASE_URL is provided, it will override this default.
  */
+// PUBLIC_INTERFACE
 export const API_BASE_URL =
   (process.env.REACT_APP_API_BASE_URL && String(process.env.REACT_APP_API_BASE_URL).trim()) ||
   'https://kaviaqa-worktool.cloud.kavia.ai';
 
 // QA-specific tenant salt placeholder constant (do not convert to env var)
+// PUBLIC_INTERFACE
 export const VALIDATED_TENANT_SALT = '<QA-specific-salt>';
 
 // Storage keys and helpers for auth/session
+// PUBLIC_INTERFACE
 export const AUTH_STORAGE_KEY = 'auth';
 
 // PUBLIC_INTERFACE

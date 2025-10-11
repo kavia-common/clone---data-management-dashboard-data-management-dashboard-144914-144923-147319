@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { getUserOrganizations, login } from '../api/authClient';
-import { encryptTenantId } from '../utils/crypto';
+import { encryptTenantId, isTenantSaltValid } from '../utils/crypto';
 import '../styles/theme.css';
 
 type Organization = {
@@ -88,13 +88,15 @@ export default function Login() {
   const [orgFetchError, setOrgFetchError] = useState<string | null>(null);
 
   const [selectedOrgId, setSelectedOrgId] = useState<string>('');
+  const saltReady = useMemo(() => isTenantSaltValid(), []);
   const encryptedOrgId = useMemo(() => {
     try {
+      if (!saltReady) return '';
       return selectedOrgId ? encryptTenantId(selectedOrgId) : '';
     } catch {
       return '';
     }
-  }, [selectedOrgId]);
+  }, [selectedOrgId, saltReady]);
 
   const [password, setPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
@@ -127,6 +129,10 @@ export default function Login() {
     e.preventDefault();
     setLoginError(null);
     setLoginSuccess(null);
+    if (!saltReady) {
+      setLoginError('Login cannot proceed: QA tenant encryption salt is not configured.');
+      return;
+    }
     setLoginLoading(true);
     try {
       const orgIdToUse = selectedOrgId || manualOrgId.trim();
@@ -137,14 +143,14 @@ export default function Login() {
         password,
       });
       // store token if any
-      if (res && typeof res === 'object' && 'token' in res && res.token) {
+      if (res && typeof res === 'object' && 'token' in res && (res as any).token) {
         try {
-          localStorage.setItem('authToken', String(res.token));
+          localStorage.setItem('authToken', String((res as any).token));
         } catch {
           // ignore storage issues
         }
       }
-      setLoginSuccess(typeof res === 'string' ? res : 'Login successful');
+      setLoginSuccess(typeof res === 'string' ? (res as string) : 'Login successful');
     } catch (err: any) {
       setLoginError(err?.message || 'Login failed');
     } finally {
@@ -214,6 +220,22 @@ export default function Login() {
             >
               Email: <strong>{email}</strong>
             </div>
+
+            {!saltReady && (
+              <div
+                style={{
+                  color: '#92400E',
+                  background: '#FEF3C7',
+                  border: '1px solid #FDE68A',
+                  padding: 10,
+                  borderRadius: 8,
+                  fontSize: 13,
+                  marginBottom: 12,
+                }}
+              >
+                Tenant encryption salt is not configured for this environment. Organization encryption and login will not work until a valid QA salt is set.
+              </div>
+            )}
 
             {orgs.length > 0 ? (
               <div style={{ marginBottom: 14 }}>
@@ -301,7 +323,8 @@ export default function Login() {
                     !email ||
                     (!selectedOrgId && orgs.length > 0 ? true : false) ||
                     (!selectedOrgId && orgs.length === 0 && !manualOrgId) ||
-                    !password
+                    !password ||
+                    !saltReady
                   }
                 >
                   {loginLoading ? (

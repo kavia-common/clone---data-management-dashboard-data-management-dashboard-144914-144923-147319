@@ -7,6 +7,20 @@ import CryptoJS from 'crypto-js';
 import { VALIDATED_TENANT_SALT } from '../config/auth';
 
 /**
+ * Validate that a salt string looks like a non-placeholder hex value.
+ */
+function isLikelyValidHexSalt(s: unknown): boolean {
+  if (typeof s !== 'string') return false;
+  const trimmed = s.trim();
+  if (!trimmed) return false;
+  // explicitly guard placeholder markers used by QA
+  if (trimmed.includes('<QA-specific-salt>') || trimmed.includes('PLACEHOLDER')) return false;
+  // must be even-length hex
+  if (trimmed.length % 2 !== 0) return false;
+  return /^[0-9a-fA-F]+$/.test(trimmed);
+}
+
+/**
  * Derive a 16-byte AES key from a hex salt:
  * - Parse hex salt to WordArray
  * - SHA-256 the bytes
@@ -30,6 +44,12 @@ function removeBase64Padding(b64: string): string {
 }
 
 // PUBLIC_INTERFACE
+export function isTenantSaltValid(): boolean {
+  /** Returns true if VALIDATED_TENANT_SALT looks like a valid non-placeholder hex string. */
+  return isLikelyValidHexSalt(VALIDATED_TENANT_SALT);
+}
+
+// PUBLIC_INTERFACE
 export function encryptTenantId(tenantId: string): string {
   /** Encrypts a tenant/organization ID using AES-128-ECB with a key derived
    * from VALIDATED_TENANT_SALT (hex). The ciphertext is returned as base64
@@ -40,12 +60,19 @@ export function encryptTenantId(tenantId: string): string {
    * - Mode: ECB, No IV
    * - Padding: PKCS7 (default in crypto-js)
    * - Output: base64 without '=' padding
+   *
+   * If the salt is missing/placeholder, this function throws a descriptive error
+   * so UI can surface a friendly message instead of crashing the app.
    */
   if (!tenantId || typeof tenantId !== 'string') {
     throw new Error('tenantId must be a non-empty string');
   }
 
-  const key = deriveAes128KeyFromSaltHex(VALIDATED_TENANT_SALT);
+  if (!isTenantSaltValid()) {
+    throw new Error('Tenant encryption salt is not configured for this environment.');
+  }
+
+  const key = deriveAes128KeyFromSaltHex(String(VALIDATED_TENANT_SALT).trim());
 
   // Encrypt with AES-ECB, no IV. crypto-js expects WordArray for key, and mode/padding options.
   const encrypted = CryptoJS.AES.encrypt(tenantId, key, {
