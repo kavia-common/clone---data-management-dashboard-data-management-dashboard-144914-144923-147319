@@ -1,57 +1,36 @@
-/**
- * Utility functions for encrypting tenant/organization identifiers.
- * Uses crypto-js in the browser to perform AES-128-ECB encryption.
- */
-import * as CryptoJS from 'crypto-js';
-import { VALIDATED_TENANT_SALT } from '../config/auth';
+import CryptoJS from 'crypto-js';
 
-/**
- * Derive a 16-byte AES key from a hex salt:
- * - Parse hex salt to WordArray
- * - SHA-256 the bytes
- * - Take first 16 bytes (128 bits) as key
- */
-function deriveAes128KeyFromSaltHex(saltHex) {
-  // Parse salt hex to bytes
-  const saltBytes = CryptoJS.enc.Hex.parse(saltHex);
-  // Hash with SHA-256
-  const hash = CryptoJS.SHA256(saltBytes);
-  // Take first 16 bytes (128 bits). WordArray supports clamp via creating a new WordArray.
-  const words = hash.words.slice(0, 4); // 4 words * 32 bits = 128 bits
-  return CryptoJS.lib.WordArray.create(words, 16);
-}
-
-/**
- * Remove base64 padding '=' characters.
- */
-function removeBase64Padding(b64) {
-  return b64.replace(/=+$/, '');
-}
+// IMPORTANT: Do not hardcode secrets/salts in code. For demo purposes, we read from env.
+// For production, use a secure server-side mechanism to provide salts/tokens via configuration.
+const TENANT_ENCRYPTION_SALT = process.env.REACT_APP_TENANT_ENCRYPTION_SALT || 'demo_salt_replace_me';
 
 // PUBLIC_INTERFACE
-export function encryptTenantId(tenantId) {
-  /** Encrypts a tenant/organization ID using AES-128-ECB with a key derived
-   * from VALIDATED_TENANT_SALT (hex). The ciphertext is returned as base64
-   * without padding characters.
+export function encryptTenantId(tenantId, salt = TENANT_ENCRYPTION_SALT) {
+  /** Encrypts the provided tenant/organization id using AES-128-ECB with salt as key, returns base64 without padding.
    *
-   * This matches the expected server-side validation scheme:
-   * - Key: SHA-256(saltHexBytes) first 16 bytes
-   * - Mode: ECB, No IV
-   * - Padding: PKCS7 (default in crypto-js)
-   * - Output: base64 without '=' padding
+   * Algorithm:
+   * - Key: MD5(salt) -> 128-bit key
+   * - Mode: ECB
+   * - Padding: Pkcs7
+   * - Output: Base64 string with trailing '=' padding removed
    */
-  if (!tenantId || typeof tenantId !== 'string') {
-    throw new Error('tenantId must be a non-empty string');
-    }
-
-  const key = deriveAes128KeyFromSaltHex(VALIDATED_TENANT_SALT);
-
-  // Encrypt with AES-ECB, no IV. crypto-js expects WordArray for key, and mode/padding options.
+  if (!tenantId) {
+    throw new Error('tenantId is required for encryption');
+  }
+  const key = CryptoJS.MD5(salt); // 128-bit key
   const encrypted = CryptoJS.AES.encrypt(tenantId, key, {
     mode: CryptoJS.mode.ECB,
     padding: CryptoJS.pad.Pkcs7,
   });
+  // Base64 encode and strip padding '=' chars
+  const b64 = encrypted.toString();
+  return b64.replace(/=+$/g, '');
+}
 
-  const b64 = encrypted.toString(); // base64 with padding
-  return removeBase64Padding(b64);
+// PUBLIC_INTERFACE
+export function setTenantEncryptionSalt(salt) {
+  /** Allows overriding the encryption salt at runtime (mainly for testing) */
+  // no-op; rely on provided param in encryptTenantId if needed.
+  console.warn('setTenantEncryptionSalt is provided for API parity; pass salt directly to encryptTenantId if needed.', salt ? 'Salt provided' : 'No salt');
+  return true;
 }

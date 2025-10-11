@@ -1,79 +1,53 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { getStoredAuth, isAuthenticated as isAuthed, saveAuthSession, clearAuthSession } from '../config/auth';
+
+const AuthContext = createContext({
+  isAuthenticated: false,
+  token: null,
+  login: (token) => {},
+  logout: () => {},
+});
 
 // PUBLIC_INTERFACE
-export const AuthContext = createContext(null);
-
-/**
- * PUBLIC_INTERFACE
- * AuthProvider provides authentication state and actions to the app.
- * It stores a token in localStorage and exposes login and logout methods.
- */
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => {
-    try {
-      return localStorage.getItem('auth_token');
-    } catch {
-      return null;
-    }
-  });
-  const [user, setUser] = useState(() => {
-    try {
-      const raw = localStorage.getItem('auth_user');
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  });
+  /** Context provider to expose authentication state based on localStorage. */
+  const [auth, setAuth] = useState(() => getStoredAuth());
 
   useEffect(() => {
-    try {
-      if (token) {
-        localStorage.setItem('auth_token', token);
-      } else {
-        localStorage.removeItem('auth_token');
+    // Sync with localStorage changes (e.g., other tabs)
+    function onStorage(e) {
+      if (e.key === 'auth') {
+        try {
+          setAuth(e.newValue ? JSON.parse(e.newValue) : null);
+        } catch {
+          setAuth(null);
+        }
       }
-    } catch {
-      // ignore persistence errors
     }
-  }, [token]);
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
-  useEffect(() => {
-    try {
-      if (user) {
-        localStorage.setItem('auth_user', JSON.stringify(user));
-      } else {
-        localStorage.removeItem('auth_user');
-      }
-    } catch {
-      // ignore
-    }
-  }, [user]);
-
-  const login = async ({ organization_id, email, password }, apiClient) => {
-    // Calls backend /auth/login and stores token on success
-    const res = await apiClient.post('/auth/login', { organization_id, email, password });
-    // Backend spec indicates string response placeholder.
-    // We will treat any 200 response with data as token; also attach minimal user object.
-    const receivedToken = typeof res.data === 'string' ? res.data : res.data?.token || 'ok';
-    setToken(receivedToken);
-    setUser({ email, organization_id });
-    return { token: receivedToken, user: { email, organization_id } };
-  };
-
-  const logout = () => {
-    setToken(null);
-    setUser(null);
-  };
-
-  const value = useMemo(() => ({ token, user, isAuthenticated: !!token, login, logout }), [token, user]);
+  const value = useMemo(() => {
+    return {
+      isAuthenticated: isAuthed(),
+      token: auth?.token || null,
+      login: (token) => {
+        saveAuthSession(token || null);
+        setAuth(getStoredAuth());
+      },
+      logout: () => {
+        clearAuthSession();
+        setAuth(null);
+      },
+    };
+  }, [auth]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 // PUBLIC_INTERFACE
 export function useAuth() {
-  /** Hook to access auth context. */
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
+  /** Hook to access auth context */
+  return useContext(AuthContext);
 }
