@@ -1,4 +1,11 @@
-export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'https://kaviaqa-worktool.cloud.kavia.ai';
+/**
+ * Auth and API configuration
+ * API_BASE_URL must be absolute and point to external FastAPI by default.
+ * If REACT_APP_API_BASE_URL is provided, it will override this default.
+ */
+export const API_BASE_URL =
+  (process.env.REACT_APP_API_BASE_URL && String(process.env.REACT_APP_API_BASE_URL).trim()) ||
+  'https://kaviaqa-worktool.cloud.kavia.ai';
 
 // Storage keys and helpers for auth/session
 export const AUTH_STORAGE_KEY = 'auth';

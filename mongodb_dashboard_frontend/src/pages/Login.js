@@ -9,7 +9,8 @@ const DEFAULT_REDIRECT = '/dashboard';
 export default function Login() {
   // Basic inputs
   const [email, setEmail] = useState('');
-  const [orgs, setOrgs] = useState([]);
+  // Store the API response exactly as returned: { email, organizations }
+  const [orgResponse, setOrgResponse] = useState(null);
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [password, setPassword] = useState('');
   const [loadingOrgs, setLoadingOrgs] = useState(false);
@@ -30,18 +31,22 @@ export default function Login() {
     }
     setLoadingOrgs(true);
     try {
-      const items = await fetchUserOrganizationsByEmail(email);
-      setOrgs(items || []);
-      if ((items || []).length === 0) {
+      const resp = await fetchUserOrganizationsByEmail(email);
+      // resp expected: { email, organizations }
+      setOrgResponse(resp);
+      const items = Array.isArray(resp?.organizations) ? resp.organizations : [];
+      if (items.length === 0) {
         setSelectedOrgId('');
         setError('No organizations found for this email.');
       } else {
-        // try to auto-select first
-        setSelectedOrgId(items[0]?.id || items[0]?.organization_id || items[0]?._id || '');
+        // auto-select first
+        setSelectedOrgId(items[0]?.id || '');
       }
     } catch (e) {
       console.error(e);
       setError(e.message || 'Failed to fetch organizations. Please try again.');
+      setOrgResponse(null);
+      setSelectedOrgId('');
     } finally {
       setLoadingOrgs(false);
     }
@@ -106,6 +111,13 @@ export default function Login() {
           </button>
         </div>
 
+        {orgResponse?.email ? (
+          <div style={styles.field}>
+            <label style={styles.label}>Email (from server)</label>
+            <div style={{ fontSize: 14, color: '#111827' }}>{orgResponse.email}</div>
+          </div>
+        ) : null}
+
         <div style={styles.field}>
           <label style={styles.label}>Organization</label>
           <select
@@ -114,13 +126,11 @@ export default function Login() {
             style={styles.select}
           >
             <option value="">Select organization...</option>
-            {orgs.map((o, idx) => {
-              const id = o.id || o.organization_id || o._id || o.tenant_id || `org_${idx}`;
-              const name = o.name || o.organization_name || o.tenant_name || id;
-              return (
-                <option key={id} value={id}>{name}</option>
-              );
-            })}
+            {(orgResponse?.organizations || []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
           </select>
         </div>
 

@@ -3,27 +3,33 @@ import { encryptTenantId } from '../utils/crypto';
 
 // PUBLIC_INTERFACE
 export async function fetchUserOrganizationsByEmail(email) {
-  /** Calls GET /api/auth/user-organizations?email=<email> and returns array of orgs.
-   * Returns [] on 404 or empty.
+  /** Calls GET /api/auth/user-organizations?email=<email> and returns response as-is:
+   * { email: string, organizations: Array<{ id: string, name: string }>}
+   * Throws on non-2xx (other than 404). For 404 returns { email, organizations: [] }.
    */
   const url = `${API_BASE_URL}/api/auth/user-organizations?email=${encodeURIComponent(email)}`;
   const res = await fetch(url, {
     method: 'GET',
-    headers: { 'Accept': 'application/json' },
-    credentials: 'include',
+    headers: { Accept: 'application/json' },
+    // Do not rely on proxy/cookies
+    credentials: 'omit',
   });
+
   if (res.ok) {
-    const data = await res.json().catch(() => null);
-    // Ensure array
-    if (Array.isArray(data)) return data;
-    if (data && Array.isArray(data.items)) return data.items;
-    return data ? [data] : [];
+    const data = await res.json().catch(() => ({}));
+    return data && typeof data === 'object'
+      ? data
+      : { email, organizations: [] };
   }
+
   if (res.status === 404) {
-    return [];
+    return { email, organizations: [] };
   }
+
   const text = await res.text().catch(() => '');
-  throw new Error(`Failed to fetch organizations: ${res.status} ${text}`);
+  const err = new Error(`Failed to fetch organizations: ${res.status} ${text}`);
+  err.status = res.status;
+  throw err;
 }
 
 // PUBLIC_INTERFACE
@@ -38,18 +44,18 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
 
   const encryptedOrg = encryptTenantId(organizationId, salt);
   const url = `${API_BASE_URL}/api/auth/login`;
-  const body = {
-    organization_id: encryptedOrg,
-    email,
-    password,
-  };
+  const body = { organization_id: encryptedOrg, email, password };
+
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/plain' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/plain',
+    },
     body: JSON.stringify(body),
-    credentials: 'include',
+    credentials: 'omit',
   });
-  // Backend may return plain text or JSON; try parse
+
   const contentType = res.headers.get('content-type') || '';
   let payload;
   if (contentType.includes('application/json')) {
@@ -59,17 +65,20 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
   }
 
   if (!res.ok) {
-    const msg = typeof payload === 'string' ? payload : payload?.message || 'Login failed';
+    const msg =
+      typeof payload === 'string'
+        ? payload
+        : payload?.message ||
+          (payload?.detail && Array.isArray(payload.detail) ? payload.detail.map(d => d.msg).join(', ') : null) ||
+          'Login failed';
     const err = new Error(msg);
     err.status = res.status;
     err.payload = payload;
     throw err;
   }
 
-  // Try to extract token if returned
   let token = null;
   if (typeof payload === 'string') {
-    // If server returns a token string, accept it
     token = payload;
   } else if (payload && (payload.token || payload.access_token)) {
     token = payload.token || payload.access_token;
