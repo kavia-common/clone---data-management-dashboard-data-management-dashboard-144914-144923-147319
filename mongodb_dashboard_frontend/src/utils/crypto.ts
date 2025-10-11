@@ -13,7 +13,7 @@ function isLikelyValidHexSalt(s: unknown): boolean {
   if (typeof s !== 'string') return false;
   const trimmed = s.trim();
   if (!trimmed) return false;
-  // explicitly guard placeholder markers used by QA
+  // explicitly guard placeholder markers used by QA (keep detection for older placeholders)
   if (trimmed.includes('<QA-specific-salt>') || trimmed.includes('PLACEHOLDER')) return false;
   // must be even-length hex
   if (trimmed.length % 2 !== 0) return false;

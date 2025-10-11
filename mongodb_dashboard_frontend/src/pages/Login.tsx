@@ -130,7 +130,7 @@ export default function Login() {
     setLoginError(null);
     setLoginSuccess(null);
     if (!saltReady) {
-      setLoginError('Login cannot proceed: QA tenant encryption salt is not configured.');
+      setLoginError('Login cannot proceed: tenant encryption salt is not configured.');
       return;
     }
     setLoginLoading(true);
