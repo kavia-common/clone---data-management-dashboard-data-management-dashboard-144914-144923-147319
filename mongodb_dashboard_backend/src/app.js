@@ -89,9 +89,6 @@ app.use('/docs', swaggerUi.serve, (req, res, next) => {
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
 
-// Explicitly mount auth routes under /api/auth to ensure path is /api/auth/login
-app.use('/api/auth', require('./routes/auth.routes'));
-
 /**
  * Dev utilities (seed data / db status) - non-auth, for debugging only.
  * Mount under /api/dev

@@ -1,6 +1,5 @@
 const express = require('express');
 const healthController = require('../controllers/health');
-const authRoutes = require('./auth.routes');
 
 const router = express.Router();
 
@@ -33,8 +32,5 @@ const router = express.Router();
  *                   example: development
  */
 router.get('/', healthController.check.bind(healthController));
-
-// Mount authentication routes
-router.use('/auth', authRoutes);
 
 module.exports = router;

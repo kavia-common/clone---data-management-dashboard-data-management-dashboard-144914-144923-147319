@@ -16,9 +16,6 @@ const options = {
         process.env.SWAGGER_DESCRIPTION ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    tags: [
-      { name: 'Auth', description: 'Authentication endpoints' },
-    ],
     components: {
       schemas: {
         // A flexible document to represent MongoDB documents without strict typing
