@@ -7,14 +7,21 @@ import Users from "../pages/dashboard/Users";
 import Sessions from "../pages/dashboard/Sessions";
 import Deployments from "../pages/dashboard/Deployments";
 import Costs from "../pages/dashboard/Costs";
+import Login from "../pages/Login";
 
 // PUBLIC_INTERFACE
 export default function AppRoutes() {
-  /** Application route tree (public only, no authentication required). */
+  /**
+   * Application route tree under a single root BrowserRouter (provided by index.js).
+   * Includes public /login and dashboard routes.
+   */
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/dashboard" />} />
+      {/* Public routes */}
+      <Route path="/login" element={<Login />} />
 
+      {/* Dashboard routes */}
+      <Route path="/" element={<Navigate to="/dashboard" />} />
       <Route
         path="/dashboard"
         element={

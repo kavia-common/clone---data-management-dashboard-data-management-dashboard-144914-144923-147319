@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from "react";
 import "./App.css";
 import AppRoutes from "./routes/AppRoutes";
-import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
-import Login from "./pages/Login";
 
 /**
  * Internal hook: detect if current viewport width is below the desktop breakpoint (1024px).
@@ -56,6 +54,7 @@ export default function App() {
   /**
    * Root component rendering application routes.
    * Blocks access on viewports narrower than 1024px with a desktop-only overlay.
+   * Note: BrowserRouter is provided at the app root (index.js). Do not nest another router here.
    */
   const isBlocked = useIsBelowDesktopBreakpoint(1024);
 
@@ -64,20 +63,6 @@ export default function App() {
     return <DesktopOnlyOverlay />;
   }
 
-  return (
-    <BrowserRouter>
-      <div className="App" style={{ minHeight: "100vh", background: "#f9fafb" }}>
-        <nav style={{ padding: 12, background: "#ffffff", borderBottom: "1px solid #e5e7eb" }}>
-          <Link to="/login" style={{ color: "#2563EB", fontWeight: 600, textDecoration: "none" }}>
-            Login
-          </Link>
-        </nav>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          {/* Delegate all existing app routes */}
-          <Route path="/*" element={<AppRoutes />} />
-        </Routes>
-      </div>
-    </BrowserRouter>
-  );
+  // Delegate routing to AppRoutes which is rendered under the root BrowserRouter (index.js)
+  return <AppRoutes />;
 }
