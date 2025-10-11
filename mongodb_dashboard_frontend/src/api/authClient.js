@@ -37,8 +37,8 @@ export async function fetchUserOrganizationsByEmail(email) {
   throw err;
 }
 
-// PUBLIC_INTERFACE
-export async function loginWithOrgEmailPassword({ organizationId, email, password, salt }) {
+ // PUBLIC_INTERFACE
+export async function loginWithOrgEmailPassword({ organizationId, email, password }) {
   /** Calls POST /api/auth/login with body { organization_id: <encrypted>, email, password }.
    * Encrypts org id using AES-128-ECB and base64 without padding.
    * Returns token (if any) and the raw response text/json.
@@ -47,7 +47,7 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
   if (!email) throw new Error('email is required');
   if (!password) throw new Error('password is required');
 
-  const encryptedOrg = encryptTenantId(organizationId, salt);
+  const encryptedOrg = encryptTenantId(organizationId);
   // Route login via resolveAuthEndpointUrl so that only this endpoint is forced to the external domain.
   // Other non-auth endpoints should keep using the base client logic.
   const url = resolveAuthEndpointUrl(`/api/auth/login`, API_BASE_URL);

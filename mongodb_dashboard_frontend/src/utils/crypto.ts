@@ -3,6 +3,7 @@
  * Uses crypto-js in the browser to perform AES-128-ECB encryption.
  */
 import CryptoJS from 'crypto-js';
+// Import from JS config to ensure availability in production build
 import { VALIDATED_TENANT_SALT } from '../config/auth';
 
 /**
