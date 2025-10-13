@@ -58,33 +58,22 @@ const ViewDetailsModal: React.FC<ViewDetailsModalProps> = ({
 
   // Convert value to a string for display while preserving original value in memory.
   const renderValue = (value: any, key?: string) => {
-    // Special display: when key looks like user cost, show "$X • Credits Used: N credits"
+    // Special display: when key looks like user cost, show as two stacked lines:
+    // Line 1: $X  |  Line 2: Credits Used: N credits
     if (key && isUserCostKeyLoose(key)) {
       const num = toNumberLike(value);
       if (num != null) {
         const usdText = formatCurrencyAmount(num, { currency: 'USD' });
         const creditsText = formatCredits(usdToCredits(num));
-        // Render as a vertical stack: first line shows USD, second line shows Credits Used
+        // Vertical stack for consistent responsive behavior and spacing
         return (
           <div
-            title={`${usdText} • Credits Used: ${creditsText}`}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-            }}
+            title={`User Cost: ${usdText}; Credits Used: ${creditsText}`}
+            className="flex flex-col items-start"
           >
-            <span style={{ color: '#111827', fontWeight: 600 }}>{usdText}</span>
-            <span
-              style={{
-                marginTop: 4,
-                fontSize: '0.875rem',
-                color: 'var(--ocean-muted, #6B7280)',
-                lineHeight: 1.25,
-              }}
-            >
-              Credits Used:{' '}
-              <strong style={{ color: '#111827' }}>{creditsText}</strong>
+            <span className="text-gray-900 font-semibold">{usdText}</span>
+            <span className="mt-1 text-sm text-gray-500 leading-5">
+              Credits Used: <strong className="text-gray-900">{creditsText}</strong>
             </span>
           </div>
         );
@@ -130,7 +119,10 @@ const ViewDetailsModal: React.FC<ViewDetailsModalProps> = ({
                     margin: 0,
                     whiteSpace: typeof value === 'object' ? 'pre-wrap' : 'normal',
                     color: '#374151',
-                    fontFamily: typeof value === 'object' ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' : 'inherit',
+                    fontFamily:
+                      typeof value === 'object'
+                        ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                        : 'inherit',
                     fontSize: typeof value === 'object' ? '0.85rem' : 'inherit',
                   }}
                 >
