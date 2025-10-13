@@ -9,10 +9,29 @@ export const API_BASE_URL =
   'https://kaviaqa-worktool.cloud.kavia.ai';
 
 /**
- * QA-specific tenant salt (do not convert to env var). This must be the exact value provided.
+ * PUBLIC_INTERFACE
+ * Tenant salt source for the frontend.
+ * Single source of truth: REACT_APP_SECRET_SALT (base64url without padding, 22-24 chars typical).
+ * Example valid: g5StFHvCyj0Hf9g8j87nGA
+ * For local dev, you may set a fallback DEFAULT_SECRET_SALT below if env is missing.
  */
-// PUBLIC_INTERFACE
-export const VALIDATED_TENANT_SALT = '67486f90cb935d7165b796ba397e1c23';
+const ENV_SALT =
+  (typeof process !== 'undefined' &&
+    process.env &&
+    String(process.env.REACT_APP_SECRET_SALT || '').trim()) ||
+  '';
+
+const DEFAULT_SECRET_SALT = 'g5StFHvCyj0Hf9g8j87nGA'; // safe dev default; override in production via env
+
+function normalizeBase64Url(s) {
+  return String(s || '')
+    .trim()
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+export const VALIDATED_TENANT_SALT = normalizeBase64Url(ENV_SALT || DEFAULT_SECRET_SALT);
 
 // Storage keys and helpers for auth/session
 // PUBLIC_INTERFACE
