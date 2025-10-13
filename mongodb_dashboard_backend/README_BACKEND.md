@@ -1,5 +1,16 @@
 # Dashboard Backend (Express + MongoDB)
 
+## Authentication salt
+
+- SECRET_SALT is the single source of truth for tenant encryption and related signing helpers.
+- Format: URL-safe base64 (base64url), no padding, typically 22–24 chars. Example: `g5StFHvCyj0Hf9g8j87nGA`.
+- Generate:
+  - Node: `node -e "console.log(require('crypto').randomBytes(16).toString('base64url'))"`
+- Legacy variables (AUTH_TENANT_SALT, QA_SALT, PASSWORD_SALT) are ignored if SECRET_SALT is present.
+- The `/api/auth/health` endpoint reports configuration status without exposing the secret.
+
+See `.env.example` for the exact variables.
+
 This backend provides RESTful APIs for dashboard collections (public access; no authentication) and health checks.
 
 Key features:

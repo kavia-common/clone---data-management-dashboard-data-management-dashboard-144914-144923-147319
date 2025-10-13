@@ -30,17 +30,21 @@ const router = express.Router();
  *                   description: Optional warning message if salt is weak/placeholder
  */
 router.get('/health', (req, res) => {
-  const { isMissing, isPlaceholder } = getTenantSaltConfig();
-  const tenantSaltConfigured = !(isMissing || isPlaceholder);
+  const { isMissing, isPlaceholder, looksValid, salt } = getTenantSaltConfig();
+  const tenantSaltConfigured = !(isMissing || isPlaceholder) && looksValid;
   const tenantSaltWarning = isMissing
-    ? 'AUTH_TENANT_SALT is missing'
-    : isPlaceholder
-      ? 'AUTH_TENANT_SALT appears to be a placeholder/weak value'
-      : null;
+    ? 'SECRET_SALT is missing'
+    : !looksValid
+      ? 'SECRET_SALT must be URL-safe base64 (no =) 22-24 chars, e.g., g5StFHvCyj0Hf9g8j87nGA'
+      : isPlaceholder
+        ? 'SECRET_SALT appears to be a placeholder/weak value'
+        : null;
 
   return res.status(200).json({
     tenantSaltConfigured,
     tenantSaltWarning,
+    // do not expose salt; include safe metadata only
+    length: typeof salt === 'string' ? salt.length : 0,
   });
 });
 
@@ -163,16 +167,19 @@ router.post('/login', (req, res) => {
   }
 
   // Configuration validation: require a properly configured tenant salt
-  const { isMissing, isPlaceholder } = getTenantSaltConfig();
-  if (isMissing || isPlaceholder) {
+  const { isMissing, isPlaceholder, looksValid } = getTenantSaltConfig();
+  if (isMissing || isPlaceholder || !looksValid) {
     const msg = isMissing
-      ? 'Authentication salt missing. Set AUTH_TENANT_SALT in environment.'
-      : 'Authentication salt appears to be a placeholder/weak value. Provide a stronger AUTH_TENANT_SALT.';
+      ? 'Authentication salt missing. Set SECRET_SALT in environment.'
+      : !looksValid
+        ? 'Authentication salt format invalid. SECRET_SALT must be URL-safe base64 (no =) ~22-24 chars (e.g., g5StFHvCyj0Hf9g8j87nGA).'
+        : 'Authentication salt appears to be a placeholder/weak value. Provide a stronger SECRET_SALT.';
     // Return 400 so clients can self-heal/configure rather than seeing a 500.
     return res.status(400).json({
       success: false,
       message: msg,
-      docs: 'Add AUTH_TENANT_SALT (>=12 chars, non-placeholder) to your environment. See README_BACKEND.md and .env.example.',
+      docs:
+        'Add SECRET_SALT to your environment. Recommended: node -e "console.log(require(\'crypto\').randomBytes(16).toString(\'base64url\'))". See README_BACKEND.md and .env.example.',
     });
   }
 

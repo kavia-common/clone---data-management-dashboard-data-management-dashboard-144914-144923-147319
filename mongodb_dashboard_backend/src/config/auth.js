@@ -20,23 +20,66 @@
  * - This module does not throw; it returns state that callers can use to respond with 4xx errors.
  */
 
-const PLACEHOLDER_VALUES = new Set(['', 'changeme', 'placeholder', 'qa_salt', 'qa-placeholder', 'demo']);
+const PLACEHOLDER_VALUES = new Set([
+  '',
+  'changeme',
+  'placeholder',
+  'qa_salt',
+  'qa-placeholder',
+  'demo',
+  'default',
+  'insecure',
+]);
 
 function normalize(value) {
   if (value === undefined || value === null) return '';
   return String(value).trim();
 }
 
+/**
+ * Validate that a salt is URL-safe base64-ish without padding, length ~22-24.
+ * Example: g5StFHvCyj0Hf9g8j87nGA
+ */
+function isUrlSafeShortBase64(s) {
+  if (!s || typeof s !== 'string') return false;
+  const v = s.trim();
+  if (!v) return false;
+  if (PLACEHOLDER_VALUES.has(v.toLowerCase())) return false;
+  // 20-32 len guard, expected typically 22-24 for 16 bytes base64url without padding
+  if (v.length < 20 || v.length > 44) return false;
+  // url-safe chars only
+  if (!/^[A-Za-z0-9\-_]+$/.test(v)) return false;
+  // no padding '='
+  if (v.includes('=')) return false;
+  return true;
+}
+
 // PUBLIC_INTERFACE
 function getTenantSaltConfig() {
-  const salt =
+  // Single source of truth
+  const raw =
+    normalize(process.env.SECRET_SALT) ||
     normalize(process.env.AUTH_TENANT_SALT) ||
     normalize(process.env.QA_SALT) ||
     normalize(process.env.PASSWORD_SALT);
 
-  const isMissing = salt.length === 0;
-  const isPlaceholder = PLACEHOLDER_VALUES.has(salt.toLowerCase()) || salt.length < 12;
-  return { salt, isMissing, isPlaceholder };
+  const isMissing = raw.length === 0;
+  const isPlaceholder = PLACEHOLDER_VALUES.has(raw.toLowerCase());
+  // Normalize: if provided in classic base64 with padding, convert to base64url and strip padding
+  let normalized = raw
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+
+  const looksValid = isUrlSafeShortBase64(normalized);
+
+  return {
+    // The url-safe short salt to be used across backend
+    salt: normalized,
+    isMissing,
+    isPlaceholder: isPlaceholder || !looksValid,
+    looksValid,
+  };
 }
 
 // PUBLIC_INTERFACE
