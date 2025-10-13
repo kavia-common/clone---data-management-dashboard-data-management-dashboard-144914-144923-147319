@@ -64,11 +64,29 @@ const ViewDetailsModal: React.FC<ViewDetailsModalProps> = ({
       if (num != null) {
         const usdText = formatCurrencyAmount(num, { currency: 'USD' });
         const creditsText = formatCredits(usdToCredits(num));
+        // Render as a vertical stack: first line shows USD, second line shows Credits Used
         return (
-          <span title={`${usdText} • Credits Used: ${creditsText}`} style={{ whiteSpace: 'nowrap' }}>
-            {usdText}
-            <span className="credits-inline muted"> • Credits Used: {creditsText}</span>
-          </span>
+          <div
+            title={`${usdText} • Credits Used: ${creditsText}`}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-start',
+            }}
+          >
+            <span style={{ color: '#111827', fontWeight: 600 }}>{usdText}</span>
+            <span
+              style={{
+                marginTop: 4,
+                fontSize: '0.875rem',
+                color: 'var(--ocean-muted, #6B7280)',
+                lineHeight: 1.25,
+              }}
+            >
+              Credits Used:{' '}
+              <strong style={{ color: '#111827' }}>{creditsText}</strong>
+            </span>
+          </div>
         );
       }
     }
