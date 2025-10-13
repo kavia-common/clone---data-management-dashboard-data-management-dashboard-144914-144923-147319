@@ -78,4 +78,47 @@ router.get(
   })
 );
 
+/**
+ * @swagger
+ * /api/dashboard/overview/metrics:
+ *   get:
+ *     summary: Dashboard overview totals
+ *     description: Returns total counts for users and deployed apps for the Overview tab.
+ *     tags: [Dashboard]
+ *     responses:
+ *       200:
+ *         description: Totals available
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 totalUsers:
+ *                   type: integer
+ *                   description: Total number of users (from users collection)
+ *                   example: 124
+ *                 totalDeployedApps:
+ *                   type: integer
+ *                   description: Total application deployments (from app_deployments collection)
+ *                   example: 37
+ */
+router.get(
+  '/metrics',
+  asyncHandler(async (_req, res) => {
+    const [usersCount, deploymentsCount] = await Promise.all([
+      User.countDocuments({}).catch(() => 0),
+      AppDeployment.countDocuments({}).catch(() => 0),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      totalUsers: Number(usersCount || 0),
+      totalDeployedApps: Number(deploymentsCount || 0),
+    });
+  })
+);
+
 module.exports = router;
