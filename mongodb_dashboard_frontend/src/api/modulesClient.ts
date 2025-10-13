@@ -7,8 +7,8 @@ import { getApiBaseUrl } from './util';
  */
 export async function getModules(): Promise<any[]> {
   const base = getApiBaseUrl();
-  // Try known endpoints in priority order
-  const endpoints = ['/api/modules', '/api/dashboard/overview', '/api/app-deployments'];
+  // Try known endpoints in priority order (prefer the structured overview)
+  const endpoints = ['/api/dashboard/overview', '/api/modules', '/api/app-deployments'];
 
   for (const ep of endpoints) {
     try {
