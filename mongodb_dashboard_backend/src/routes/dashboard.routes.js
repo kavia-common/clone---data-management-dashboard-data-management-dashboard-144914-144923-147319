@@ -65,7 +65,7 @@ router.get(
   '/overview',
   asyncHandler(async (req, res) => {
     // Compute counts in parallel
-    const [
+    let [
       usersCount,
       tenantsCount,
       projectsCount,
@@ -78,6 +78,18 @@ router.get(
       SessionTracking.countDocuments({}).catch(() => 0),
       AppDeployment.countDocuments({}).catch(() => 0),
     ]);
+
+    // Fallback for users if collection is empty: infer from session_tracking distinct user_id
+    if (!usersCount || Number(usersCount) === 0) {
+      try {
+        const distinctUsers = await SessionTracking.distinct('user_id').catch(() => []);
+        usersCount = Array.isArray(distinctUsers)
+          ? distinctUsers.filter((u) => u !== null && u !== undefined && String(u).trim() !== '').length
+          : 0;
+      } catch {
+        usersCount = 0;
+      }
+    }
 
     // Recent docs (safe lean projections)
     const recentSessions = await SessionTracking.find({}, { _id: 1, tenant_id: 1, user_id: 1, project_id: 1, status: 1, total_cost: 1, last_updated: 1, session_start: 1 })

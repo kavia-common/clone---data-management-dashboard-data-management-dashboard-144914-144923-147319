@@ -37,13 +37,27 @@ const router = express.Router();
 router.get(
   '/modules',
   asyncHandler(async (_req, res) => {
-    const [usersCount, tenantsCount, projectsCount, sessionsCount, deploymentsCount] = await Promise.all([
+    // Compute counts
+    let [usersCount, tenantsCount, projectsCount, sessionsCount, deploymentsCount] = await Promise.all([
       User.countDocuments({}).catch(() => 0),
       Tenant.countDocuments({}).catch(() => 0),
       Project.countDocuments({}).catch(() => 0),
       SessionTracking.countDocuments({}).catch(() => 0),
       AppDeployment.countDocuments({}).catch(() => 0),
     ]);
+
+    // Fallback: If users collection is empty, infer total users across all tenants from session_tracking distinct user_id
+    if (!usersCount || Number(usersCount) === 0) {
+      try {
+        const distinctUsers = await SessionTracking.distinct('user_id').catch(() => []);
+        usersCount = Array.isArray(distinctUsers)
+          ? distinctUsers.filter((u) => u !== null && u !== undefined && String(u).trim() !== '').length
+          : 0;
+      } catch {
+        // keep usersCount as 0
+        usersCount = 0;
+      }
+    }
 
     const [duration, costs] = await Promise.all([
       getSessionDurations({}).catch(() => ({ total_minutes: 0 })),
@@ -108,10 +122,23 @@ router.get(
 router.get(
   '/metrics',
   asyncHandler(async (_req, res) => {
-    const [usersCount, deploymentsCount] = await Promise.all([
+    // Primary sources
+    let [usersCount, deploymentsCount] = await Promise.all([
       User.countDocuments({}).catch(() => 0),
       AppDeployment.countDocuments({}).catch(() => 0),
     ]);
+
+    // Fallback strategy for totalUsers: if users collection is empty, infer from session_tracking distinct user_id
+    if (!usersCount || Number(usersCount) === 0) {
+      try {
+        const distinctUsers = await SessionTracking.distinct('user_id').catch(() => []);
+        usersCount = Array.isArray(distinctUsers)
+          ? distinctUsers.filter((u) => u !== null && u !== undefined && String(u).trim() !== '').length
+          : 0;
+      } catch {
+        usersCount = 0;
+      }
+    }
 
     return res.status(200).json({
       success: true,
