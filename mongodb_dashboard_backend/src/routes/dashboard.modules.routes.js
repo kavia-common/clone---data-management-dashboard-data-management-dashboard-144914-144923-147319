@@ -122,7 +122,7 @@ router.get(
 router.get(
   '/metrics',
   asyncHandler(async (_req, res) => {
-    // Primary sources
+    // Primary sources: count entire collections across all tenants
     let [usersCount, deploymentsCount] = await Promise.all([
       User.countDocuments({}).catch(() => 0),
       AppDeployment.countDocuments({}).catch(() => 0),
@@ -133,17 +133,23 @@ router.get(
       try {
         const distinctUsers = await SessionTracking.distinct('user_id').catch(() => []);
         usersCount = Array.isArray(distinctUsers)
-          ? distinctUsers.filter((u) => u !== null && u !== undefined && String(u).trim() !== '').length
+          ? distinctUsers.filter(
+              (u) => u !== null && u !== undefined && String(u).trim() !== ''
+            ).length
           : 0;
       } catch {
         usersCount = 0;
       }
     }
 
+    // Normalize to integers and avoid NaN
+    const totalUsers = Number.isFinite(Number(usersCount)) ? Number(usersCount) : 0;
+    const totalDeployedApps = Number.isFinite(Number(deploymentsCount)) ? Number(deploymentsCount) : 0;
+
     return res.status(200).json({
       success: true,
-      totalUsers: Number(usersCount || 0),
-      totalDeployedApps: Number(deploymentsCount || 0),
+      totalUsers,
+      totalDeployedApps,
     });
   })
 );
