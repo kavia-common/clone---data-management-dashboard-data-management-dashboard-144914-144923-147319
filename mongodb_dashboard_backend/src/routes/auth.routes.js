@@ -1,7 +1,48 @@
 const express = require('express');
+const { getTenantSaltConfig } = require('../config/auth');
 
 const router = express.Router();
 // Note: This router is mounted at /api/auth in app.js, so POST /api/auth/login is the effective path.
+
+// PUBLIC_INTERFACE
+// Simple configuration health check for auth settings (does not expose secrets)
+/**
+ * @swagger
+ * /api/auth/health:
+ *   get:
+ *     summary: Auth configuration health
+ *     description: Returns configuration status for authentication related environment variables (no secrets exposed).
+ *     tags: [Auth]
+ *     responses:
+ *       200:
+ *         description: Status flags for auth configuration
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 tenantSaltConfigured:
+ *                   type: boolean
+ *                   description: Whether tenant salt is set and not placeholder/weak
+ *                 tenantSaltWarning:
+ *                   type: string
+ *                   nullable: true
+ *                   description: Optional warning message if salt is weak/placeholder
+ */
+router.get('/health', (req, res) => {
+  const { isMissing, isPlaceholder } = getTenantSaltConfig();
+  const tenantSaltConfigured = !(isMissing || isPlaceholder);
+  const tenantSaltWarning = isMissing
+    ? 'AUTH_TENANT_SALT is missing'
+    : isPlaceholder
+      ? 'AUTH_TENANT_SALT appears to be a placeholder/weak value'
+      : null;
+
+  return res.status(200).json({
+    tenantSaltConfigured,
+    tenantSaltWarning,
+  });
+});
 
 /**
  * @swagger
@@ -121,12 +162,26 @@ router.post('/login', (req, res) => {
     return res.status(422).json({ detail: errors });
   }
 
+  // Configuration validation: require a properly configured tenant salt
+  const { isMissing, isPlaceholder } = getTenantSaltConfig();
+  if (isMissing || isPlaceholder) {
+    const msg = isMissing
+      ? 'Authentication salt missing. Set AUTH_TENANT_SALT in environment.'
+      : 'Authentication salt appears to be a placeholder/weak value. Provide a stronger AUTH_TENANT_SALT.';
+    // Return 400 so clients can self-heal/configure rather than seeing a 500.
+    return res.status(400).json({
+      success: false,
+      message: msg,
+      docs: 'Add AUTH_TENANT_SALT (>=12 chars, non-placeholder) to your environment. See README_BACKEND.md and .env.example.',
+    });
+  }
+
   // Simulate user not found condition: if organization_id === 'notfound' OR email not including '@'
   if (organization_id === 'notfound' || !String(email).includes('@')) {
     return res.status(404).json('not found');
   }
 
-  // Placeholder success (no real auth yet)
+  // Placeholder success (no real auth yet). In a real impl, you'd hash/verify password and mint a JWT using AUTH_JWT_SECRET.
   return res.status(200).json('ok');
 });
 

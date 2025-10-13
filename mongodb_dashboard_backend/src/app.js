@@ -118,11 +118,12 @@ app.use('/api/costs', require('./routes/costs.byAgent.routes'));
 app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
 app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
 
-// Tenants and Projects (mapping, hierarchy, credits, usage)
+ // Tenants and Projects (mapping, hierarchy, credits, usage)
 app.use('/api/tenants', require('./routes/tenants.routes'));
 app.use('/api/projects', require('./routes/projects.routes'));
-// Tenants and Projects (mapping, hierarchy, credits, usage)
-app.use('/api/tenants', require('./routes/tenants.routes'));
+
+// Auth endpoints (login and config health)
+app.use('/api/auth', require('./routes/auth.routes'));
 
 // Analytics endpoints
 app.use('/api/analytics', require('./routes/analytics.routes'));

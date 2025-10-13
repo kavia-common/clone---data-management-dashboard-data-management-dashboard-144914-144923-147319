@@ -12,6 +12,26 @@ Key features:
   - sample (demo)
 - Swagger docs at /docs with dynamic server URL
 
+## Authentication Configuration
+
+The backend reads authentication-related configuration from environment variables and responds gracefully if they are missing or weak. It will not crash with HTTP 500.
+
+Required/Recommended variables:
+- AUTH_TENANT_SALT: Salt used for tenant/organization encryption/validation. Must be at least 12 characters and not a placeholder like "changeme".
+- AUTH_JWT_SECRET: Secret used for signing JWTs (when JWT auth is enabled).
+- Optional legacy compatibility: PASSWORD_SALT, QA_SALT will be read if provided.
+
+See .env.example for a template.
+
+Behavior when misconfigured:
+- POST /api/auth/login will return 400 with a clear message if AUTH_TENANT_SALT is missing or appears placeholder/weak.
+- GET /api/auth/health returns status flags to help verify configuration without exposing secrets.
+
+Once AUTH_TENANT_SALT is properly set, the stub login will validate inputs and return:
+- 200 with "ok" for a valid stub login
+- 404 for simulated "not found" conditions (organization_id === "notfound" or malformed email)
+- 422 for validation errors
+
 ## Setup
 
 1) Configure MongoDB
