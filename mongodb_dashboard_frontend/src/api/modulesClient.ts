@@ -109,3 +109,34 @@ export async function getModules(): Promise<any[]> {
 
   return derivedModules;
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * getOverviewMetrics
+ * Fetches consolidated totals for the Overview screen.
+ * Returns { totalUsers, totalDeployedApps }.
+ */
+export async function getOverviewMetrics(): Promise<{ totalUsers: number; totalDeployedApps: number }> {
+  const axiosClient = getApiClient();
+  const axiosBase = (axiosClient?.defaults?.baseURL as string) || '';
+  const envBase = getApiBaseUrl() || '';
+  const heuristicBase = getApiBase();
+  const base = (axiosBase || envBase || heuristicBase || '').replace(/\/*$/, '');
+
+  const url = `${base}/dashboard/overview/metrics`;
+  // If axios base includes /api, the relative path will respect it. Otherwise prefix /api.
+  const absolute = url.includes('/api/') ? url : `${base}/api/dashboard/overview/metrics`;
+
+  const res = await fetch(absolute, {
+    method: 'GET',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch overview metrics (${res.status})`);
+  }
+  const data = await res.json();
+  const totalUsers = Number((data as any)?.totalUsers ?? 0);
+  const totalDeployedApps = Number((data as any)?.totalDeployedApps ?? 0);
+  return { totalUsers, totalDeployedApps };
+}
