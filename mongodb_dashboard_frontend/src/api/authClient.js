@@ -1,5 +1,5 @@
-import { API_BASE_URL } from '../config/auth';
-import { encryptTenantId, isTenantSaltValid } from '../utils/crypto';
+import { API_BASE_URL, VALIDATED_TENANT_SALT } from '../config/auth';
+import { isTenantSaltValid } from '../utils/crypto';
 import { resolveAuthEndpointUrl } from './urlOverrides';
 
 // PUBLIC_INTERFACE
@@ -39,34 +39,28 @@ export async function fetchUserOrganizationsByEmail(email) {
 
 // PUBLIC_INTERFACE
 export async function loginWithOrgEmailPassword({ organizationId, email, password }) {
-  /** Calls POST /api/auth/login with body { organization_id: <encrypted>, email, password }.
-   * Encrypts org id using AES-128-ECB and base64 without padding.
+  /** Calls POST /api/auth/login with body { organization_id: REACT_APP_SECRET_SALT, email, password }.
+   * Note: organization_id must be EXACTLY the configured secret salt. No encryption or encoding.
    * Returns token (if any) and the raw response text/json.
-   * If the salt is not configured, throws a user-friendly error without crashing.
    */
-  if (!organizationId) throw new Error('organizationId is required');
   if (!email) throw new Error('email is required');
   if (!password) throw new Error('password is required');
 
   if (!isTenantSaltValid()) {
-    const err = new Error('Login cannot proceed: QA tenant encryption salt is not configured.');
+    const err = new Error('Login cannot proceed: tenant secret salt is not configured.');
     err.code = 'SALT_NOT_CONFIGURED';
     throw err;
   }
 
-  let encryptedOrg;
-  try {
-    encryptedOrg = encryptTenantId(organizationId);
-  } catch (e) {
-    const err = new Error('Failed to encrypt organization id. Please contact support.');
-    err.cause = e;
-    throw err;
-  }
+  const organization_id = VALIDATED_TENANT_SALT;
 
-  // Route login via resolveAuthEndpointUrl so that only this endpoint is forced to the external domain.
-  // Other non-auth endpoints should keep using the base client logic.
   const url = resolveAuthEndpointUrl(`/api/auth/login`, API_BASE_URL);
-  const body = { organization_id: encryptedOrg, email, password };
+  const body = { organization_id, email, password };
+
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.log('Auth payload preview', { organization_id, email, password: '[REDACTED]' });
+  }
 
   const res = await fetch(url, {
     method: 'POST',

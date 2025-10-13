@@ -10,9 +10,9 @@ export const API_BASE_URL =
 
 /**
  * PUBLIC_INTERFACE
- * Tenant salt source for the frontend.
- * Single source of truth: REACT_APP_SECRET_SALT (base64url without padding, 22-24 chars typical).
- * Example valid: g5StFHvCyj0Hf9g8j87nGA
+ * Tenant secret salt for the frontend.
+ * IMPORTANT: organization_id in login payload MUST equal this exact value (no encryption/encoding).
+ * Single source of truth: REACT_APP_SECRET_SALT (URL-safe, no padding). Example: g5StFHvCyj0Hf9g8j87nGA
  * For local dev, you may set a fallback DEFAULT_SECRET_SALT below if env is missing.
  */
 const ENV_SALT =

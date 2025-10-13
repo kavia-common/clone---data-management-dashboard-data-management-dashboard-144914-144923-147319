@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { getUserOrganizations, login } from '../api/authClient';
-import { encryptTenantId, isTenantSaltValid } from '../utils/crypto';
+import { isTenantSaltValid } from '../utils/crypto';
+import { VALIDATED_TENANT_SALT } from '../config/auth';
 import '../styles/theme.css';
 
 type Organization = {
@@ -89,14 +90,6 @@ export default function Login() {
 
   const [selectedOrgId, setSelectedOrgId] = useState<string>('');
   const saltReady = useMemo(() => isTenantSaltValid(), []);
-  const encryptedOrgId = useMemo(() => {
-    try {
-      if (!saltReady) return '';
-      return selectedOrgId ? encryptTenantId(selectedOrgId) : '';
-    } catch {
-      return '';
-    }
-  }, [selectedOrgId, saltReady]);
 
   const [password, setPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
@@ -136,9 +129,19 @@ export default function Login() {
     setLoginLoading(true);
     try {
       const orgIdToUse = selectedOrgId || manualOrgId.trim();
-      const enc = encryptTenantId(orgIdToUse);
+      const organization_id = VALIDATED_TENANT_SALT; // send literal secret salt
+      if (process.env.NODE_ENV !== 'production') {
+        // Dev log to verify payload meets acceptance criteria
+        // eslint-disable-next-line no-console
+        console.log('Auth payload preview', {
+          organization_id,
+          email: email.trim(),
+          password: '[REDACTED]',
+          selectedOrgId: orgIdToUse,
+        });
+      }
       const res = await login({
-        organization_id: enc, // per instruction, send encrypted
+        organization_id,
         email: email.trim(),
         password,
       });
@@ -255,8 +258,6 @@ export default function Login() {
                 {selectedOrgId && (
                   <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>
                     Selected: {orgs.find((o) => o.id === selectedOrgId)?.name || selectedOrgId}
-                    <br />
-                    Encrypted ID: <code>{encryptedOrgId.slice(0, 10)}...</code>
                   </div>
                 )}
               </div>
