@@ -2,8 +2,6 @@ import { resolveAuthEndpointUrl } from './urlOverrides';
 import { isTenantSaltValid } from '../utils/crypto';
 
 // Keep a fallback base for other auth endpoints (login etc.)
-// We intentionally avoid introducing new envs here to satisfy the requirement.
-// Prefer window location 3001 backend if available, else default localhost:3001.
 const LOCAL_AUTH_BASE =
   (typeof process !== 'undefined' && process.env && (process.env as any).REACT_APP_API_BASE_URL) ||
   (() => {
@@ -29,10 +27,6 @@ type LoginPayload = {
 
 // PUBLIC_INTERFACE
 export async function getUserOrganizations(email: string): Promise<Organization[]> {
-  /** Fetch organizations for a given user email.
-   * Special-case: this must call the absolute external domain for user-organizations.
-   * We use resolveAuthEndpointUrl to force the absolute URL while retaining local base for others.
-   */
   const relativePath = `/api/auth/user-organizations?email=${encodeURIComponent(email)}`;
   const url = resolveAuthEndpointUrl(relativePath, LOCAL_AUTH_BASE);
   const res = await fetch(url, {
@@ -40,6 +34,7 @@ export async function getUserOrganizations(email: string): Promise<Organization[
     headers: {
       Accept: 'application/json',
     },
+    credentials: 'include',
   });
 
   if (!res.ok) {
@@ -65,10 +60,6 @@ export async function getUserOrganizations(email: string): Promise<Organization[
 
 // PUBLIC_INTERFACE
 export async function login(payload: LoginPayload): Promise<any> {
-  /** Log in using the override helper so that only /api/auth/login is routed to the external domain.
-   * This mirrors the user-organizations special-casing and keeps other API calls on the normal base URL logic.
-   * If the environment salt is not configured, returns a descriptive error early.
-   */
   if (!isTenantSaltValid()) {
     throw new Error('Login cannot proceed: QA tenant encryption salt is not configured.');
   }
@@ -76,6 +67,7 @@ export async function login(payload: LoginPayload): Promise<any> {
   const url = resolveAuthEndpointUrl(`/api/auth/login`, LOCAL_AUTH_BASE);
   const res = await fetch(url, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
@@ -87,7 +79,6 @@ export async function login(payload: LoginPayload): Promise<any> {
     let message = `Login failed (${res.status})`;
     try {
       const data = await res.json();
-      // FastAPI may return { detail: ... } or string
       message = data?.message || data?.detail || (typeof data === 'string' ? data : message);
       if (res.status === 500) {
         message = `${message}. If you are using a placeholder QA salt, please configure a valid salt.`;
@@ -98,11 +89,9 @@ export async function login(payload: LoginPayload): Promise<any> {
     throw new Error(message);
   }
 
-  // May be string or object; return as-is
   try {
     return await res.json();
   } catch {
-    // if not JSON, attempt text
     const txt = await res.text();
     return txt;
   }

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { getUserOrganizations, login } from '../api/authClient';
 import { isTenantSaltValid } from '../utils/crypto';
 import { VALIDATED_TENANT_SALT } from '../config/auth';
+import { useLocation, useNavigate } from 'react-router-dom';
 import '../styles/theme.css';
 
 type Organization = {
@@ -80,6 +81,16 @@ const errorStyle: React.CSSProperties = {
   marginTop: 8,
 };
 
+/**
+ * PUBLIC_INTERFACE
+ * Login page with 2-step flow:
+ * - Step 1: email -> fetch user's organizations
+ * - Step 2: select organization or manually input (if none), provide password
+ * On successful login:
+ * - if redirect_uri query param is present -> navigate to it
+ * - else navigate to /dashboard (Overview)
+ * Preserves org/tenant behavior and handles INACTIVE_TENANT via server message.
+ */
 export default function Login() {
   const [step, setStep] = useState<'email' | 'credentials'>('email');
 
@@ -98,6 +109,9 @@ export default function Login() {
 
   const [manualOrgId, setManualOrgId] = useState<string>('');
 
+  const location = useLocation();
+  const navigate = useNavigate();
+
   async function handleFetchOrgs(e: React.FormEvent) {
     e.preventDefault();
     setOrgFetchError(null);
@@ -107,9 +121,6 @@ export default function Login() {
     try {
       const data = await getUserOrganizations(email.trim());
       setOrgs(data || []);
-      if (!data || data.length === 0) {
-        // allow manual input step
-      }
       setStep('credentials');
     } catch (err: any) {
       setOrgFetchError(err?.message || 'Failed to fetch organizations');
@@ -129,23 +140,22 @@ export default function Login() {
     setLoginLoading(true);
     try {
       const orgIdToUse = selectedOrgId || manualOrgId.trim();
-      const organization_id = VALIDATED_TENANT_SALT; // send literal secret salt
-      if (process.env.NODE_ENV !== 'production') {
-        // Dev log to verify payload meets acceptance criteria
-        // eslint-disable-next-line no-console
-        console.log('Auth payload preview', {
-          organization_id,
-          email: email.trim(),
-          password: '[REDACTED]',
-          selectedOrgId: orgIdToUse,
-        });
-      }
+      // preserve existing org selection behavior: we continue sending VALIDATED_TENANT_SALT in payload per current design
+      const organization_id = VALIDATED_TENANT_SALT;
+
       const res = await login({
         organization_id,
         email: email.trim(),
         password,
       });
-      // store token if any
+
+      // check INACTIVE_TENANT signal shape per acceptance criteria
+      if (res && res.errorType === 'INACTIVE_TENANT') {
+        navigate('/warning');
+        return;
+      }
+
+      // store token if any (existing behavior)
       if (res && typeof res === 'object' && 'token' in res && (res as any).token) {
         try {
           localStorage.setItem('authToken', String((res as any).token));
@@ -153,7 +163,17 @@ export default function Login() {
           // ignore storage issues
         }
       }
+
+      // Success path: determine redirect
+      const params = new URLSearchParams(location.search);
+      const redirectUri = params.get('redirect_uri');
+      const fallback = '/dashboard';
       setLoginSuccess(typeof res === 'string' ? (res as string) : 'Login successful');
+
+      // small next-tick to allow any state flush before navigation
+      setTimeout(() => {
+        navigate(redirectUri || fallback, { replace: true });
+      }, 0);
     } catch (err: any) {
       setLoginError(err?.message || 'Login failed');
     } finally {
