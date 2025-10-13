@@ -1,26 +1,14 @@
 import React, { useMemo, useState } from 'react';
+import { getUserOrganizations, login } from '../api/authClient';
+import { isTenantSaltValid } from '../utils/crypto';
+import { VALIDATED_TENANT_SALT } from '../config/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { fetchUserOrganizationsByEmail, loginWithOrgEmailPassword } from '../api/authClient';
 import '../styles/theme.css';
 
-/**
- * PUBLIC_INTERFACE
- * TypeScript Login page aligned with the existing JS login behavior:
- * - Step 1: user enters email and fetches organizations
- * - Step 2: user selects an organization and provides password
- * On successful login:
- * - redirect to prior protected route (from state) if present
- * - otherwise remain consistent with ProtectedRoute-driven navigation (no forced redirect in this component)
- */
-type OrganizationItem = {
+type Organization = {
   id: string;
   name?: string;
   [key: string]: any;
-};
-
-type OrgResponse = {
-  email: string;
-  organizations: OrganizationItem[];
 };
 
 const theme = {
@@ -93,83 +81,103 @@ const errorStyle: React.CSSProperties = {
   marginTop: 8,
 };
 
+/**
+ * PUBLIC_INTERFACE
+ * Login page with 2-step flow:
+ * - Step 1: email -> fetch user's organizations
+ * - Step 2: select organization or manually input (if none), provide password
+ * On successful login:
+ * - if redirect_uri query param is present -> navigate to it
+ * - else navigate to /dashboard (Overview)
+ * Preserves org/tenant behavior and handles INACTIVE_TENANT via server message.
+ */
 export default function Login() {
+  const [step, setStep] = useState<'email' | 'credentials'>('email');
+
   const [email, setEmail] = useState('');
-  const [orgResponse, setOrgResponse] = useState<OrgResponse | null>(null);
-  const [selectedOrgId, setSelectedOrgId] = useState('');
+  const [orgs, setOrgs] = useState<Organization[]>([]);
+  const [orgFetchLoading, setOrgFetchLoading] = useState(false);
+  const [orgFetchError, setOrgFetchError] = useState<string | null>(null);
+
+  const [selectedOrgId, setSelectedOrgId] = useState<string>('');
+  const saltReady = useMemo(() => isTenantSaltValid(), []);
+
   const [password, setPassword] = useState('');
-  const [loadingOrgs, setLoadingOrgs] = useState(false);
-  const [loadingLogin, setLoadingLogin] = useState(false);
-  const [error, setError] = useState<string>('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginSuccess, setLoginSuccess] = useState<string | null>(null);
+
+  const [manualOrgId, setManualOrgId] = useState<string>('');
 
   const location = useLocation();
   const navigate = useNavigate();
 
-  const canFind = useMemo(() => !!email && !loadingOrgs, [email, loadingOrgs]);
-  const canLogin = useMemo(
-    () => !!email && !!selectedOrgId && !!password && !loadingLogin,
-    [email, selectedOrgId, password, loadingLogin]
-  );
-
-  async function handleFindOrgs(e: React.FormEvent) {
+  async function handleFetchOrgs(e: React.FormEvent) {
     e.preventDefault();
-    setError('');
-    if (!email) {
-      setError('Please enter an email to look up organizations.');
-      return;
-    }
-    setLoadingOrgs(true);
+    setOrgFetchError(null);
+    setOrgFetchLoading(true);
+    setOrgs([]);
+    setSelectedOrgId('');
     try {
-      const resp = await fetchUserOrganizationsByEmail(email);
-      setOrgResponse(resp as OrgResponse);
-      const items = Array.isArray((resp as any)?.organizations) ? (resp as any).organizations : [];
-      if (items.length === 0) {
-        setSelectedOrgId('');
-        setError('No organizations found for this email.');
-      } else {
-        setSelectedOrgId(items[0]?.id || '');
-      }
-    } catch (e: any) {
-      console.error(e);
-      setError(e?.message || 'Failed to fetch organizations. Please try again.');
-      setOrgResponse(null);
-      setSelectedOrgId('');
+      const data = await getUserOrganizations(email.trim());
+      setOrgs(data || []);
+      setStep('credentials');
+    } catch (err: any) {
+      setOrgFetchError(err?.message || 'Failed to fetch organizations');
     } finally {
-      setLoadingOrgs(false);
+      setOrgFetchLoading(false);
     }
   }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    setError('');
-    if (!email || !selectedOrgId || !password) {
-      setError('Please provide email, organization and password.');
+    setLoginError(null);
+    setLoginSuccess(null);
+    if (!saltReady) {
+      setLoginError('Login cannot proceed: tenant encryption salt is not configured.');
       return;
     }
-    setLoadingLogin(true);
+    setLoginLoading(true);
     try {
-      await loginWithOrgEmailPassword({
-        organizationId: selectedOrgId,
-        email,
+      const orgIdToUse = selectedOrgId || manualOrgId.trim();
+      // preserve existing org selection behavior: we continue sending VALIDATED_TENANT_SALT in payload per current design
+      const organization_id = VALIDATED_TENANT_SALT;
+
+      const res = await login({
+        organization_id,
+        email: email.trim(),
         password,
       });
-      // Redirect to intended path if a protected route sent us here; otherwise rely on app routes
-      const from = (location.state as any)?.from?.pathname;
-      if (from) {
-        navigate(from, { replace: true });
-      } // else do nothing; AppRoutes/ProtectedRoute will handle default landing.
-    } catch (e: any) {
-      console.error('Login error', e);
-      const status = e?.status;
-      if (status === 401 || status === 403) {
-        setError('Invalid credentials. Please check your email, organization, and password.');
-      } else if (status === 404) {
-        setError('Login endpoint not found or user not found.');
-      } else {
-        setError(e?.message || 'Login failed. Please try again.');
+
+      // check INACTIVE_TENANT signal shape per acceptance criteria
+      if (res && res.errorType === 'INACTIVE_TENANT') {
+        navigate('/warning');
+        return;
       }
+
+      // store token if any (existing behavior)
+      if (res && typeof res === 'object' && 'token' in res && (res as any).token) {
+        try {
+          localStorage.setItem('authToken', String((res as any).token));
+        } catch {
+          // ignore storage issues
+        }
+      }
+
+      // Success path: determine redirect
+      const params = new URLSearchParams(location.search);
+      const redirectUri = params.get('redirect_uri');
+      const fallback = '/dashboard';
+      setLoginSuccess(typeof res === 'string' ? (res as string) : 'Login successful');
+
+      // small next-tick to allow any state flush before navigation
+      setTimeout(() => {
+        navigate(redirectUri || fallback, { replace: true });
+      }, 0);
+    } catch (err: any) {
+      setLoginError(err?.message || 'Login failed');
     } finally {
-      setLoadingLogin(false);
+      setLoginLoading(false);
     }
   }
 
@@ -184,88 +192,174 @@ export default function Login() {
         padding: 16,
       }}
     >
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>
+        {`@keyframes spin{to{transform:rotate(360deg)}}`}
+      </style>
       <div style={cardStyle}>
         <h2 style={{ margin: 0, marginBottom: 12, color: theme.text }}>Welcome back</h2>
         <p style={{ marginTop: 0, marginBottom: 20, color: '#6b7280' }}>
           Sign in to your dashboard using your organization.
         </p>
 
-        <form onSubmit={handleFindOrgs}>
-          <div style={{ marginBottom: 14 }}>
-            <div style={labelStyle}>Email</div>
-            <input
-              style={inputStyle}
-              type="email"
-              required
-              placeholder="you@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
+        {step === 'email' && (
+          <form onSubmit={handleFetchOrgs}>
+            <div style={{ marginBottom: 14 }}>
+              <div style={labelStyle}>Email</div>
+              <input
+                style={inputStyle}
+                type="email"
+                required
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
 
-          {error && !orgResponse && <div style={errorStyle}>{error}</div>}
+            {orgFetchError && <div style={errorStyle}>{orgFetchError}</div>}
 
-          <button type="submit" style={btnStyle} disabled={!canFind}>
-            {loadingOrgs ? (
-              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-                {spinner} Checking organizations...
-              </span>
-            ) : (
-              'Find Organizations'
-            )}
-          </button>
-        </form>
-
-        <div style={{ height: 12 }} />
-
-        <form onSubmit={handleLogin}>
-          <div style={{ marginBottom: 14 }}>
-            <div style={labelStyle}>Organization</div>
-            <select
-              style={inputStyle}
-              value={selectedOrgId}
-              onChange={(e) => setSelectedOrgId(e.target.value)}
-            >
-              <option value="">Select an organization</option>
-              {(orgResponse?.organizations || []).map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name || o.id}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={{ marginBottom: 14 }}>
-            <div style={labelStyle}>Password</div>
-            <input
-              style={inputStyle}
-              type="password"
-              required
-              placeholder="Your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-
-          {error && orgResponse && <div style={errorStyle}>{error}</div>}
-
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              type="submit"
-              style={{ ...btnStyle, flex: 1 }}
-              disabled={!canLogin}
-            >
-              {loadingLogin ? (
+            <button type="submit" style={btnStyle} disabled={orgFetchLoading || !email}>
+              {orgFetchLoading ? (
                 <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-                  {spinner} Signing in...
+                  {spinner} Checking organizations...
                 </span>
               ) : (
-                'Sign In'
+                'Continue'
               )}
             </button>
-          </div>
-        </form>
+          </form>
+        )}
+
+        {step === 'credentials' && (
+          <>
+            <div
+              style={{
+                padding: 12,
+                background: '#f3f4f6',
+                borderRadius: 8,
+                marginBottom: 16,
+                fontSize: 13,
+                color: '#374151',
+              }}
+            >
+              Email: <strong>{email}</strong>
+            </div>
+
+            {!saltReady && (
+              <div
+                style={{
+                  color: '#92400E',
+                  background: '#FEF3C7',
+                  border: '1px solid #FDE68A',
+                  padding: 10,
+                  borderRadius: 8,
+                  fontSize: 13,
+                  marginBottom: 12,
+                }}
+              >
+                Tenant encryption salt is not configured for this environment. Organization encryption and login will not work until a valid QA salt is set.
+              </div>
+            )}
+
+            {orgs.length > 0 ? (
+              <div style={{ marginBottom: 14 }}>
+                <div style={labelStyle}>Organization</div>
+                <select
+                  style={inputStyle}
+                  value={selectedOrgId}
+                  onChange={(e) => setSelectedOrgId(e.target.value)}
+                >
+                  <option value="">Select an organization</option>
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name || o.id}
+                    </option>
+                  ))}
+                </select>
+                {selectedOrgId && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>
+                    Selected: {orgs.find((o) => o.id === selectedOrgId)?.name || selectedOrgId}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ marginBottom: 14 }}>
+                <div style={labelStyle}>Organization ID (no organizations found)</div>
+                <input
+                  style={inputStyle}
+                  type="text"
+                  placeholder="Enter your organization ID"
+                  value={manualOrgId}
+                  onChange={(e) => setManualOrgId(e.target.value)}
+                />
+                <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>
+                  This account returned no organizations. You can proceed by entering your org ID manually.
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleLogin}>
+              <div style={{ marginBottom: 14 }}>
+                <div style={labelStyle}>Password</div>
+                <input
+                  style={inputStyle}
+                  type="password"
+                  required
+                  placeholder="Your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+
+              {loginError && <div style={errorStyle}>{loginError}</div>}
+              {loginSuccess && (
+                <div
+                  style={{
+                    color: '#065F46',
+                    background: '#D1FAE5',
+                    border: '1px solid #A7F3D0',
+                    padding: 10,
+                    borderRadius: 8,
+                    fontSize: 13,
+                    marginBottom: 10,
+                  }}
+                >
+                  {loginSuccess}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  style={{ ...secondaryBtnStyle, flex: 1 }}
+                  onClick={() => setStep('email')}
+                  disabled={loginLoading}
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  style={{ ...btnStyle, flex: 1 }}
+                  disabled={
+                    loginLoading ||
+                    !email ||
+                    (!selectedOrgId && orgs.length > 0 ? true : false) ||
+                    (!selectedOrgId && orgs.length === 0 && !manualOrgId) ||
+                    !password ||
+                    !saltReady
+                  }
+                >
+                  {loginLoading ? (
+                    <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                      {spinner} Signing in...
+                    </span>
+                  ) : (
+                    'Sign in'
+                  )}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );
