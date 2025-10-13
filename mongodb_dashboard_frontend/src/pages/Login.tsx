@@ -3,6 +3,7 @@ import { getUserOrganizations, login } from '../api/authClient';
 import { isTenantSaltValid } from '../utils/crypto';
 import { VALIDATED_TENANT_SALT } from '../config/auth';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import '../styles/theme.css';
 
 type Organization = {
@@ -111,6 +112,7 @@ export default function Login() {
 
   const location = useLocation();
   const navigate = useNavigate();
+  const { login: setLoginSession } = useAuth();
 
   async function handleFetchOrgs(e: React.FormEvent) {
     e.preventDefault();
@@ -155,22 +157,21 @@ export default function Login() {
         return;
       }
 
-      // store token if any (existing behavior)
+      // store token via AuthContext so guards re-render immediately
       if (res && typeof res === 'object' && 'token' in res && (res as any).token) {
-        try {
-          localStorage.setItem('authToken', String((res as any).token));
-        } catch {
-          // ignore storage issues
-        }
+        setLoginSession(String((res as any).token));
+      } else {
+        // still set logged-in state even if token isn't provided
+        setLoginSession(null as any);
       }
 
       // Success path: determine redirect
       const params = new URLSearchParams(location.search);
       const redirectUri = params.get('redirect_uri');
-      const fallback = '/dashboard';
+      const fallback = '/dashboard/overview';
       setLoginSuccess(typeof res === 'string' ? (res as string) : 'Login successful');
 
-      // small next-tick to allow any state flush before navigation
+      // next tick to allow state flush before navigation
       setTimeout(() => {
         navigate(redirectUri || fallback, { replace: true });
       }, 0);

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchUserOrganizationsByEmail, loginWithOrgEmailPassword } from '../api/authClient';
-import { saveAuthSession } from '../config/auth';
+import { useAuth } from '../context/AuthContext';
 import './Login.css'; // optional, if exists; otherwise ignore
 
 const DEFAULT_REDIRECT = '/dashboard';
@@ -19,6 +19,7 @@ export default function Login() {
 
   const location = useLocation();
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const canFind = useMemo(() => email && !loadingOrgs, [email, loadingOrgs]);
   const canLogin = useMemo(() => email && selectedOrgId && password && !loadingLogin, [email, selectedOrgId, password, loadingLogin]);
@@ -71,11 +72,10 @@ export default function Login() {
         // Optional: pass a custom salt if provided in env via REACT_APP_TENANT_ENCRYPTION_SALT
       });
 
-      // Preserve existing token/session handling
-      saveAuthSession(token || null);
+      // Persist and propagate auth state via context provider
+      login(token || null);
 
-      // check that we actually have a success token or assume 2xx indicates success
-      // navigate to dashboard overview or 'from' if provided
+      // Navigate to dashboard overview or 'from' if provided
       const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
       navigate(from, { replace: true });
     } catch (e) {
