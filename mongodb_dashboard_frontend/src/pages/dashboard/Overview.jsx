@@ -18,11 +18,11 @@ export default function Overview() {
   const [loadingMetrics, setLoadingMetrics] = useState(true);
   const [error, setError] = useState("");
 
+  // Initial load
   useEffect(() => {
     let mounted = true;
 
-    // Load metrics
-    (async () => {
+    const fetchMetrics = async () => {
       setLoadingMetrics(true);
       try {
         const m = await getOverviewMetrics();
@@ -33,10 +33,9 @@ export default function Overview() {
       } finally {
         if (mounted) setLoadingMetrics(false);
       }
-    })();
+    };
 
-    // Load modules
-    (async () => {
+    const fetchModules = async () => {
       setLoadingModules(true);
       setError("");
       try {
@@ -48,12 +47,48 @@ export default function Overview() {
       } finally {
         if (mounted) setLoadingModules(false);
       }
-    })();
+    };
+
+    // Initial fetch
+    fetchMetrics();
+    fetchModules();
 
     return () => {
       mounted = false;
     };
   }, []);
+
+  // Lightweight refresh on window focus: always refresh metrics; refresh modules only if none loaded
+  useEffect(() => {
+    const onFocus = () => {
+      // Always refresh metrics on focus to show latest totals
+      (async () => {
+        try {
+          const m = await getOverviewMetrics();
+          setMetrics(m);
+        } catch (e) {
+          // keep previous metrics if fetch fails
+        }
+      })();
+
+      // Refresh modules only when empty to avoid unnecessary heavier calls
+      if (!modules || modules.length === 0) {
+        (async () => {
+          try {
+            const items = await getModules();
+            setModules(Array.isArray(items) ? items : []);
+          } catch {
+            // ignore focus-time errors
+          }
+        })();
+      }
+    };
+
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [modules]);
 
   const loading = loadingModules || loadingMetrics;
   const hasModules = modules && modules.length > 0;
