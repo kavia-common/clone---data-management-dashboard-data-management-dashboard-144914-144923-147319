@@ -122,6 +122,9 @@ app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
 app.use('/api/tenants', require('./routes/tenants.routes'));
 app.use('/api/projects', require('./routes/projects.routes'));
 
+// Dashboard overview routes
+app.use('/api/dashboard', require('./routes/dashboard.routes'));
+
 // Auth endpoints (login and config health)
 app.use('/api/auth', require('./routes/auth.routes'));
 
