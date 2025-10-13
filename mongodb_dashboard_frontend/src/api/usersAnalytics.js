@@ -97,6 +97,58 @@ export async function getTenantUsersSummary(params = {}) {
   }
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * getActiveUsersTrend
+ * Calls GET /api/users/active-trend to fetch time-bucketed distinct active users.
+ *
+ * Parameters (all optional):
+ * - from: string | Date (ISO)
+ * - to: string | Date (ISO)
+ * - granularity: 'day' | 'week' (default handled by backend)
+ * - status: string (default handled by backend)
+ * - tenant_id: string (optional scope)
+ *
+ * Returns:
+ * - On success: { items: Array<{ date: string, total: number }>, meta?: object }
+ * - On failure: throws Error; returns { items: [] } for 400/404 to keep UI resilient.
+ */
+export async function getActiveUsersTrend(params = {}) {
+  const api = getApiClient();
+  const query = normalizeQuery(params);
+
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.debug('[UsersAnalytics] GET /users/active-trend', query);
+  }
+
+  try {
+    const res = await api.get('/users/active-trend', { params: query });
+    const payload = res?.data ?? {};
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    const meta = payload?.meta || null;
+    return { items, meta };
+  } catch (err) {
+    const status = err?.response?.status;
+    const serverMsg =
+      err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      err?.message;
+
+    // eslint-disable-next-line no-console
+    console.error('[UsersAnalytics] Failed to fetch active users trend', {
+      status,
+      message: serverMsg,
+    });
+
+    if (status === 404 || status === 400) {
+      return { items: [], meta: null };
+    }
+    throw new Error(serverMsg || 'Failed to fetch active users trend');
+  }
+}
+
 export default {
   getTenantUsersSummary,
+  getActiveUsersTrend,
 };
