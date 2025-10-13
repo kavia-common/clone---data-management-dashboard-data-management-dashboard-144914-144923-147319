@@ -23,6 +23,9 @@ export default function Login() {
   const canFind = useMemo(() => email && !loadingOrgs, [email, loadingOrgs]);
   const canLogin = useMemo(() => email && selectedOrgId && password && !loadingLogin, [email, selectedOrgId, password, loadingLogin]);
 
+  // target after successful login
+  const SUCCESS_REDIRECT = '/dashboard/overview';
+
   async function handleFindOrgs() {
     setError('');
     if (!email) {
@@ -67,10 +70,13 @@ export default function Login() {
         password,
         // Optional: pass a custom salt if provided in env via REACT_APP_TENANT_ENCRYPTION_SALT
       });
+
+      // Preserve existing token/session handling
       saveAuthSession(token || null);
 
-      // redirect to intended page or default dashboard
-      const from = location.state?.from?.pathname || DEFAULT_REDIRECT;
+      // check that we actually have a success token or assume 2xx indicates success
+      // navigate to dashboard overview or 'from' if provided
+      const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
       navigate(from, { replace: true });
     } catch (e) {
       console.error('Login error', e);

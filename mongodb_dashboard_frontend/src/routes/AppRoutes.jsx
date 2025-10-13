@@ -24,15 +24,22 @@ export default function AppRoutes() {
 
       {/* Protected routes wrapper; ProtectedRoute renders an Outlet when authed */}
       <Route element={<ProtectedRoute />}>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        {/* Default root redirects to dashboard overview */}
+        <Route path="/" element={<Navigate to="/dashboard/overview" replace />} />
+
+        {/* Keep /dashboard for backward-compatibility: redirect to /dashboard/overview */}
+        <Route path="/dashboard" element={<Navigate to="/dashboard/overview" replace />} />
+
+        {/* New explicit overview route */}
         <Route
-          path="/dashboard"
+          path="/dashboard/overview"
           element={
             <AppLayout>
               <Overview />
             </AppLayout>
           }
         />
+
         <Route
           path="/dashboard/users"
           element={
@@ -68,7 +75,7 @@ export default function AppRoutes() {
       </Route>
 
       {/* Fallback */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard/overview" replace />} />
     </Routes>
   );
 }

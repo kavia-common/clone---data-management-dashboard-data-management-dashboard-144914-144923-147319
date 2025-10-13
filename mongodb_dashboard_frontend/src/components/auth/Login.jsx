@@ -28,7 +28,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const from = location.state?.from?.pathname || '/overview';
+  const from = location.state?.from?.pathname || '/dashboard/overview';
 
   const onChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -39,7 +39,9 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
+      // attempt login with API; login should throw on non-2xx
       await login(form, api);
+      // success -> redirect to dashboard overview or prior route
       navigate(from, { replace: true });
     } catch (err) {
       const msg =

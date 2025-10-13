@@ -5,7 +5,7 @@ import axios from "axios";
  * Used when environment-based resolution is unavailable or unstable.
  */
 // :red_circle: Static backend base URL (replace with your active pod if it changes)
-const RAW_BASE_URL = "https://vscode-internal-22523-beta.beta01.cloud.kavia.ai:3001";
+const RAW_BASE_URL = "https://vscode-internal-32956-beta.beta01.cloud.kavia.ai:3001";
 const API_PREFIX = "/api";
 // Combine base + prefix safely
 function joinUrl(base, path) {

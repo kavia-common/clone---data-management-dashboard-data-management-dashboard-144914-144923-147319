@@ -346,7 +346,7 @@ const TreeView = forwardRef(function TreeView(
 
 export default TreeView;
 
-/* ===== Helpers ===== */
+// Helpers
 
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
