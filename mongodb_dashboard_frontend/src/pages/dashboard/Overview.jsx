@@ -47,6 +47,7 @@ export default function Overview() {
 
   return (
     <div className="grid">
+      {/* KPI cards row — responsive spans handled by .kpi-card rules in App.css */}
       <Card title="Users" subtitle="Total referral users" className="kpi-card">
         <div className="kpi">
           <div className="kpi-value">{metrics.users}</div>
@@ -66,10 +67,13 @@ export default function Overview() {
         </div>
       </Card>
 
-      <Card title="Activity trend" subtitle="Weekly activity overview" className="col-span-3">
-        {error && <div className="error" role="alert">{error}</div>}
-        {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" />}
-      </Card>
+      {/* Full-width trend row aligned to the right by spanning all columns */}
+      <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
+        <Card title="Activity trend" subtitle="Weekly activity overview" className="w-full">
+          {error && <div className="error" role="alert">{error}</div>}
+          {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" />}
+        </Card>
+      </div>
     </div>
   );
 }
