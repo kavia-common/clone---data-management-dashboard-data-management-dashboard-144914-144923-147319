@@ -21,15 +21,27 @@ Required/Recommended variables:
 - AUTH_JWT_SECRET: Secret used for signing JWTs (when JWT auth is enabled).
 - Optional legacy compatibility: PASSWORD_SALT, QA_SALT will be read if provided.
 
+Tenant resolution (multi-tenant support for login):
+- AUTH_TENANT_STRATEGY: How to derive tenant for /api/auth/login.
+  - "body": use body.organization_id
+  - "host": parse leftmost label from Host header (e.g., qa.example.com -> "qa")
+  - "body-or-host": prefer body value, else host (default)
+  - "host-or-body": prefer host value, else body
+- AUTH_DEFAULT_TENANT: Fallback tenant when none is derivable (default "default").
+- AUTH_EXPECTED_TENANTS: CSV allowlist of allowed tenants. If set, login is rejected for tenants not listed.
+- AUTH_TENANT_MAPPING: JSON mapping of tenant -> credentials/meta. If provided, only mapped tenants are accepted.
+
 See .env.example for a template.
 
 Behavior when misconfigured:
-- POST /api/auth/login will return 400 with a clear message if AUTH_TENANT_SALT is missing or appears placeholder/weak.
+- POST /api/auth/login returns 400 with a clear message if:
+  - AUTH_TENANT_SALT is missing or weak
+  - Tenant cannot be resolved or is not allowed per AUTH_EXPECTED_TENANTS / AUTH_TENANT_MAPPING
 - GET /api/auth/health returns status flags to help verify configuration without exposing secrets.
 
-Once AUTH_TENANT_SALT is properly set, the stub login will validate inputs and return:
-- 200 with "ok" for a valid stub login
-- 404 for simulated "not found" conditions (organization_id === "notfound" or malformed email)
+Once AUTH_TENANT_SALT and tenant config are properly set, the stub login will validate inputs and return:
+- 200 with { success: true, tenant_id, token: "ok" } for a valid stub login
+- 401 for invalid credentials (e.g., malformed email in this stub)
 - 422 for validation errors
 
 ## Setup

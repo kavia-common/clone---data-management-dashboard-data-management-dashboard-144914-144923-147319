@@ -1,5 +1,5 @@
 const express = require('express');
-const { getTenantSaltConfig } = require('../config/auth');
+const { getTenantSaltConfig, getTenantConfig } = require('../config/auth');
 
 const router = express.Router();
 // Note: This router is mounted at /api/auth in app.js, so POST /api/auth/login is the effective path.
@@ -176,13 +176,35 @@ router.post('/login', (req, res) => {
     });
   }
 
-  // Simulate user not found condition: if organization_id === 'notfound' OR email not including '@'
-  if (organization_id === 'notfound' || !String(email).includes('@')) {
-    return res.status(404).json('not found');
+  // Resolve tenant using env-driven strategy and validate against mapping/allowlist
+  const { resolveTenant, isTenantAllowed, strategy, defaultTenant } = getTenantConfig();
+  const tenantId = resolveTenant(req, organization_id);
+
+  if (!tenantId) {
+    return res.status(400).json({
+      success: false,
+      message: 'Tenant could not be resolved from request.',
+      details: { strategy, defaultTenant },
+    });
+  }
+
+  if (!isTenantAllowed(tenantId)) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid or unknown tenant: ${tenantId}.`,
+      docs:
+        'Configure AUTH_TENANT_MAPPING (JSON) or AUTH_EXPECTED_TENANTS (CSV) to include this tenant. See README_BACKEND.md and .env.example.',
+    });
+  }
+
+  // Simulate user not found condition: if tenant looks malformed OR email invalid
+  if (!String(email).includes('@')) {
+    // Auth failed
+    return res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 
   // Placeholder success (no real auth yet). In a real impl, you'd hash/verify password and mint a JWT using AUTH_JWT_SECRET.
-  return res.status(200).json('ok');
+  return res.status(200).json({ success: true, tenant_id: tenantId, token: 'ok' });
 });
 
 module.exports = router;
