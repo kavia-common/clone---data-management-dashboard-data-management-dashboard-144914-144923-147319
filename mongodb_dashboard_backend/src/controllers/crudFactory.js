@@ -1,4 +1,4 @@
-const { parsePagination, success, failure } = require('../utils/http');
+const { parsePagination, failure } = require('../utils/http');
 const mongoose = require('mongoose');
 
 /**
@@ -52,6 +52,7 @@ function buildListKey(req, filter, sort, page, limit, skip, explicit) {
  *   - getById/create/update/remove: return the document or result object directly
  * - If pagination IS explicitly requested, keep envelope { success, data, meta } for backward compatibility.
  */
+// PUBLIC_INTERFACE
 function buildCrudController(Model, listDefaultSort = '-_id') {
   // Map known Mongoose errors to user-friendly responses
   function mapAndReplyError(res, err, context = 'operation') {
@@ -88,49 +89,38 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       const sort = req.query.sort || listDefaultSort;
 
       try {
-<<<<<<< HEAD
-        // Micro-cache only explicit (paginated) GET list responses
-        if (req.method === 'GET' && explicit) {
-          const key = buildListKey(req, filter, sort, page, limit, skip, explicit);
-          const cached = microGet(key);
-          if (cached) {
-            return res.status(200).json(cached);
-          }
-
-=======
-<<<<<<< HEAD
-        const [items, total] = await Promise.all([
-          Model.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-          Model.countDocuments(filter),
-        ]);
-
-        if ((process.env.DEBUG_DB_LOGS || '').toString().toLowerCase() === 'true') {
-          // eslint-disable-next-line no-console
-          console.log(
-            `[DB][list] model=${Model.modelName} collection=${Model.collection?.collectionName} db=${mongoose.connection?.name} filter=${JSON.stringify(
-              filter
-            )} sort=${sort} page=${page} limit=${limit} returned=${items.length} total=${total}`
-          );
-        }
-
-        return success(res, items, { page, limit, total }, 200);
-=======
         // If pagination explicitly requested, respect pagination and provide envelope + meta
         if (explicit) {
->>>>>>> f193c184bab7d80e62342d9bda3744eee9b1ee24
+          // Micro-cache only explicit (paginated) GET list responses
+          const useCache = req.method === 'GET';
+          const key = useCache ? buildListKey(req, filter, sort, page, limit, skip, explicit) : null;
+          if (useCache) {
+            const cached = microGet(key);
+            if (cached) return res.status(200).json(cached);
+          }
+
           const [items, total] = await Promise.all([
             Model.find(filter).sort(sort).skip(skip).limit(limit).lean(),
             Model.countDocuments(filter),
           ]);
+
+          if ((process.env.DEBUG_DB_LOGS || '').toString().toLowerCase() === 'true') {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[DB][list] model=${Model.modelName} collection=${Model.collection?.collectionName} db=${mongoose.connection?.name} filter=${JSON.stringify(
+                filter
+              )} sort=${sort} page=${page} limit=${limit} returned=${items.length} total=${total}`
+            );
+          }
+
           const payload = { success: true, data: items, meta: { page, limit, total } };
-          microSet(key, payload);
+          if (useCache) microSet(key, payload);
           return res.status(200).json(payload);
         }
 
         // No explicit pagination: return the raw array of documents (no envelope)
         const items = await Model.find(filter).sort(sort).lean();
         return res.status(200).json(items);
->>>>>>> cga-cg9d6f2ee8
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
       }
