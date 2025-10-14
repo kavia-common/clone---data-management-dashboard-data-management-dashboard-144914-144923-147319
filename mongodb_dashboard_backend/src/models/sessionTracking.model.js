@@ -28,12 +28,17 @@ const SessionDataSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Allow overriding the collection name via env to account for case or naming differences across environments
+const SESSION_TRACKING_COLLECTION =
+  process.env.SESSION_TRACKING_COLLECTION || 'session_tracking';
+
 const SessionTrackingSchema = new mongoose.Schema(
   {
     task_id: { type: String },
     tenant_id: { type: String, index: true },
     organization_name: { type: String },
     user_id: { type: mongoose.Schema.Types.Mixed, index: true }, // could be string or ObjectId
+    // Keep alias so both user_name and User_name work when writing; with lean() reads we still receive original fields
     user_name: { type: String, alias: 'User_name' },
     project_id: { type: String, index: true },
     container_id: { type: String },
@@ -58,7 +63,8 @@ const SessionTrackingSchema = new mongoose.Schema(
     session_data: { type: SessionDataSchema },
     created_at: { type: Date, default: Date.now },
   },
-  { timestamps: false, collection: 'session_tracking' }
+  // Set strict:false so documents with additional or differently-cased fields do not get dropped
+  { timestamps: false, collection: SESSION_TRACKING_COLLECTION, strict: false }
 );
 
 // Suggested compound indexes
