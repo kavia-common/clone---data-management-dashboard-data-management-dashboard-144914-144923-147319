@@ -5,10 +5,22 @@ const mongoose = require('mongoose');
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
-const server = app.listen(PORT, HOST, () => {
-  // eslint-disable-next-line no-console
-  console.log(`Server running at http://${HOST}:${PORT}`);
-});
+const server = app
+  .listen(PORT, HOST, () => {
+    // eslint-disable-next-line no-console
+    console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+  })
+  .on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      // eslint-disable-next-line no-console
+      console.error(`[startup] Port ${PORT} is already in use. Ensure no other process is running on this port.`);
+    } else {
+      // eslint-disable-next-line no-console
+      console.error('[startup] Server failed to start:', err);
+    }
+    // Exit so orchestrator/CI can restart
+    process.exit(1);
+  });
 // Graceful shutdown
 const shutdown = (signal) => {
   // eslint-disable-next-line no-console

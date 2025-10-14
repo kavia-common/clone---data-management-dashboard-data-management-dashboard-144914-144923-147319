@@ -47,6 +47,8 @@ const router = express.Router();
  *                   example: development
  */
 router.get('/', healthController.check.bind(healthController));
+// Readiness/liveness alias commonly used by orchestrators
+router.get('/healthz', healthController.check.bind(healthController));
 
 // Mount API routes
 router.use('/auth', authRoutes);
