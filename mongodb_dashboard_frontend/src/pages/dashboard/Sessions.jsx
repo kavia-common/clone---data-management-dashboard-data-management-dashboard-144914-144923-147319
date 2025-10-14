@@ -84,6 +84,8 @@ export default function Sessions() {
           columns={columns}
           data={items}
           loading={loading}
+          error={error ? (error.includes("Network") || error.includes("network")) ? "Connectivity issue: unable to reach the API." : error : ""}
+          emptyMessage="No sessions found"
           onDelete={onDelete}
         />
       </Card>

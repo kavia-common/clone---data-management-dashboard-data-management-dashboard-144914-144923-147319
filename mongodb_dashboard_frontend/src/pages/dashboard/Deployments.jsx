@@ -88,6 +88,8 @@ export default function Deployments() {
           columns={columns}
           data={items}
           loading={loading}
+          error={error ? (error.includes("Network") || error.includes("network")) ? "Connectivity issue: unable to reach the API." : error : ""}
+          emptyMessage="No deployments found"
           onDelete={onDelete}
         />
       </Card>

@@ -1,8 +1,22 @@
 import React, { useMemo, useState } from "react";
 
 // PUBLIC_INTERFACE
-export default function DataTable({ columns, data, loading, onEdit, onDelete }) {
-  /** A simple data grid component with client-side sorting and action column. */
+export default function DataTable({
+  columns,
+  data,
+  loading,
+  error,
+  emptyMessage = "No data",
+  onEdit,
+  onDelete,
+}) {
+  /**
+   * A simple data grid component with client-side sorting and action column.
+   * Distinguishes between:
+   * - loading state
+   * - error state (shows connectivity/message row)
+   * - empty state (customizable message)
+   */
   const [sortKey, setSortKey] = useState("");
   const [sortDir, setSortDir] = useState("asc");
 
@@ -51,12 +65,32 @@ export default function DataTable({ columns, data, loading, onEdit, onDelete }) 
         </thead>
         <tbody>
           {loading && (
-            <tr><td colSpan={columns.length + 1}><div className="table-empty">Loading...</div></td></tr>
+            <tr>
+              <td colSpan={columns.length + (onEdit || onDelete ? 1 : 0)}>
+                <div className="table-empty">Loading...</div>
+              </td>
+            </tr>
           )}
-          {!loading && (!sorted || sorted.length === 0) && (
-            <tr><td colSpan={columns.length + 1}><div className="table-empty">No data</div></td></tr>
+
+          {!loading && error && (
+            <tr>
+              <td colSpan={columns.length + (onEdit || onDelete ? 1 : 0)}>
+                <div className="error" role="alert">
+                  {error}
+                </div>
+              </td>
+            </tr>
           )}
-          {!loading && sorted && sorted.map((row) => (
+
+          {!loading && !error && (!sorted || sorted.length === 0) && (
+            <tr>
+              <td colSpan={columns.length + (onEdit || onDelete ? 1 : 0)}>
+                <div className="table-empty">{emptyMessage}</div>
+              </td>
+            </tr>
+          )}
+
+          {!loading && !error && sorted && sorted.map((row) => (
             <tr key={row._id || row.id || JSON.stringify(row)}>
               {columns.map((c) => (
                 <td key={c.key} className="td">
