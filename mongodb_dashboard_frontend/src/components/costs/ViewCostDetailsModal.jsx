@@ -418,12 +418,21 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                               : "Not available"))}
                   </span>
                 </p>
-                <h3 style={{ margin: "6px 0 0 0", fontSize: 18, fontWeight: 800, color: "#1E3A8A" }}>
-                  Credits Used:{" "}
-                  <span style={{ fontSize: 24, fontWeight: 900 }} data-testid="credits-used-topline" title="Credits with USD equivalent">
-                    {renderCreditsWithUsd(topLevelAmounts.usd, { maximumFractionDigits: 6 })}
+                <div
+                  title={`User Cost: ${renderCreditsWithUsd(topLevelAmounts.usd, { maximumFractionDigits: 6 }).split("•")[0].trim()}; Credits Used: ${topLevelAmounts?.credits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || "—"}`}
+                  className="flex flex-col items-start"
+                  style={{ marginTop: 6 }}
+                >
+                  <span className="text-gray-900 font-semibold" style={{ fontSize: 18 }}>
+                    {renderCreditsWithUsd(topLevelAmounts.usd, { maximumFractionDigits: 6 }).split("•")[0].trim()}
                   </span>
-                </h3>
+                  <span className="mt-1 text-sm text-gray-500 leading-5">
+                    Credits Used:<br />
+                    <strong className="text-gray-900">
+                      {topLevelAmounts?.credits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || "—"}
+                    </strong>
+                  </span>
+                </div>
                 <p style={{ margin: "4px 0 0 0", fontSize: 14, color: "#1E40AF", fontWeight: 600 }}>
                   {Number(costData?.totalProjectCount || 0)} Projects Tracked
                 </p>

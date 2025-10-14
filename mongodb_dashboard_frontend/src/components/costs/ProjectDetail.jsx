@@ -102,12 +102,20 @@ export default function ProjectDetail({ project }) {
           <span style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>
             Project #{String(project?.projectId ?? "—")}: {project?.projectName || "Untitled"}
           </span>
-          <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-            Credits Used{" "}
-            <strong style={{ color: "#B45309" }}>
-              {renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 })}
-            </strong>
-          </span>
+          <div
+            title={`User Cost: ${renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 }).split("•")[0].trim()}; Credits Used: ${renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 }).split("•").slice(-1)[0].replace("Credits:", "").trim()}`}
+            className="flex flex-col items-start"
+          >
+            <span className="text-gray-900 font-semibold">
+              {renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 }).split("•")[0].trim()}
+            </span>
+            <span className="mt-1 text-sm text-gray-500 leading-5">
+              Credits Used:<br />
+              <strong className="text-gray-900">
+                {renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 }).split("•").slice(-1)[0].replace("Credits:", "").trim()}
+              </strong>
+            </span>
+          </div>
         </div>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           <span

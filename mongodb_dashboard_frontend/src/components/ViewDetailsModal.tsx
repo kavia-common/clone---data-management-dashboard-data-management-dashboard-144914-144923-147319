@@ -73,10 +73,12 @@ const ViewDetailsModal: React.FC<ViewDetailsModalProps> = ({
           >
             <span className="text-gray-900 font-semibold">{usdText}</span>
             <span className="mt-1 text-sm text-gray-500 leading-5">
-              Credits Used: <strong className="text-gray-900">{creditsText}</strong>
+              Credits Used:<br />
+              <strong className="text-gray-900">{creditsText}</strong>
             </span>
           </div>
         );
+
       }
     }
 
