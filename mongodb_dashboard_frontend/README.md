@@ -19,11 +19,12 @@ Modern, modular React dashboard styled with the "Ocean Professional" theme to ma
 2) Configure environment
 - Copy .env.example to .env and set:
   - REACT_APP_API_BASE_URL (e.g., http://localhost:3001)
+  - Or leave it unset when running in an HTTPS preview to use the proxy
 
 3) Run the app
 - npm start
 
-App will run at http://localhost:3000
+App will run at http://localhost:3000 (or your preview URL)
 
 ## Project Structure
 
@@ -64,6 +65,23 @@ Notes:
   2) The port matches your backend server port (default 3001)
   3) CORS is allowed by the backend (or access via same-origin proxy)
   4) The API prefix matches your backend (default /api)
+
+## Proxy and HTTPS
+
+In secure preview environments (https), browsers will block http requests to a backend (mixed content). To prevent this, the app includes a development proxy:
+
+- src/setupProxy.js forwards:
+  - /api -> backend (http://localhost:3001 by default)
+  - /openapi.json -> backend
+- If REACT_APP_API_BASE_URL is NOT set, the API client uses a relative base (/api), which the dev server proxies to the backend.
+- If you set REACT_APP_API_BASE_URL in an https environment, make sure the backend is also available over https at that URL. Otherwise leave it unset to use the proxy.
+
+Verification:
+- Start backend on port 3001
+- Start frontend (npm start)
+- Visit the app, open DevTools -> Network
+- Confirm requests go to /api/... and succeed
+- Check /openapi.json request (health check) succeeds (200)
 
 ## API Endpoints
 

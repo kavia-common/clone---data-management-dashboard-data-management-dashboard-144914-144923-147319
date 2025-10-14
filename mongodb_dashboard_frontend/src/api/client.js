@@ -7,12 +7,19 @@ import axios from "axios";
 function inferBackendBase() {
   /**
    * Attempt to infer backend origin when REACT_APP_API_BASE_URL is not provided.
-   * Uses the current page protocol/hostname with port 3001 (or REACT_APP_BACKEND_PORT).
-   * This matches the default backend container port and avoids dev 404s on /api routes.
+   * In HTTPS previews (or any https origin), do NOT infer a cross-origin http(s)://host:3001,
+   * because that often causes mixed-content or TLS handshake failures.
+   * Instead return empty string so the client uses a same-origin relative '/api' base,
+   * which will be forwarded by CRA's proxy (src/setupProxy.js).
    */
   try {
     if (typeof window === "undefined") return "";
     const { protocol, hostname } = window.location;
+    const proto = (protocol || "").replace(":", "");
+    // If current page is https, avoid inferring a different origin to prevent mixed content.
+    if (proto === "https") {
+      return "";
+    }
     const backendPort = process.env.REACT_APP_BACKEND_PORT || "3001";
     return `${protocol}//${hostname}:${backendPort}`;
   } catch {
@@ -150,9 +157,9 @@ export function persistAuth(token, user) {
 
 // PUBLIC_INTERFACE
 export async function health() {
-  /** Calls the health endpoint to verify backend connectivity (bypasses /api). */
-  const rootBase = RAW_BASE_URL || ""; // same-origin if empty
-  const url = joinUrl(rootBase, "/");
+  /** Calls /openapi.json to verify backend connectivity (proxied when using dev server). */
+  const rootBase = RAW_BASE_URL || ""; // same-origin if empty (relies on setupProxy)
+  const url = rootBase ? joinUrl(rootBase, "/openapi.json") : "/openapi.json";
   const res = await axios.get(url);
   return res.data;
 }
