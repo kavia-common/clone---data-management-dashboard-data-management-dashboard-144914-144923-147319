@@ -27,7 +27,6 @@ function toOriginMaybe(urlLike) {
  * - CORS_ORIGINS: Comma-separated list of origins to allow.
  * - FRONTEND_ORIGIN: Convenience single origin for the frontend host.
  * - CORS_CREDENTIALS: "true" to enable credentialed requests.
- * - CORS_ALLOW_ALL: "true" to allow any origin (useful for development)
  *
  * Default allowances:
  * - http://localhost:3000
@@ -35,57 +34,12 @@ function toOriginMaybe(urlLike) {
  * - A known preview environment origin (cloud preview).
  *
  * Behavior:
- * - If CORS_ALLOW_ALL=true or NODE_ENV is not "production", allow any origin and reflect credentials setting.
- * - Otherwise:
- *   - Allows exact whitelisted origins.
- *   - If not an exact match, allows same-host across different ports (helps dev/proxy scenarios).
- *   - Returns 403 JSON on CORS rejection with a clear message.
- *   - Handles OPTIONS preflight with 204 status.
+ * - Allows exact whitelisted origins.
+ * - If not an exact match, allows same-host across different ports (helps dev/proxy scenarios).
+ * - Returns 403 JSON on CORS rejection with a clear message.
+ * - Handles OPTIONS preflight with 204 status.
  */
 function corsMiddleware() {
-  // Base options reused across modes
-  const baseOptions = {
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Content-Length', 'Content-Type'],
-    optionsSuccessStatus: 204,
-  };
-
-  const allowCredentials =
-    String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
-
-  const allowAll =
-    String(process.env.CORS_ALLOW_ALL || '').toLowerCase() === 'true' ||
-    (String(process.env.NODE_ENV || 'development').toLowerCase() !== 'production');
-
-  if (allowAll) {
-    // eslint-disable-next-line no-console
-    console.log('[CORS] Allowing ALL origins (dev mode or CORS_ALLOW_ALL=true). Credentials:', allowCredentials);
-    const corsInstance = cors({
-      origin: true, // reflect request origin
-      credentials: allowCredentials,
-      ...baseOptions,
-    });
-
-    return (req, res, next) => {
-      corsInstance(req, res, (err) => {
-        if (err) {
-          // eslint-disable-next-line no-console
-          console.warn(`[CORS] Blocked origin (dev allowAll mode): ${req.headers.origin}`);
-          return res.status(403).json({
-            success: false,
-            message: err.message,
-          });
-        }
-        if (req.method === 'OPTIONS') {
-          return res.sendStatus(204);
-        }
-        return next();
-      });
-    };
-  }
-
-  // Production (strict whitelist) mode
   const inferredFromApiBase = toOriginMaybe(process.env.REACT_APP_API_BASE_URL);
 
   const singleOrigin = toOriginMaybe((process.env.CORS_ORIGIN || '').trim());
@@ -120,17 +74,13 @@ function corsMiddleware() {
   whitelist.add('https://localhost:3000');
 
   // Preview environment frontend
-<<<<<<< HEAD
-  whitelist.add('https://vscode-internal-19560-beta.beta01.cloud.kavia.ai:3000');
+  whitelist.add('https://vscode-internal-16194-beta.beta01.cloud.kavia.ai:3000');
 
   const allowCredentials =
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
-=======
-  whitelist.add('https://vscode-internal-11063-beta.beta01.cloud.kavia.ai:3000');
->>>>>>> f193c184bab7d80e62342d9bda3744eee9b1ee24
 
   // eslint-disable-next-line no-console
-  console.log('[CORS] Whitelist (prod mode):', Array.from(whitelist), '| credentials=', allowCredentials);
+  console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
 
   const corsInstance = cors({
     origin: (origin, callback) => {
@@ -158,8 +108,11 @@ function corsMiddleware() {
       // Explicitly reject with proper CORS message
       return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
     },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Length', 'Content-Type'],
     credentials: allowCredentials,
-    ...baseOptions,
+    optionsSuccessStatus: 204,
   });
 
   return (req, res, next) => {
