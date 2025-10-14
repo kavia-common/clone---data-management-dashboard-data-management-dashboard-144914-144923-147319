@@ -100,7 +100,7 @@ export function renderUsdWithCredits(usd, options = {}) {
   const creditsTxt = formatCredits(usdToCredits(n));
   const title = `${usdTxt} (${creditsTxt})`;
   return (
-    <span title={title}>
+    <span title={title} style={{ whiteSpace: "nowrap" }}>
       {usdTxt}
       <span className="credits-inline muted">({creditsTxt})</span>
     </span>
