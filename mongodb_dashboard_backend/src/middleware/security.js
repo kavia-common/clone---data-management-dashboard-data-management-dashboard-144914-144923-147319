@@ -120,7 +120,7 @@ function corsMiddleware() {
   whitelist.add('https://localhost:3000');
 
   // Preview environment frontend
-  whitelist.add('https://vscode-internal-27526-beta.beta01.cloud.kavia.ai:3000');
+  whitelist.add('https://vscode-internal-11063-beta.beta01.cloud.kavia.ai:3000');
 
   // eslint-disable-next-line no-console
   console.log('[CORS] Whitelist (prod mode):', Array.from(whitelist), '| credentials=', allowCredentials);
