@@ -84,12 +84,7 @@ function corsMiddleware() {
 
   const corsInstance = cors({
     origin: (origin, callback) => {
-      // Allow non-browser requests or same-origin without Origin header
-      if (!origin) {
-        // eslint-disable-next-line no-console
-        if (process.env.NODE_ENV !== 'production') console.log('[CORS] No Origin header; allowing request');
-        return callback(null, true);
-      }
+      if (!origin) return callback(null, true); // SSR / curl / same-origin
       if (whitelist.has(origin)) return callback(null, true);
 
       // Check same hostname, different port
