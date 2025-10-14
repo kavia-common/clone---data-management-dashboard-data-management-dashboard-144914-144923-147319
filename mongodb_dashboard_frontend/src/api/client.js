@@ -1,21 +1,25 @@
 import axios from "axios";
-import { resolveApiBaseUrl } from "./index";
-
 /**
- * API client configuration (environment-driven)
- * Uses resolveApiBaseUrl() to compute API origin and prefix:
- * - REACT_APP_API_URL, or
- * - REACT_APP_API_BASE_URL + REACT_APP_API_PREFIX (default "/api"), or
- * - window inferred host with port 3001 + prefix
+ * API client configuration (static pod URL version)
+ * This connects directly to the backend running in your specific pod.
+ * Used when environment-based resolution is unavailable or unstable.
  */
-const API_BASE_URL = resolveApiBaseUrl();
-
-// Create configured Axios instance
+// :red_circle: Static backend base URL (replace with your active pod if it changes)
+const RAW_BASE_URL = "https://vscode-internal-16194-beta.beta01.cloud.kavia.ai:3001";
+const API_PREFIX = "/api";
+// Combine base + prefix safely
+function joinUrl(base, path) {
+  if (!base) return path || "";
+  const b = base.endsWith("/") ? base.slice(0, -1) : base;
+  const p = path ? (path.startsWith("/") ? path : `/${path}`) : "";
+  return `${b}${p}`;
+}
+const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
+// :white_tick: Create configured Axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
 });
-
 // Helper: normalize list/envelope responses
 function normalizeListResponse(res) {
   const payload = res?.data || {};
@@ -25,20 +29,17 @@ function normalizeListResponse(res) {
     (Array.isArray(items) ? items.length : 0);
   return { items, total, meta: payload.meta || null };
 }
-
 // PUBLIC_INTERFACE
 export function getApiClient() {
   /** Returns the configured Axios instance */
   return api;
 }
-
-// Health endpoint (root '/')
+// Health endpoint
 export async function health() {
-  const root = API_BASE_URL.replace(/\/api\/?$/, "");
-  const res = await axios.get(root);
+  /** GET / - backend health check */
+  const res = await axios.get(RAW_BASE_URL);
   return res.data;
 }
-
 // === USERS ===
 export async function listUsers(params = {}) {
   const res = await api.get("/users", { params });
@@ -56,7 +57,6 @@ export async function deleteUser(id) {
   const res = await api.delete(`/users/${id}`);
   return res.data?.data ?? res.data;
 }
-
 // === SESSION TRACKING ===
 export async function listSessions(params = {}) {
   const res = await api.get("/session-tracking", { params });
@@ -74,26 +74,22 @@ export async function deleteSession(id) {
   const res = await api.delete(`/session-tracking/${id}`);
   return res.data?.data ?? res.data;
 }
-
 // === APP DEPLOYMENTS ===
 export async function listDeployments(params = {}) {
   const res = await api.get("/app-deployments", { params });
   return normalizeListResponse(res);
 }
-
 // === LLM COSTS ===
 export async function listLlmCosts(params = {}) {
   const res = await api.get("/llm-costs", { params });
   return normalizeListResponse(res);
 }
-
-// === USER COSTS (placeholder examples kept consistent) ===
+// === USER COSTS ===
 export async function getUserCosts(userId) {
   if (!userId) throw new Error("userId is required");
   const res = await api.get(`/users`);
   return res.data?.data ?? res.data;
 }
-
 // === USER PROJECT COSTS ===
 export async function getUserProjectsCosts(userId) {
   if (!userId) throw new Error("userId is required");

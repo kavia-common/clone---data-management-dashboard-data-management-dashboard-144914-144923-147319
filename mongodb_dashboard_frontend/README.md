@@ -103,14 +103,11 @@ Environment notes:
 App will run at http://localhost:3000 (or your environment preview URL)
 
 ### Verify backend connectivity
-- The API base URL is resolved as one of:
-  - REACT_APP_API_URL (full, e.g., http://localhost:3001/api) OR
-  - REACT_APP_API_BASE_URL + REACT_APP_API_PREFIX (default /api) OR
-  - Inferred from window location with backend port 3001.
-- In development, the console prints diagnostic logs like:
-  [API] baseURL: <resolved> (RAW: <raw> PREFIX: <prefix>) or [API] baseURL: <resolved> (preferred=REACT_APP_API_URL)
-- Ensure it points to your backend, e.g.:
-  http://localhost:3001/api
+- The API base URL is resolved as: ${REACT_APP_API_BASE_URL}${REACT_APP_API_PREFIX}
+- In development, the console prints:
+  [API] baseURL: <resolved> (RAW: <raw> PREFIX: <prefix>) — Ensure REACT_APP_API_BASE_URL is set to https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001
+- Ensure it points to EXACTLY:
+  https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001/api
 - Backend OpenAPI (for reference): /openapi.json or the provided environment docs URL.
 
 ### Users list from Swagger
