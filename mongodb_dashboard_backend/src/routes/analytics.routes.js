@@ -39,13 +39,13 @@ const router = express.Router();
  *         schema:
  *           type: string
  *           format: date-time
- *         description: ISO start datetime (inclusive). Default depends on granularity: last 90 days (day), 26 weeks (week), 12 months (month).
+ *         description: "ISO start datetime (inclusive). Default depends on granularity: last 90 days (day), 26 weeks (week), 12 months (month)."
  *       - in: query
  *         name: end
  *         schema:
  *           type: string
  *           format: date-time
- *         description: ISO end datetime (inclusive). Default now.
+ *         description: "ISO end datetime (inclusive). Default now."
  *     responses:
  *       200:
  *         description: Aggregated new users over time
