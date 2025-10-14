@@ -37,31 +37,28 @@ Key features:
   MONGOOSE_AUTO_INDEX=true   # optional
   ```
 
-<<<<<<< HEAD
-=======
-2) Configure CORS
+3) Configure CORS
 - The backend includes a robust CORS middleware that:
-  - Reads allowed origins from:
+  - In development (NODE_ENV != production) or when `CORS_ALLOW_ALL=true`, allows any origin by default (credentials per `CORS_CREDENTIALS`).
+  - In production, reads allowed origins from:
     - `CORS_ORIGIN` (single origin) and/or
     - `CORS_ORIGINS` (comma-separated list)
-  - Auto-allows the origin derived from `REACT_APP_API_BASE_URL` if provided (commonly set in the frontend).
-    - Example: if `REACT_APP_API_BASE_URL=https://host:3001/api`, backend will allow `https://host:3000` and the exact origin derived from the API base URL.
-  - Adds sensible defaults for local development: `http://localhost:3000`, `https://localhost:3000`.
+    - `FRONTEND_ORIGIN` (convenience single origin)
+  - Optionally derives an allowed origin from:
+    - `REACT_APP_API_BASE_URL` (commonly set in the frontend); it also auto-adds common dev ports.
+  - Adds sensible defaults for local dev: `http://localhost:3000`, `https://localhost:3000`.
   - Honors `CORS_CREDENTIALS=true` to enable credentialed requests.
 
 - Local development (recommended):
-  - Backend runs on 3001 and frontend on 3000.
-  - Frontend must set:
+  - Backend on 3001, frontend on 3000.
+  - Frontend should set:
     ```
-    REACT_APP_API_BASE_URL=http://localhost:3001/api
+    REACT_APP_API_BASE_URL=http://localhost:3001
+    REACT_APP_API_PREFIX=/api
     ```
-  - Backend already allows `http://localhost:3000` by default. No additional CORS envs are required for this pairing.
-  - If your frontend uses credentialed requests (cookies), also set:
-    ```
-    CORS_CREDENTIALS=true
-    ```
+  - Backend allows all origins by default in dev; no extra CORS config required.
 
-- Typical configurations (hosted/prod):
+- Typical production configurations:
   - Single origin:
     ```
     CORS_ORIGIN=https://app.example.com
@@ -70,7 +67,7 @@ Key features:
     ```
     CORS_ORIGINS=https://app.example.com,https://admin.example.com
     ```
-  - Derive from frontend API base (when frontend build injects this):
+  - Derive from frontend API base:
     ```
     REACT_APP_API_BASE_URL=https://api.example.com/api
     ```
@@ -79,28 +76,28 @@ Key features:
     CORS_CREDENTIALS=true
     ```
 
-- On startup, backend logs the computed CORS whitelist to help diagnose mismatches.
+- On startup, backend logs the computed CORS mode and whitelist to help diagnose mismatches.
 - See `.env.example` for all options and copy it as a starting point.
 
->>>>>>> cga-cg9d6f2ee8
-3) Install dependencies:
+4) Install dependencies:
 ```
 npm install
 ```
 
-4) Run:
+5) Run:
 ```
 npm run dev
 ```
 
 Service:
-- Docs: http://localhost:3001/docs (or the port configured by your environment)
+- Docs: http://localhost:3001/docs (or the configured port)
 - Health: GET /
 
 ## Frontend integration
 
 - Ensure the frontend is configured to call the correct backend URL, for example:
-  - REACT_APP_BACKEND_URL=http://localhost:3001
+  - REACT_APP_API_BASE_URL=http://localhost:3001
+  - REACT_APP_API_PREFIX=/api
 - The frontend should only call these backend APIs; it must not connect directly to MongoDB.
 - Swagger/OpenAPI JSON is available at `/openapi.json` and the UI at `/docs`.
 
@@ -162,8 +159,6 @@ To confirm the backend is connected to the correct MongoDB cluster and the dashb
   GET /api/app-deployments    OR  /api/appDeployments
   GET /api/data               # Sample endpoint backed by the "sample" collection
   ```
-<<<<<<< HEAD
-=======
 
 - Seed demo data if your collections are empty:
   ```
@@ -185,7 +180,6 @@ To confirm the backend is connected to the correct MongoDB cluster and the dashb
 Notes:
 - The frontend should only call these backend APIs. It should not connect directly to MongoDB.
 - The backend uses `process.env.MONGODB_URI` if set, otherwise the provided default.
->>>>>>> cga-cg9d6f2ee8
 
 ## Collections & Query Hints
 
@@ -202,52 +196,13 @@ List supports:
 
 ## Troubleshooting
 
+- Network Error from frontend:
+  - Ensure backend is running (port 3001 by default).
+  - Ensure frontend `.env` has `REACT_APP_API_BASE_URL` pointing to the backend and `REACT_APP_API_PREFIX=/api`.
+  - In cloud previews, set backend `.env` with `CORS_ALLOW_ALL=true` (or proper origin whitelist) to avoid CORS rejections.
 - Empty arrays in responses usually mean:
   - The collection has no data (use /api/dev/seed)
   - The filter JSON excludes all documents (remove or adjust `filter`)
   - Connected to a different database (check logs and /api/dev/db-status)
 - Invalid filter JSON returns 400 with message "Invalid filter JSON".
 - If you need indexes for performance, enable `MONGOOSE_AUTO_INDEX=true` temporarily or manage indexes directly in MongoDB.
-
-<<<<<<< HEAD
-- Endpoints are public and do not require authentication.
-- Schema comes from SCHEMA.md and schema.summary.json.
-- Validate URLs and dates when sending data.
-
-## Troubleshooting: Empty results on /api/session-tracking
-
-If the `/api/session-tracking` endpoint returns an empty `data` array even though documents exist in your MongoDB cluster, check the following:
-
-1) Confirm the database name
-- Set `MONGODB_DB` to the exact database that contains your documents (e.g., `develop_kaviaroot`, `qa_kaviaroot`, `pre_prod__kaviaroot`).
-- On startup you should see a log like:
-  ```
-  MongoDB dbName selected via env: <your-db>
-  ```
-- If this is missing and you see a warning about relying on the driver default, set `MONGODB_DB`.
-
-2) Confirm the collection name
-- Some datasets may use a different collection name or casing.
-- Set `SESSION_TRACKING_COLLECTION` to override the collection the backend uses.
-  - Default is `session_tracking`.
-
-3) Enable quick verification
-- Set `VERIFY_COLLECTIONS=true` to log the estimated count of the `session_tracking` collection at startup (or your override).
-- Set `DEBUG_DB_LOGS=true` to log which database and collection are queried by list endpoints, including filter and counts, for quick diagnosis.
-
-Example .env excerpt:
-```
-PORT=3001
-MONGODB_URI=<your-mongodb-uri>
-MONGODB_DB=pre_prod__kaviaroot
-SESSION_TRACKING_COLLECTION=session_tracking
-VERIFY_COLLECTIONS=true
-DEBUG_DB_LOGS=true
-```
-
-Tip: You can also retrieve a single record to verify connectivity:
-```
-GET /api/session-tracking?limit=1
-```
-=======
->>>>>>> cga-cg9d6f2ee8
