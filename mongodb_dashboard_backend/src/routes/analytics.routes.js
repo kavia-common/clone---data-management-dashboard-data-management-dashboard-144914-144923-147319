@@ -21,19 +21,30 @@ const router = express.Router();
  *     description: >
  *       Aggregates users by created_at into time buckets based on granularity (day|week|month) and returns counts.
  *       Fills missing intervals with zero on the server.
- *     tags: [Analytics]
+ *     tags:
+ *       - Analytics
  *     parameters:
  *       - in: query
  *         name: granularity
- *         schema: { type: string, enum: [day, week, month], default: day }
+ *         schema:
+ *           type: string
+ *           enum:
+ *             - day
+ *             - week
+ *             - month
+ *           default: day
  *         description: Bucket granularity
  *       - in: query
  *         name: start
- *         schema: { type: string, format: date-time }
+ *         schema:
+ *           type: string
+ *           format: date-time
  *         description: ISO start datetime (inclusive). Default depends on granularity: last 90 days (day), 26 weeks (week), 12 months (month).
  *       - in: query
  *         name: end
- *         schema: { type: string, format: date-time }
+ *         schema:
+ *           type: string
+ *           format: date-time
  *         description: ISO end datetime (inclusive). Default now.
  *     responses:
  *       200:
@@ -43,9 +54,14 @@ const router = express.Router();
  *             schema:
  *               type: object
  *               properties:
- *                 granularity: { type: string }
- *                 start: { type: string, format: date-time }
- *                 end: { type: string, format: date-time }
+ *                 granularity:
+ *                   type: string
+ *                 start:
+ *                   type: string
+ *                   format: date-time
+ *                 end:
+ *                   type: string
+ *                   format: date-time
  *                 points:
  *                   type: array
  *                   items:
