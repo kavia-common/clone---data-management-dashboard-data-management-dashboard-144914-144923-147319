@@ -101,7 +101,7 @@ export default function Users() {
 
   return (
     <div>
-<<<<<<< HEAD
+
       {/* Users by Tenant chart above the table */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
@@ -109,41 +109,7 @@ export default function Users() {
             <div>
               <h3 className="card-title">Users by Tenant</h3>
               <div className="card-subtitle">Distinct active users by tenant</div>
-=======
-      <Card title="Users" subtitle="Referral users and statistics (null-safe, flexible schema)">
-        {error && <div className="error" role="alert">{error}</div>}
-        <DataTable
-          columns={columns}
-          data={items}
-          loading={loading}
-          error={error ? (error.includes("Network") || error.includes("network")) ? "Connectivity issue: unable to reach the API." : error : ""}
-          emptyMessage="No users found"
-          onDelete={onDelete}
-        />
-      </Card>
 
-      {confirmDelete && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete user">
-          <div className="modal-card">
-            <div className="modal-header">
-              <h3>Delete user</h3>
-              <Button variant="ghost" aria-label="Close" onClick={() => setConfirmDelete(null)}>
-                ✕
-              </Button>
-            </div>
-            <div className="modal-body">
-              <p>Are you sure you want to delete this user?</p>
-            </div>
-            <div className="modal-footer">
-              <div className="modal-actions">
-                <Button variant="ghost" onClick={() => setConfirmDelete(null)}>
-                  Cancel
-                </Button>
-                <Button variant="danger" onClick={confirmDeleteAction}>
-                  Delete
-                </Button>
-              </div>
->>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
             </div>
             <div className="card-actions">{chartToolbar}</div>
           </div>

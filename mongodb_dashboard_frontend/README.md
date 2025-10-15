@@ -92,20 +92,15 @@ Environment notes:
 
 2) Configure environment
 - Copy .env.example to .env and set:
-<<<<<<< HEAD
+
   - REACT_APP_API_BASE_URL (required in cloud preview):
     https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001
   - REACT_APP_API_PREFIX (default /api)
 - Optional: You may use REACT_APP_API_URL instead of REACT_APP_API_BASE_URL; if both are set, REACT_APP_API_URL is preferred.
-=======
-  - REACT_APP_API_BASE_URL (e.g., http://localhost:3001)
-  - Or leave it unset when running in an HTTPS preview to use the proxy
->>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
 
 3) Run the app
 - npm start
 
-<<<<<<< HEAD
 App will run at http://localhost:3000 (or your environment preview URL)
 
 ### Verify backend connectivity
@@ -144,9 +139,7 @@ App will run at http://localhost:3000 (or your environment preview URL)
   - GET/POST /api/session-tracking, PUT/DELETE /api/session-tracking/:id
   - GET/POST /api/app-deployments, PUT/DELETE /api/app-deployments/:id
 - If your backend differs, adjust src/api/client.js paths accordingly.
-=======
-App will run at http://localhost:3000 (or your preview URL)
->>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
+
 
 ## Project Structure
 

@@ -86,7 +86,7 @@ export default function Overview() {
         </div>
       </Card>
 
-<<<<<<< HEAD
+
       {/* Full-width trend row aligned to the right by spanning all columns */}
       <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
         <Card title="Activity trend" subtitle="Weekly activity overview" className="w-full">
@@ -94,16 +94,7 @@ export default function Overview() {
           {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" />}
         </Card>
       </div>
-=======
-      <Card title="Activity trend" subtitle="Weekly activity overview" className="col-span-3">
-        {error && <div className="error" role="alert">{error}</div>}
-        {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" />}
-        <div style={{ marginTop: "8px", fontSize: "12px", opacity: 0.8 }}>
-          API connectivity:{" "}
-          {apiStatus === "checking" ? "checking..." : apiStatus === "ok" ? "OK" : "unreachable"}
-        </div>
-      </Card>
->>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
+
     </div>
   );
 }

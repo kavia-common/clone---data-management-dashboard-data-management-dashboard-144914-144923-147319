@@ -154,29 +154,13 @@ export default function Deployments() {
   }, []);
 
   return (
-<<<<<<< HEAD
+
     <div className="grid">
       {/* Chart block spans full width above the table */}
       <div className="block-full">
         <DeploymentsOverTime height={340} />
       </div>
-=======
-    <div>
-      <Card
-        title="App Deployments"
-        subtitle="View and delete application deployments"
-      >
-        {error && <div className="error" role="alert">{error}</div>}
-        <DataTable
-          columns={columns}
-          data={items}
-          loading={loading}
-          error={error ? (error.includes("Network") || error.includes("network")) ? "Connectivity issue: unable to reach the API." : error : ""}
-          emptyMessage="No deployments found"
-          onDelete={onDelete}
-        />
-      </Card>
->>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
+
 
       {/* Keep the existing table in its own card; span full width */}
       <div className="block-full">
