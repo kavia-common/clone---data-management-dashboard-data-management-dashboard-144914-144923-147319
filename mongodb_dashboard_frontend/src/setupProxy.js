@@ -7,14 +7,14 @@ const { createProxyMiddleware } = require("http-proxy-middleware");
  * Proxies API calls and OpenAPI docs to the backend target to avoid mixed-content and CORS issues.
  * Target is chosen using:
  * - REACT_APP_API_BASE_URL or REACT_APP_API_URL if provided
- * - otherwise http://localhost:${REACT_APP_BACKEND_PORT || 3001}
+ * - otherwise http://localhost:${REACT_APP_BACKEND_PORT || 7001}
  *
  * Notes:
  * - changeOrigin: true allows virtual hosted sites
  * - secure: false permits self-signed certs if target is https (dev only)
  */
 module.exports = function setupProxy(app) {
-  const port = process.env.REACT_APP_BACKEND_PORT || "3001";
+  const port = process.env.REACT_APP_BACKEND_PORT || "7001";
   const target =
     process.env.REACT_APP_API_BASE_URL ||
     process.env.REACT_APP_API_URL ||

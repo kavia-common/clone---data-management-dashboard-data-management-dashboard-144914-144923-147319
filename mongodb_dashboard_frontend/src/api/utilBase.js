@@ -3,8 +3,8 @@ export function getApiBase() {
   if (env && env.trim()) return env;
   try {
     const url = new URL(window.location.href);
-    return `${url.protocol}//${url.hostname}:3001`;
+    return `${url.protocol}//${url.hostname}:7001`;
   } catch {
-    return 'http://localhost:3001';
+    return 'http://localhost:7001';
   }
 }
