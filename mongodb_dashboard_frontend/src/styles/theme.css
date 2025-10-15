@@ -64,28 +64,6 @@ body {
   align-items: center;
 }
 
-.segmented {
-  display: inline-flex;
-  border: 1px solid var(--ocean-border);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--ocean-surface);
-}
-.segmented > button {
-  padding: 6px 10px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-weight: 600;
-}
-.segmented > button[aria-pressed="true"] {
-  background: var(--ocean-primary);
-  color: #fff;
-}
-.segmented > button + button {
-  border-left: 1px solid var(--ocean-border);
-}
-
 .toolbar .spacer {
   flex: 1;
 }

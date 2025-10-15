@@ -2,12 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
-import ActiveUsersChart from "../../components/users/ActiveUsersChart.jsx";
 
 /**
  * PUBLIC_INTERFACE
  * Users page
- * Shows Active Users trend, Users by Tenant chart, and Users list with modal details.
+ * Shows Users by Tenant chart and Users list with modal details.
  */
 export default function Users() {
   // Existing state (from prior implementation) retained
@@ -75,7 +74,7 @@ export default function Users() {
   }, [open]);
 
   const chartToolbar = (
-    <div className="toolbar" aria-label="Users filters" style={{ marginBottom: 8 }}>
+    <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8 }}>
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 12, color: "#6B7280" }}>Date range</span>
         <select
@@ -102,16 +101,6 @@ export default function Users() {
 
   return (
     <div>
-      {/* Active Users trend with bucket filter */}
-      <div style={{ marginBottom: 12 }}>
-        <ActiveUsersChart
-          from={fromIso}
-          to={toIso}
-          status={"completed|active"}
-          tenant_id={""}
-          defaultBucket="daily"
-        />
-      </div>
 
       {/* Users by Tenant chart above the table */}
       <div style={{ marginBottom: 12 }}>
@@ -120,6 +109,7 @@ export default function Users() {
             <div>
               <h3 className="card-title">Users by Tenant</h3>
               <div className="card-subtitle">Distinct active users by tenant</div>
+
             </div>
             <div className="card-actions">{chartToolbar}</div>
           </div>
