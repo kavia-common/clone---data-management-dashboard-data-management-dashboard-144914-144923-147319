@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
-      backend_image: ${{ steps.build-and-push-backend.outputs.image }}:${{ github.sha }}
+      backend_image: ${{ steps.build-and-push-backend.outputs.image }}
       
     steps:
     - name: Checkout code
