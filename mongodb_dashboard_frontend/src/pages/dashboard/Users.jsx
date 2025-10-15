@@ -1,185 +1,115 @@
 import React, { useEffect, useMemo, useState } from "react";
-import Card from "../../components/ui/Card.jsx";
-import Button from "../../components/ui/Button.jsx";
-import DataTable from "../../components/DataTable.jsx";
-import { deleteUser, listUsers } from "../../api/client";
+import UsersList from "../../components/UsersList.jsx";
+import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
+import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 
-// Safely extract referral stats whether it's an object or an array
-function getReferralStats(row) {
-  // referral_stats may be:
-  // - object: { total_referrals, verified_referrals, last_referral_date, ... }
-  // - array:  [ { total_referrals, ... } ] or history list
-  const rs = row?.referral_stats;
-  if (!rs) return {};
-  if (Array.isArray(rs)) {
-    // If array contains an object with stats, prefer first non-null object with those keys
-    const candidate =
-      rs.find(
-        (it) =>
-          it &&
-          (typeof it.total_referrals !== "undefined" ||
-            typeof it.verified_referrals !== "undefined" ||
-            typeof it.last_referral_date !== "undefined")
-      ) || rs[0] || {};
-    return candidate || {};
-  }
-  if (typeof rs === "object") return rs;
-  return {};
-}
-
-// Null-safe date formatting
-function fmtDate(v) {
-  if (!v) return "—";
-  try {
-    const d = new Date(v);
-    if (isNaN(d.getTime())) return "—";
-    return d.toLocaleString();
-  } catch {
-    return "—";
-  }
-}
-
-// Null-safe text
-function fmtText(v) {
-  if (v === null || v === undefined || v === "") return "—";
-  if (typeof v === "object") {
-    try {
-      return JSON.stringify(v);
-    } catch {
-      return "—";
-    }
-  }
-  return String(v);
-}
-
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * Users page
+ * Shows Users by Tenant chart and Users list with modal details.
+ */
 export default function Users() {
-  /** Users collection viewer: robust list and delete (no create/update).
-   * Handles flexible schema from backend. Renders hyphens if fields are missing.
-   */
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(null);
-  const [error, setError] = useState("");
+  // Existing state (from prior implementation) retained
+  const [open, setOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [defaultTab, setDefaultTab] = useState("details"); // 'details' | 'projects'
 
-  const columns = useMemo(
-    () => [
-      {
-        key: "referral_code",
-        label: "Referral Code",
-        render: (v) => fmtText(v),
-      },
-      {
-        key: "referral_stats.total_referrals",
-        label: "Total Referrals",
-        render: (_v, row) => {
-          const rs = getReferralStats(row);
-          return fmtText(rs.total_referrals ?? rs.total ?? 0);
-        },
-      },
-      {
-        key: "referral_stats.verified_referrals",
-        label: "Verified Referrals",
-        render: (_v, row) => {
-          const rs = getReferralStats(row);
-          return fmtText(rs.verified_referrals ?? rs.verified ?? 0);
-        },
-      },
-      {
-        key: "referral_stats.last_referral_date",
-        label: "Last Referral",
-        render: (_v, row) => {
-          const rs = getReferralStats(row);
-          return fmtDate(rs.last_referral_date ?? rs.last_referral ?? row?.last_referral_date);
-        },
-      },
-      {
-        key: "referral_history",
-        label: "Referral History",
-        render: (v) => {
-          // optional: show count if array, safe stringify otherwise
-          if (!v) return "—";
-          if (Array.isArray(v)) return `${v.length} item(s)`;
-          if (typeof v === "object") {
-            try {
-              // Try to show a short summary
-              const keys = Object.keys(v);
-              return keys.length ? `obj:${keys.length} key(s)` : "—";
-            } catch {
-              return "—";
-            }
-          }
-          return fmtText(v);
-        },
-      },
-      {
-        key: "created_at",
-        label: "Created",
-        render: (v, row) => fmtDate(v ?? row?.createdAt),
-      },
-      {
-        key: "updated_at",
-        label: "Updated",
-        render: (v, row) => fmtDate(v ?? row?.updatedAt),
-      },
-      // Fallback: show _id so users can correlate entries
-      {
-        key: "_id",
-        label: "ID",
-        render: (v, row) => fmtText(v ?? row?.id),
-      },
-    ],
-    []
-  );
+  const [rangeDays, setRangeDays] = useState(30);
+  const selectedTenantId = useMemo(() => {
+    const u = selectedUser || {};
+    return (
+      u.tenant_id ??
+      u.organization_name ??
+      u.organization ??
+      u.organization_id ??
+      ""
+    );
+  }, [selectedUser]);
 
-  async function load() {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await listUsers();
-      const arr = Array.isArray(data) ? data : data?.items || [];
-      // Ensure each item has safe defaults to avoid render-time errors
-      const safe = (arr || []).map((it) => ({
-        _id: it?._id ?? it?.id ?? undefined,
-        referral_code: it?.referral_code ?? it?.code ?? it?.referralCode ?? undefined,
-        referral_stats: it?.referral_stats ?? it?.referralStats ?? it?.stats ?? undefined,
-        referral_history: it?.referral_history ?? it?.referralHistory ?? undefined,
-        created_at: it?.created_at ?? it?.createdAt ?? undefined,
-        updated_at: it?.updated_at ?? it?.updatedAt ?? undefined,
-        // keep rest of fields as-is
-        ...it,
-      }));
-      setItems(safe);
-    } catch (e) {
-      setItems([]);
-      setError(e?.response?.data?.message || e?.message || "Failed to load users.");
-    } finally {
-      setLoading(false);
-    }
+  const { fromIso, toIso } = useMemo(() => {
+    const now = new Date();
+    const from = new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000);
+    return { fromIso: from.toISOString(), toIso: now.toISOString() };
+  }, [rangeDays]);
+
+  function handleUserSelect(user) {
+    setSelectedUser(user);
+    setDefaultTab("details");
+    setOpen(true);
+  }
+
+  function closeModal() {
+    setOpen(false);
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    const body = document?.body;
+    if (!body) return;
 
-  function onDelete(row) {
-    setConfirmDelete(row);
-  }
-
-  async function confirmDeleteAction() {
-    if (confirmDelete?._id) {
-      try {
-        await deleteUser(confirmDelete._id);
-        setConfirmDelete(null);
-        await load();
-      } catch (e) {
-        setError(e?.response?.data?.message || e?.message || "Failed to delete user.");
+    const CLASS = "modal-open--dim-header";
+    const apply = () => {
+      if (open) {
+        body.classList.add(CLASS);
+        const headerEl = document.querySelector(".app-headbar, .topbar");
+        if (headerEl) {
+          headerEl.setAttribute("aria-hidden", "true");
+        }
+      } else {
+        body.classList.remove(CLASS);
+        const headerEl = document.querySelector(".app-headbar, .topbar");
+        if (headerEl) {
+          headerEl.removeAttribute("aria-hidden");
+        }
       }
-    }
-  }
+    };
+
+    apply();
+    return () => {
+      body.classList.remove(CLASS);
+      const headerEl = document.querySelector(".app-headbar, .topbar");
+      if (headerEl) {
+        headerEl.removeAttribute("aria-hidden");
+      }
+    };
+  }, [open]);
+
+  const chartToolbar = (
+    <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8 }}>
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, color: "#6B7280" }}>Date range</span>
+        <select
+          aria-label="Date range"
+          value={rangeDays}
+          onChange={(e) => setRangeDays(Number(e.target.value))}
+          style={{
+            padding: "6px 8px",
+            borderRadius: 8,
+            border: "1px solid #d1d5db",
+            background: "white",
+            color: "#111827",
+          }}
+        >
+          <option value={7}>Last 7 days</option>
+          <option value={14}>Last 14 days</option>
+          <option value={30}>Last 30 days</option>
+          <option value={90}>Last 90 days</option>
+        </select>
+      </label>
+      <div className="spacer" />
+    </div>
+  );
 
   return (
     <div>
+<<<<<<< HEAD
+      {/* Users by Tenant chart above the table */}
+      <div style={{ marginBottom: 12 }}>
+        <div className="card">
+          <div className="card-header" style={{ paddingBottom: 0 }}>
+            <div>
+              <h3 className="card-title">Users by Tenant</h3>
+              <div className="card-subtitle">Distinct active users by tenant</div>
+=======
       <Card title="Users" subtitle="Referral users and statistics (null-safe, flexible schema)">
         {error && <div className="error" role="alert">{error}</div>}
         <DataTable
@@ -213,10 +143,42 @@ export default function Users() {
                   Delete
                 </Button>
               </div>
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
             </div>
+            <div className="card-actions">{chartToolbar}</div>
+          </div>
+          <div className="card-content">
+            <UsersByTenantChart
+              from={fromIso}
+              to={toIso}
+              status={"completed|active"}
+              includeInactive={false}
+              maxBars={12}
+              onBarClick={(item) => {
+                // eslint-disable-next-line no-console
+                console.debug("Tenant bar clicked:", item);
+              }}
+            />
           </div>
         </div>
-      )}
+      </div>
+
+      <UsersList
+        title="Users"
+        subtitle="All users"
+        showActions={false}
+        onUserSelect={handleUserSelect}
+      />
+
+      <div style={{ marginTop: 12 }} aria-hidden="true" />
+
+      <TabbedUserModal
+        open={open}
+        onClose={closeModal}
+        user={selectedUser}
+        tenantId={selectedTenantId}
+        defaultTab={defaultTab}
+      />
     </div>
   );
 }

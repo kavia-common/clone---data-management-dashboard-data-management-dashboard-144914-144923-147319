@@ -1,0 +1,201 @@
+:root {
+  --adm-primary: #2563EB;    /* Ocean Professional primary */
+  --adm-secondary: #F59E0B;  /* Ocean Professional secondary */
+  --adm-text: #111827;       /* text */
+  --adm-bg: #f9fafb;         /* background */
+  --adm-surface: #ffffff;    /* surface */
+  --adm-muted: #6b7280;
+  --adm-border: #e5e7eb;
+  --adm-shadow: 0 10px 25px rgba(0,0,0,0.08);
+  --adm-radius: 12px;
+  --adm-transition: all .2s ease;
+}
+
+/* Modal content root for this component */
+.agent-details-modal {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+  background: var(--adm-surface);
+  color: var(--adm-text);
+}
+
+/* Sticky header area (inside scrollable card) */
+.adm-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.05), rgba(255,255,255,1));
+  border-bottom: 1px solid var(--adm-border);
+  box-sizing: border-box;
+}
+
+.adm-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.adm-title-text {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--adm-text);
+}
+.adm-subtitle {
+  font-size: 13px;
+  color: var(--adm-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Scrollable body */
+.adm-body {
+  padding: 16px;
+  min-width: 0;
+  overflow: auto;  /* Allow internal scrolling without horizontal overflow */
+  box-sizing: border-box;
+}
+
+/* Responsive grid: 1 column on narrow, 2 columns on >=640px */
+.adm-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+@media (min-width: 640px) {
+  .adm-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Row layout */
+.adm-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--adm-border);
+  border-radius: 10px;
+  background: var(--adm-bg);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  min-width: 0; /* Prevent grid overflow */
+}
+@media (max-width: 480px) {
+  .adm-row {
+    grid-template-columns: 1fr;
+  }
+}
+.adm-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--adm-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.adm-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--adm-text);
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Footer area lives in Modal footer; we style actions only */
+.adm-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Buttons */
+.adm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: var(--adm-transition);
+}
+.adm-btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+.adm-btn-primary {
+  background: var(--adm-primary);
+  color: #fff;
+  border-color: var(--adm-primary);
+}
+.adm-btn-primary:hover:not(:disabled) {
+  filter: brightness(.95);
+  box-shadow: var(--adm-shadow);
+}
+.adm-btn-outline {
+  background: transparent;
+  color: var(--adm-primary);
+  border-color: var(--adm-primary);
+}
+.adm-btn-outline:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+/* States */
+.adm-state {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 32px 16px;
+  color: var(--adm-text);
+}
+.adm-state-text {
+  font-size: 14px;
+  color: var(--adm-text);
+}
+.adm-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid #dbeafe;
+  border-top-color: var(--adm-primary);
+  animation: adm-spin 0.9s linear infinite;
+}
+
+/* Animations */
+@keyframes adm-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Costs page only: widen the AgentDetailsModal shell when a costs-specific class is present */
+.modal-card-shell.costs-agent-modal {
+  max-width: min(94vw, 960px);
+  width: min(94vw, 960px);
+  box-sizing: border-box;
+}
+
+/* Costs page: 80% viewport width variant (scoped to Costs page usage only via class) */
+.modal-card-shell.costs-agent-modal-80 {
+  /* Responsive: prefer ~80vw, capped for large screens, and never exceed safe viewport on tiny screens */
+  max-width: min(96vw, clamp(360px, 80vw, 1280px));
+  width: min(96vw, clamp(360px, 80vw, 1280px));
+  box-sizing: border-box;
+}

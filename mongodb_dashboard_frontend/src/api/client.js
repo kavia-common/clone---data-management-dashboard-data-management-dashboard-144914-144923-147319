@@ -1,4 +1,15 @@
 import axios from "axios";
+<<<<<<< HEAD
+/**
+ * API client configuration (static pod URL version)
+ * This connects directly to the backend running in your specific pod.
+ * Used when environment-based resolution is unavailable or unstable.
+ */
+// :red_circle: Static backend base URL (replace with your active pod if it changes)
+const RAW_BASE_URL = "https://vscode-internal-42704-beta.beta01.cloud.kavia.ai:3001";
+const API_PREFIX = "/api";
+// Combine base + prefix safely
+=======
 
  // Build base URLs from environment variables. Avoid hardcoding.
  // REACT_APP_API_BASE_URL: e.g., http://localhost:3001
@@ -34,99 +45,20 @@ const RAW_BASE_URL =
 const API_PREFIX = process.env.REACT_APP_API_PREFIX || "/api";
 
 // Normalize base URL + prefix, avoiding double slashes
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
 function joinUrl(base, path) {
   if (!base) return path || "";
   const b = base.endsWith("/") ? base.slice(0, -1) : base;
   const p = path ? (path.startsWith("/") ? path : `/${path}`) : "";
   return `${b}${p}`;
 }
-
 const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
-
-// Keys for localStorage persistence
-const LS_TOKEN_KEY = "dashboard_token";
-const LS_USER_KEY = "dashboard_user";
-
-/**
- * Internal: get token from localStorage.
- */
-function getToken() {
-  try {
-    return localStorage.getItem(LS_TOKEN_KEY) || "";
-  } catch {
-    return "";
-  }
-}
-
-/**
- * Internal: persist auth token.
- */
-function setToken(token) {
-  try {
-    if (token) localStorage.setItem(LS_TOKEN_KEY, token);
-    else localStorage.removeItem(LS_TOKEN_KEY);
-  } catch {
-    // ignore storage errors in restrictive environments
-  }
-}
-
-/**
- * Internal: persist user profile (optional).
- */
-function setUser(user) {
-  try {
-    if (user) localStorage.setItem(LS_USER_KEY, JSON.stringify(user));
-    else localStorage.removeItem(LS_USER_KEY);
-  } catch {
-    // ignore storage errors
-  }
-}
-
-/**
- * Internal: get persisted user profile or null.
- */
-function getUser() {
-  try {
-    const raw = localStorage.getItem(LS_USER_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-// Create configured axios instance for API routes under /api
+// :white_tick: Create configured Axios instance
 const api = axios.create({
-  baseURL: API_BASE_URL || "/api",
-  headers: {
-    "Content-Type": "application/json",
-  },
+  baseURL: API_BASE_URL,
+  headers: { "Content-Type": "application/json" },
 });
-
-// Attach Authorization header on each request if token exists
-api.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token) {
-    // Use Bearer token as standard
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Handle 401 globally by clearing token to force re-login
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error?.response?.status === 401) {
-      setToken("");
-      setUser(null);
-      // soft redirect hint for callers
-      error.isAuthError = true;
-    }
-    return Promise.reject(error);
-  }
-);
-
-// Helper to normalize list responses from backend { success, data, meta }
+// Helper: normalize list/envelope responses
 function normalizeListResponse(res) {
   const payload = res?.data || {};
   const items = Array.isArray(payload) ? payload : payload.data || [];
@@ -135,146 +67,77 @@ function normalizeListResponse(res) {
     (Array.isArray(items) ? items.length : 0);
   return { items, total, meta: payload.meta || null };
 }
-
 // PUBLIC_INTERFACE
 export function getApiClient() {
-  /** Returns the configured Axios instance for advanced usage. */
+  /** Returns the configured Axios instance */
   return api;
 }
-
-// PUBLIC_INTERFACE
-export function getStoredAuth() {
-  /** Returns the currently stored user and token from localStorage. */
-  return { token: getToken(), user: getUser() };
-}
-
-// PUBLIC_INTERFACE
-export function persistAuth(token, user) {
-  /** Persists token and user to localStorage (used after login/register). */
-  setToken(token);
-  setUser(user || null);
-}
-
-// PUBLIC_INTERFACE
+// Health endpoint
 export async function health() {
+<<<<<<< HEAD
+  /** GET / - backend health check */
+  const res = await axios.get(RAW_BASE_URL);
+=======
   /** Calls /openapi.json to verify backend connectivity (proxied when using dev server). */
   const rootBase = RAW_BASE_URL || ""; // same-origin if empty (relies on setupProxy)
   const url = rootBase ? joinUrl(rootBase, "/openapi.json") : "/openapi.json";
   const res = await axios.get(url);
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
   return res.data;
 }
-
-// PUBLIC_INTERFACE
-export async function loginApi(credentials) {
-  /** POST /auth/login with { email, password } and returns { token, user }. */
-  const res = await api.post("/auth/login", credentials);
-  return res.data;
-}
-
-// PUBLIC_INTERFACE
-export async function registerApi(payload) {
-  /** POST /auth/register with { name, email, password } and returns { token, user }. */
-  const res = await api.post("/auth/register", payload);
-  return res.data;
-}
-
-// Collection APIs
-
-/** Internal helper: ensure filter param is JSON.stringified when provided. */
-function withStringifiedFilter(params = {}) {
-  const p = { ...(params || {}) };
-  if (p.filter && typeof p.filter === "object") {
-    try {
-      p.filter = JSON.stringify(p.filter);
-    } catch {
-      // leave as-is if stringify fails
-    }
-  }
-  return p;
-}
-
-// PUBLIC_INTERFACE
+// === USERS ===
 export async function listUsers(params = {}) {
-  /** GET /api/users with optional query params for filtering/pagination. */
-  const res = await api.get("/users", { params: withStringifiedFilter(params) });
+  const res = await api.get("/users", { params });
   return normalizeListResponse(res);
 }
-
-// PUBLIC_INTERFACE
 export async function createUser(body) {
-  /** POST /api/users to create a new user/referral record. */
   const res = await api.post("/users", body);
   return res.data?.data ?? res.data;
 }
-
-// PUBLIC_INTERFACE
 export async function updateUser(id, body) {
-  /** PUT /api/users/:id to update a user/referral record. */
   const res = await api.put(`/users/${id}`, body);
   return res.data?.data ?? res.data;
 }
-
-// PUBLIC_INTERFACE
 export async function deleteUser(id) {
-  /** DELETE /api/users/:id to remove a user/referral record. */
   const res = await api.delete(`/users/${id}`);
   return res.data?.data ?? res.data;
 }
-
-/* See withStringifiedFilter above */
-// PUBLIC_INTERFACE
+// === SESSION TRACKING ===
 export async function listSessions(params = {}) {
-  /** GET /api/session-tracking with optional filters. */
-  const res = await api.get("/session-tracking", { params: withStringifiedFilter(params) });
+  const res = await api.get("/session-tracking", { params });
   return normalizeListResponse(res);
 }
-
-// PUBLIC_INTERFACE
 export async function createSession(body) {
-  /** POST /api/session-tracking to create a session record. */
   const res = await api.post("/session-tracking", body);
   return res.data?.data ?? res.data;
 }
-
-// PUBLIC_INTERFACE
 export async function updateSession(id, body) {
-  /** PUT /api/session-tracking/:id to update a session record. */
   const res = await api.put(`/session-tracking/${id}`, body);
   return res.data?.data ?? res.data;
 }
-
-// PUBLIC_INTERFACE
 export async function deleteSession(id) {
-  /** DELETE /api/session-tracking/:id to remove a session record. */
   const res = await api.delete(`/session-tracking/${id}`);
   return res.data?.data ?? res.data;
 }
-
-/* See withStringifiedFilter above */
-// PUBLIC_INTERFACE
+// === APP DEPLOYMENTS ===
 export async function listDeployments(params = {}) {
-  /** GET /api/app-deployments with optional filters. */
-  const res = await api.get("/app-deployments", { params: withStringifiedFilter(params) });
+  const res = await api.get("/app-deployments", { params });
   return normalizeListResponse(res);
 }
-
-// PUBLIC_INTERFACE
-export async function createDeployment(body) {
-  /** POST /api/app-deployments to create a new deployment record. */
-  const res = await api.post("/app-deployments", body);
+// === LLM COSTS ===
+export async function listLlmCosts(params = {}) {
+  const res = await api.get("/llm-costs", { params });
+  return normalizeListResponse(res);
+}
+// === USER COSTS ===
+export async function getUserCosts(userId) {
+  if (!userId) throw new Error("userId is required");
+  const res = await api.get(`/users`);
   return res.data?.data ?? res.data;
 }
-
-// PUBLIC_INTERFACE
-export async function updateDeployment(id, body) {
-  /** PUT /api/app-deployments/:id to update a deployment record. */
-  const res = await api.put(`/app-deployments/${id}`, body);
-  return res.data?.data ?? res.data;
-}
-
-// PUBLIC_INTERFACE
-export async function deleteDeployment(id) {
-  /** DELETE /api/app-deployments/:id to remove a deployment record. */
-  const res = await api.delete(`/app-deployments/${id}`);
+// === USER PROJECT COSTS ===
+export async function getUserProjectsCosts(userId) {
+  if (!userId) throw new Error("userId is required");
+  const res = await api.get(`/users`);
   return res.data?.data ?? res.data;
 }

@@ -1,114 +1,309 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
-import Button from "../../components/ui/Button.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { deleteSession, listSessions } from "../../api/client";
+import { listSessions } from "../../api/client";
+import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
+import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
+import SessionsByType from "../../components/charts/SessionsByType.jsx";
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
-  /** Session tracking viewer: list and delete only (no create/update). */
+  /**
+   * Sessions page with server-side search and pagination.
+   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
+   * - Keeps existing pagination using server-provided meta.total and page/limit.
+   * - Minimal loading and error states shown within the table and above toolbar.
+   */
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(null);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  const columns = useMemo(
-    () => [
-      { key: "task_id", label: "Task ID" },
-      { key: "tenant_id", label: "Tenant ID" },
-      { key: "organization_name", label: "Organization" },
-      { key: "user_name", label: "User Name" },
-      { key: "service_type", label: "Service Type" },
-      {
-        key: "session_start",
-        label: "Started",
-        render: (v) => (v ? new Date(v).toLocaleString() : "")
-      },
-      {
-        key: "session_end",
-        label: "Ended",
-        render: (v) => (v ? new Date(v).toLocaleString() : "")
-      },
-      { key: "status", label: "Status" },
-      { key: "total_cost", label: "Total Cost" },
-      {
-        key: "created_at",
-        label: "Created",
-        render: (v) => (v ? new Date(v).toLocaleString() : "")
-      },
-    ],
+  // Details modal state (session details; unrelated to deprecated "View All" costs modal)
+  const [selectedSession, setSelectedSession] = useState(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // Lock to prevent race conditions when multiple loads are inflight (e.g., debounce vs pagination)
+  const activeRequestRef = useRef(0);
+  // Remember the last known sort so search/debounced reloads preserve sort order across pages
+  const lastSortRef = useRef({ key: "", dir: "asc" });
+
+  // Allowed and ordered fields (column visibility)
+  const allowedOrdered = useMemo(
+    () => ["task_id", "tenant_id", "organization_name", "service_type"],
     []
   );
 
-  async function load() {
+  // PUBLIC_INTERFACE
+  function toLabel(key) {
+    /** Convert snake_case to Title Case label. */
+    return String(key || "")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (m) => m.toUpperCase());
+  }
+
+  // PUBLIC_INTERFACE
+  function buildRestrictedColumns(rows = []) {
+    /** Build DataTable columns strictly from the allowed list, preserving order. */
+    const presentKeys = new Set();
+    (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
+
+    return allowedOrdered.map((k) => {
+      return {
+        key: k,
+        label: toLabel(k),
+        render: (v) => (v == null || v === "" ? "—" : String(v)),
+        priority: 2,
+      };
+    });
+  }
+
+  const [columns, setColumns] = useState(buildRestrictedColumns([]));
+
+  // Aggregates for charts
+  const [aggLoading, setAggLoading] = useState(false);
+  const [aggError, setAggError] = useState("");
+  const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
+  const [byType, setByType] = useState([]); // [{ session_type, session_count }]
+
+  async function loadAggregates(qStr = "") {
+    /**
+     * Fetch sessions data across multiple pages (capped) and build client-side aggregates
+     * for charts: by organization_name and by session_type.
+     */
+    setAggLoading(true);
+    setAggError("");
+    try {
+      const limit = 200;
+      const maxPages = 10;
+      let page = 1;
+      const all = [];
+      while (page <= maxPages) {
+        const res = await listSessions({ page, limit, q: qStr });
+        const arr = Array.isArray(res?.items) ? res.items : [];
+        all.push(...arr);
+        if (arr.length < limit) break;
+        page += 1;
+      }
+
+      // Aggregate by organization
+      const orgCounts = new Map();
+      all.forEach((it) => {
+        let org =
+          it?.organization_name ||
+          it?.organization?.name ||
+          it?.tenant_id ||
+          "";
+        org = String(org || "").trim();
+        if (!org) org = "Unknown";
+        orgCounts.set(org, (orgCounts.get(org) || 0) + 1);
+      });
+      const orgArr = Array.from(orgCounts.entries())
+        .map(([organization_name, session_count]) => ({ organization_name, session_count }))
+        .sort((a, b) => b.session_count - a.session_count);
+
+      // Aggregate by type
+      const typeCounts = new Map();
+      all.forEach((it) => {
+        let t = it?.session_type || it?.type || it?.service_type || "";
+        t = String(t || "").trim();
+        if (!t) t = "Unknown";
+        typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
+      });
+      const typeArr = Array.from(typeCounts.entries())
+        .map(([session_type, session_count]) => ({ session_type, session_count }))
+        .sort((a, b) => b.session_count - a.session_count);
+
+      setByOrg(orgArr);
+      setByType(typeArr);
+    } catch (e) {
+      setByOrg([]);
+      setByType([]);
+      setAggError(e?.response?.data?.message || e?.message || "Failed to load session aggregates.");
+    } finally {
+      setAggLoading(false);
+    }
+  }
+
+  // PUBLIC_INTERFACE
+  async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
+    /**
+     * Load sessions from server with pagination, optional query string, and server-driven sorting.
+     * When sortKey is provided, pass `sort` using:
+     *  - asc: field
+     *  - desc: -field
+     */
+    const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
     try {
-      const data = await listSessions();
-      const arr = Array.isArray(data) ? data : data?.items || [];
+      const sortFieldMap = {
+        task_id: "task_id",
+        tenant_id: "tenant_id",
+        organization_name: "organization_name",
+        service_type: "service_type",
+      };
+      const params = { page, limit, q: qStr };
+      if (sortKey) {
+        const backendField = sortFieldMap[sortKey] || String(sortKey);
+        params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
+      }
+      const res = await listSessions(params);
+      const arr = res?.items ?? (Array.isArray(res) ? res : []);
+      // If a newer request started after this one, ignore late response
+      if (requestId !== activeRequestRef.current) return;
+
       setItems(arr);
+      setMeta({
+        page: res?.meta?.page || page,
+        limit: res?.meta?.limit || limit,
+        total: res?.meta?.total ?? (Array.isArray(arr) ? arr.length : 0),
+      });
+      // Update columns dynamically based on currently returned data
+      setColumns(buildRestrictedColumns(arr));
     } catch (e) {
+      if (requestId !== activeRequestRef.current) return;
       setItems([]);
+      setColumns(buildRestrictedColumns([]));
       setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
     } finally {
-      setLoading(false);
+      if (requestId === activeRequestRef.current) setLoading(false);
     }
   }
 
-  useEffect(() => { load(); }, []);
+  // Initial load
+  useEffect(() => {
+    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    load(1, meta.limit || 10, "", key, dir);
+    loadAggregates("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  function onDelete(row) {
-    setConfirmDelete(row);
-  }
+  // Debounced server-side search on query change
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      const q = (query || "").trim();
+      const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+      // Reset to first page when searching and preserve sort across dataset
+      load(1, meta.limit || 10, q, key, dir);
+      // Sync charts to the same query
+      loadAggregates(q);
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
-  async function confirmDeleteAction() {
-    if (confirmDelete?._id) {
+  // Toggle global dimming class while modal is open (align with user modal UX)
+  useEffect(() => {
+    if (detailsOpen) {
+      document.body.classList.add("modal-open");
+    } else {
+      document.body.classList.remove("modal-open");
+    }
+    return () => document.body.classList.remove("modal-open");
+  }, [detailsOpen]);
+
+  // Row click -> open modal
+  const handleRowClick = (row) => {
+    if (process.env.NODE_ENV !== "production") {
       try {
-        await deleteSession(confirmDelete._id);
-        setConfirmDelete(null);
-        await load();
-      } catch (e) {
-        setError(e?.response?.data?.message || e?.message || "Failed to delete session.");
+        const keys = Object.keys(row || {});
+        // eslint-disable-next-line no-console
+        console.debug("[Sessions] Row clicked -> opening details modal with keys:", keys);
+      } catch {
+        // ignore logging errors
       }
     }
-  }
+    setSelectedSession(row);
+    setDetailsOpen(true);
+  };
 
   return (
     <div>
-      <Card
-        title="Session Tracking"
-        subtitle="View and delete session records"
-      >
-        {error && <div className="error" role="alert">{error}</div>}
+      {/* Details Modal */}
+      <SessionDetailsModal
+        open={detailsOpen}
+        onClose={() => {
+          setDetailsOpen(false);
+          setTimeout(() => setSelectedSession(null), 0);
+        }}
+        session={selectedSession}
+      />
+
+      {/* Charts row */}
+      <div className="grid sessions-charts" role="region" aria-label="Session insights">
+        <Card
+          className="col-span-6 chart-card"
+          title="Sessions by Organization"
+          subtitle="Count of sessions per organization"
+        >
+          <div className="chart-wrapper" style={{ height: 320 }}>
+            <SessionsByOrganization
+              data={byOrg}
+              loading={aggLoading}
+              error={aggError}
+            />
+          </div>
+        </Card>
+        <Card
+          className="col-span-6 chart-card"
+          title="Sessions by Type"
+          subtitle="Count of sessions per type"
+        >
+          <div className="chart-wrapper" style={{ height: 320 }}>
+            <SessionsByType
+              data={byType}
+              loading={aggLoading}
+              error={aggError}
+            />
+          </div>
+        </Card>
+      </div>
+
+      {/* Existing table card remains below charts */}
+      <Card title="Session Tracking" subtitle="Search across the full dataset">
+        <div className="toolbar" aria-label="Sessions toolbar">
+          <input
+            className="input-search"
+            placeholder="Search sessions (user, org, service, status, etc.)..."
+            aria-label="Search sessions"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="spacer" />
+        </div>
+        {error && (
+          <div className="error" role="alert" style={{ marginBottom: 8 }}>
+            {error}
+          </div>
+        )}
         <DataTable
           columns={columns}
           data={items}
           loading={loading}
+<<<<<<< HEAD
+          pageSize={meta.limit || 10}
+          initialPage={meta.page || 1}
+          serverTotal={meta.total}
+          fetchPage={async (page, limit, sortKey, sortDir) => {
+            // Remember current sort so external triggers (search) keep ordering consistent
+            if (sortKey) {
+              lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
+            } else if (!lastSortRef.current) {
+              lastSortRef.current = { key: "", dir: "asc" };
+            }
+            await load(page, limit, (query || "").trim(), sortKey, sortDir);
+          }}
+          paginationTitle="Sessions pages"
+          onRowClick={handleRowClick}
+=======
           error={error ? (error.includes("Network") || error.includes("network")) ? "Connectivity issue: unable to reach the API." : error : ""}
           emptyMessage="No sessions found"
           onDelete={onDelete}
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
         />
       </Card>
-
-      {confirmDelete && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete session">
-          <div className="modal-card">
-            <div className="modal-header">
-              <h3>Delete session</h3>
-              <Button variant="ghost" aria-label="Close" onClick={() => setConfirmDelete(null)}>✕</Button>
-            </div>
-            <div className="modal-body">
-              <p>Are you sure you want to delete this session?</p>
-            </div>
-            <div className="modal-footer">
-              <div className="modal-actions">
-                <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-                <Button variant="danger" onClick={confirmDeleteAction}>Delete</Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
