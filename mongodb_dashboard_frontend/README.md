@@ -92,14 +92,20 @@ Environment notes:
 
 2) Configure environment
 - Copy .env.example to .env and set:
+<<<<<<< HEAD
   - REACT_APP_API_BASE_URL (required in cloud preview):
     https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001
   - REACT_APP_API_PREFIX (default /api)
 - Optional: You may use REACT_APP_API_URL instead of REACT_APP_API_BASE_URL; if both are set, REACT_APP_API_URL is preferred.
+=======
+  - REACT_APP_API_BASE_URL (e.g., http://localhost:3001)
+  - Or leave it unset when running in an HTTPS preview to use the proxy
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
 
 3) Run the app
 - npm start
 
+<<<<<<< HEAD
 App will run at http://localhost:3000 (or your environment preview URL)
 
 ### Verify backend connectivity
@@ -138,6 +144,9 @@ App will run at http://localhost:3000 (or your environment preview URL)
   - GET/POST /api/session-tracking, PUT/DELETE /api/session-tracking/:id
   - GET/POST /api/app-deployments, PUT/DELETE /api/app-deployments/:id
 - If your backend differs, adjust src/api/client.js paths accordingly.
+=======
+App will run at http://localhost:3000 (or your preview URL)
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
 
 ## Project Structure
 
@@ -157,11 +166,45 @@ App will run at http://localhost:3000 (or your environment preview URL)
 
 ## Environment Variables
 
-- REACT_APP_API_BASE_URL: Backend API root (recommended). Example: http://localhost:3001
+The frontend supports two variable names for the backend base URL (either is fine):
+- REACT_APP_API_URL: Backend API root (takes precedence if set)
+- REACT_APP_API_BASE_URL: Backend API root (recommended)
+
+Other variables:
 - REACT_APP_API_PREFIX: API prefix used by the backend. Default: /api
 - REACT_APP_BACKEND_PORT: Used for auto-detection when REACT_APP_API_BASE_URL is not set. Default: 3001
 
-Note: Do not commit .env; use .env.example as reference.
+Setup steps:
+- Copy .env.example to .env
+- For local dev:
+  - REACT_APP_API_BASE_URL=http://localhost:3001
+- For cloud preview (example):
+  - REACT_APP_API_BASE_URL=https://vscode-internal-19172-beta.beta01.cloud.kavia.ai:3001
+
+Notes:
+- Do not commit .env; use .env.example as reference.
+- If you encounter “Network Error” from Axios, verify:
+  1) The backend is reachable at the URL you configured (open it in the browser)
+  2) The port matches your backend server port (default 3001)
+  3) CORS is allowed by the backend (or access via same-origin proxy)
+  4) The API prefix matches your backend (default /api)
+
+## Proxy and HTTPS
+
+In secure preview environments (https), browsers will block http requests to a backend (mixed content). To prevent this, the app includes a development proxy:
+
+- src/setupProxy.js forwards:
+  - /api -> backend (http://localhost:3001 by default)
+  - /openapi.json -> backend
+- If REACT_APP_API_BASE_URL is NOT set, the API client uses a relative base (/api), which the dev server proxies to the backend.
+- If you set REACT_APP_API_BASE_URL in an https environment, make sure the backend is also available over https at that URL. Otherwise leave it unset to use the proxy.
+
+Verification:
+- Start backend on port 3001
+- Start frontend (npm start)
+- Visit the app, open DevTools -> Network
+- Confirm requests go to /api/... and succeed
+- Check /openapi.json request (health check) succeeds (200)
 
 ## API Endpoints
 

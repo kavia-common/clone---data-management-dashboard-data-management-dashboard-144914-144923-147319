@@ -21,6 +21,7 @@ export default function DataTable({
   columns,
   data,
   loading,
+<<<<<<< HEAD
   onEdit,
   onDelete,
   onRowClick,
@@ -49,6 +50,19 @@ export default function DataTable({
    * - Ensures horizontal scroll is always available when columns exceed wrapper width or when forceHorizontalScroll is true.
    * - Pagination area is outside of the scrollable body and remains visible regardless of scroll position.
    * - Slight visual affordances (shadow) appear on the header when the body content is scrolled.
+=======
+  error,
+  emptyMessage = "No data",
+  onEdit,
+  onDelete,
+}) {
+  /**
+   * A simple data grid component with client-side sorting and action column.
+   * Distinguishes between:
+   * - loading state
+   * - error state (shows connectivity/message row)
+   * - empty state (customizable message)
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
    */
   const [sortKey, setSortKey] = useState("");
   const [sortDir, setSortDir] = useState("asc");
@@ -122,6 +136,7 @@ export default function DataTable({
     }
   }
 
+<<<<<<< HEAD
   async function toggleSort(key) {
     let nextDir = "asc";
     if (sortKey === key) {
@@ -219,6 +234,63 @@ export default function DataTable({
             >
               {p}
             </button>
+=======
+  return (
+    <div className="table-wrapper">
+      <table className="table">
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th key={c.key} onClick={() => toggleSort(c.key)} role="button" className="th">
+                {c.label}
+                {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
+              </th>
+            ))}
+            {(onEdit || onDelete) && <th className="th">Actions</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {loading && (
+            <tr>
+              <td colSpan={columns.length + (onEdit || onDelete ? 1 : 0)}>
+                <div className="table-empty">Loading...</div>
+              </td>
+            </tr>
+          )}
+
+          {!loading && error && (
+            <tr>
+              <td colSpan={columns.length + (onEdit || onDelete ? 1 : 0)}>
+                <div className="error" role="alert">
+                  {error}
+                </div>
+              </td>
+            </tr>
+          )}
+
+          {!loading && !error && (!sorted || sorted.length === 0) && (
+            <tr>
+              <td colSpan={columns.length + (onEdit || onDelete ? 1 : 0)}>
+                <div className="table-empty">{emptyMessage}</div>
+              </td>
+            </tr>
+          )}
+
+          {!loading && !error && sorted && sorted.map((row) => (
+            <tr key={row._id || row.id || JSON.stringify(row)}>
+              {columns.map((c) => (
+                <td key={c.key} className="td">
+                  {c.render ? c.render(getValue(row, c.key), row) : String(getValue(row, c.key) ?? "")}
+                </td>
+              ))}
+              {(onEdit || onDelete) && (
+                <td className="td actions">
+                  {onEdit && <button className="btn btn-ghost" onClick={() => onEdit(row)}>Edit</button>}
+                  {onDelete && <button className="btn btn-danger" onClick={() => onDelete(row)}>Delete</button>}
+                </td>
+              )}
+            </tr>
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
           ))}
           {endPage < totalPages && (
             <button

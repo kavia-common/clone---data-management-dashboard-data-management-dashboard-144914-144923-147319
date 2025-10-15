@@ -282,6 +282,7 @@ export default function Sessions() {
           columns={columns}
           data={items}
           loading={loading}
+<<<<<<< HEAD
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
@@ -296,6 +297,11 @@ export default function Sessions() {
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
+=======
+          error={error ? (error.includes("Network") || error.includes("network")) ? "Connectivity issue: unable to reach the API." : error : ""}
+          emptyMessage="No sessions found"
+          onDelete={onDelete}
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
         />
       </Card>
     </div>

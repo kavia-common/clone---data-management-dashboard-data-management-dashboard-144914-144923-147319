@@ -1,4 +1,5 @@
 import axios from "axios";
+<<<<<<< HEAD
 /**
  * API client configuration (static pod URL version)
  * This connects directly to the backend running in your specific pod.
@@ -8,6 +9,43 @@ import axios from "axios";
 const RAW_BASE_URL = "https://vscode-internal-42704-beta.beta01.cloud.kavia.ai:3001";
 const API_PREFIX = "/api";
 // Combine base + prefix safely
+=======
+
+ // Build base URLs from environment variables. Avoid hardcoding.
+ // REACT_APP_API_BASE_URL: e.g., http://localhost:3001
+ // REACT_APP_API_PREFIX: default "/api" (backend mounts public routes under /api/*)
+ // REACT_APP_BACKEND_PORT: optional (defaults to 3001) used for auto-detection fallback
+function inferBackendBase() {
+  /**
+   * Attempt to infer backend origin when REACT_APP_API_BASE_URL is not provided.
+   * In HTTPS previews (or any https origin), do NOT infer a cross-origin http(s)://host:3001,
+   * because that often causes mixed-content or TLS handshake failures.
+   * Instead return empty string so the client uses a same-origin relative '/api' base,
+   * which will be forwarded by CRA's proxy (src/setupProxy.js).
+   */
+  try {
+    if (typeof window === "undefined") return "";
+    const { protocol, hostname } = window.location;
+    const proto = (protocol || "").replace(":", "");
+    // If current page is https, avoid inferring a different origin to prevent mixed content.
+    if (proto === "https") {
+      return "";
+    }
+    const backendPort = process.env.REACT_APP_BACKEND_PORT || "3001";
+    return `${protocol}//${hostname}:${backendPort}`;
+  } catch {
+    return "";
+  }
+}
+const RAW_BASE_URL =
+  process.env.REACT_APP_API_URL || // allow REACT_APP_API_URL as requested
+  process.env.REACT_APP_API_BASE_URL || // backward compatibility with README
+  inferBackendBase() ||
+  "";
+const API_PREFIX = process.env.REACT_APP_API_PREFIX || "/api";
+
+// Normalize base URL + prefix, avoiding double slashes
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
 function joinUrl(base, path) {
   if (!base) return path || "";
   const b = base.endsWith("/") ? base.slice(0, -1) : base;
@@ -36,8 +74,15 @@ export function getApiClient() {
 }
 // Health endpoint
 export async function health() {
+<<<<<<< HEAD
   /** GET / - backend health check */
   const res = await axios.get(RAW_BASE_URL);
+=======
+  /** Calls /openapi.json to verify backend connectivity (proxied when using dev server). */
+  const rootBase = RAW_BASE_URL || ""; // same-origin if empty (relies on setupProxy)
+  const url = rootBase ? joinUrl(rootBase, "/openapi.json") : "/openapi.json";
+  const res = await axios.get(url);
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
   return res.data;
 }
 // === USERS ===

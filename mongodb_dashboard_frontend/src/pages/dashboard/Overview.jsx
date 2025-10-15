@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
-import { listUsers, listSessions, listDeployments } from "../../api/client";
+import { listUsers, listSessions, listDeployments, health } from "../../api/client";
 
 // PUBLIC_INTERFACE
 export default function Overview() {
@@ -10,6 +10,7 @@ export default function Overview() {
   const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
   const [trend, setTrend] = useState([]);
   const [error, setError] = useState("");
+  const [apiStatus, setApiStatus] = useState("checking");
 
   useEffect(() => {
     async function fetchData() {
@@ -45,6 +46,24 @@ export default function Overview() {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    async function ping() {
+      try {
+        const info = await health();
+        if (!mounted) return;
+        setApiStatus(info ? "ok" : "error");
+      } catch {
+        if (!mounted) return;
+        setApiStatus("error");
+      }
+    }
+    ping();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <div className="grid">
       {/* KPI cards row — responsive spans handled by .kpi-card rules in App.css */}
@@ -67,6 +86,7 @@ export default function Overview() {
         </div>
       </Card>
 
+<<<<<<< HEAD
       {/* Full-width trend row aligned to the right by spanning all columns */}
       <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
         <Card title="Activity trend" subtitle="Weekly activity overview" className="w-full">
@@ -74,6 +94,16 @@ export default function Overview() {
           {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" />}
         </Card>
       </div>
+=======
+      <Card title="Activity trend" subtitle="Weekly activity overview" className="col-span-3">
+        {error && <div className="error" role="alert">{error}</div>}
+        {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" />}
+        <div style={{ marginTop: "8px", fontSize: "12px", opacity: 0.8 }}>
+          API connectivity:{" "}
+          {apiStatus === "checking" ? "checking..." : apiStatus === "ok" ? "OK" : "unreachable"}
+        </div>
+      </Card>
+>>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
     </div>
   );
 }
