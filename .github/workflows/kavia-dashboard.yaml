@@ -44,6 +44,13 @@ jobs:
           ${{ github.sha }}
           latest
         dockerfile: mongodb_dashboard_backend/Dockerfile
+    
+    - name: Set Image Tag
+      id: image-tag
+      run: |
+        IMAGE="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.REPO_NAME }}:${{ github.sha }}"
+        echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+        echo "Full image: ${IMAGE}"
 
   deploy:
     runs-on: ubuntu-latest
