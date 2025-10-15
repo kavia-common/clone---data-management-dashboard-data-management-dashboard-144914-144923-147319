@@ -704,7 +704,7 @@ router.delete('/:id', asyncHandler(controller.remove));
  *         description: ISO end of range (exclusive for bucketing upper bound). Default is now if not provided.
  *       - in: query
  *         name: granularity
- *         schema: { type: string, enum: [day, week], default: day }
+ *         schema: { type: string, enum: [day, week, month], default: day }
  *         description: Bucket size for the time series.
  *       - in: query
  *         name: status
@@ -745,7 +745,8 @@ router.get(
 
     const fromStr = req.query.from || defaultFrom.toISOString();
     const toStr = req.query.to || now.toISOString();
-    const granularity = (req.query.granularity || 'day').toLowerCase() === 'week' ? 'week' : 'day';
+    const granularityParam = String(req.query.granularity || 'day').toLowerCase();
+    const granularity = ['day', 'week', 'month'].includes(granularityParam) ? granularityParam : 'day';
     const statusParam = (req.query.status || 'completed|active').trim();
     const tenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
 
@@ -799,36 +800,56 @@ router.get(
     };
 
     // Bucket expression
-    const projectBucketStage = granularity === 'week'
-      ? {
-          $project: {
-            tenant_id: 1,
-            user_id_str: { $toString: '$user_id' },
-            bucket: {
-              $dateToString: {
-                format: '%G-%V', // ISO week-year-week
-                date: '$activity_ts',
-                timezone: 'UTC',
-              },
-            },
-            weekStart: {
-              $dateFromParts: {
-                isoWeekYear: { $isoWeekYear: '$activity_ts' },
-                isoWeek: { $isoWeek: '$activity_ts' },
-                isoDayOfWeek: 1,
-              },
+    let projectBucketStage;
+    if (granularity === 'week') {
+      projectBucketStage = {
+        $project: {
+          tenant_id: 1,
+          user_id_str: { $toString: '$user_id' },
+          bucket: {
+            $dateToString: {
+              format: '%G-%V', // ISO week-year-week
+              date: '$activity_ts',
+              timezone: 'UTC',
             },
           },
-        }
-      : {
-          $project: {
-            tenant_id: 1,
-            user_id_str: { $toString: '$user_id' },
-            bucket: {
-              $dateToString: { format: '%Y-%m-%d', date: '$activity_ts', timezone: 'UTC' },
+          weekStart: {
+            $dateFromParts: {
+              isoWeekYear: { $isoWeekYear: '$activity_ts' },
+              isoWeek: { $isoWeek: '$activity_ts' },
+              isoDayOfWeek: 1,
             },
           },
-        };
+        },
+      };
+    } else if (granularity === 'month') {
+      projectBucketStage = {
+        $project: {
+          tenant_id: 1,
+          user_id_str: { $toString: '$user_id' },
+          bucket: {
+            $dateToString: { format: '%Y-%m', date: '$activity_ts', timezone: 'UTC' },
+          },
+          monthStart: {
+            $dateFromParts: {
+              year: { $year: '$activity_ts' },
+              month: { $month: '$activity_ts' },
+              day: 1,
+            },
+          },
+        },
+      };
+    } else {
+      projectBucketStage = {
+        $project: {
+          tenant_id: 1,
+          user_id_str: { $toString: '$user_id' },
+          bucket: {
+            $dateToString: { format: '%Y-%m-%d', date: '$activity_ts', timezone: 'UTC' },
+          },
+        },
+      };
+    }
 
     // Distinct users per bucket (and tenant in match if given)
     const pipeline = [
@@ -845,9 +866,10 @@ router.get(
           _id: '$_id.bucket',
           total: { $sum: 1 },
           weekStart: granularity === 'week' ? { $first: '$weekStart' } : undefined,
+          monthStart: granularity === 'month' ? { $first: '$monthStart' } : undefined,
         },
       },
-      { $project: { _id: 0, bucket: '$_id', total: 1, weekStart: 1 } },
+      { $project: { _id: 0, bucket: '$_id', total: 1, weekStart: 1, monthStart: 1 } },
       { $sort: { bucket: 1 } },
     ];
 
@@ -862,7 +884,14 @@ router.get(
         const dd = String(d.getUTCDate()).padStart(2, '0');
         return { date: `${yyyy}-${mm}-${dd}`, total: r.total || 0 };
       }
-      // r.bucket already '%Y-%m-%d'
+      if (granularity === 'month' && r.monthStart) {
+        const d = new Date(r.monthStart);
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+        // Use first day of month
+        return { date: `${yyyy}-${mm}-01`, total: r.total || 0 };
+      }
+      // day granularity: r.bucket is '%Y-%m-%d'
       return { date: String(r.bucket), total: r.total || 0 };
     });
 
