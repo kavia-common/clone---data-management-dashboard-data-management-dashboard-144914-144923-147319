@@ -132,12 +132,6 @@ app.use('/api/auth', require('./routes/auth.routes'));
 // Analytics endpoints
 app.use('/api/analytics', require('./routes/analytics.routes'));
 
-/**
- * Optional internal encryption verification route.
- * Mounted at /internal and is safe by default (disabled in production unless token provided).
- */
-app.use('/internal', require('./routes/internalEncryptionRoute'));
-
 // JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
 app.use((req, res) => {
   return res.status(404).json({

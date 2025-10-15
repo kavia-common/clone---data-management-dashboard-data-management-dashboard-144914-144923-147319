@@ -36,7 +36,10 @@ function normalize(value) {
   return String(value).trim();
 }
 
-
+/**
+ * Validate that a salt is URL-safe base64-ish without padding, length ~22-24.
+ * Example: g5StFHvCyj0Hf9g8j87nGA
+ */
 function isUrlSafeShortBase64(s) {
   if (!s || typeof s !== 'string') return false;
   const v = s.trim();
