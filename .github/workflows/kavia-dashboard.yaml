@@ -20,21 +20,18 @@ jobs:
   build:  
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    outputs:
-      backend_image: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.REPO_NAME }}:${{ github.sha }}
       
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-
+        
     - name: Duplo Setup
       uses: duplocloud/actions/setup@v0.0.5
-
+      
     - name: Build and Push Docker Image
       uses: duplocloud/actions/build-image@v0.0.5
-      id: build-and-push-backend
       with:
         repo: ${{ env.REPO_NAME }}
         platforms: linux/amd64
@@ -44,13 +41,6 @@ jobs:
           ${{ github.sha }}
           latest
         dockerfile: mongodb_dashboard_backend/Dockerfile
-    
-    - name: Set Image Tag
-      id: image-tag
-      run: |
-        IMAGE="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.REPO_NAME }}:${{ github.sha }}"
-        echo "image=${IMAGE}" >> $GITHUB_OUTPUT
-        echo "Full image: ${IMAGE}"
 
   deploy:
     runs-on: ubuntu-latest
@@ -61,19 +51,19 @@ jobs:
     steps:
     - name: Duplo Setup
       uses: duplocloud/actions/setup@v0.0.5
-
+      
     - name: Update Service Image
-      uses: duplocloud/actions/update-image@v0.0.5
-      with:
-        name: ${{ env.SERVICE_NAME }}
-        image: ${{ needs.build.outputs.backend_image }}
+      run: |
+        IMAGE_TAG="127214169382.dkr.ecr.us-west-2.amazonaws.com/kavia-dashboard:${{ github.sha }}"
+        echo "Updating service with image: ${IMAGE_TAG}"
+        duploctl service update_image kavia-dashboard "${IMAGE_TAG}"
         
     - name: Verify Deployment
       run: |
         echo "✅ Deployment Summary"
         echo "===================="
         echo "Service: ${{ env.SERVICE_NAME }}"
-        echo "Image: ${{ needs.build.outputs.backend_image }}"
+        echo "Image: 127214169382.dkr.ecr.us-west-2.amazonaws.com/kavia-dashboard:${{ github.sha }}"
         echo "Tenant: ${{ env.DUPLO_TENANT }}"
         echo "Cluster: ${{ env.CLUSTER_NAME }}"
         echo "===================="
