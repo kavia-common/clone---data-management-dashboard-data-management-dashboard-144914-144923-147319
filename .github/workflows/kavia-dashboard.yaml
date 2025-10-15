@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
-      backend_image: ${{ steps.build-and-push-backend.outputs.image }}
+      backend_image: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.REPO_NAME }}:${{ github.sha }}
       
     steps:
     - name: Checkout code
