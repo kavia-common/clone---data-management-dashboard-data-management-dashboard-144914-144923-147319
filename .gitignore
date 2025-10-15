@@ -211,3 +211,7 @@ __marimo__/
 .knowledge/mongodb_dashboard_frontend_src_config_auth.ts.json.json
 .knowledge/mongodb_dashboard_frontend_src_config_auth.ts.json
 .knowledge/mongodb_dashboard_frontend_src_config_auth.js.json.json
+
+# Auto-added by security check to prevent sensitive data exposure
+mongodb_dashboard_frontend/src/config/auth.js
+mongodb_dashboard_frontend/src/config/auth.ts

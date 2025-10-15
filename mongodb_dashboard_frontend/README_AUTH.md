@@ -5,11 +5,9 @@ Authentication setup notes:
   Example:
     REACT_APP_API_BASE_URL=https://kaviaqa-worktool.cloud.kavia.ai
 
-- Tenant encryption salt (URL-safe base64 without padding) can be provided via:
-    REACT_APP_SECRET_SALT=<your-url-safe-base64-salt>
-  For production, do not hardcode salts in code. Provide via environment. If not provided,
-  the frontend will attempt to fetch a public-safe encrypted token from the backend at runtime
-  and cache it locally.
+- Optional encryption salt for organization id:
+    REACT_APP_TENANT_ENCRYPTION_SALT=<your-salt-here>
+  For production, do not hardcode salts in code. Provide via environment.
 
 - Session storage:
   localStorage.setItem('auth', JSON.stringify({ loggedIn: true, token? }))
