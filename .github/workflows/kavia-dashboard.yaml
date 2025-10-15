@@ -43,6 +43,7 @@ jobs:
         tags: |
           ${{ github.sha }}
           latest
+        dockerfile: mongodb_dashboard_backend/Dockerfile
 
   deploy:
     runs-on: ubuntu-latest
