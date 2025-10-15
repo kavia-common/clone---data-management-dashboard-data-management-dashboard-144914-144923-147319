@@ -1,39 +1,57 @@
-# Organization/Tenant ID Encryption
+# Organization/Tenant ID Encryption (Runtime Helper)
 
-This project uses AES-128-ECB with a key derived from SHA-256(salt)[0..15], and base64 output without padding, matching the provided reference.
-
-## Usage from a script
-
-1) Set the salt and run the script:
-
-```bash
-TENANT_SALT=your-secret node scripts/encryptOrgId.js --orgId YOUR_ORG_ID
-```
-
-Or pass the secret explicitly:
-
-```bash
-node scripts/encryptOrgId.js --orgId YOUR_ORG_ID --secret your-secret
-```
-
-Output is the encrypted organization/tenant ID.
-
-## Programmatic usage
-
-```js
-import { encryptTenantId, decryptTenantId } from 'src/utils/crypto/encryption.js';
-const enc = encryptTenantId('acme', 'your-secret');
-const dec = decryptTenantId(enc, 'your-secret');
-```
-
-Note: Keep this utility on the server-side only to avoid exposing secrets.
+This backend computes the encrypted organization ID at runtime from environment variables using AES-128-ECB, with key = SHA-256(salt)[0..15] and base64 output without padding.
 
 ## Environment variables
 
-- TENANT_SALT: Server-only default salt used when no secret is provided.
-- NEXT_PUBLIC_TENANT_SALT: Legacy/public variable; avoid for server secrets.
+- ORGANIZATION_ID: The plaintext organization/tenant ID to encrypt at runtime. Required by getEncryptedOrganizationId().
+- TENANT_SALT: Server-side salt used to derive the AES key. Preferred and required for encryption.
+- NEXT_PUBLIC_TENANT_SALT: Legacy/public variable. Accepted as fallback for compatibility but not recommended server-side.
+- INTERNAL_ENCRYPTION_ROUTE_TOKEN: Optional header token to enable the verification route in production.
+
+See .env.example for placeholders.
+
+## Programmatic usage
+
+Use the helper to get the encrypted org ID without storing static ciphertext:
+
+```js
+// PUBLIC_INTERFACE
+// Example usage inside backend code
+const { getEncryptedOrganizationId, encryptOrgId } = require('./src/utils/organizationEncryption');
+
+// Gets encrypted value for process.env.ORGANIZATION_ID using TENANT_SALT
+const encFromEnv = getEncryptedOrganizationId();
+
+// Or encrypt an explicit plaintext with an explicit salt
+const ciphertext = encryptOrgId('your-plaintext-org-id', process.env.TENANT_SALT);
+```
+
+The helper matches the same AES-128-ECB scheme used elsewhere in the backend (src/utils/crypto/encryption.js) for parity.
+
+## Optional verification endpoint
+
+For quick verification, an internal route is available:
+
+- Path: GET /internal/encrypted-org-id
+- Returns: { encryptedOrgId }
+
+Safety behavior:
+- In non-production (NODE_ENV !== 'production'): Enabled by default.
+- In production: Requires header x-internal-token with value INTERNAL_ENCRYPTION_ROUTE_TOKEN. If not set or mismatch, returns 403.
+
+Example curl (non-production):
+```bash
+curl http://localhost:3001/internal/encrypted-org-id
+```
+
+Example curl (production):
+```bash
+curl -H "x-internal-token: $INTERNAL_ENCRYPTION_ROUTE_TOKEN" https://your-host/internal/encrypted-org-id
+```
 
 ## Notes
 
-- Keep salts secret and out of frontend code.
-- The output is compatible with the existing reference helpers.
+- No static encrypted value is stored in code; it is computed at runtime from env.
+- Keep TENANT_SALT secret and never expose it to the client.
+- The output is base64 without padding, consistent with the existing reference.
