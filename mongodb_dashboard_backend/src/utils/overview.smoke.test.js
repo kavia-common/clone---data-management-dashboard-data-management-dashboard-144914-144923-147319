@@ -28,7 +28,7 @@ function get(url) {
 async function run() {
   // Try default known port. Respect HOST if present.
   const host = process.env.HOST || '127.0.0.1';
-  const port = process.env.PORT || 3001;
+  const port = process.env.PORT || 7001;
   const url = `http://${host}:${port}/api/dashboard/overview`;
 
   try {
