@@ -11,7 +11,7 @@ COPY mongodb_dashboard_backend/package*.json ./
 RUN npm install --production
 
 # Copy the rest of the application code
-COPY . .
+COPY mongodb_dashboard_backend/ ./
 
 # Expose port (adjust if your app listens on a different port)
 EXPOSE 3001
