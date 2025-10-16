@@ -1,97 +1,152 @@
 const mongoose = require('mongoose');
 
+// INTERNAL: track connection status for health checks and gating route behavior
+let connectionState = {
+  connected: false,
+  lastError: null,
+  lastAttempt: null,
+  attempts: 0,
+};
+
 /**
  * PUBLIC_INTERFACE
- * Establishes a connection to MongoDB using Mongoose.
- * - Reads the connection string from process.env.MONGODB_URI
- * - Falls back to a predefined default if the environment variable is not set
- * - Emits useful, non-sensitive logs for verification
+ * Establish a resilient connection to MongoDB using Mongoose with retry and strict options.
+ * - Uses process.env.MONGODB_URI (REQUIRED). If missing, logs error and throws to fail fast.
+ * - Optional: MONGODB_DB to select dbName, MONGOOSE_AUTO_INDEX to override autoIndex.
+ * - Disables mongoose model buffering to avoid silent queueing of operations when disconnected.
+ * - Retries with exponential backoff up to MAX_RETRIES.
  *
  * Returns the active mongoose.connection.
  */
 async function connectDB() {
-  // Default URI provided per task requirement; can be overridden by MONGODB_URI env var
-  const DEFAULT_URI =
-    'mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData';
+  const MAX_RETRIES = parseInt(process.env.MONGO_MAX_RETRIES || '5', 10);
+  const BASE_DELAY_MS = parseInt(process.env.MONGO_BASE_DELAY_MS || '500', 10);
 
-  const uri = process.env.MONGODB_URI || DEFAULT_URI;
+  const uri =
+    (process.env.MONGODB_URI && process.env.MONGODB_URI.trim()) ||
+    process.env.MONGO_URI ||
+    process.env.MONGO_URL;
 
-  if (!process.env.MONGODB_URI) {
+  if (!uri) {
+    const msg =
+      'MONGODB_URI is not set. Please set it in environment (see .env.example). Backend will not start without it.';
     // eslint-disable-next-line no-console
-    console.warn(
-      'MONGODB_URI not set in environment. Falling back to built-in default MongoDB URI.'
-    );
+    console.error('[db] Missing MONGODB_URI. ' + msg);
+    connectionState.connected = false;
+    connectionState.lastError = new Error(msg);
+    throw connectionState.lastError;
   }
 
+  // Global settings
   mongoose.set('strictQuery', true);
 
-  // Connection options recommended for modern Mongoose
-  // - Disable autoIndex by default to avoid failures on clusters with existing duplicate data.
-  //   You can override by setting MONGOOSE_AUTO_INDEX=true
+  // Disable command buffering at connection-level to surface connectivity problems immediately
+  // (prevents 10s buffering timeouts like "users.find() buffering timed out")
+  mongoose.set('bufferCommands', false);
+
   const autoIndex =
-    (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
+    String(process.env.MONGOOSE_AUTO_INDEX || '').toLowerCase() === 'true';
+  const dbName = process.env.MONGODB_DB;
 
-  const dbName = process.env.MONGODB_DB; // Optional; if not set, Mongo will use the URI/path default (often 'test')
-
+  // Prefer smaller timeouts to fail fast and retry
   const options = {
     autoIndex,
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
+    maxPoolSize: parseInt(process.env.MONGO_MAX_POOL || '10', 10),
+    serverSelectionTimeoutMS: parseInt(
+      process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS || '5000',
+      10
+    ),
+    socketTimeoutMS: parseInt(process.env.MONGO_SOCKET_TIMEOUT_MS || '45000', 10),
     family: 4,
+    bufferCommands: false,
     ...(dbName ? { dbName } : {}),
   };
 
-  // Prepare a safe, masked log for the cluster host (never log credentials)
+  // Masked host for logs
   let clusterHost = 'unknown-host';
   try {
     const parsed = new URL(uri);
     clusterHost = parsed.hostname || clusterHost;
   } catch {
-    // swallow parse errors; we will still connect
+    // ignore
   }
 
-  mongoose.connection.on('connected', () => {
-    // eslint-disable-next-line no-console
-    console.log(
-      `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
-    );
-    if (dbName) {
+  // Attach listeners once
+  if (!mongoose.connection._dashboardListenersAttached) {
+    mongoose.connection.on('connected', () => {
+      connectionState.connected = true;
+      connectionState.lastError = null;
       // eslint-disable-next-line no-console
-      console.log(`MongoDB dbName selected via env: ${dbName}`);
+      console.log(
+        `[db] Connected to MongoDB host=${clusterHost} db=${mongoose.connection?.name || 'default'} autoIndex=${autoIndex}`
+      );
+    });
+    mongoose.connection.on('error', (err) => {
+      connectionState.connected = false;
+      connectionState.lastError = err;
+      // eslint-disable-next-line no-console
+      console.error('[db] MongoDB connection error:', err?.message || err);
+    });
+    mongoose.connection.on('disconnected', () => {
+      connectionState.connected = false;
+      // eslint-disable-next-line no-console
+      console.warn('[db] MongoDB disconnected');
+    });
+    mongoose.connection._dashboardListenersAttached = true;
+  }
+
+  // Retry loop
+  let attempt = 0;
+  while (attempt <= MAX_RETRIES) {
+    attempt += 1;
+    connectionState.attempts = attempt;
+    connectionState.lastAttempt = new Date().toISOString();
+
+    try {
+      await mongoose.connect(uri, options);
+      // success
+      connectionState.connected = true;
+      return mongoose.connection;
+    } catch (err) {
+      connectionState.connected = false;
+      connectionState.lastError = err;
+      const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1); // exponential backoff
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[db] Connect attempt ${attempt}/${MAX_RETRIES} failed: ${err?.message || err}. Retrying in ${delay}ms...`
+      );
+      if (attempt > MAX_RETRIES) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[db] Exhausted retries (${MAX_RETRIES}). Failing startup.`
+        );
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, delay));
     }
-    // eslint-disable-next-line no-console
-    console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
-  });
+  }
 
-  mongoose.connection.on('error', (err) => {
-    // eslint-disable-next-line no-console
-    console.error('MongoDB connection error:', err.message);
-  });
-
-  mongoose.connection.on('disconnected', () => {
-    // eslint-disable-next-line no-console
-    console.warn('MongoDB disconnected');
-  });
-
-  await mongoose.connect(uri, options);
-  return mongoose.connection;
+  // Should never reach here
+  throw new Error('Unexpected DB connect loop termination');
 }
 
 /**
  * PUBLIC_INTERFACE
  * getDb
- * Returns an active MongoDB Db instance from the current Mongoose connection.
- * Ensures a connection is established; if not connected, attempts to connect first.
+ * Returns an active MongoDB Db instance if connected.
+ * Throws if not connected to map to 503 at route layer.
  */
 async function getDb() {
-  // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
-  if (mongoose.connection.readyState !== 1) {
-    await connectDB();
-  }
-  // In rare cases during connect, db might still be null; await a tick
-  if (!mongoose.connection.db) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+    // Try a single reconnect path (non-blocking long wait avoided)
+    try {
+      await connectDB();
+    } catch (e) {
+      const err = new Error('Database not connected');
+      err.code = 'DB_NOT_CONNECTED';
+      err.cause = e;
+      throw err;
+    }
   }
   return mongoose.connection.db;
 }
@@ -102,9 +157,6 @@ async function getDb() {
  * Helper to obtain a native MongoDB collection by name. Accepts a string name
  * or an array of candidate names and returns the first existing collection;
  * if none exist, returns the first candidate name as a collection handle.
- *
- * Example:
- *  const col = await getCollection(['llm-costs', 'llm_costs']);
  */
 async function getCollection(nameOrNames) {
   const db = await getDb();
@@ -119,9 +171,25 @@ async function getCollection(nameOrNames) {
     const chosen = candidates.find((n) => existingNames.has(n)) || candidates[0];
     return db.collection(chosen);
   } catch (err) {
-    // Fallback: return the first candidate even if listCollections fails
     return db.collection(candidates[0]);
   }
 }
 
-module.exports = { connectDB, getDb, getCollection };
+/**
+ * PUBLIC_INTERFACE
+ * getConnectionHealth
+ * Returns a summary of the current DB connection health for /health/db.
+ */
+function getConnectionHealth() {
+  const state = mongoose.connection.readyState; // 0,1,2,3
+  const states = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+  return {
+    status: state === 1 ? 'up' : 'down',
+    mongooseState: states[state] || String(state),
+    attempts: connectionState.attempts,
+    lastAttempt: connectionState.lastAttempt,
+    lastError: connectionState.lastError ? String(connectionState.lastError.message || connectionState.lastError) : null,
+  };
+}
+
+module.exports = { connectDB, getDb, getCollection, getConnectionHealth };

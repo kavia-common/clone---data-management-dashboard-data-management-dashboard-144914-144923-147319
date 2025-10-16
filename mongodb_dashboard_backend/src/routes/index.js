@@ -1,5 +1,6 @@
 const express = require('express');
 const healthController = require('../controllers/health');
+const { getConnectionHealth } = require('../config/db');
 
 // Import route modules
 const authRoutes = require('./auth.routes');
@@ -49,6 +50,25 @@ const router = express.Router();
 router.get('/', healthController.check.bind(healthController));
 // Readiness/liveness alias commonly used by orchestrators
 router.get('/healthz', healthController.check.bind(healthController));
+
+/**
+ * @swagger
+ * /health/db:
+ *   get:
+ *     summary: Database health
+ *     description: Returns MongoDB connection status without exposing secrets.
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: DB is up
+ *       503:
+ *         description: DB is down
+ */
+router.get('/health/db', (req, res) => {
+  const hc = getConnectionHealth();
+  const code = hc.status === 'up' ? 200 : 503;
+  return res.status(code).json(hc);
+});
 
 // Mount API routes
 router.use('/auth', authRoutes);

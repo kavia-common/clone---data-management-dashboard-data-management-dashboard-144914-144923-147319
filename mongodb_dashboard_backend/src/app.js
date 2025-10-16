@@ -132,7 +132,7 @@ app.use('/api/auth', require('./routes/auth.routes'));
 // Analytics endpoints
 app.use('/api/analytics', require('./routes/analytics.routes'));
 
-// JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
+ // JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
 app.use((req, res) => {
   return res.status(404).json({
     success: false,
@@ -143,19 +143,27 @@ app.use((req, res) => {
 // Error handling middleware
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  // Basic audit/error log (GxP-friendly minimal context)
   // eslint-disable-next-line no-console
-  console.error(err);
-  const status = err.status || 500;
+  console.error('[error]', {
+    time: new Date().toISOString(),
+    method: req.method,
+    path: req.originalUrl,
+    message: err?.message || String(err),
+    code: err?.code,
+  });
+
+  // Map database connectivity to 503
+  const msg = err?.message || 'Internal Server Error';
+  const isDbDown =
+    err?.code === 'DB_NOT_CONNECTED' ||
+    /ECONNREFUSED|Server selection timed out|DB_NOT_CONNECTED|failed to connect to server/i.test(msg);
+
+  const status = isDbDown ? 503 : err.status || 500;
   res.status(status).json({
     success: false,
-    message: err.message || 'Internal Server Error',
+    message: isDbDown ? 'Database unavailable' : msg,
   });
-});
-
-// Kick off DB connection once on app startup
-connectDB().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('Failed to connect to MongoDB on startup:', err.message);
 });
 
 module.exports = app;

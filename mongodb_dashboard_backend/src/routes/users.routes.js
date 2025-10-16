@@ -433,7 +433,14 @@ router.get(
       if (err?.name === 'CastError' || /Cast to/.test(message)) {
         return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
       }
-      return res.status(400).json({ success: false, message: 'Request failed', details: message });
+      // DB connectivity -> 503
+      if (
+        err?.code === 'DB_NOT_CONNECTED' ||
+        /ECONNREFUSED|Server selection timed out|buffering timed out|failed to connect to server/i.test(message)
+      ) {
+        return res.status(503).json({ success: false, message: 'Database unavailable', details: message });
+      }
+      return res.status(500).json({ success: false, message: 'Request failed', details: message });
     }
 
     // If empty and no documents exist at all, seed and re-run once

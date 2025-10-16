@@ -30,9 +30,14 @@ function failure(res, message, status = 400, details = undefined) {
   return res.status(status).json(payload);
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * asyncHandler
+ * Wrap an async route handler and forward errors to Express.
+ * @param {Function} fn - async Express handler (req,res,next) => Promise
+ * @returns {Function} Express handler
+ */
 function asyncHandler(fn) {
-  /** Wrap an async route handler and forward errors to Express. */
   return function wrapped(req, res, next) {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
