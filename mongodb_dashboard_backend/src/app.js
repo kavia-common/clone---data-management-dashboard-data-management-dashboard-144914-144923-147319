@@ -2,30 +2,17 @@ const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
+const { connectDB } = require('./config/db');
 
-
-/**
- * PUBLIC_INTERFACE
- * Initialize the Express application with secure defaults.
- *
- * Notes:
- * - CORS is configured early using environment-driven origin (FRONTEND_ORIGIN with fallback to http://localhost:3000)
- *   via the shared corsMiddleware(). This allows credentials and standard headers/methods, and handles OPTIONS preflight.
- * - Keep middleware order: security headers -> CORS -> rate limiting -> body parsers -> routes -> 404/error handlers.
- * - Error handling: CORS rejections return 403 with a clear JSON message. See middleware/security.js for details.
- */
+// Initialize express app
 const app = express();
 
-// Trust proxy for proper protocol and IP detection (important when behind reverse proxies)
+// Trust proxy for proper protocol and IP detection
 app.set('trust proxy', true);
 
-// Security middlewares (place early)
+// Security middlewares
 app.use(helmetMiddleware());
-
-// CORS must be early in the chain, before route handlers and after basic security headers
-// corsMiddleware reads FRONTEND_ORIGIN/CORS_ORIGIN/CORS_ORIGINS and defaults to http://localhost:3000
 app.use(corsMiddleware());
-
 app.use(rateLimiter());
 
 // Parse JSON request body with sensible limits
@@ -163,6 +150,12 @@ app.use((err, req, res, next) => {
     success: false,
     message: err.message || 'Internal Server Error',
   });
+});
+
+// Kick off DB connection once on app startup
+connectDB().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error('Failed to connect to MongoDB on startup:', err.message);
 });
 
 module.exports = app;

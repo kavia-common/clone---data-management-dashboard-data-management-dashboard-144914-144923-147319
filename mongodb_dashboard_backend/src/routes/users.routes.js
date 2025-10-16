@@ -392,15 +392,6 @@ router.get(
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // If DB connection is not yet ready for any reason, return a fast, helpful response.
-    const state = require('mongoose').connection.readyState; // 0=disconnected,1=connected,2=connecting,3=disconnecting
-    if (state !== 1) {
-      return res.status(503).json({
-        success: false,
-        message: 'Database not connected yet. Please retry shortly.',
-        details: `mongoose.readyState=${state}`,
-      });
-    }
     // Determine pagination intent and parse filter/sort similar to controller logic
     const explicit =
       Object.prototype.hasOwnProperty.call(req.query, 'page') ||

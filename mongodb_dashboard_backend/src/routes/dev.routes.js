@@ -23,7 +23,8 @@ router.get('/db-status', asyncHandler(async (req, res) => {
   const conn = mongoose.connection;
   let host = 'unknown-host';
   try {
-    const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/dashboard';
+    const uri = process.env.MONGODB_URI ||
+      'mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData';
     const parsed = new URL(uri);
     host = parsed.hostname || host;
   } catch {
