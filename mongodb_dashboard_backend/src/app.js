@@ -2,7 +2,7 @@ const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
-const { connectDB } = require('./config/db');
+
 
 /**
  * PUBLIC_INTERFACE
@@ -163,12 +163,6 @@ app.use((err, req, res, next) => {
     success: false,
     message: err.message || 'Internal Server Error',
   });
-});
-
-// Kick off DB connection once on app startup
-connectDB().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('Failed to connect to MongoDB on startup:', err.message);
 });
 
 module.exports = app;

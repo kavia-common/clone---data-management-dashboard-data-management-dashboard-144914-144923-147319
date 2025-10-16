@@ -6,6 +6,17 @@
 
 Environment example: see .env.example.
 
+## MongoDB connection and readiness
+
+- The server now waits for a successful MongoDB connection before it starts listening for HTTP requests. This prevents Mongoose buffering timeouts like "Operation `users.find()` buffering timed out after 10000ms".
+- Configure MONGODB_URI in your .env. For local development without a running MongoDB instance, install and start MongoDB locally or point to a reachable Atlas cluster.
+- Diagnostics:
+  - GET /api/dev/db-status shows connection state (connected flag and readyState).
+  - Startup logs include connection attempts and errors.
+- Tuning (env):
+  - DB_CONNECT_RETRIES (default 3), DB_CONNECT_RETRY_DELAY_MS (default 1500)
+  - MONGOOSE_* options in .env.example
+
 ## CORS
 
 The backend enables secure, environment-driven CORS and must run before route handlers.

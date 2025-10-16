@@ -12,67 +12,70 @@ const mongoose = require('mongoose');
 async function connectDB() {
   // Default URI provided per task requirement; can be overridden by MONGODB_URI env var
   const DEFAULT_URI =
-    'mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData';
+    'mongodb://localhost:27017/dashboard'; // Safe local default; override in .env for production
 
-  const uri = process.env.MONGODB_URI || DEFAULT_URI;
+  // Validate env var presence and provide clear error for missing configuration
+  const uriFromEnv = process.env.MONGODB_URI;
+  const uri = uriFromEnv || DEFAULT_URI;
 
-  if (!process.env.MONGODB_URI) {
+  if (!uriFromEnv) {
     // eslint-disable-next-line no-console
     console.warn(
-      'MONGODB_URI not set in environment. Falling back to built-in default MongoDB URI.'
+      '[db] MONGODB_URI not set. Using default fallback (mongodb://localhost:27017/dashboard). Set MONGODB_URI in .env for non-local environments.'
     );
   }
 
   mongoose.set('strictQuery', true);
 
-  // Connection options recommended for modern Mongoose
-  // - Disable autoIndex by default to avoid failures on clusters with existing duplicate data.
-  //   You can override by setting MONGOOSE_AUTO_INDEX=true
+  // Connection options for Mongoose v7
+  // - autoIndex off by default to avoid slow startup on large collections
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
-
-  const dbName = process.env.MONGODB_DB; // Optional; if not set, Mongo will use the URI/path default (often 'test')
+  const dbName = process.env.MONGODB_DB; // Optional override db name
 
   const options = {
     autoIndex,
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
+    maxPoolSize: parseInt(process.env.MONGOOSE_MAX_POOL_SIZE || '10', 10),
+    serverSelectionTimeoutMS: parseInt(process.env.MONGOOSE_SERVER_SELECTION_TIMEOUT_MS || '5000', 10),
+    socketTimeoutMS: parseInt(process.env.MONGOOSE_SOCKET_TIMEOUT_MS || '45000', 10),
     family: 4,
     ...(dbName ? { dbName } : {}),
   };
 
-  // Prepare a safe, masked log for the cluster host (never log credentials)
+  // Prepare masked logs (no credentials)
   let clusterHost = 'unknown-host';
+  let dbPath = '';
   try {
     const parsed = new URL(uri);
     clusterHost = parsed.hostname || clusterHost;
+    dbPath = parsed.pathname || '';
   } catch {
-    // swallow parse errors; we will still connect
+    // ignore parse errors
   }
 
-  mongoose.connection.on('connected', () => {
-    // eslint-disable-next-line no-console
-    console.log(
-      `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
-    );
-    if (dbName) {
+  // Attach listeners only once
+  if (!mongoose.connection._listenersRegistered) {
+    mongoose.connection.on('connected', () => {
       // eslint-disable-next-line no-console
-      console.log(`MongoDB dbName selected via env: ${dbName}`);
-    }
-    // eslint-disable-next-line no-console
-    console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
-  });
+      console.log(
+        `[db] MongoDB connected (host=${clusterHost}, db=${mongoose.connection?.name || dbPath || 'default'})`
+      );
+      if (dbName) console.log(`[db] dbName override via env: ${dbName}`);
+      console.log(`[db] Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
+    });
 
-  mongoose.connection.on('error', (err) => {
-    // eslint-disable-next-line no-console
-    console.error('MongoDB connection error:', err.message);
-  });
+    mongoose.connection.on('error', (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[db] MongoDB connection error:', err?.message || err);
+    });
 
-  mongoose.connection.on('disconnected', () => {
-    // eslint-disable-next-line no-console
-    console.warn('MongoDB disconnected');
-  });
+    mongoose.connection.on('disconnected', () => {
+      // eslint-disable-next-line no-console
+      console.warn('[db] MongoDB disconnected');
+    });
+
+    mongoose.connection._listenersRegistered = true;
+  }
 
   await mongoose.connect(uri, options);
   return mongoose.connection;
