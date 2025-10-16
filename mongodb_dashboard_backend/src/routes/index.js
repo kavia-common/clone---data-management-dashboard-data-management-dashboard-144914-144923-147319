@@ -50,13 +50,6 @@ router.get('/', healthController.check.bind(healthController));
 // Readiness/liveness alias commonly used by orchestrators
 router.get('/healthz', healthController.check.bind(healthController));
 
-// Legacy alias without /api prefix for certain UIs that may call /users/tenant-summary
-// Issue a 308 Permanent Redirect to the correct /api path to avoid network errors
-router.get('/users/tenant-summary', (req, res) => {
-  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-  return res.redirect(308, `/api/users/tenant-summary${qs}`);
-});
-
 // Mount API routes
 router.use('/auth', authRoutes);
 router.use('/users', usersRoutes);

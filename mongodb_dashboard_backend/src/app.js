@@ -2,7 +2,6 @@ const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
-const { auditLoggerMiddleware, notFoundHandler, errorHandler } = require('./middleware/standardHandlers');
 const { connectDB } = require('./config/db');
 
 // Initialize express app
@@ -11,13 +10,10 @@ const app = express();
 // Trust proxy for proper protocol and IP detection
 app.set('trust proxy', true);
 
- // Security middlewares
+// Security middlewares
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use(rateLimiter());
-
-// GxP: Audit logging middleware (request start)
-app.use(auditLoggerMiddleware());
 
 // Parse JSON request body with sensible limits
 app.use(express.json({ limit: '1mb' }));
@@ -98,7 +94,6 @@ app.use('/', baseRouter);
  * Mount under /api/dev
  */
 app.use('/api/dev', require('./routes/dev.routes'));
-app.use('/api/dev', require('./routes/dev.smoke.routes'));
 
 /**
  * Public API routes (no authentication middleware).
@@ -137,12 +132,25 @@ app.use('/api/auth', require('./routes/auth.routes'));
 // Analytics endpoints
 app.use('/api/analytics', require('./routes/analytics.routes'));
 
- // JSON 404 handler for unmatched routes
-app.use(notFoundHandler);
-
-// Centralized error handler with standardized envelope
+// JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
+app.use((req, res) => {
+  return res.status(404).json({
+    success: false,
+    message: 'Not Found',
+    path: req.originalUrl,
+  });
+});
+// Error handling middleware
 // eslint-disable-next-line no-unused-vars
-app.use(errorHandler);
+app.use((err, req, res, next) => {
+  // eslint-disable-next-line no-console
+  console.error(err);
+  const status = err.status || 500;
+  res.status(status).json({
+    success: false,
+    message: err.message || 'Internal Server Error',
+  });
+});
 
 // Kick off DB connection once on app startup
 connectDB().catch((err) => {
