@@ -1,6 +1,6 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
-const { parsePagination } = require('../utils/http');
+const { parsePagination, normalizeQueryQ, success, failure } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 
@@ -153,18 +153,15 @@ router.get(
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
     const parsed = parsePagination(rawQuery);
-    let { page, limit, skip, explicit } = parsed;
+    let { page, limit, skip, explicit, cap } = parsed;
     // If only limit provided, force explicit envelope behavior
     if (!explicit && Object.prototype.hasOwnProperty.call(req.query, 'limit')) {
       explicit = true;
-      page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-      limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
-      skip = (page - 1) * limit;
     }
     const sort = req.query.sort || '-session_start';
 
     // Optional text query
-    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const q = normalizeQueryQ(req.query.q);
     let qFilter = {};
     if (q) {
       const regex = new RegExp(q, 'i');
@@ -194,7 +191,7 @@ router.get(
     try {
       filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
     } catch {
-      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+      return failure(req, res, 'Invalid filter JSON', 400);
     }
 
     // Combine filters
@@ -220,23 +217,22 @@ router.get(
           SessionTracking.countDocuments(finalFilter),
         ]);
         const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
-        const payload = { success: true, data: items, meta: { page, limit, total } };
+        const payload = { success: true, data: items, meta: { page, limit, total, limitCap: cap }, traceId: req.traceId || null };
         slSet(cacheKey, payload);
         return res.status(200).json(payload);
       }
 
       const docs = await SessionTracking.find(finalFilter).sort(sort);
       const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
-      return res.status(200).json(items);
+      // Raw array return should also include traceId for observability
+      return res.status(200).json({ success: true, data: items, meta: { page, limit, total: items.length, limitCap: cap }, traceId: req.traceId || null });
     } catch (err) {
       // Map common cast errors to 400 to avoid 500
       const message = err?.message || 'Request failed';
       if (err?.name === 'CastError' || /Cast to/.test(message)) {
-        return res
-          .status(400)
-          .json({ success: false, message: 'Invalid value provided (list)', details: message });
+        return failure(req, res, 'Invalid value provided (list)', 400, message);
       }
-      return res.status(400).json({ success: false, message: 'Request failed', details: message });
+      return failure(req, res, 'Request failed', 400, message);
     }
   })
 );

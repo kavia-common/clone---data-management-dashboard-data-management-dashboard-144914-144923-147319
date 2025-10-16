@@ -1,5 +1,5 @@
 const express = require('express');
-const { asyncHandler } = require('../utils/http');
+const { asyncHandler, parsePagination, success, failure } = require('../utils/http');
 const AppDeployment = require('../models/appDeployments.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 const { validateAppDeployment } = require('../middleware/validators');
@@ -100,13 +100,29 @@ function extractNormalizedProjectId(payload) {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Ensure explicit envelope when limit is provided without page
-    if (!Object.prototype.hasOwnProperty.call(req.query, 'page') &&
-        Object.prototype.hasOwnProperty.call(req.query, 'limit') &&
-        !req.query.page) {
-      req.query.page = '1';
+    // Coerce pagination safely; treat page blank as undefined
+    const { page, limit, skip, explicit, cap } = parsePagination(req.query || {});
+    const sort = req.query.sort || '-created_at';
+
+    // Parse filter safely
+    const filterRaw = req.query.filter ? req.query.filter : '{}';
+    let filter = {};
+    try {
+      filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
+    } catch {
+      return failure(req, res, 'Invalid filter JSON', 400);
     }
-    return controller.list(req, res);
+
+    if (explicit) {
+      const [items, total] = await Promise.all([
+        AppDeployment.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+        AppDeployment.countDocuments(filter),
+      ]);
+      return success(req, res, items, { page, limit, total, limitCap: cap }, 200);
+    }
+
+    const items = await AppDeployment.find(filter).sort(sort).lean();
+    return success(req, res, items, { page, limit, total: items.length, limitCap: cap }, 200);
   })
 );
 

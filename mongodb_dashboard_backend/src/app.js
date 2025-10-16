@@ -98,6 +98,7 @@ app.use('/', baseRouter);
  * Mount under /api/dev
  */
 app.use('/api/dev', require('./routes/dev.routes'));
+app.use('/api/dev', require('./routes/dev.smoke.routes'));
 
 /**
  * Public API routes (no authentication middleware).
