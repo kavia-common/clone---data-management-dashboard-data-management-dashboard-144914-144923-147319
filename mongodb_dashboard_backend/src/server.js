@@ -9,8 +9,6 @@ const server = app
   .listen(PORT, HOST, () => {
     // eslint-disable-next-line no-console
     console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
-    // eslint-disable-next-line no-console
-    console.log('[startup] Waiting for MongoDB connection before serving API routes...');
   })
   .on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {

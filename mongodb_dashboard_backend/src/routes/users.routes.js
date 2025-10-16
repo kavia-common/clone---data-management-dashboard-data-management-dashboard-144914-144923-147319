@@ -433,14 +433,6 @@ router.get(
       if (err?.name === 'CastError' || /Cast to/.test(message)) {
         return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
       }
-      // If Mongoose is buffering due to no connection, return 503
-      if (/buffering timed out/i.test(message) || /MongooseError/.test(err?.name)) {
-        return res.status(503).json({
-          success: false,
-          message: 'Service unavailable: database not connected',
-          details: message,
-        });
-      }
       return res.status(400).json({ success: false, message: 'Request failed', details: message });
     }
 
