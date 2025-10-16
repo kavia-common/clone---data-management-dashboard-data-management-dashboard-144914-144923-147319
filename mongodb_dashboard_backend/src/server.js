@@ -1,8 +1,8 @@
 const app = require('./app');
 const mongoose = require('mongoose');
 
-// Default to 7001 to match container deployment and docs URL
-const PORT = process.env.PORT || 7001;
+// Default to 3001 to match container deployment and docs URL
+const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
 const server = app
