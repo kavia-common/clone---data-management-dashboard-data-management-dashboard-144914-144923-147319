@@ -393,9 +393,14 @@ router.get(
   '/',
   asyncHandler(async (req, res) => {
     // Determine pagination intent and parse filter/sort similar to controller logic
-    const explicit =
+    let explicit =
       Object.prototype.hasOwnProperty.call(req.query, 'page') ||
       Object.prototype.hasOwnProperty.call(req.query, 'limit');
+
+    // If only limit is provided, treat as explicit pagination with default page=1
+    if (!explicit && Object.prototype.hasOwnProperty.call(req.query, 'limit')) {
+      explicit = true;
+    }
 
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);

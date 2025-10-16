@@ -97,7 +97,18 @@ function extractNormalizedProjectId(payload) {
  *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400: { description: Invalid filter }
  */
-router.get('/', asyncHandler(controller.list));
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    // Ensure explicit envelope when limit is provided without page
+    if (!Object.prototype.hasOwnProperty.call(req.query, 'page') &&
+        Object.prototype.hasOwnProperty.call(req.query, 'limit') &&
+        !req.query.page) {
+      req.query.page = '1';
+    }
+    return controller.list(req, res);
+  })
+);
 
 /**
  * @swagger

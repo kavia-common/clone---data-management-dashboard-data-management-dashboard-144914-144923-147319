@@ -152,7 +152,15 @@ router.get(
     // Parse pagination and filter (support pageSize alias for limit)
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
-    const { page, limit, skip, explicit } = parsePagination(rawQuery);
+    const parsed = parsePagination(rawQuery);
+    let { page, limit, skip, explicit } = parsed;
+    // If only limit provided, force explicit envelope behavior
+    if (!explicit && Object.prototype.hasOwnProperty.call(req.query, 'limit')) {
+      explicit = true;
+      page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+      limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
+      skip = (page - 1) * limit;
+    }
     const sort = req.query.sort || '-session_start';
 
     // Optional text query
