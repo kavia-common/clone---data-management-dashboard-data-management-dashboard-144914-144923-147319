@@ -2,7 +2,7 @@ const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
-const { connectDB } = require('./config/db');
+const { connectDB, awaitDbReady, getLastDbError } = require('./config/db');
 
 // Initialize express app
 const app = express();
@@ -15,9 +15,34 @@ app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use(rateLimiter());
 
-// Parse JSON request body with sensible limits
+ // Parse JSON request body with sensible limits
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Readiness guard: block application API traffic until DB is connected (allow docs/health)
+app.use(async (req, res, next) => {
+  // Allow health and docs endpoints regardless of DB state
+  const path = req.path || '';
+  if (
+    path === '/' ||
+    path === '/healthz' ||
+    path.startsWith('/docs') ||
+    path === '/openapi.json'
+  ) {
+    return next();
+  }
+  const ready = await awaitDbReady();
+  if (!ready) {
+    const err = getLastDbError();
+    // Provide a 503 with clear messaging instead of buffering timeout/400
+    return res.status(503).json({
+      success: false,
+      message: 'Service unavailable: database not connected',
+      details: err?.message || 'Awaiting MongoDB connection',
+    });
+  }
+  return next();
+});
 
 // Expose OpenAPI JSON (useful for tooling and external consumers)
 app.get('/openapi.json', (req, res) => {
@@ -152,10 +177,13 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Kick off DB connection once on app startup
+/**
+ * Attempt DB connection on startup with retry strategy (non-blocking).
+ * Requests to API routes will be gated by readiness middleware above until connected.
+ */
 connectDB().catch((err) => {
   // eslint-disable-next-line no-console
-  console.error('Failed to connect to MongoDB on startup:', err.message);
+  console.error('[startup] Failed initial MongoDB connect:', err?.message || err);
 });
 
 module.exports = app;
