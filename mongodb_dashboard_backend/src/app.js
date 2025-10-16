@@ -4,15 +4,28 @@ const swaggerSpec = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { connectDB } = require('./config/db');
 
-// Initialize express app
+/**
+ * PUBLIC_INTERFACE
+ * Initialize the Express application with secure defaults.
+ *
+ * Notes:
+ * - CORS is configured early using environment-driven origin (FRONTEND_ORIGIN with fallback to http://localhost:3000)
+ *   via the shared corsMiddleware(). This allows credentials and standard headers/methods, and handles OPTIONS preflight.
+ * - Keep middleware order: security headers -> CORS -> rate limiting -> body parsers -> routes -> 404/error handlers.
+ * - Error handling: CORS rejections return 403 with a clear JSON message. See middleware/security.js for details.
+ */
 const app = express();
 
-// Trust proxy for proper protocol and IP detection
+// Trust proxy for proper protocol and IP detection (important when behind reverse proxies)
 app.set('trust proxy', true);
 
-// Security middlewares
+// Security middlewares (place early)
 app.use(helmetMiddleware());
+
+// CORS must be early in the chain, before route handlers and after basic security headers
+// corsMiddleware reads FRONTEND_ORIGIN/CORS_ORIGIN/CORS_ORIGINS and defaults to http://localhost:3000
 app.use(corsMiddleware());
+
 app.use(rateLimiter());
 
 // Parse JSON request body with sensible limits
