@@ -94,7 +94,7 @@ Environment notes:
 - Copy .env.example to .env and set:
 
   - REACT_APP_API_BASE_URL (required in cloud preview):
-    https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:7001
+    https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001
   - REACT_APP_API_PREFIX (default /api)
 - Optional: You may use REACT_APP_API_URL instead of REACT_APP_API_BASE_URL; if both are set, REACT_APP_API_URL is preferred.
 
@@ -106,9 +106,9 @@ App will run at http://localhost:3000 (or your environment preview URL)
 ### Verify backend connectivity
 - The API base URL is resolved as: ${REACT_APP_API_BASE_URL}${REACT_APP_API_PREFIX}
 - In development, the console prints:
-  [API] baseURL: <resolved> (RAW: <raw> PREFIX: <prefix>) — Ensure REACT_APP_API_BASE_URL is set to https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:7001
+  [API] baseURL: <resolved> (RAW: <raw> PREFIX: <prefix>) — Ensure REACT_APP_API_BASE_URL is set to https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001
 - Ensure it points to EXACTLY:
-  https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:7001/api
+  https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001/api
 - Backend OpenAPI (for reference): /openapi.json or the provided environment docs URL.
 
 ### Users list from Swagger
@@ -121,7 +121,7 @@ App will run at http://localhost:3000 (or your environment preview URL)
 - Common causes:
   1. Wrong API base URL or protocol mismatch (http vs https).
      - Fix .env to use the correct origin. For example:
-       REACT_APP_API_BASE_URL=https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:7001
+       REACT_APP_API_BASE_URL=https://vscode-internal-14377-beta.beta01.cloud.kavia.ai:3001
   2. Backend not reachable from the frontend origin (server down, wrong port).
      - Open the backend docs URL directly to confirm availability.
   3. CORS rejection on the backend.
@@ -165,20 +165,20 @@ The frontend supports two variable names for the backend base URL (either is fin
 
 Other variables:
 - REACT_APP_API_PREFIX: API prefix used by the backend. Default: /api
-- REACT_APP_BACKEND_PORT: Used for auto-detection when REACT_APP_API_BASE_URL is not set. Default: 7001
+- REACT_APP_BACKEND_PORT: Used for auto-detection when REACT_APP_API_BASE_URL is not set. Default: 3001
 
 Setup steps:
 - Copy .env.example to .env
 - For local dev:
-  - REACT_APP_API_BASE_URL=http://localhost:7001
+  - REACT_APP_API_BASE_URL=http://localhost:3001
 - For cloud preview (example):
-  - REACT_APP_API_BASE_URL=https://vscode-internal-19172-beta.beta01.cloud.kavia.ai:7001
+  - REACT_APP_API_BASE_URL=https://vscode-internal-19172-beta.beta01.cloud.kavia.ai:3001
 
 Notes:
 - Do not commit .env; use .env.example as reference.
 - If you encounter “Network Error” from Axios, verify:
   1) The backend is reachable at the URL you configured (open it in the browser)
-  2) The port matches your backend server port (default 7001)
+  2) The port matches your backend server port (default 3001)
   3) CORS is allowed by the backend (or access via same-origin proxy)
   4) The API prefix matches your backend (default /api)
 
@@ -187,13 +187,13 @@ Notes:
 In secure preview environments (https), browsers will block http requests to a backend (mixed content). To prevent this, the app includes a development proxy:
 
 - src/setupProxy.js forwards:
-  - /api -> backend (http://localhost:7001 by default)
+  - /api -> backend (http://localhost:3001 by default)
   - /openapi.json -> backend
 - If REACT_APP_API_BASE_URL is NOT set, the API client uses a relative base (/api), which the dev server proxies to the backend.
 - If you set REACT_APP_API_BASE_URL in an https environment, make sure the backend is also available over https at that URL. Otherwise leave it unset to use the proxy.
 
 Verification:
-- Start backend on port 7001
+- Start backend on port 3001
 - Start frontend (npm start)
 - Visit the app, open DevTools -> Network
 - Confirm requests go to /api/... and succeed

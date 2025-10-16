@@ -7,9 +7,9 @@ const LOCAL_AUTH_BASE =
   (() => {
     try {
       const u = new URL(window.location.href);
-      return `${u.protocol}//${u.hostname}:7001`;
+      return `${u.protocol}//${u.hostname}:3001`;
     } catch {
-      return 'http://localhost:7001';
+      return 'http://localhost:3001';
     }
   })();
 
