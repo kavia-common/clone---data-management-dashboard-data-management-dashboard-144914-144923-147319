@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../ui/Modal.jsx';
+import Button from '../ui/Button.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName } from '../../utils/stringFormatters.js';
 import { formatLabel } from '../../utils/formatLabel';
@@ -18,11 +19,11 @@ import { getUserBasic } from '../../api/users';
  * - session: object - session data to render
  *
  * Design and UX:
- * - Uses parent Modal overlay; keeps sticky header within card with subtle border-bottom
+ * - Uses parent Modal overlay; keeps sticky header within card with subtle divider
  * - Two-column responsive grid (minmax 240px, 1fr) stacking to single column <640px
- * - Labels use secondary text color; values use primary text color
- * - Comfortable spacing, 1px borders, soft shadows; zebra striping on detail items (optional enhancement)
- * - No metadata section
+ * - Labels use tertiary/secondary text color; values use primary text color
+ * - Comfortable spacing, 1px borders, soft shadows; zebra striping by row for improved scanability
+ * - AA contrast for text and interactive controls
  */
 function SessionDetailsModal({ open, onClose, session }) {
   const headerId = 'session-details-title';
@@ -329,14 +330,14 @@ function SessionDetailsModal({ open, onClose, session }) {
 
   return (
     <Modal open={open} onClose={onClose} title={title}>
-      {/* Sticky Header with border-bottom */}
+      {/* Sticky Header with subtle divider and theme token background */}
       <div
         className="sticky-header"
         style={{
           zIndex: 1,
           background: 'var(--bg-surface, #fff)',
-          padding: '16px 24px',
-          borderBottom: '1px solid var(--border-subtle, #E5E7EB)',
+          padding: '12px 20px',
+          boxShadow: '0 1px 0 var(--border-subtle)',
         }}
       >
         <h2
@@ -359,7 +360,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         tabIndex={-1}
         id={`${headerId}-content`}
         style={{
-          padding: '16px 24px',
+          padding: 20,
           gap: 16,
           display: 'flex',
           flexDirection: 'column',
@@ -395,7 +396,7 @@ function SessionDetailsModal({ open, onClose, session }) {
               rowGap: 0,
             }}
           >
-            {Object.entries(coreDetails).map(([label, value], idx) => {
+            {Object.entries(coreDetails).map(([label, value]) => {
               const isPlaceholder =
                 value === '\u2014' || value === 'Unknown User' || value === 'Not available' || value === 'Loading...';
               return (
@@ -405,7 +406,7 @@ function SessionDetailsModal({ open, onClose, session }) {
                     style={{
                       fontSize: 12,
                       fontWeight: 600,
-                      color: 'var(--text-secondary, #374151)',
+                      color: 'var(--text-tertiary, #64748B)', // align with User modal
                       letterSpacing: '0.02em',
                       marginBottom: 6,
                     }}
@@ -416,7 +417,7 @@ function SessionDetailsModal({ open, onClose, session }) {
                     className="detail-value"
                     style={{
                       fontSize: 14,
-                      fontWeight: isPlaceholder ? 500 : 700,
+                      fontWeight: isPlaceholder ? 500 : 600, // normalize to 600 to match User Details modal
                       color: isPlaceholder
                         ? 'var(--text-tertiary, #6B7280)'
                         : 'var(--text-primary, #111827)',
@@ -443,36 +444,17 @@ function SessionDetailsModal({ open, onClose, session }) {
           background: 'var(--bg-surface, #ffffff)',
         }}
       >
-        <button
+        <Button
           type="button"
           onClick={onClose}
-          className="btn-close-primary"
-          style={{
-            width: '100%',
-            height: 46,
-            background: '#EF4444',
-            color: '#fff',
-            border: '1px solid transparent',
-            borderRadius: 12,
-            fontWeight: 700,
-            boxShadow: '0 1px 2px rgba(16,24,40,0.04)',
-            cursor: 'pointer',
-            transition: 'background .15s ease, transform .06s ease, box-shadow .2s ease',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#DC2626'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = '#EF4444'; }}
-          onMouseDown={(e) => { e.currentTarget.style.transform = 'translateY(1px)'; }}
-          onMouseUp={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
-          onFocus={(e) => {
-            e.currentTarget.style.outline = '3px solid rgba(37, 99, 235, 0.35)'; // Ocean blue focus ring
-            e.currentTarget.style.outlineOffset = '2px';
-          }}
-          onBlur={(e) => { e.currentTarget.style.outline = 'none'; }}
+          variant="danger"
+          className="w-100"
+          style={{ width: '100%', height: 46, borderRadius: 12 }}
           aria-label="Close"
           title="Close"
         >
           Close
-        </button>
+        </Button>
       </div>
 
       <style>{`
@@ -484,7 +466,8 @@ function SessionDetailsModal({ open, onClose, session }) {
           }
         }
 
-        /* Section dividers and zebra striping for detail items */
+        /* Section dividers and zebra striping for detail items
+           Ensure striping applies by row across two columns: items (1,2), (3,4), ... */
         .details-grid .detail-item {
           padding: 10px 0;
           border-top: 1px solid var(--border-subtle, #E5E7EB);
@@ -493,17 +476,23 @@ function SessionDetailsModal({ open, onClose, session }) {
         .details-grid .detail-item:nth-child(2) {
           border-top: none; /* First row (2 columns) has no top border */
         }
-        /* Zebra striping across items (optional, visual enhancement) */
-        .details-grid .detail-item:nth-child(odd) {
-          background: color-mix(in oklab, var(--ocean-secondary, #F59E0B) 0%, #fcfcfd);
+        /* Zebra: apply background to pairs (1,2), (5,6), (9,10) ... => 4n+1 and 4n+2 */
+        .details-grid .detail-item:nth-child(4n + 1),
+        .details-grid .detail-item:nth-child(4n + 2) {
+          background: var(
+            --zebra-row-bg,
+            color-mix(in oklab, var(--bg-canvas, #f9fafb) 92%, var(--bg-surface, #ffffff) 8%)
+          );
         }
-        .details-grid .detail-item:nth-child(even) {
+        .details-grid .detail-item:nth-child(4n + 3),
+        .details-grid .detail-item:nth-child(4n + 4) {
           background: transparent;
         }
 
         /* Improve focus-visible for any buttons/interactive nodes inside modal */
-        .btn-close-primary:focus-visible {
-          outline: 3px solid rgba(37, 99, 235, 0.35) !important;
+        .details-card .btn:focus-visible,
+        .w-100.btn:focus-visible {
+          outline: 3px solid rgba(37, 99, 235, 0.35) !important; /* Ocean blue */
           outline-offset: 2px !important;
         }
       `}</style>

@@ -93,6 +93,14 @@ body {
 .btn-danger:hover {
   background: #DC2626;
 }
+/* Unify focus-visible ring for all buttons (light theme)
+   - Ocean primary tinted outline
+   - Maintain AA contrast and keyboard accessibility */
+.btn:focus-visible {
+  outline: 3px solid color-mix(in oklab, var(--ocean-primary) 35%, transparent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ocean-primary) 20%, transparent);
+}
 
 /* Tabs styling to improve visibility/readability */
 .tabs {
