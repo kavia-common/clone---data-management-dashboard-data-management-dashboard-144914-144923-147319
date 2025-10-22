@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import "./App.css";
-import appLogo from "./assets/logo/app-logo-2025.png"; // REQ-UI-LOGO-REPLACE: shared logo for overlay
+import { appLogo } from "./assets/logo"; // REQ-UI-LOGO-REPLACE: shared logo for overlay
 import AppRoutes from "./routes/AppRoutes";
 
 /**
@@ -41,8 +41,19 @@ function DesktopOnlyOverlay() {
     <div className="device-blocker" role="dialog" aria-modal="true" aria-label="Desktop Only Notice">
       <div className="device-blocker-card">
         <div className="device-blocker-icon">
-          {/* REQ-UI-LOGO-REPLACE: replace star icon with shared app logo */}
-          <img src={appLogo} alt="App Logo" style={{ height: 24, width: 'auto', display: 'block' }} />
+          {/* REQ-UI-LOGO-REPLACE: replace star icon with shared app logo filling the box */}
+          <img
+            src={appLogo}
+            alt="Kavia Tenant Dashboard logo"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              borderRadius: 'inherit',
+              display: 'block',
+              padding: 6
+            }}
+          />
         </div>
         <h1>Desktop Only Application</h1>
         <p>This application requires a desktop environment to function properly.</p>
