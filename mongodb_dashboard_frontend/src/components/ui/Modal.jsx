@@ -119,9 +119,10 @@ export default function Modal({
           max-width: min(92vw, 720px);
           box-sizing: border-box;
         }
-        /* Costs modal variant: darker body background for better separation (scoped) */
+        /* Costs modal variant: body background aligns with app background (theme token) */
         .modal-card-shell.modal--costs .modal-card-body-scroll {
-          background: #f3f4f6; /* AA-friendly against primary (#111827) and secondary (#374151) */
+          /* Prefer theme background token; fallback to Ocean Professional light background */
+          background: var(--bg-canvas, var(--ocean-bg, #f9fafb));
           color: var(--text-primary, #111827);
         }
         .modal-card-body-scroll {

@@ -374,7 +374,8 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
             padding: 16,
             overflowY: "auto",
             flex: 1,
-            background: "#f3f4f6",
+            /* Use app background token; fallback ensures parity with Ocean Professional theme */
+            background: "var(--bg-canvas, var(--ocean-bg, #f9fafb))",
           }}
         >
           {activeTab === "summary" ? (
