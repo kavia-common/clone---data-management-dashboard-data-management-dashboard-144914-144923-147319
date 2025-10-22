@@ -106,15 +106,22 @@ export default function Modal({
           left: 50%;
           transform: translate(-50%, -50%);
           margin: 0;
-          border: none;
+          /* Add subtle delineation on white backgrounds for AA contrast */
+          border: 1px solid var(--border-subtle);
           border-radius: 12px;
           overflow: hidden;
           display: flex;
           flex-direction: column;
+          /* Respect Ocean Professional surface token */
           background: var(--bg-surface, #fff);
+          /* Maintain soft elevation */
           box-shadow: 0 10px 30px rgba(0,0,0,0.2);
           max-width: min(92vw, 720px);
           box-sizing: border-box;
+        }
+        /* Costs modal variant: apply a faint canvas tint to the scroll body to avoid white-on-white */
+        .modal-card-shell.modal--costs .modal-card-body-scroll {
+          background: var(--bg-canvas, #f9fafb);
         }
         .modal-card-body-scroll {
           flex: 1;

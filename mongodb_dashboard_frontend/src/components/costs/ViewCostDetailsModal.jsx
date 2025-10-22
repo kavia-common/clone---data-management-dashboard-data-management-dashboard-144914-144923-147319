@@ -278,6 +278,8 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
           width: "min(96vw, 960px)",
           maxHeight: "90vh",
           borderRadius: 16,
+          /* Add subtle border to delineate white card on white backgrounds */
+          border: "1px solid var(--border-subtle, #e5e7eb)",
           boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
           display: "flex",
           flexDirection: "column",
@@ -404,7 +406,8 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                   <span
                     style={{
                       marginLeft: 8,
-                      color: userNameLoading ? "#64748B" : "#111827",
+                      /* Use theme secondary for loading/secondary text; primary for value */
+                      color: userNameLoading ? "var(--text-secondary, #374151)" : "var(--text-primary, #111827)",
                       fontWeight: 800,
                     }}
                     title={userNameError ? String(userNameError) : undefined}
@@ -423,12 +426,12 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                   className="flex flex-col items-start"
                   style={{ marginTop: 6 }}
                 >
-                  <span className="text-gray-900 font-semibold" style={{ fontSize: 18 }}>
+                  <span className="text-gray-900 font-semibold" style={{ fontSize: 18, color: "var(--text-primary, #111827)" }}>
                     {renderCreditsWithUsd(topLevelAmounts.usd, { maximumFractionDigits: 6 }).split("•")[0].trim()}
                   </span>
-                  <span className="mt-1 text-sm text-gray-500 leading-5">
+                  <span className="mt-1 text-sm text-gray-500 leading-5" style={{ color: "var(--text-secondary, #374151)" }}>
                     Credits Used:<br />
-                    <strong className="text-gray-900">
+                    <strong className="text-gray-900" style={{ color: "var(--text-primary, #111827)" }}>
                       {topLevelAmounts?.credits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || "—"}
                     </strong>
                   </span>
@@ -470,11 +473,11 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                     fontWeight: 700,
                   }}
                 >
-                  <span style={{ color: "#6B7280", fontWeight: 700 }}>Credits used</span>
+                  <span style={{ color: "var(--text-secondary, #374151)", fontWeight: 700 }}>Credits used</span>
                   <span
                     data-testid="credits-used-inline"
                     style={{
-                      color: "#111827",
+                      color: "var(--text-primary, #111827)",
                       background: "rgba(37,99,235,0.06)",
                       border: "1px solid #DBEAFE",
                       padding: "2px 8px",

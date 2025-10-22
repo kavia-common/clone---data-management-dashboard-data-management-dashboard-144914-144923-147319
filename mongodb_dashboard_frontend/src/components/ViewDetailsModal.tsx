@@ -101,7 +101,7 @@ const ViewDetailsModal: React.FC<ViewDetailsModalProps> = ({
           - Data is not mutated; this only affects labels shown to users */}
       <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
         {entries.length === 0 ? (
-          <div style={{ padding: '0.75rem', color: '#6b7280' }}>No details available.</div>
+          <div style={{ padding: '0.75rem', color: 'var(--text-secondary, #374151)' }}>No details available.</div>
         ) : (
           <dl style={{ margin: 0 }}>
             {entries.map(([key, value], idx) => {

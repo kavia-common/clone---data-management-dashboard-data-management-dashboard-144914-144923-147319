@@ -370,6 +370,8 @@ export default function Costs() {
         onClose={closeInspector}
         headerOffset={60}
         width="min(96vw, 880px)"
+        /* Costs-context variant to ensure subtle canvas tint on white surface */
+        className="modal--costs"
         footer={
           <button className="btn btn-ghost" onClick={closeInspector} aria-label="Close details">Close</button>
         }
