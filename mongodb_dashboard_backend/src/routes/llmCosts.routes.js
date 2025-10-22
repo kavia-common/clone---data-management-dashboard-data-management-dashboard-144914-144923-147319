@@ -7,6 +7,9 @@ const router = express.Router();
 // Default sort by most recent cost first
 const controller = buildCrudController(LLMCost, '-timestamp');
 
+// Usage-over-time aggregation controller
+const { usageOverTime } = require('../controllers/llmCosts.usage.controller');
+
 /**
  * @swagger
  * tags:
@@ -53,6 +56,66 @@ const controller = buildCrudController(LLMCost, '-timestamp');
  *         description: Invalid filter
  */
 router.get('/', asyncHandler(controller.list));
+
+/**
+ * @swagger
+ * /api/llm-costs/usage-over-time:
+ *   get:
+ *     summary: LLM model usage over time (stacked by model)
+ *     description: |
+ *       Aggregates llm_costs by day and llm_model for the last N days (default 30, max 180), summing total_cost.
+ *       Returns a normalized time series suitable for stacked area chart rendering.
+ *     tags: [LLMCosts]
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 180
+ *           default: 30
+ *         description: Number of days to include, counting back from today.
+ *     responses:
+ *       200:
+ *         description: Aggregated usage series
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 items:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       date:
+ *                         type: string
+ *                         description: YYYY-MM-DD
+ *                       series:
+ *                         type: object
+ *                         additionalProperties:
+ *                           type: number
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     models:
+ *                       type: array
+ *                       items: { type: string }
+ *                     start:
+ *                       type: string
+ *                       format: date-time
+ *                     end:
+ *                       type: string
+ *                       format: date-time
+ *                     days:
+ *                       type: integer
+ *       400:
+ *         description: Invalid days parameter
+ *       500:
+ *         description: Internal server error
+ */
+// PUBLIC_INTERFACE
+router.get('/usage-over-time', asyncHandler(usageOverTime));
 
 /**
  * @swagger
