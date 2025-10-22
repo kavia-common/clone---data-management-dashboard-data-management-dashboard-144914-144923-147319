@@ -7,6 +7,7 @@ import { formatLabel } from '../../utils/formatLabel';
 import { usdToCredits, formatCredits, parseUsdToNumber } from '../../utils/currency.js';
 import { formatCurrencyAmount } from '../../utils/formatCurrency';
 import { getUserBasic } from '../../api/users';
+import './SessionDetailsModal.css';
 
 /**
  * PUBLIC_INTERFACE
@@ -329,7 +330,7 @@ function SessionDetailsModal({ open, onClose, session }) {
   }, [session]);
 
   return (
-    <Modal open={open} onClose={onClose} title={title}>
+    <Modal open={open} onClose={onClose} title={title} className="session-details-modal modal--session">
       {/* Sticky Header with subtle divider and theme token background */}
       <div
         className="sticky-header"
