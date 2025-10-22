@@ -8,10 +8,12 @@ import {
   Tooltip,
   ResponsiveContainer,
   Brush,
+  Legend,
 } from "recharts";
 import Card from "../ui/Card.jsx";
 import Button from "../ui/Button.jsx";
 import { listDeployments } from "../../api/client";
+import { darkThemeTokens as tokens, getCurrentTheme } from "../../theme";
 
 /**
  * PUBLIC_INTERFACE
@@ -19,8 +21,10 @@ import { listDeployments } from "../../api/client";
  * A responsive time-series chart showing deployment counts aggregated over time with time range selection.
  *
  * Adjusted per requirements:
- * - Removed Aggregation, Service, and Environment filters.
- * - Preserved time range quick filters: 7d, 30d, 90d, All.
+ * - Accent color updated to orange (#FF6600) from theme tokens for stroke/fill/active states.
+ * - Hover/active/point highlights use subtle alpha variants.
+ * - Tooltip/legend swatch match accent color.
+ * - Grid/tick colors adapt for dark theme contrast.
  *
  * Props:
  * - height?: number (default 320)
@@ -31,6 +35,24 @@ export default function DeploymentsOverTime({ height = 320, className = "" }) {
   const [error, setError] = useState("");
   const [raw, setRaw] = useState([]);
   const [range, setRange] = useState("30d"); // '7d' | '30d' | '90d' | 'all'
+
+  // Utility: convert hex to rgba string with alpha
+  function withAlpha(hex, alpha) {
+    const rawHex = String(hex || "").replace("#", "");
+    const bigint = parseInt(rawHex.length === 3 ? rawHex.split("").map(c => c + c).join("") : rawHex, 16);
+    const r = (bigint >> 16) & 255;
+    const g = (bigint >> 8) & 255;
+    const b = bigint & 255;
+    const a = Math.max(0, Math.min(1, Number(alpha) || 0));
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+
+  const isDark = getCurrentTheme() === "dark";
+  const accent = tokens?.accent || "#FF6600";
+  const gridStroke = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const tickColor = isDark ? (tokens?.text?.secondary || "#B0A8A0") : "#4B5563";
+  const brushStroke = withAlpha(accent, 0.6);
+  const brushTraveller = accent;
 
   useEffect(() => {
     let mounted = true;
@@ -114,9 +136,6 @@ export default function DeploymentsOverTime({ height = 320, className = "" }) {
     return arr;
   }, [raw, range]);
 
-  const brandBlue = "#2563EB";
-  const gridStroke = "rgba(0,0,0,0.08)";
-
   return (
     <Card
       title="Deployments Over Time"
@@ -163,21 +182,41 @@ export default function DeploymentsOverTime({ height = 320, className = "" }) {
             <AreaChart data={chartData} margin={{ top: 8, right: 24, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="deploymentsArea" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={brandBlue} stopOpacity={0.35} />
-                  <stop offset="95%" stopColor={brandBlue} stopOpacity={0} />
+                  <stop offset="5%" stopColor={accent} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={accent} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
               <XAxis
                 dataKey="label"
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: 12, fill: tickColor }}
                 minTickGap={24}
               />
-              <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+              <YAxis tick={{ fontSize: 12, fill: tickColor }} allowDecimals={false} />
               <Tooltip />
-              <Area type="monotone" dataKey="count" name="Deployments" stroke={brandBlue} fillOpacity={1} fill="url(#deploymentsArea)" />
+              <Legend
+                verticalAlign="top"
+                height={24}
+                wrapperStyle={{ color: tickColor }}
+              />
+              <Area
+                type="monotone"
+                dataKey="count"
+                name="Deployments"
+                stroke={accent}
+                strokeWidth={2}
+                fillOpacity={1}
+                fill="url(#deploymentsArea)"
+                activeDot={{ r: 3, fill: withAlpha(accent, 0.9), stroke: accent, strokeWidth: 2 }}
+              />
               {chartData && chartData.length > 0 ? (
-                <Brush dataKey="label" height={20} travellerWidth={10} />
+                <Brush
+                  dataKey="label"
+                  height={20}
+                  travellerWidth={10}
+                  stroke={brushStroke}
+                  travellerStroke={brushTraveller}
+                />
               ) : null}
             </AreaChart>
           </ResponsiveContainer>
