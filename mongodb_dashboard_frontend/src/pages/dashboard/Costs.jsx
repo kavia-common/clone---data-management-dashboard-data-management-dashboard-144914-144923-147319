@@ -444,7 +444,9 @@ function CostsTreeInspector({ payload }) {
       <div className="sticky-header" style={{
         top: 0,
         zIndex: 1,
-        background: "var(--bg-surface, #fff)",
+        // GxP: Accessibility/contrast fix for Costs View Details modal (REQ-UI-COSTS-MODAL-BG)
+        // Use application canvas background inside the costs inspector header to avoid light-on-light contrast.
+        background: "var(--bg-canvas, var(--ocean-bg, #f9fafb))",
         borderBottom: "1px solid var(--border-subtle)",
         padding: "12px 16px",
         display: "flex",
@@ -508,7 +510,9 @@ function CostsTreeInspector({ payload }) {
         padding: "12px 16px",
         maxHeight: "60vh",
         overflow: "auto",
-        background: "#f8fafc",
+        // GxP: Accessibility/contrast fix for Costs View Details modal (REQ-UI-COSTS-MODAL-BG)
+        // Enforce application canvas background in modal content area.
+        background: "var(--bg-canvas, var(--ocean-bg, #f9fafb))",
       }}>
         <TreeView
           ref={treeRef}

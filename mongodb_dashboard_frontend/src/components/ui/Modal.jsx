@@ -119,40 +119,94 @@ export default function Modal({
           max-width: min(92vw, 720px);
           box-sizing: border-box;
         }
-        /* GxP Accessibility: Costs modal variant
-           - Requirement: Modal body/content area must use application background (non-white) for AA contrast
-           - Tokens: var(--bg-canvas, var(--ocean-bg, #f9fafb)) for canvas; var(--text-primary, #111827) for text; var(--text-secondary, #374151)
-           - High-specificity selectors below ensure that any residual white backgrounds (e.g., legacy .bg-white or inline backgrounds)
-             do not override the costs modal appearance. */
+        /* GxP: Accessibility/contrast fix for Costs View Details modal (REQ-UI-COSTS-MODAL-BG)
+           - Enforce application background in modal body, headers, sections, and inner components
+           - Neutralize any lingering white backgrounds (bg-white/#fff/#f8fafc/etc.) inside the costs modal subtree
+           - Maintain borders/shadows for separation
+           - Ensure primary text color is readable; secondary text has sufficient contrast
+        */
         .modal-card-shell.modal--costs .modal-card-body-scroll,
         .modal-card-shell.modal--costs .modal__body,
         .modal-card-shell.modal--costs .modal__content {
-          /* Prefer theme background token; fallback to Ocean Professional light background */
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
           color: var(--text-primary, #111827) !important;
         }
-        /* Keep footer separation while aligning to theme tokens (avoid pure white on canvas) */
-        .modal-card-shell.modal--costs .modal-footer {
-          background: linear-gradient(
-            180deg,
-            color-mix(in oklab, var(--bg-surface, #ffffff) 92%, transparent),
-            var(--bg-surface, #ffffff)
-          );
-          border-top: 1px solid var(--border-subtle, #e5e7eb);
+        /* Headers/footers explicitly aligned to app background */
+        .modal-card-shell.modal--costs .sticky-header,
+        .modal-card-shell.modal--costs .modal__header,
+        .modal-card-shell.modal--costs .modal__footer {
+          background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+          color: var(--text-primary, #111827) !important;
         }
-        /* If any consumer passes a white background utility/class, neutralize it within the Costs modal scope */
+        /* Section and card-like blocks default to app background unless intentionally surfaced */
+        .modal-card-shell.modal--costs .details-panel,
+        .modal-card-shell.modal--costs .section,
+        .modal-card-shell.modal--costs .card,
+        .modal-card-shell.modal--costs .card-header,
+        .modal-card-shell.modal--costs .card-content {
+          background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+          color: var(--text-primary, #111827) !important;
+          border-color: var(--border-subtle, #e5e7eb) !important;
+        }
+        /* Explicit surface variant for true cards: keep white but fix text/border for contrast */
+        .modal-card-shell.modal--costs .card--surface,
+        .modal-card-shell.modal--costs .surface,
+        .modal-card-shell.modal--costs .dv-grid.surface,
+        .modal-card-shell.modal--costs .card.card--surface {
+          background: var(--surface, #ffffff) !important;
+          color: #111827 !important; /* primary text on true white */
+          border: 1px solid var(--border-subtle, #e5e7eb) !important;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        }
+        /* Neutralize inline/utility whites within costs modal (handles common hard-coded colors) */
+        .modal-card-shell.modal--costs [style*="background:#fff"],
+        .modal-card-shell.modal--costs [style*="background: #fff"],
+        .modal-card-shell.modal--costs [style*="background:#ffffff"],
+        .modal-card-shell.modal--costs [style*="background: #ffffff"],
+        .modal-card-shell.modal--costs [style*="background:#f8fafc"],
+        .modal-card-shell.modal--costs [style*="background: #f8fafc"],
+        .modal-card-shell.modal--costs [style*="background:#fcfcfd"],
+        .modal-card-shell.modal--costs [style*="background: #fcfcfd"],
+        .modal-card-shell.modal--costs [style*="background:#fafcff"],
+        .modal-card-shell.modal--costs [style*="background: #fafcff"] {
+          background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+          color: var(--text-primary, #111827) !important;
+        }
+        /* Legacy utility classes */
         .modal-card-shell.modal--costs .bg-white,
         .modal-card-shell.modal--costs [class*="bg-white"] {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+          color: var(--text-primary, #111827) !important;
         }
-        /* Ensure text contrast on light backgrounds within the costs modal */
+        /* Text contrasts */
         .modal-card-shell.modal--costs,
         .modal-card-shell.modal--costs * {
           color: var(--text-primary, #111827);
         }
         .modal-card-shell.modal--costs .muted,
-        .modal-card-shell.modal--costs .text-secondary {
+        .modal-card-shell.modal--costs .text-secondary,
+        .modal-card-shell.modal--costs .dv-summary,
+        .modal-card-shell.modal--costs .dv-chip {
           color: var(--text-secondary, #374151);
+        }
+        /* TreeView specific tuning within costs modal */
+        .modal-card-shell.modal--costs .tv-row-main:hover {
+          background: color-mix(in oklab, var(--bg-surface, #ffffff) 12%, transparent) !important;
+          border-color: var(--border-subtle, #e5e7eb) !important;
+        }
+        .modal-card-shell.modal--costs .tv-toggle {
+          background: var(--bg-surface, #ffffff) !important;
+          color: var(--text-primary, #111827) !important;
+          border-color: var(--border-subtle, #e5e7eb) !important;
+        }
+        /* Footer separator while avoiding white slab look */
+        .modal-card-shell.modal--costs .modal-footer {
+          background: linear-gradient(
+            180deg,
+            color-mix(in oklab, var(--bg-canvas, #f9fafb) 85%, transparent),
+            var(--bg-canvas, #f9fafb)
+          ) !important;
+          border-top: 1px solid var(--border-subtle, #e5e7eb) !important;
         }
         .modal-card-body-scroll {
           flex: 1;
