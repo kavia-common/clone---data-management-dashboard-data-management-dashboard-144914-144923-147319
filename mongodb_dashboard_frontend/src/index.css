@@ -1,5 +1,6 @@
 @import "./styles/theme.css";
 @import "./styles/globals.css";
+@import "./components/ui/FocusStyles.css";
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 html, body {
@@ -56,7 +57,19 @@ body {
   font-family: "Helvetica Neue", Arial, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, "Helvetica Neue", Arial, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  line-height: 1.45;
+  line-height: 1.5; /* ensure readable line height within 1.4–1.6 */
+}
+
+/* Consistent spacing for common blocks */
+.card { margin: var(--space-12, 12px) 0; }
+.card .card-content { padding: var(--space-16, 16px); }
+
+/* Interactive elements transition hooks */
+button, .btn, a, input, select, textarea {
+  transition: background-color var(--motion-duration-250, 250ms) var(--motion-ease, ease),
+              color var(--motion-duration-250, 250ms) var(--motion-ease, ease),
+              border-color var(--motion-duration-250, 250ms) var(--motion-ease, ease),
+              box-shadow var(--motion-duration-250, 250ms) var(--motion-ease, ease);
 }
 
 /* Links use brand blue; darken on hover */

@@ -1,14 +1,15 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "../components/layout/AppLayout";
-
-import Overview from "../pages/dashboard/Overview";
-import Users from "../pages/dashboard/Users";
-import Sessions from "../pages/dashboard/Sessions";
-import Deployments from "../pages/dashboard/Deployments";
-import Costs from "../pages/dashboard/Costs";
-import Login from "../pages/Login";
+import Skeleton from "../components/ui/Skeleton.jsx";
 import ProtectedRoute from "../components/common/ProtectedRoute";
+
+const Overview = lazy(() => import("../pages/dashboard/Overview"));
+const Users = lazy(() => import("../pages/dashboard/Users"));
+const Sessions = lazy(() => import("../pages/dashboard/Sessions"));
+const Deployments = lazy(() => import("../pages/dashboard/Deployments"));
+const Costs = lazy(() => import("../pages/dashboard/Costs"));
+const Login = lazy(() => import("../pages/Login"));
 
 /**
  * PUBLIC_INTERFACE
@@ -20,8 +21,14 @@ export default function AppRoutes() {
   return (
     <Routes>
       {/* Public routes */}
-      <Route path="/login" element={<Login />} />
-
+      <Route
+        path="/login"
+        element={
+          <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={180} /></div>}>
+            <Login />
+          </Suspense>
+        }
+      />
       {/* Protected routes wrapper; ProtectedRoute renders an Outlet when authed */}
       <Route element={<ProtectedRoute />}>
         {/* Default root redirects to dashboard overview */}
@@ -35,7 +42,9 @@ export default function AppRoutes() {
           path="/dashboard/overview"
           element={
             <AppLayout>
-              <Overview />
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
+                <Overview />
+              </Suspense>
             </AppLayout>
           }
         />
@@ -44,7 +53,9 @@ export default function AppRoutes() {
           path="/dashboard/users"
           element={
             <AppLayout>
-              <Users />
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
+                <Users />
+              </Suspense>
             </AppLayout>
           }
         />
@@ -52,7 +63,9 @@ export default function AppRoutes() {
           path="/dashboard/sessions"
           element={
             <AppLayout>
-              <Sessions />
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={320} /></div>}>
+                <Sessions />
+              </Suspense>
             </AppLayout>
           }
         />
@@ -60,7 +73,9 @@ export default function AppRoutes() {
           path="/dashboard/deployments"
           element={
             <AppLayout>
-              <Deployments />
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={320} /></div>}>
+                <Deployments />
+              </Suspense>
             </AppLayout>
           }
         />
@@ -68,7 +83,9 @@ export default function AppRoutes() {
           path="/dashboard/costs"
           element={
             <AppLayout>
-              <Costs />
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
+                <Costs />
+              </Suspense>
             </AppLayout>
           }
         />

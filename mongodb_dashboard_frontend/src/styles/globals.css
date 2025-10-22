@@ -1,8 +1,15 @@
 :root {
-  /* Common animation/transition durations */
+  /* Common animation/transition durations (global motion tokens) */
   --transition-fast: 120ms;
   --transition-base: 200ms;
   --transition-slow: 300ms;
+
+  /* Motion tokens per acceptance criteria */
+  --motion-duration-200: 200ms;
+  --motion-duration-250: 250ms;
+  --motion-duration-300: 300ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
 
   /* Base spacing scale */
   --space-12: 12px;
@@ -16,6 +23,9 @@
 
   /* Subtle shadow tuned for dark surfaces */
   --shadow-elev-1: 0 1px 0 rgba(0,0,0,0.5), 0 6px 12px rgba(0,0,0,0.25);
+
+  /* Focus ring token */
+  --focus-ring-color: var(--color-accent, #F59E0B);
 }
 
 /* PUBLIC_INTERFACE
@@ -56,6 +66,68 @@
 html[data-theme="dark"], body[data-theme="dark"] {
   background: var(--color-background);
   color: var(--color-text-primary);
+}
+
+/* Respect reduced motion globally */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Interactive elements default transitions (200–300ms, default 250ms) */
+a, button, .btn, input, select, textarea, .nav-link, .card {
+  transition: background-color var(--motion-duration-250) var(--motion-ease),
+              color var(--motion-duration-250) var(--motion-ease),
+              border-color var(--motion-duration-250) var(--motion-ease),
+              box-shadow var(--motion-duration-250) var(--motion-ease),
+              transform 50ms ease; /* small tap/press affordance */
+}
+
+/* Page transitions: fade + slight slide-up on enter */
+.page-transition {
+  position: relative;
+  will-change: transform, opacity;
+}
+
+.pt-enter {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.pt-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity var(--motion-duration-250) var(--motion-ease),
+              transform var(--motion-duration-250) var(--motion-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pt-enter { opacity: 1; transform: none; }
+  .pt-enter-active { opacity: 1; transform: none; transition: none; }
+}
+
+/* Skeleton shimmer utility for dark surfaces */
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  --sk-bg: var(--color-surface, #2B2723);
+  --sk-shimmer: var(--color-border, #3C3532);
+  background: linear-gradient(90deg,
+    var(--sk-bg) 25%,
+    var(--sk-shimmer) 37%,
+    var(--sk-bg) 63%
+  );
+  background-size: 400% 100%;
+  border-radius: 8px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton {
+    animation: skeleton-shimmer 1200ms var(--motion-ease) infinite;
+  }
 }
 
 html, body {

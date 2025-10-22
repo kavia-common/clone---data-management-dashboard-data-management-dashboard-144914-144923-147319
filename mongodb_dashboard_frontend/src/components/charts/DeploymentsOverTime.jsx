@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import Card from "../ui/Card.jsx";
 import Button from "../ui/Button.jsx";
+import Skeleton from "../ui/Skeleton.jsx";
 import { listDeployments } from "../../api/client";
 import { darkThemeTokens as tokens, getCurrentTheme } from "../../theme";
 
@@ -30,7 +31,7 @@ import { darkThemeTokens as tokens, getCurrentTheme } from "../../theme";
  * - height?: number (default 320)
  * - className?: string
  */
-export default function DeploymentsOverTime({ height = 320, className = "" }) {
+function DeploymentsOverTime({ height = 320, className = "" }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [raw, setRaw] = useState([]);
@@ -176,7 +177,9 @@ export default function DeploymentsOverTime({ height = 320, className = "" }) {
 
       <div className="chart-wrapper" style={{ width: "100%", height, marginTop: 8 }}>
         {loading ? (
-          <div>Loading chart...</div>
+          <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateRows: "1fr 1fr 1fr", gap: 12 }}>
+            <Skeleton width="100%" height="100%" />
+          </div>
         ) : (
           <ResponsiveContainer>
             <AreaChart data={chartData} margin={{ top: 8, right: 24, bottom: 0, left: 0 }}>
@@ -225,3 +228,4 @@ export default function DeploymentsOverTime({ height = 320, className = "" }) {
     </Card>
   );
 }
+export default React.memo(DeploymentsOverTime);

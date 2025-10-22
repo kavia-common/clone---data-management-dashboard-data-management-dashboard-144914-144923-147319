@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
+import Skeleton from "./ui/Skeleton.jsx";
 
 /**
  * Measure text width using an off-screen canvas for robust auto-width calculation.
@@ -376,11 +377,19 @@ export default function DataTable({
           </colgroup>
           <tbody>
             {loading && (
-              <tr className="tr">
-                <td colSpan={columns.length + actionColIncluded}>
-                  <div className="table-empty">Loading...</div>
-                </td>
-              </tr>
+              <>
+                {Array.from({ length: Math.min(6, Math.max(3, Math.floor((maxBodyHeight || 320) / 48))) }).map((_, i) => (
+                  <tr className="tr" key={`sk-${i}`}>
+                    <td colSpan={columns.length + actionColIncluded}>
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns.length + actionColIncluded}, 1fr)`, gap: 12 }}>
+                        {Array.from({ length: columns.length + actionColIncluded }).map((__, j) => (
+                          <Skeleton key={j} height={16} />
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </>
             )}
             {!loading && (!sorted || sorted.length === 0) && (
               <tr className="tr">
