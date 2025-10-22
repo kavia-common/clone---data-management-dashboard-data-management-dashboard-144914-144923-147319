@@ -18,7 +18,7 @@ export default function Topbar() {
             src={appLogo}
             alt="Company logo"
             className="brand-logo"
-            style={{ height: 28, width: "auto", marginRight: 8 }}
+            style={{ height: 28, width: "auto", marginRight: 8, borderRadius: 8 }}
           />
           <span className="brand-title">Tenant Dashboard</span>
         </div>
