@@ -119,9 +119,10 @@ export default function Modal({
           max-width: min(92vw, 720px);
           box-sizing: border-box;
         }
-        /* Costs modal variant: apply a faint canvas tint to the scroll body to avoid white-on-white */
+        /* Costs modal variant: darker body background for better separation (scoped) */
         .modal-card-shell.modal--costs .modal-card-body-scroll {
-          background: var(--bg-canvas, #f9fafb);
+          background: #f3f4f6; /* AA-friendly against primary (#111827) and secondary (#374151) */
+          color: var(--text-primary, #111827);
         }
         .modal-card-body-scroll {
           flex: 1;

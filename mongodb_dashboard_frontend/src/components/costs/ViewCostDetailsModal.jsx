@@ -374,7 +374,7 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
             padding: 16,
             overflowY: "auto",
             flex: 1,
-            background: "#f9fafb",
+            background: "#f3f4f6",
           }}
         >
           {activeTab === "summary" ? (
