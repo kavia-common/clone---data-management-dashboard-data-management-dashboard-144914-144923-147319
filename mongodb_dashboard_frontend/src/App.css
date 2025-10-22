@@ -464,10 +464,32 @@
 }
 .table-pagination .btn.btn-ghost {
   border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  opacity: 1; /* ensure clear visibility when idle */
 }
 .table-pagination .btn.btn-secondary {
   background: #E2E8F0;
   color: var(--text-primary);
+  opacity: 1; /* ensure clear visibility when idle */
+}
+/* Hover/active accents for pagination arrows (orange accent) */
+.table-pagination .btn.btn-secondary:hover:not(:disabled),
+.table-pagination .btn.btn-ghost:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--brand-primary) 12%, white);
+  color: var(--brand-primary);
+}
+/* Disabled state: keep reduced opacity and no pointer only when disabled */
+.table-pagination .btn:disabled,
+.table-pagination .btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: saturate(0.9);
+}
+/* Focus-visible ring for pagination buttons (inherit global focus styles and ensure visibility) */
+.table-pagination .btn:focus-visible {
+  outline: 3px solid var(--focus-ring-color, var(--brand-primary));
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-primary) 35%, transparent);
 }
 
 /* Pagination buttons: consistent sizing and spacing */
