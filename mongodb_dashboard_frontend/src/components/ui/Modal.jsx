@@ -129,12 +129,14 @@ export default function Modal({
         .modal-card-shell.modal--costs .modal__body,
         .modal-card-shell.modal--costs .modal__content {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+          color: var(--text-primary, #111827) !important;
         }
         /* Headers/footers explicitly aligned to app background */
         .modal-card-shell.modal--costs .sticky-header,
         .modal-card-shell.modal--costs .modal__header,
         .modal-card-shell.modal--costs .modal__footer {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+          color: var(--text-primary, #111827) !important;
         }
         /* Section and card-like blocks default to app background unless intentionally surfaced */
         .modal-card-shell.modal--costs .details-panel,
@@ -143,6 +145,7 @@ export default function Modal({
         .modal-card-shell.modal--costs .card-header,
         .modal-card-shell.modal--costs .card-content {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+          color: var(--text-primary, #111827) !important;
           border-color: var(--border-subtle, #e5e7eb) !important;
         }
         /* Explicit surface variant for true cards: keep white but fix text/border for contrast */
@@ -151,7 +154,7 @@ export default function Modal({
         .modal-card-shell.modal--costs .dv-grid.surface,
         .modal-card-shell.modal--costs .card.card--surface {
           background: var(--surface, #ffffff) !important;
-          color: inherit !important; /* Use existing theme color; do not force black */
+          color: #111827 !important; /* primary text on true white */
           border: 1px solid var(--border-subtle, #e5e7eb) !important;
           box-shadow: 0 1px 2px rgba(0,0,0,0.04);
         }
@@ -167,14 +170,19 @@ export default function Modal({
         .modal-card-shell.modal--costs [style*="background:#fafcff"],
         .modal-card-shell.modal--costs [style*="background: #fafcff"] {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+          color: var(--text-primary, #111827) !important;
         }
         /* Legacy utility classes */
         .modal-card-shell.modal--costs .bg-white,
         .modal-card-shell.modal--costs [class*="bg-white"] {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+          color: var(--text-primary, #111827) !important;
         }
         /* Text contrasts */
-        /* [Scoped change] Removed global text color override to limit black text to array/object content only. */
+        .modal-card-shell.modal--costs,
+        .modal-card-shell.modal--costs * {
+          color: var(--text-primary, #111827);
+        }
         .modal-card-shell.modal--costs .muted,
         .modal-card-shell.modal--costs .text-secondary,
         .modal-card-shell.modal--costs .dv-summary,
@@ -190,22 +198,6 @@ export default function Modal({
           background: var(--bg-surface, #ffffff) !important;
           color: var(--text-primary, #111827) !important;
           border-color: var(--border-subtle, #e5e7eb) !important;
-        }
-
-        /* GxP Accessibility: High-contrast text override for the specific Array(n) block within Costs View Details modal only.
-           Scope narrowly to the costs modal and the array-contrast-block container to avoid side effects in other modals.
-           Ensures the Array badge, keys (dt), colon, and values inside the array block use #111827, and nested spans/code inherit. */
-        .modal-card-shell.modal--costs .array-contrast-block .tv-badge {
-          color: #111827 !important;  /* Ensure Array(n) label is black for contrast */
-        }
-        .modal-card-shell.modal--costs .array-contrast-block .tv-key,
-        .modal-card-shell.modal--costs .array-contrast-block .tv-colon,
-        .modal-card-shell.modal--costs .array-contrast-block .tv-value {
-          color: #111827 !important;  /* Keys/values black within array block */
-        }
-        .modal-card-shell.modal--costs .array-contrast-block,
-        .modal-card-shell.modal--costs .array-contrast-block * {
-          color: #111827; /* Ensure nested spans/code inherit black text */
         }
         /* Footer separator while avoiding white slab look */
         .modal-card-shell.modal--costs .modal-footer {

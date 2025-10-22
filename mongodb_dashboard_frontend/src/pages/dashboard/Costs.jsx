@@ -514,15 +514,12 @@ function CostsTreeInspector({ payload }) {
         // Enforce application canvas background in modal content area.
         background: "var(--bg-canvas, var(--ocean-bg, #f9fafb))",
       }}>
-        {/* GxP Accessibility: Narrow scope container to ensure array preview (Array(n) badge), keys, and values render at high contrast within Costs modal only */}
-        <div className="array-contrast-block" data-testid="costs-array-block">
-          <TreeView
-            ref={treeRef}
-            data={payload}
-            defaultExpandedDepth={1}
-            searchTerm={search}
-          />
-        </div>
+        <TreeView
+          ref={treeRef}
+          data={payload}
+          defaultExpandedDepth={1}
+          searchTerm={search}
+        />
       </div>
     </div>
   );
