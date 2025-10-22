@@ -3,6 +3,19 @@
 /* Base structure: ensure bottom area can be pinned inside the scrollable sidebar */
 .sidebar {
   position: relative;
+  display: flex;               /* flex column layout to pin bottom controls */
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;            /* prevent double scrollbars; inner region scrolls */
+}
+
+/* Dedicated scroll region for nav content; preserves visibility of bottom actions */
+.sidebar .sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;               /* allow flexbox to shrink the scroll area */
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Bottom pinned region inside the sidebar (sticks to bottom of sidebar viewport) */
@@ -11,7 +24,7 @@
   bottom: 0;
   background: var(--bg-surface, #ffffff);
   padding: 10px 8px;
-  margin-top: 8px;
+  margin-top: auto; /* push to bottom when content is short */
   border-top: 1px solid var(--border-subtle, #E5E7EB);
 }
 

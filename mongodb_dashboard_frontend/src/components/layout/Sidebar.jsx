@@ -81,24 +81,26 @@ export default function Sidebar() {
       aria-label="Primary navigation"
       role="navigation"
     >
-      <nav aria-label="Main">
-        <div className="sidebar-group">Main</div>
-        <NavLink to="/dashboard" end className="nav-link">
-          <span className="nav-label">Overview</span>
-        </NavLink>
-        <NavLink to="/dashboard/users" className="nav-link">
-          <span className="nav-label">Users</span>
-        </NavLink>
-        <NavLink to="/dashboard/sessions" className="nav-link">
-          <span className="nav-label">Session Tracking</span>
-        </NavLink>
-        <NavLink to="/dashboard/deployments" className="nav-link">
-          <span className="nav-label">App Deployments</span>
-        </NavLink>
-        <NavLink to="/dashboard/costs" className="nav-link">
-          <span className="nav-label">Costs</span>
-        </NavLink>
-      </nav>
+      <div className="sidebar-scroll">
+        <nav aria-label="Main">
+          <div className="sidebar-group">Main</div>
+          <NavLink to="/dashboard" end className="nav-link">
+            <span className="nav-label">Overview</span>
+          </NavLink>
+          <NavLink to="/dashboard/users" className="nav-link">
+            <span className="nav-label">Users</span>
+          </NavLink>
+          <NavLink to="/dashboard/sessions" className="nav-link">
+            <span className="nav-label">Session Tracking</span>
+          </NavLink>
+          <NavLink to="/dashboard/deployments" className="nav-link">
+            <span className="nav-label">App Deployments</span>
+          </NavLink>
+          <NavLink to="/dashboard/costs" className="nav-link">
+            <span className="nav-label">Costs</span>
+          </NavLink>
+        </nav>
+      </div>
 
       {/* Bottom pinned area for logout */}
       <div className="sidebar-bottom" aria-label="Account actions">
