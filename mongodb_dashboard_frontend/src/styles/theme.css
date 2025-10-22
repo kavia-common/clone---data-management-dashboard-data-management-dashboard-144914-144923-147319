@@ -76,6 +76,15 @@ body {
   background: rgba(37, 99, 235, 0.04);
 }
 
+/* Dark theme override for generic hover rows */
+html[data-theme="dark"] .hover-row {
+  transition: background-color var(--motion-duration-fast, 200ms) var(--motion-ease, ease), color var(--motion-duration-fast, 200ms) var(--motion-ease, ease);
+}
+html[data-theme="dark"] .hover-row:hover {
+  background: var(--color-hover-bg, #3A3330);
+  color: var(--color-text-primary, #EAEAEA);
+}
+
 .clickable {
   cursor: pointer;
 }

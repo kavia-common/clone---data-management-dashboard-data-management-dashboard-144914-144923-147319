@@ -10,6 +10,7 @@
   --motion-duration-300: 300ms;
   --motion-ease: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --motion-duration-fast: var(--motion-duration-200, 200ms);
 
   /* Base spacing scale */
   --space-12: 12px;

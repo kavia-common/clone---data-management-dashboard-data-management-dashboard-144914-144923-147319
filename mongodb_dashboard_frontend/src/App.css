@@ -415,6 +415,9 @@
   height: var(--table-row-h, 56px); /* stabilize row heights to prevent lurches */
   overflow: hidden;
   text-overflow: ellipsis;
+
+  /* Smooth hover transitions as per guidance; prefers-reduced-motion rule exists globally in globals.css */
+  transition: background-color var(--motion-duration-fast, 200ms) var(--motion-ease, ease), color var(--motion-duration-fast, 200ms) var(--motion-ease, ease);
 }
 
 /* Sticky header bar that remains visible (grid keeps it at the top) */
@@ -486,7 +489,14 @@
 .td--emphasis-name {
   font-weight: 500;
 }
+/* Light theme default hover (unchanged) */
 .tr:hover .td { background: #F8FAFC; }
+
+/* Dark theme: use surface-appropriate hover color and keep text legible; avoid overriding selected/active states */
+html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selected):not([aria-selected="true"]):hover .td {
+  background: var(--color-hover-bg, #3A3330);
+  color: var(--color-text-primary, #EAEAEA);
+}
 .table-empty { padding: 16px; color: var(--text-tertiary); text-align: center; }
 .td.actions { display: flex; gap: 8px; align-items: center; justify-content: flex-start; flex-wrap: wrap; }
 .td.num { text-align: right; }
