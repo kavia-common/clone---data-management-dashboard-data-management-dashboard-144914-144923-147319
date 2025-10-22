@@ -88,7 +88,7 @@ export default function Sidebar() {
       <div className="sidebar-scroll">
         <nav aria-label="Main">
           <div className="sidebar-group">Main</div>
-          <NavLink to="/dashboard" end className="nav-link">
+          <NavLink to="/dashboard/overview" end className="nav-link">
             <span className="nav-label">Overview</span>
           </NavLink>
           <NavLink to="/dashboard/users" className="nav-link">
