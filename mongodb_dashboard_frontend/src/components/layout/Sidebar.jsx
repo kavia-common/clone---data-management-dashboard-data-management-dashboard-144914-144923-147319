@@ -1,5 +1,6 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
+import "./Sidebar.css";
 
 /**
  * PUBLIC_INTERFACE
@@ -17,6 +18,7 @@ export default function Sidebar() {
       role="navigation"
     >
       <nav aria-label="Main">
+        <div className="sidebar-group">Main</div>
         <NavLink to="/dashboard" end className="nav-link">
           <span className="nav-label">Overview</span>
         </NavLink>

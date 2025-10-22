@@ -1,0 +1,195 @@
+:root {
+  /* Common animation/transition durations */
+  --transition-fast: 120ms;
+  --transition-base: 200ms;
+  --transition-slow: 300ms;
+
+  /* Base spacing scale */
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+
+  /* Default radius */
+  --radius-6: 6px;
+  --radius-8: 8px;
+
+  /* Subtle shadow tuned for dark surfaces */
+  --shadow-elev-1: 0 1px 0 rgba(0,0,0,0.5), 0 6px 12px rgba(0,0,0,0.25);
+}
+
+/* PUBLIC_INTERFACE
+   Global dark theme variables mapped from design tokens.
+   These are applied when the root element has data-theme="dark".
+*/
+:root[data-theme="dark"] {
+  /* Core tokens (per acceptance criteria) */
+  --color-background: #1E1A18;
+  --color-surface: #2B2723;
+  --color-sidebar: #1B1816;
+  --color-text-primary: #EAEAEA;
+  --color-text-secondary: #B0A8A0;
+  --color-accent: #FF6600;
+  --color-border: #3C3532;
+  --color-hover-bg: #3A3330;
+
+  /* Map to existing app variables for backward compatibility with current CSS */
+  --bg-canvas: var(--color-background);
+  --bg-surface: var(--color-surface);
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-tertiary: var(--color-text-secondary);
+  --border-subtle: var(--color-border);
+  --brand-primary: var(--color-accent);
+  --brand-secondary: var(--color-accent);
+  --brand-secondary-hover: #ff7a1a; /* slightly lighter accent */
+  --brand-secondary-active: #e65c00; /* slightly deeper accent */
+
+  --input-bg: var(--color-surface);
+  --input-border: var(--color-border);
+  --placeholder: var(--color-text-secondary);
+
+  --modal-backdrop: rgba(0,0,0,0.55);
+}
+
+/* Typography + base reset for dark theme */
+html[data-theme="dark"], body[data-theme="dark"] {
+  background: var(--color-background);
+  color: var(--color-text-primary);
+}
+
+html, body {
+  font-family: system-ui, -apple-system, Segoe UI, Inter, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  line-height: 1.5;
+}
+
+/* Anchor hover behavior consistent with dark theme */
+html[data-theme="dark"] a { color: var(--color-text-secondary); }
+html[data-theme="dark"] a:hover { color: #ffffff; }
+
+/* Cards: surface, radius, subtle shadow, spacing */
+html[data-theme="dark"] .card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-8);
+  box-shadow: var(--shadow-elev-1);
+}
+html[data-theme="dark"] .card-header {
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-16) var(--space-16) var(--space-12) var(--space-16);
+}
+html[data-theme="dark"] .card-content {
+  padding: var(--space-16);
+}
+
+/* Sidebar: ~250px width, darker background, uppercase section headers, interactions */
+html[data-theme="dark"] .sidebar {
+  width: 250px;
+  min-width: 250px;
+  background: var(--color-sidebar);
+  border-right: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+html[data-theme="dark"] .sidebar .sidebar-group {
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+/* Nav links: default gray, brighten on hover, active with orange rail and tint */
+html[data-theme="dark"] .sidebar .nav-link {
+  color: var(--color-text-secondary);
+  background: transparent;
+  transition: background var(--transition-base) ease, color var(--transition-base) ease;
+}
+html[data-theme="dark"] .sidebar .nav-link:hover {
+  background: var(--color-hover-bg);
+  color: #ffffff;
+}
+html[data-theme="dark"] .sidebar .nav-link.active,
+html[data-theme="dark"] .sidebar .nav-link[aria-current="page"] {
+  background: color-mix(in oklab, var(--color-accent) 12%, transparent);
+  color: #ffffff;
+  box-shadow: inset 3px 0 0 0 var(--color-accent);
+  font-weight: 600;
+}
+
+/* Buttons: primary/secondary variants and transitions */
+html[data-theme="dark"] .btn {
+  border-radius: var(--radius-8);
+  transition: transform 50ms ease, box-shadow var(--transition-base) ease, background var(--transition-base) ease, color var(--transition-base) ease, border-color var(--transition-base) ease;
+}
+html[data-theme="dark"] .btn-primary {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+html[data-theme="dark"] .btn-primary:hover {
+  background: var(--brand-secondary-hover, #ff7a1a);
+  color: #ffffff;
+}
+html[data-theme="dark"] .btn-primary:active {
+  background: var(--brand-secondary-active, #e65c00);
+}
+html[data-theme="dark"] .btn-secondary {
+  background: var(--color-border);
+  color: var(--color-text-secondary);
+}
+html[data-theme="dark"] .btn-secondary:hover {
+  background: #4a423e; /* slight lighten */
+  color: #ffffff;
+}
+
+/* Inputs: dark surfaces, border, placeholder, orange focus ring */
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] .ui-input {
+  background: var(--input-bg);
+  color: var(--color-text-primary);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-6);
+  padding: 10px 12px;
+  outline: none;
+}
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder,
+html[data-theme="dark"] .ui-input::placeholder {
+  color: var(--placeholder);
+}
+html[data-theme="dark"] input:focus,
+html[data-theme="dark"] select:focus,
+html[data-theme="dark"] textarea:focus,
+html[data-theme="dark"] .ui-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 35%, transparent);
+}
+
+/* Tags: pill style */
+html[data-theme="dark"] .tag {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 9999px;
+  background: var(--color-border);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+/* Main area background */
+html[data-theme="dark"] .app-shell,
+html[data-theme="dark"] .content {
+  background: var(--color-background);
+}
+
+/* Topbar surface explicitly uses surface token in dark */
+html[data-theme="dark"] .topbar {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+}
+
+/* Hover helpers */
+html[data-theme="dark"] .hover-bright:hover { color: #ffffff !important; }

@@ -1,0 +1,33 @@
+/* Dark theme sidebar refinements */
+:root[data-theme="dark"] .sidebar {
+  padding: 16px 12px;
+}
+
+:root[data-theme="dark"] .sidebar nav {
+  display: grid;
+  gap: 6px;
+}
+
+:root[data-theme="dark"] .sidebar .nav-link {
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 6px 6px;
+  color: var(--color-text-secondary);
+}
+
+:root[data-theme="dark"] .sidebar .nav-link:hover {
+  background: var(--color-hover-bg);
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] .sidebar .nav-link.active,
+:root[data-theme="dark"] .sidebar .nav-link[aria-current="page"] {
+  background: color-mix(in oklab, var(--color-accent) 12%, transparent);
+  color: #ffffff;
+  box-shadow: inset 3px 0 0 0 var(--color-accent);
+}
+
+:root[data-theme="dark"] .sidebar .sidebar-group {
+  margin: 12px 10px 6px;
+  font-size: 12px;
+}

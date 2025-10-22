@@ -4,6 +4,12 @@ import { BrowserRouter } from "react-router-dom";
 import "./index.css";
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
+import { setTheme } from "./theme";
+
+// Apply dark theme globally based on design tokens
+if (typeof window !== "undefined") {
+  setTheme("dark");
+}
 
 // Guarded debug demo: only log in development to avoid noisy logs in production
 // Also avoid static import of crypto to prevent build/init-time failures when salt is placeholder.
