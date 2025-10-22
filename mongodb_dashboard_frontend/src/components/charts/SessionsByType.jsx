@@ -9,6 +9,7 @@ import {
   CartesianGrid,
   ResponsiveContainer,
 } from "recharts";
+import { getChartTheme } from "./chartTheme";
 
 /**
  * PUBLIC_INTERFACE
@@ -29,9 +30,10 @@ export default function SessionsByType({
 }) {
   /** This component renders a responsive bar chart: X=session_type, Y=session_count. */
 
-  const brandBlue = "#2563EB";
-  const brandBlueDarker = "#1E40AF";
-  const gridStroke = "rgba(0,0,0,0.08)";
+  const t = getChartTheme();
+  const brandBlue = t.primary;
+  const brandBlueDarker = t.primaryActive;
+  const gridStroke = t.grid;
 
   function truncateLabel(label, max = 14) {
     const s = String(label ?? "");
@@ -48,12 +50,12 @@ export default function SessionsByType({
           role="dialog"
           aria-live="polite"
           style={{
-            background: "#fff",
-            border: "1px solid #E2E8F0",
+            background: t.tooltip.bg,
+            border: `1px solid ${t.tooltip.border}`,
             borderRadius: 8,
             padding: "8px 10px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-            color: "#0F172A",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            color: t.tooltip.text,
           }}
         >
           <div style={{ fontWeight: 700, marginBottom: 4 }}>{fullLabel}</div>
@@ -90,17 +92,20 @@ export default function SessionsByType({
             <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
             <XAxis
               dataKey="session_type"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 12, fill: t.axisTick }}
               minTickGap={10}
               interval="preserveStartEnd"
               tickFormatter={(v) => truncateLabel(v, 14)}
             />
-            <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-            <Tooltip content={<CustomTooltip />} />
+            <YAxis tick={{ fontSize: 12, fill: t.axisTick }} allowDecimals={false} />
+            <Tooltip
+              content={<CustomTooltip />}
+              wrapperStyle={{ outline: "none" }}
+            />
             <Legend
               verticalAlign="top"
               height={24}
-              wrapperStyle={{ fontSize: 12 }}
+              wrapperStyle={{ fontSize: 12, color: t.legend.text }}
             />
             <Bar
               dataKey="session_count"
@@ -108,6 +113,7 @@ export default function SessionsByType({
               fill={brandBlue}
               stroke={brandBlueDarker}
               aria-label="Sessions count"
+              radius={[4, 4, 0, 0]}
             />
           </BarChart>
         </ResponsiveContainer>

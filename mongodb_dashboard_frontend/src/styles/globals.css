@@ -61,6 +61,15 @@
   --placeholder: var(--color-text-secondary);
 
   --modal-backdrop: rgba(0,0,0,0.55);
+
+  /* Chart tokens for dark mode */
+  --chart-primary: #FF6600;
+  --chart-primary-hover: #ff7a1a;
+  --chart-primary-active: #e65c00;
+  --chart-grid: rgba(234,234,234,0.12);
+  --chart-axis: rgba(234,234,234,0.6);
+  --chart-tooltip-bg: #1E1A18;
+  --chart-tooltip-border: #3C3532;
 }
 
 /* Typography + base reset for dark theme */
@@ -234,6 +243,22 @@ html[data-theme="dark"] input:focus,
 html[data-theme="dark"] select:focus,
 html[data-theme="dark"] textarea:focus,
 html[data-theme="dark"] .ui-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 35%, transparent);
+}
+
+/* Align search input used on pages with Input styling */
+html[data-theme="dark"] .input-search {
+  background: var(--input-bg);
+  color: var(--color-text-primary);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-6);
+  padding: 10px 12px;
+}
+html[data-theme="dark"] .input-search::placeholder {
+  color: var(--placeholder);
+}
+html[data-theme="dark"] .input-search:focus {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 35%, transparent);
 }
