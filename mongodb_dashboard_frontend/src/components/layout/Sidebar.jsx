@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
+import appLogo from "../../assets/logo/app-logo-2025.png";
 
 /**
  * PUBLIC_INTERFACE
@@ -81,6 +82,9 @@ export default function Sidebar() {
       aria-label="Primary navigation"
       role="navigation"
     >
+      <div className="sidebar-brand" role="banner" tabIndex="0">
+        <img src={appLogo} alt="App logo" className="sidebar-brand-logo" />
+      </div>
       <div className="sidebar-scroll">
         <nav aria-label="Main">
           <div className="sidebar-group">Main</div>

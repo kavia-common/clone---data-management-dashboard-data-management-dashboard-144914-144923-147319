@@ -145,3 +145,44 @@
   outline: none;
   box-shadow: 0 0 0 2px var(--color-accent, #FF6600);
 }
+
+/* --- Sidebar brand/header area --- */
+.sidebar .sidebar-brand {
+  padding: 16px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: inherit; /* match sidebar background, no extra border/box */
+  border: none;
+  outline: none;
+  border-radius: 8px; /* so focus ring has pleasant rounding */
+}
+
+/* Brand logo sizing — responsive: cap height to ~32px and keep aspect ratio */
+.sidebar .sidebar-brand-logo {
+  display: block;
+  max-height: 32px;
+  height: auto;
+  width: auto;
+}
+
+/* Maintain accessibility: focus-visible ring for keyboard users, no color change */
+.sidebar .sidebar-brand:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring-color, #FF6600);
+}
+
+/* Optional hover: keep visual calm, no background color change */
+.sidebar .sidebar-brand:hover {
+  background: inherit;
+}
+
+/* Dark theme: ensure legibility of raster logos on #1B1816 via subtle drop shadow */
+:root[data-theme="dark"] .sidebar .sidebar-brand {
+  background: var(--color-sidebar, #1B1816);
+}
+
+:root[data-theme="dark"] .sidebar .sidebar-brand-logo {
+  /* Subtle, layered shadow to lift the logo on very dark backgrounds */
+  filter: drop-shadow(0 0 0.5px rgba(0, 0, 0, 0.35)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
