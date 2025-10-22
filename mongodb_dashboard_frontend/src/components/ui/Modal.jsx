@@ -129,14 +129,12 @@ export default function Modal({
         .modal-card-shell.modal--costs .modal__body,
         .modal-card-shell.modal--costs .modal__content {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
-          color: var(--text-primary, #111827) !important;
         }
         /* Headers/footers explicitly aligned to app background */
         .modal-card-shell.modal--costs .sticky-header,
         .modal-card-shell.modal--costs .modal__header,
         .modal-card-shell.modal--costs .modal__footer {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
-          color: var(--text-primary, #111827) !important;
         }
         /* Section and card-like blocks default to app background unless intentionally surfaced */
         .modal-card-shell.modal--costs .details-panel,
@@ -145,7 +143,6 @@ export default function Modal({
         .modal-card-shell.modal--costs .card-header,
         .modal-card-shell.modal--costs .card-content {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
-          color: var(--text-primary, #111827) !important;
           border-color: var(--border-subtle, #e5e7eb) !important;
         }
         /* Explicit surface variant for true cards: keep white but fix text/border for contrast */
@@ -154,7 +151,7 @@ export default function Modal({
         .modal-card-shell.modal--costs .dv-grid.surface,
         .modal-card-shell.modal--costs .card.card--surface {
           background: var(--surface, #ffffff) !important;
-          color: #111827 !important; /* primary text on true white */
+          color: inherit !important; /* Use existing theme color; do not force black */
           border: 1px solid var(--border-subtle, #e5e7eb) !important;
           box-shadow: 0 1px 2px rgba(0,0,0,0.04);
         }
@@ -170,19 +167,14 @@ export default function Modal({
         .modal-card-shell.modal--costs [style*="background:#fafcff"],
         .modal-card-shell.modal--costs [style*="background: #fafcff"] {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
-          color: var(--text-primary, #111827) !important;
         }
         /* Legacy utility classes */
         .modal-card-shell.modal--costs .bg-white,
         .modal-card-shell.modal--costs [class*="bg-white"] {
           background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
-          color: var(--text-primary, #111827) !important;
         }
         /* Text contrasts */
-        .modal-card-shell.modal--costs,
-        .modal-card-shell.modal--costs * {
-          color: var(--text-primary, #111827);
-        }
+        /* [Scoped change] Removed global text color override to limit black text to array/object content only. */
         .modal-card-shell.modal--costs .muted,
         .modal-card-shell.modal--costs .text-secondary,
         .modal-card-shell.modal--costs .dv-summary,
