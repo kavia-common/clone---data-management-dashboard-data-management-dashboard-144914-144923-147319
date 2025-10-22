@@ -3,6 +3,7 @@ import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api/client";
+import LlmModelsOverTime from "../../components/charts/LlmModelsOverTime.jsx";
 
 // PUBLIC_INTERFACE
 export default function Overview() {
@@ -106,6 +107,11 @@ export default function Overview() {
             <KPIChart data={trend} xKey="label" yKey="value" />
           )}
         </Card>
+      </div>
+
+      {/* LLM model usage over time */}
+      <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
+        <LlmModelsOverTime days={30} height={320} />
       </div>
 
     </div>
