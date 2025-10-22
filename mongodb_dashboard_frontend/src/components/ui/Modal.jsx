@@ -119,11 +119,40 @@ export default function Modal({
           max-width: min(92vw, 720px);
           box-sizing: border-box;
         }
-        /* Costs modal variant: body background aligns with app background (theme token) */
-        .modal-card-shell.modal--costs .modal-card-body-scroll {
+        /* GxP Accessibility: Costs modal variant
+           - Requirement: Modal body/content area must use application background (non-white) for AA contrast
+           - Tokens: var(--bg-canvas, var(--ocean-bg, #f9fafb)) for canvas; var(--text-primary, #111827) for text; var(--text-secondary, #374151)
+           - High-specificity selectors below ensure that any residual white backgrounds (e.g., legacy .bg-white or inline backgrounds)
+             do not override the costs modal appearance. */
+        .modal-card-shell.modal--costs .modal-card-body-scroll,
+        .modal-card-shell.modal--costs .modal__body,
+        .modal-card-shell.modal--costs .modal__content {
           /* Prefer theme background token; fallback to Ocean Professional light background */
-          background: var(--bg-canvas, var(--ocean-bg, #f9fafb));
+          background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+          color: var(--text-primary, #111827) !important;
+        }
+        /* Keep footer separation while aligning to theme tokens (avoid pure white on canvas) */
+        .modal-card-shell.modal--costs .modal-footer {
+          background: linear-gradient(
+            180deg,
+            color-mix(in oklab, var(--bg-surface, #ffffff) 92%, transparent),
+            var(--bg-surface, #ffffff)
+          );
+          border-top: 1px solid var(--border-subtle, #e5e7eb);
+        }
+        /* If any consumer passes a white background utility/class, neutralize it within the Costs modal scope */
+        .modal-card-shell.modal--costs .bg-white,
+        .modal-card-shell.modal--costs [class*="bg-white"] {
+          background: var(--bg-canvas, var(--ocean-bg, #f9fafb)) !important;
+        }
+        /* Ensure text contrast on light backgrounds within the costs modal */
+        .modal-card-shell.modal--costs,
+        .modal-card-shell.modal--costs * {
           color: var(--text-primary, #111827);
+        }
+        .modal-card-shell.modal--costs .muted,
+        .modal-card-shell.modal--costs .text-secondary {
+          color: var(--text-secondary, #374151);
         }
         .modal-card-body-scroll {
           flex: 1;

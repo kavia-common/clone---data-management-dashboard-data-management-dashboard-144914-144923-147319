@@ -673,6 +673,7 @@ export default function DetailsViewer({
         .dv-primitive { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         .dv-collapser { display: grid; gap: 8px; }
+        /* GxP Accessibility: Use surface token instead of hard white to avoid conflicts on canvas backgrounds */
         .dv-toggle {
           height: 32px;
           padding: 0 8px;
@@ -682,7 +683,7 @@ export default function DetailsViewer({
           align-items: center;
           gap: 6px;
           font-weight: 600;
-          background: #fff;
+          background: var(--bg-surface, #fff);
         }
         .dv-toggle:hover { 
           background: color-mix(in oklab, var(--color-accent, #F59E0B) 8%, transparent);
