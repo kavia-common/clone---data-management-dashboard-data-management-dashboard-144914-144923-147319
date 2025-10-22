@@ -402,13 +402,13 @@ export default function TabbedUserModal({
 
   return (
     <Modal title={title} open={open} onClose={onClose}>
-      <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "#fff" }}>
+      <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "var(--bg-surface, #fff)" }}>
         <div style={{ padding: "12px 20px" }}>
           <ThemedTabs activeKey={activeTab} onChange={setActiveTab} />
         </div>
       </div>
 
-      <div role="region" style={{ flex: 1, overflow: "auto", background: "#f9fafb" }}>
+      <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
           {activeTab === 'projects' && (
@@ -417,7 +417,7 @@ export default function TabbedUserModal({
         </div>
       </div>
 
-      <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "#fff" }}>
+      <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "var(--bg-surface, #fff)" }}>
         <button
           type="button"
           onClick={onClose}

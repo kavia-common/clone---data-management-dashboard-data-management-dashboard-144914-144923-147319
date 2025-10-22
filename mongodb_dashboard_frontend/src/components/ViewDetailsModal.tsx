@@ -104,34 +104,39 @@ const ViewDetailsModal: React.FC<ViewDetailsModalProps> = ({
           <div style={{ padding: '0.75rem', color: '#6b7280' }}>No details available.</div>
         ) : (
           <dl style={{ margin: 0 }}>
-            {entries.map(([key, value]) => (
-              <div
-                key={key}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 2fr',
-                  gap: '0.5rem 1rem',
-                  padding: '0.5rem 0.75rem',
-                  borderBottom: '1px solid #e5e7eb',
-                }}
-              >
-                <dt style={{ fontWeight: 600, color: '#111827' }}>{formatLabel(key)}</dt>
-                <dd
+            {entries.map(([key, value], idx) => {
+              const isOdd = idx % 2 === 1;
+              return (
+                <div
+                  key={key}
                   style={{
-                    margin: 0,
-                    whiteSpace: typeof value === 'object' ? 'pre-wrap' : 'normal',
-                    color: '#374151',
-                    fontFamily:
-                      typeof value === 'object'
-                        ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-                        : 'inherit',
-                    fontSize: typeof value === 'object' ? '0.85rem' : 'inherit',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 2fr',
+                    gap: '0.5rem 1rem',
+                    padding: '0.6rem 0.85rem',
+                    borderBottom: '1px solid #e5e7eb',
+                    background: isOdd ? '#fcfcfd' : '#ffffff',
                   }}
                 >
-                  {renderValue(value, key)}
-                </dd>
-              </div>
-            ))}
+                  <dt style={{ fontWeight: 700, color: '#111827', lineHeight: 1.5 }}>{formatLabel(key)}</dt>
+                  <dd
+                    style={{
+                      margin: 0,
+                      whiteSpace: typeof value === 'object' ? 'pre-wrap' : 'normal',
+                      color: '#111827',
+                      lineHeight: 1.55,
+                      fontFamily:
+                        typeof value === 'object'
+                          ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                          : 'inherit',
+                      fontSize: typeof value === 'object' ? '0.86rem' : 'inherit',
+                    }}
+                  >
+                    {renderValue(value, key)}
+                  </dd>
+                </div>
+              );
+            })}
           </dl>
         )}
       </div>
