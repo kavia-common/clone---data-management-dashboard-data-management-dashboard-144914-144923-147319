@@ -8,7 +8,7 @@
   --text-tertiary: #64748B;
 
   /* Brand: primary orange + secondary blue (per style system) */
-  --brand-primary: #FF6A3D;      /* brand orange */
+  --brand-primary: #FF6600;      /* brand orange (standardized accent) */
   --brand-secondary: #0EA5E9;    /* brand blue */
   --brand-secondary-hover: #0284C7; /* darker blue for hover */
   --brand-secondary-active: #0369A1; /* even darker for active */
@@ -19,8 +19,8 @@
   --link: #2563EB;
 
   /* Badges — pale blue per Ocean Professional */
-  --badge-bg: #E6F2FE;  /* light blue tint */
-  --badge-text: #0B74D0; /* dark blue */
+  --badge-bg: color-mix(in oklab, var(--brand-primary) 12%, white);  /* light accent tint */
+  --badge-text: var(--brand-primary); /* accent text */
 
   --input-bg: #F8FAFC;
   --input-border: #E2E8F0;
@@ -178,7 +178,7 @@
   outline: none;
 }
 .sidebar:focus-visible {
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.28);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--focus-ring-color, #FF6600) 35%, transparent);
 }
 
 /* removed: .sidebar-mobile-close — no sidebar close control in the UI */
@@ -232,7 +232,7 @@
 
 /* Focus-visible ring for keyboard users */
 .nav-link:focus-visible {
-  outline: 3px solid rgba(14, 165, 233, 0.45);
+  outline: 3px solid var(--focus-ring-color, #FF6600);
   outline-offset: 2px;
 }
 
@@ -293,15 +293,20 @@
   .btn { min-height: 36px; }
 }
 .btn:active { transform: translateY(1px); }
-.btn-primary { background: var(--brand-secondary); color: #fff; height: 36px; }
-.btn-primary:hover { background: var(--brand-secondary-hover); }
-.btn-primary:active { background: var(--brand-secondary-active); }
-.btn-primary:focus-visible { outline: 3px solid rgba(14, 165, 233, 0.45); outline-offset: 2px; }
-.btn-primary:disabled, .btn-primary[aria-disabled="true"] { background: #7DD3FC; color: #f8fafc; cursor: not-allowed; opacity: .85; }
+.btn-primary { background: var(--brand-primary); color: #fff; height: 36px; }
+.btn-primary:hover { background: color-mix(in oklab, var(--brand-primary) 85%, black); }
+.btn-primary:active { background: color-mix(in oklab, var(--brand-primary) 75%, black); }
+.btn-primary:focus-visible { outline: 3px solid var(--focus-ring-color, #FF6600); outline-offset: 2px; }
+.btn-primary:disabled, .btn-primary[aria-disabled="true"] {
+  background: color-mix(in oklab, var(--brand-primary) 35%, white);
+  color: #f8fafc;
+  cursor: not-allowed;
+  opacity: .85;
+}
 .btn-secondary { background: #E2E8F0; color: var(--text-primary); }
 .btn-danger { background: var(--danger); color: white; }
 .btn-ghost { background: transparent; color: var(--text-primary); }
-.btn:focus { outline: 2px solid #BFDBFE; outline-offset: 2px; }
+.btn:focus { outline: 2px solid var(--focus-ring-color, #FF6600); outline-offset: 2px; }
 .w-full { width: 100%; }
 
 /* Cards */
@@ -452,9 +457,9 @@
   flex-wrap: wrap;
 }
 .table-pagination .btn-ghost[aria-current="page"] {
-  /* Guard: if any case assigns aria-current on ghost, ensure visibility */
-  background: #EFF6FF;
-  color: var(--brand-secondary);
+  /* Current page highlighted using accent tint */
+  background: color-mix(in oklab, var(--brand-primary) 12%, white);
+  color: var(--brand-primary);
   font-weight: 700;
 }
 .table-pagination .btn.btn-ghost {
@@ -572,8 +577,8 @@ textarea { height: auto; min-height: 80px; }
   .form-grid { grid-template-columns: 1fr; gap: 10px; }
 }
 input:focus, select:focus, textarea:focus {
-  border-color: var(--brand-secondary);
-  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.28);
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-primary) 35%, transparent);
 }
 .error { background: rgba(239,68,68,0.07); color: #991b1b; padding: 10px 12px; border-radius: 8px; border: 1px solid #fecaca; }
 
@@ -770,7 +775,7 @@ input:focus, select:focus, textarea:focus {
   position: fixed;
   inset: 0;
   z-index: 1000; /* above header/sidebar/modal */
-  background: linear-gradient(180deg, rgba(14,165,233,0.06), rgba(255,255,255,0.9));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--brand-primary) 10%, transparent), rgba(255,255,255,0.9));
   display: grid;
   place-items: center;
   padding: 24px;

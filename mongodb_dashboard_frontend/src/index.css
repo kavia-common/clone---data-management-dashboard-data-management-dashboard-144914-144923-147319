@@ -73,8 +73,8 @@ button, .btn, a, input, select, textarea {
 }
 
 /* Links use brand blue; darken on hover */
-a { color: var(--link, #2563EB); text-decoration: none; }
-a:hover { text-decoration: underline; color: #1D4ED8; }
+a { color: var(--color-accent, var(--brand-primary, #FF6600)); text-decoration: none; }
+a:hover { text-decoration: underline; color: color-mix(in oklab, var(--color-accent, var(--brand-primary, #FF6600)) 85%, black); }
 
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;

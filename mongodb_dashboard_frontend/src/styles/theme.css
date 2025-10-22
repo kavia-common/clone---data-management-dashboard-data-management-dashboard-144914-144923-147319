@@ -73,7 +73,7 @@ body {
 }
 
 .hover-row:hover {
-  background: rgba(37, 99, 235, 0.04);
+  background: color-mix(in oklab, var(--color-accent, #FF6600) 8%, transparent);
 }
 
 /* Dark theme override for generic hover rows */
