@@ -86,8 +86,7 @@ export default function Sidebar() {
         {/* REQ-UI-LOGO-REPLACE: logo removed intentionally to simplify sidebar branding */}
       </div>
       <div className="sidebar-scroll">
-        <nav aria-label="Main">
-          <div className="sidebar-group">Main</div>
+        <nav aria-label="Dashboard sections">
           <NavLink to="/dashboard/overview" end className="nav-link">
             <span className="nav-label">Overview</span>
           </NavLink>

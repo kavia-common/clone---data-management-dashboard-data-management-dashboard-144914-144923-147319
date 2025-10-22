@@ -186,3 +186,9 @@
   /* Subtle, layered shadow to lift the logo on very dark backgrounds */
   filter: drop-shadow(0 0 0.5px rgba(0, 0, 0, 0.35)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
 }
+
+/* Preserve spacing when the 'Main' section heading is removed */
+.sidebar nav .nav-link:first-of-type {
+  /* Increase top margin for the first item to keep visual rhythm similar to previous group label spacing */
+  margin-top: 12px;
+}
