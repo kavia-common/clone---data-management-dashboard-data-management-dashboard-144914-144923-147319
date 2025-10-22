@@ -199,6 +199,22 @@ export default function Modal({
           color: var(--text-primary, #111827) !important;
           border-color: var(--border-subtle, #e5e7eb) !important;
         }
+
+        /* GxP Accessibility: High-contrast text override for the specific Array(n) block within Costs View Details modal only.
+           Scope narrowly to the costs modal and the array-contrast-block container to avoid side effects in other modals.
+           Ensures the Array badge, keys (dt), colon, and values inside the array block use #111827, and nested spans/code inherit. */
+        .modal-card-shell.modal--costs .array-contrast-block .tv-badge {
+          color: #111827 !important;  /* Ensure Array(n) label is black for contrast */
+        }
+        .modal-card-shell.modal--costs .array-contrast-block .tv-key,
+        .modal-card-shell.modal--costs .array-contrast-block .tv-colon,
+        .modal-card-shell.modal--costs .array-contrast-block .tv-value {
+          color: #111827 !important;  /* Keys/values black within array block */
+        }
+        .modal-card-shell.modal--costs .array-contrast-block,
+        .modal-card-shell.modal--costs .array-contrast-block * {
+          color: #111827; /* Ensure nested spans/code inherit black text */
+        }
         /* Footer separator while avoiding white slab look */
         .modal-card-shell.modal--costs .modal-footer {
           background: linear-gradient(
