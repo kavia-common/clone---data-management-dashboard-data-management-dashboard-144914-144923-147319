@@ -6,6 +6,7 @@ import Card from '../components/ui/Card.jsx';
 import Input from '../components/ui/Input.jsx';
 import Button from '../components/ui/Button.jsx';
 import './Login.css';
+import appLogo from '../assets/logo/app-logo-2025.png'; // REQ-UI-LOGO-REPLACE: reuse sidebar logo
 
 /**
  * PUBLIC_INTERFACE
@@ -102,7 +103,13 @@ export default function Login() {
     <div className="auth-screen">
       <div className="auth-card">
         <div className="auth-header">
-          <div className="auth-logo" aria-hidden="true">★</div>
+          {/* REQ-UI-LOGO-REPLACE: Replace star with shared logo asset, sized for login header */}
+          <img
+            src={appLogo}
+            alt="Company logo"
+            className="auth-logo"
+            style={{ height: 36, width: 'auto' }}
+          />
           <h2 style={{ margin: 0 }}>Sign in</h2>
           <div className="muted" style={{ marginTop: 4 }}>Access your dashboard</div>
         </div>
