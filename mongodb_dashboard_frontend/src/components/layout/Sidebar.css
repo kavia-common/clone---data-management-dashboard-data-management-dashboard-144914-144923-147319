@@ -22,7 +22,8 @@
 .sidebar .sidebar-bottom {
   position: sticky;
   bottom: 0;
-  background: var(--bg-surface, #ffffff);
+  /* Match the sidebar background (no separate card behind Logout) */
+  background: inherit;
   padding: 10px 8px;
   margin-top: auto; /* push to bottom when content is short */
   border-top: 1px solid var(--border-subtle, #E5E7EB);
@@ -116,7 +117,8 @@
 
 /* Dark theme: style the pinned bottom region and logout button */
 :root[data-theme="dark"] .sidebar .sidebar-bottom {
-  background: var(--color-surface, #2B2723);
+  /* Explicitly use the sidebar color token with fallback to #1B1816 */
+  background: var(--color-sidebar, #1B1816);
   border-top: 1px solid var(--color-border, #3C3532);
   padding: 10px 8px;
 }
