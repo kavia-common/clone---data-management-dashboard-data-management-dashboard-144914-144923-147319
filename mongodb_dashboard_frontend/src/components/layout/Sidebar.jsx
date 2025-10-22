@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
-import appLogo from "../../assets/logo/app-logo-2025.png";
+ // REQ-UI-LOGO-REPLACE: logo removed from sidebar; asset import no longer needed
 
 /**
  * PUBLIC_INTERFACE
@@ -83,7 +83,7 @@ export default function Sidebar() {
       role="navigation"
     >
       <div className="sidebar-brand" role="banner" tabIndex="0">
-        <img src={appLogo} alt="App logo" className="sidebar-brand-logo" />
+        {/* REQ-UI-LOGO-REPLACE: logo removed intentionally to simplify sidebar branding */}
       </div>
       <div className="sidebar-scroll">
         <nav aria-label="Main">
