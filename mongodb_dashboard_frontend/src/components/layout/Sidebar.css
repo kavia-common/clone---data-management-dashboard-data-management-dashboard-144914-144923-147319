@@ -1,4 +1,4 @@
-/* Dark theme sidebar refinements */
+ /* Dark theme sidebar refinements */
 :root[data-theme="dark"] .sidebar {
   padding: 16px 12px;
 }
@@ -9,22 +9,37 @@
 }
 
 :root[data-theme="dark"] .sidebar .nav-link {
+  display: block; /* Prevent layout jitter on hover */
   border-radius: 8px;
   padding: 12px 14px;
   margin: 6px 6px;
   color: var(--color-text-secondary);
+  background: transparent;
+  /* Smooth hover transition (200–300ms, default to 250ms if token missing) */
+  transition: background-color var(--transition-base, 250ms) ease, color var(--transition-base, 250ms) ease;
 }
 
+/* Unified hover: slightly lighter dark tone with smooth transition */
 :root[data-theme="dark"] .sidebar .nav-link:hover {
-  background: var(--color-hover-bg);
+  background-color: var(--color-hover-bg, #3A3330);
   color: #ffffff;
 }
 
+/* Active state: keep orange left rail and subtle accent tint */
 :root[data-theme="dark"] .sidebar .nav-link.active,
 :root[data-theme="dark"] .sidebar .nav-link[aria-current="page"] {
   background: color-mix(in oklab, var(--color-accent) 12%, transparent);
   color: #ffffff;
   box-shadow: inset 3px 0 0 0 var(--color-accent);
+  /* Weight stays consistent to avoid layout shift/jitter */
+  font-weight: 600;
+}
+
+/* Preserve active tint on hover (do not override with general hover bg) */
+:root[data-theme="dark"] .sidebar .nav-link.active:hover,
+:root[data-theme="dark"] .sidebar .nav-link[aria-current="page"]:hover {
+  background: color-mix(in oklab, var(--color-accent) 12%, transparent);
+  color: #ffffff;
 }
 
 :root[data-theme="dark"] .sidebar .sidebar-group {
