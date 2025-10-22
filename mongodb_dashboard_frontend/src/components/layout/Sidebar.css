@@ -1,4 +1,42 @@
- /* Dark theme sidebar refinements */
+ /* Structural + styling for pinned logout section and dark theme refinements */
+
+/* Base structure: ensure bottom area can be pinned inside the scrollable sidebar */
+.sidebar {
+  position: relative;
+}
+
+/* Bottom pinned region inside the sidebar (sticks to bottom of sidebar viewport) */
+.sidebar .sidebar-bottom {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-surface, #ffffff);
+  padding: 10px 8px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border-subtle, #E5E7EB);
+}
+
+/* Logout button: full-width, uses ghost variant with orange accent on hover */
+.sidebar .sidebar-logout-btn {
+  width: 100%;
+  text-align: center;
+  background: transparent;
+  color: var(--text-secondary, #475569);
+  border-radius: 8px;
+  transition: background-color var(--motion-duration-250, 250ms) var(--motion-ease, ease),
+              color var(--motion-duration-250, 250ms) var(--motion-ease, ease);
+}
+
+.sidebar .sidebar-logout-btn:hover {
+  background: var(--brand-primary-tint, #FFF6F2);
+  color: var(--brand-primary, #FF6600);
+}
+
+.sidebar .sidebar-logout-btn:focus-visible {
+  outline: 3px solid var(--focus-ring-color, #FF6600);
+  outline-offset: 2px;
+}
+
+/* Dark theme sidebar refinements */
 :root[data-theme="dark"] .sidebar {
   padding: 16px 12px;
 }
@@ -45,4 +83,26 @@
 :root[data-theme="dark"] .sidebar .sidebar-group {
   margin: 12px 10px 6px;
   font-size: 12px;
+}
+
+/* Dark theme: style the pinned bottom region and logout button */
+:root[data-theme="dark"] .sidebar .sidebar-bottom {
+  background: var(--color-surface, #2B2723);
+  border-top: 1px solid var(--color-border, #3C3532);
+  padding: 10px 8px;
+}
+
+:root[data-theme="dark"] .sidebar .sidebar-logout-btn {
+  color: var(--color-text-secondary, #B0A8A0);
+  background: transparent;
+}
+
+:root[data-theme="dark"] .sidebar .sidebar-logout-btn:hover {
+  background: var(--color-hover-bg, #3A3330);
+  color: var(--color-text-primary, #EAEAEA);
+}
+
+:root[data-theme="dark"] .sidebar .sidebar-logout-btn:focus-visible {
+  outline: 3px solid var(--color-accent, #FF6600);
+  outline-offset: 2px;
 }
