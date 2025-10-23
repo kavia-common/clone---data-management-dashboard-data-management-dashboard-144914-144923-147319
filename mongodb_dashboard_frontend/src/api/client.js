@@ -104,11 +104,11 @@ export async function listLlmCosts(params = {}) {
  * PUBLIC_INTERFACE
  * getLlmUsageOverTime
  * Fetch aggregated LLM usage over time for stacked area chart.
- * @param {number} days number of days (default 30)
+ * @param {number} days number of days (default 90)
  * @returns {{ items: Array<{date: string, series: Record<string, number>}>, meta: { models: string[], start: string, end: string, days: number } }}
  */
-export async function getLlmUsageOverTime(days = 30) {
-  const d = Math.max(1, Math.min(180, parseInt(days, 10) || 30));
+export async function getLlmUsageOverTime(days = 90) {
+  const d = Math.max(1, Math.min(180, parseInt(days, 10) || 90));
   const res = await api.get(`/llm-costs/usage-over-time`, { params: { days: d } });
   return res.data;
 }

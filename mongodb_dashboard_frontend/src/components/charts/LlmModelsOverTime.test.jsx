@@ -15,6 +15,25 @@ describe("LlmModelsOverTime", () => {
     jest.resetAllMocks();
   });
 
+  test("defaults to 90 days when no days prop is provided", async () => {
+    // Return minimal valid data
+    getLlmUsageOverTime.mockResolvedValueOnce({
+      items: [{ date: "2025-01-01", series: {} }],
+      meta: { models: [], start: "2025-01-01T00:00:00.000Z", end: "2025-01-01T23:59:59.999Z", days: 1 },
+    });
+
+    render(<LlmModelsOverTime height={200} />);
+
+    await waitFor(() => expect(screen.queryByText(/Loading/i)).not.toBeInTheDocument());
+
+    // Ensure the API was invoked with 90
+    expect(getLlmUsageOverTime).toHaveBeenCalledTimes(1);
+    expect(getLlmUsageOverTime).toHaveBeenCalledWith(90);
+
+    // Title should show (90d)
+    expect(screen.getByText(/LLM Model Usage \(90d\)/i)).toBeInTheDocument();
+  });
+
   test("shows empty state when no models and totals are zero", async () => {
     getLlmUsageOverTime.mockResolvedValueOnce({
       items: [

@@ -11,7 +11,7 @@ import { getChartTheme, withAlpha } from "./chartTheme";
 // ============================================================================
 // Requirement ID: REQ-FE-LLM-CHART-OT-001
 // User Story: As a dashboard viewer, I want to see a stacked area chart showing total_cost
-//             by llm_model per day for the last 30 days.
+ //             by llm_model per day for the last 90 days.
 // Acceptance Criteria:
 //  - Fetches /api/llm-costs/usage-over-time?days=30
 //  - Renders stacked area chart by model with date X-axis (YYYY-MM-DD)
@@ -30,7 +30,7 @@ import { getChartTheme, withAlpha } from "./chartTheme";
  *  - days?: number (default 30)
  *  - height?: number (default 300)
  */
-export default function LlmModelsOverTime({ days = 30, height = 300 }) {
+export default function LlmModelsOverTime({ days = 90, height = 300 }) {
   const theme = getChartTheme();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -129,6 +129,23 @@ export default function LlmModelsOverTime({ days = 30, height = 300 }) {
     return base || theme.primary;
   };
 
+  // Compute X-axis tick configuration for up to 90 days
+  const tickCount = useMemo(() => {
+    const n = data?.length || 0;
+    if (n <= 14) return n; // show all for small ranges
+    // Aim for ~10-12 ticks for readability
+    return Math.min(12, Math.ceil(n / 7) + 1);
+  }, [data]);
+
+  // Format YYYY-MM-DD -> 'MMM d' for compact axis labels
+  const formatDateTick = useCallback((value) => {
+    if (typeof value !== "string") return value;
+    const [y, m, d] = value.split("-").map((s) => parseInt(s, 10));
+    if (!y || !m || !d) return value;
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }, []);
+
   const renderTooltip = ({ active, payload, label }) => {
     if (!active || !payload || !payload.length) return null;
     const items = payload.filter((p) => p.dataKey !== "total");
@@ -165,7 +182,7 @@ export default function LlmModelsOverTime({ days = 30, height = 300 }) {
 
   return (
     <Card
-      title={`LLM Model Usage (${Number.isFinite(days) ? days : 30}d)`}
+      title={`LLM Model Usage (${Number.isFinite(days) ? days : 90}d)`}
       subtitle="Daily total_cost by LLM model (stacked)"
       aria-label="LLM model usage over time card"
       actions={
@@ -234,7 +251,15 @@ export default function LlmModelsOverTime({ days = 30, height = 300 }) {
                 })}
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
-              <XAxis dataKey="date" stroke={theme.axisTick} tick={{ fontSize: 12 }} />
+              <XAxis
+                dataKey="date"
+                stroke={theme.axisTick}
+                tick={{ fontSize: 12, angle: -20 }}
+                tickFormatter={formatDateTick}
+                tickCount={tickCount}
+                minTickGap={8}
+                interval="preserveStartEnd"
+              />
               <YAxis stroke={theme.axisTick} tick={{ fontSize: 12 }} />
               <Tooltip content={renderTooltip} />
               <Legend
