@@ -9,7 +9,6 @@ import PageTransition from "./PageTransition";
  * Shell layout with a fixed, always-visible sidebar and a sticky topbar.
  * - The sidebar is always shown (no collapse/close behavior).
  * - The layout uses CSS grid (see App.css) to allocate a sidebar column and a content column.
- * - TenantBootstrap now runs at the protected route root via TenantBootstrapGate.
  */
 // PUBLIC_INTERFACE
 export default function AppLayout({ children }) {
