@@ -58,3 +58,46 @@ describe("AgentBarChart - basic states", () => {
     expect(screen.getByLabelText("Bar chart of agents by selected metric")).toBeInTheDocument();
   });
 });
+
+describe("AgentBarChart - aggregation", () => {
+  test("aggregates records to one row per unique agent (count)", () => {
+    const input = [
+      { agent_name: "Agent A", total_cost: 1.0 },
+      { agent_name: "Agent A", total_cost: 2.0 },
+      { agent_name: "Agent B", total_cost: 5.0 },
+      { agent_name: "Agent B", total_cost: 0.5 },
+      { agent_name: "Agent C", total_cost: 3.0 },
+    ];
+
+    const out = AgentBarChart.__private__.aggregateByAgent(input, "count");
+    // Expect unique agents A,B,C only
+    expect(out).toHaveLength(3);
+    const a = out.find((r) => r.agent_name === "Agent A");
+    const b = out.find((r) => r.agent_name === "Agent B");
+    const c = out.find((r) => r.agent_name === "Agent C");
+    expect(a.value).toBe(2);
+    expect(b.value).toBe(2);
+    expect(c.value).toBe(1);
+  });
+
+  test("aggregates records to one row per unique agent (total_cost sum)", () => {
+    const input = [
+      { agent_name: "Agent A", total_cost: 1.0 },
+      { agent_name: "Agent A", total_cost: 2.0 },
+      { agent_name: "Agent B", total_cost: 5.0 },
+      { agent_name: "Agent B", total_cost: 0.5 },
+      { agent_name: "Agent C", total_cost: 3.25 },
+      { agent_name: "Agent C", total_cost: null },
+      { agent_name: "Agent C" },
+    ];
+
+    const out = AgentBarChart.__private__.aggregateByAgent(input, "total_cost");
+    expect(out).toHaveLength(3);
+    const a = out.find((r) => r.agent_name === "Agent A");
+    const b = out.find((r) => r.agent_name === "Agent B");
+    const c = out.find((r) => r.agent_name === "Agent C");
+    expect(a.value).toBeCloseTo(3.0);
+    expect(b.value).toBeCloseTo(5.5);
+    expect(c.value).toBeCloseTo(3.25);
+  });
+});

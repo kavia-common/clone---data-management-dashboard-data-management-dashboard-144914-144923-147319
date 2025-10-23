@@ -227,7 +227,8 @@ export default function AgentBarChart({
   return (
     <section
       role="region"
-      aria-label="Agent metrics by agent name"
+      aria-label="Agent-wise Overview"
+      aria-labelledby="agent-wise-overview-title"
       style={{
         background: theme.colors.surface,
         border: `1px solid ${theme.colors.border}`,
@@ -237,8 +238,8 @@ export default function AgentBarChart({
       }}
     >
       <header style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: theme.colors.text }}>
-          Agent Activity
+        <h3 id="agent-wise-overview-title" style={{ margin: 0, fontSize: 16, fontWeight: 700, color: theme.colors.text }}>
+          Agent-wise Overview
         </h3>
         <div style={{ flex: 1 }} />
         {/* Metric selector */}
@@ -329,7 +330,14 @@ export default function AgentBarChart({
                 tickMargin={8}
                 interval={0}
                 angle={0}
-                height={38}
+                height={46}
+                label={{
+                  value: "Agent name",
+                  position: "insideBottom",
+                  offset: -2,
+                  fill: axisTick,
+                  fontSize: 12,
+                }}
               />
               <YAxis
                 tick={{ fontSize: 12, fill: axisTick }}
