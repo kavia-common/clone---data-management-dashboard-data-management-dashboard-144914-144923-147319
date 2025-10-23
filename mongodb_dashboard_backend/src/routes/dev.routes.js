@@ -7,6 +7,7 @@ const User = require('../models/user.model');
 const Sample = require('../models/sample.model');
 const Tenant = require('../models/tenant.model');
 const Project = require('../models/project.model');
+const LLMCost = require('../models/llmCosts.model');
 
 const router = express.Router();
 
@@ -381,6 +382,60 @@ router.get('/verify', asyncHandler(async (req, res) => {
     appDeployments: { count: appsCount, data: apps },
     tenants: { count: tenantsCount, data: tenants },
     projects: { count: projectsCount, data: projects },
+  });
+}));
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/dev/seed-llm-costs
+ * Seeds demo LLM cost records if the llm_costs collection is empty.
+ * Generates small daily costs across multiple models for the past 30 days.
+ * This endpoint is intended for preview/dev only and does not enforce auth.
+ */
+router.get('/seed-llm-costs', asyncHandler(async (req, res) => {
+  const before = await LLMCost.countDocuments({});
+  let inserted = 0;
+
+  if (before === 0) {
+    const models = ['gpt-4o', 'claude-3', 'gpt-4o-mini'];
+    const now = new Date();
+    const days = 30;
+    const docs = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0, 0));
+      d.setUTCDate(d.getUTCDate() - i);
+      for (const m of models) {
+        // small random value between 0.0005 and 0.02
+        const amount = 0.0005 + Math.random() * 0.0195;
+        docs.push({
+          llm_model: m,
+          total_cost: Number(amount.toFixed(5)),
+          currency: 'USD',
+          provider: m.includes('claude') ? 'anthropic' : 'openai',
+          operation: 'chat.completions',
+          tenant_id: i % 2 === 0 ? 'org-1' : 'org-2',
+          project_id: i % 3 === 0 ? 'proj-001' : i % 3 === 1 ? 'proj-002' : 'proj-003',
+          user_id: i % 2 === 0 ? 'user-123' : 'user-456',
+          timestamp: d,
+          created_at: d,
+          updated_at: d,
+          metadata: { seed: true },
+        });
+      }
+    }
+    const result = await LLMCost.insertMany(docs);
+    inserted = result.length;
+  }
+
+  const after = await LLMCost.countDocuments({});
+  const sample = await LLMCost.findOne({}).sort({ _id: -1 }).lean();
+
+  return res.status(200).json({
+    success: true,
+    before,
+    inserted,
+    after,
+    sample: sample || null,
   });
 }));
 
