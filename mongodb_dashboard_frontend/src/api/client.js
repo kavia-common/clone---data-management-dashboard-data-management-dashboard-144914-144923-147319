@@ -1,7 +1,7 @@
 import axios from "axios";
 
 
-const RAW_BASE_URL = "https://vscode-internal-37551-beta.beta01.cloud.kavia.ai:3001";
+const RAW_BASE_URL = "https://vscode-internal-32715-beta.beta01.cloud.kavia.ai:3001";
 const API_PREFIX = "/api";
 
 // Combine base + prefix safely
@@ -110,6 +110,17 @@ export async function listLlmCosts(params = {}) {
 export async function getLlmUsageOverTime(days = 30) {
   const d = Math.max(1, Math.min(180, parseInt(days, 10) || 30));
   const res = await api.get(`/llm-costs/usage-over-time`, { params: { days: d } });
+  return res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * seedLlmCostsDemo
+ * Seed demo LLM costs in dev environments to populate charts.
+ * Returns a summary of before/inserted/after counts and a sample document.
+ */
+export async function seedLlmCostsDemo() {
+  const res = await api.get(`/dev/seed-llm-costs`);
   return res.data;
 }
 

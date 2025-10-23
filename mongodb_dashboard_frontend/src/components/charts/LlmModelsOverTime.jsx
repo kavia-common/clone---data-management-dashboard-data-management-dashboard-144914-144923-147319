@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import Card from "../ui/Card.jsx";
 import Skeleton from "../ui/Skeleton.jsx";
-import { getLlmUsageOverTime } from "../../api/client";
+import { getLlmUsageOverTime, seedLlmCostsDemo } from "../../api/client";
 import { getChartTheme, withAlpha } from "./chartTheme";
 
 /**
@@ -16,7 +16,7 @@ import { getChartTheme, withAlpha } from "./chartTheme";
 //  - Fetches /api/llm-costs/usage-over-time?days=30
 //  - Renders stacked area chart by model with date X-axis (YYYY-MM-DD)
 //  - Legend, tooltip (per model and total), themed colors, accessible labels
-//  - Graceful loading and error states
+//  - Graceful loading and error states (empty dataset shows message + retry/seed)
 // GxP Impact: NO (read-only visualization), but audit is handled on backend.
 // Risk Level: LOW
 // Validation Protocol: VP-FE-LLM-CHART-OT-001
@@ -36,28 +36,52 @@ export default function LlmModelsOverTime({ days = 30, height = 300 }) {
   const [error, setError] = useState("");
   const [items, setItems] = useState([]);
   const [models, setModels] = useState([]);
+  const [reload, setReload] = useState(0);
+  const [seeding, setSeeding] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
+  const fetchData = useCallback(() => {
+    let cancelled = false;
     setLoading(true);
     setError("");
     getLlmUsageOverTime(days)
       .then((payload) => {
-        if (!mounted) return;
+        if (cancelled) return;
         const its = Array.isArray(payload?.items) ? payload.items : [];
         const mods = Array.isArray(payload?.meta?.models) ? payload.meta.models : [];
         setItems(its);
         setModels(mods);
       })
       .catch((e) => {
-        if (!mounted) return;
+        if (cancelled) return;
         setError(e?.response?.data?.message || e?.message || "Failed to load LLM usage data.");
       })
-      .finally(() => mounted && setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
-      mounted = false;
+      cancelled = true;
     };
   }, [days]);
+
+  useEffect(() => {
+    const cancel = fetchData();
+    return () => cancel && cancel();
+  }, [days, reload, fetchData]);
+
+  const onRetry = () => setReload((v) => v + 1);
+
+  const onSeedDemo = async () => {
+    setSeeding(true);
+    setError("");
+    try {
+      await seedLlmCostsDemo();
+      setReload((v) => v + 1);
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || "Failed to seed demo LLM usage data.");
+    } finally {
+      setSeeding(false);
+    }
+  };
 
   // Map series into flat keys per model for recharts
   const data = useMemo(() => {
@@ -72,6 +96,15 @@ export default function LlmModelsOverTime({ days = 30, height = 300 }) {
       return flat;
     });
   }, [items]);
+
+  // Compute whether there is any non-zero data
+  const hasAnyData = useMemo(() => {
+    if (!models || models.length === 0) return false;
+    for (const row of data) {
+      if (row.total && row.total > 0) return true;
+    }
+    return false;
+  }, [models, data]);
 
   // Deterministic color palette aligned with Ocean Professional theme
   const palette = useMemo(
@@ -132,9 +165,31 @@ export default function LlmModelsOverTime({ days = 30, height = 300 }) {
 
   return (
     <Card
-      title="LLM Model Usage (30d)"
+      title={`LLM Model Usage (${Number.isFinite(days) ? days : 30}d)`}
       subtitle="Daily total_cost by LLM model (stacked)"
       aria-label="LLM model usage over time card"
+      actions={
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={loading}
+            aria-label="Retry loading LLM usage"
+            className="btn btn-secondary"
+          >
+            Retry
+          </button>
+          <button
+            type="button"
+            onClick={onSeedDemo}
+            disabled={loading || seeding}
+            aria-label="Seed demo LLM usage data"
+            className="btn btn-primary"
+          >
+            {seeding ? "Seeding..." : "Seed demo data"}
+          </button>
+        </div>
+      }
     >
       {error && (
         <div className="error" role="alert" aria-live="assertive">
@@ -144,6 +199,24 @@ export default function LlmModelsOverTime({ days = 30, height = 300 }) {
       {loading ? (
         <div style={{ width: "100%", height }}>
           <Skeleton width="100%" height="100%" aria-label="Loading LLM model usage chart" />
+        </div>
+      ) : !hasAnyData ? (
+        <div
+          role="note"
+          aria-live="polite"
+          style={{
+            width: "100%",
+            minHeight: height,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: theme.label,
+            fontSize: 14,
+            padding: 16,
+            textAlign: "center",
+          }}
+        >
+          No LLM usage data for the last {days} days. Use "Seed demo data" to insert sample usage or try Retry if data was recently ingested.
         </div>
       ) : (
         <div style={{ width: "100%", height }}>
