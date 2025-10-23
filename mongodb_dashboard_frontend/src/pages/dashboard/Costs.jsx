@@ -384,10 +384,87 @@ export default function Costs() {
     return base.slice();
   }, [items]);
 
+  // View mode toggle: 'stacked' (service) | 'grouped' (agent)
+  const [viewMode, setViewMode] = useState("stacked");
+
+  function AgentGroupedCostsCard() {
+    const [groupBy, setGroupBy] = React.useState("environment");
+    // Lazy import JS hook/component similarly
+    const useCostAggregatesByAgent = require("../../hooks/useCostAggregatesByAgent").default;
+    const { default: CostsGroupedBarChart } = require("../../components/costs/CostsGroupedBarChart");
+    const { data, loading, error } = useCostAggregatesByAgent({}, groupBy);
+
+    return (
+      <Card
+        title="Agent Costs"
+        subtitle="Total cost per agent, grouped by environment or cost category"
+        className="mb-4"
+      >
+        <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 12, color: "var(--ocean-muted)" }}>
+            View per-agent grouping by:
+          </span>
+          <div className="tabs" role="tablist" aria-label="Group by selector">
+            <button
+              role="tab"
+              aria-selected={groupBy === "environment"}
+              className={`tab ${groupBy === "environment" ? "active" : ""}`}
+              onClick={() => setGroupBy("environment")}
+            >
+              Environment
+            </button>
+            <button
+              role="tab"
+              aria-selected={groupBy === "cost_category"}
+              className={`tab ${groupBy === "cost_category" ? "active" : ""}`}
+              onClick={() => setGroupBy("cost_category")}
+            >
+              Cost category
+            </button>
+          </div>
+        </div>
+
+        <CostsGroupedBarChart
+          records={data}
+          groupBy={groupBy}
+          loading={loading}
+          error={error}
+          showSelector={false}
+          title="Agent Costs (grouped)"
+          height={320}
+        />
+      </Card>
+    );
+  }
+
   return (
     <div>
-      {/* New: Service-level stacked cost chart */}
-      <StackedCostsCard />
+      {/* View toggle control */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 12, color: "var(--ocean-muted)" }}>Chart view:</span>
+        <div className="tabs" role="tablist" aria-label="Costs chart view">
+          <button
+            role="tab"
+            aria-selected={viewMode === "stacked"}
+            className={`tab ${viewMode === "stacked" ? "active" : ""}`}
+            onClick={() => setViewMode("stacked")}
+          >
+            Stacked by Service
+          </button>
+          <button
+            role="tab"
+            aria-selected={viewMode === "grouped"}
+            className={`tab ${viewMode === "grouped" ? "active" : ""}`}
+            onClick={() => setViewMode("grouped")}
+          >
+            Grouped by Agent
+          </button>
+        </div>
+      </div>
+
+      {/* Conditional chart section */}
+      {viewMode === "stacked" ? <StackedCostsCard /> : <AgentGroupedCostsCard />}
+
       <Card
         title="Costs"
         subtitle="LLM usage cost records — compact view with expandable details"
