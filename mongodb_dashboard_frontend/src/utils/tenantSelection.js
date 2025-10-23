@@ -1,44 +1,47 @@
 //
-// Minimal tenant selection helpers used by routing and pages
+// Minimal tenant selection helpers (legacy) kept for backward compatibility.
+// Prefer using utils/tenantClient.js going forward.
 //
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * getActiveTenantId
+ * Reads active tenant using new key 'activeTenant', falling back to legacy 'activeTenantId'.
+ */
 export function getActiveTenantId() {
-  /**
-   * Returns the currently active tenantId from localStorage or null.
-   * This is a simple placeholder aligned with existing project structure.
-   */
   try {
-    const val = window.localStorage.getItem('activeTenantId');
-    return val || null;
+    const preferred = window.localStorage.getItem('activeTenant');
+    if (preferred) return preferred;
+    const legacy = window.localStorage.getItem('activeTenantId');
+    return legacy || null;
   } catch {
     return null;
   }
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * setActiveTenantId
+ * Writes the active tenant using the new key 'activeTenant' and cleans up legacy key.
+ */
 export function setActiveTenantId(tenantId) {
-  /**
-   * Sets the active tenantId in localStorage.
-   * No validation here to keep it minimal; callers should sanitize inputs.
-   */
   try {
     if (tenantId) {
-      window.localStorage.setItem('activeTenantId', tenantId);
+      window.localStorage.setItem('activeTenant', String(tenantId));
     } else {
-      window.localStorage.removeItem('activeTenantId');
+      window.localStorage.removeItem('activeTenant');
     }
+    window.localStorage.removeItem('activeTenantId');
   } catch {
     // no-op
   }
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * needsTenantSelection
+ * Determines if tenant selection UI is needed when there is not exactly one tenant.
+ */
 export function needsTenantSelection(tenants) {
-  /**
-   * Determines whether user needs to select a tenant:
-   * - If there is no active tenant in storage and there are multiple tenants, return true.
-   * - Otherwise false.
-   */
   const active = getActiveTenantId();
   const count = Array.isArray(tenants) ? tenants.length : 0;
   return !active && count !== 1;

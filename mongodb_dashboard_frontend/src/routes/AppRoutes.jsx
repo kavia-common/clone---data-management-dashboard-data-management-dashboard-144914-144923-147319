@@ -10,6 +10,7 @@ const Sessions = lazy(() => import("../pages/dashboard/Sessions"));
 const Deployments = lazy(() => import("../pages/dashboard/Deployments"));
 const Costs = lazy(() => import("../pages/dashboard/Costs"));
 const Login = lazy(() => import("../pages/Login"));
+const TenantSelection = lazy(() => import("../pages/TenantSelection"));
 
 /**
  * PUBLIC_INTERFACE
@@ -33,6 +34,18 @@ export default function AppRoutes() {
       <Route element={<ProtectedRoute />}>
         {/* Default root redirects to dashboard overview */}
         <Route path="/" element={<Navigate to="/dashboard/overview" replace />} />
+
+        {/* Tenant selection route (protected) */}
+        <Route
+          path="/tenant/select"
+          element={
+            <AppLayout>
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={160} /></div>}>
+                <TenantSelection />
+              </Suspense>
+            </AppLayout>
+          }
+        />
 
         {/* Keep /dashboard for backward-compatibility: redirect to /dashboard/overview */}
         <Route path="/dashboard" element={<Navigate to="/dashboard/overview" replace />} />

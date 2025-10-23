@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { setActiveTenantId } from '../utils/tenantSelection';
+import { fetchSessionTenants, selectTenant, normalizeTenantId } from '../utils/tenantClient';
 
 // PUBLIC_INTERFACE
 export default function TenantSelection() {
   /**
-   * Minimal TenantSelection page that lists tenants from a simple fetch endpoint if available,
-   * falling back to an empty array. On selection, it stores the tenantId and redirects to root.
+   * TenantSelection page that lists authorized tenants via GET /api/session/tenants.
+   * On selection, it calls POST /api/tenants/select (cookie-based) and navigates to dashboard.
+   * Keeps UI minimal and single-selection.
    */
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -16,15 +17,11 @@ export default function TenantSelection() {
     async function load() {
       try {
         setLoading(true);
-        // Try to load authorized tenants from backend. If it fails, continue with an empty list.
-        const res = await fetch('/api/tenants?authorized=true');
-        if (!res.ok) throw new Error('Failed to load tenants');
-        const data = await res.json();
-        if (!cancelled) setTenants(Array.isArray(data) ? data : (data.items || []));
+        const data = await fetchSessionTenants();
+        if (!cancelled) setTenants(Array.isArray(data) ? data : []);
       } catch (e) {
         if (!cancelled) setTenants([]);
-        // keep UI minimal; optionally show error
-        if (!cancelled) setError(null);
+        if (!cancelled) setError(e);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -33,23 +30,28 @@ export default function TenantSelection() {
     return () => { cancelled = true; };
   }, []);
 
-  const handleSelect = (tenantId) => {
-    setActiveTenantId(tenantId);
-    // Redirect to dashboard root
-    window.location.replace('/');
+  const handleSelect = async (tenantId) => {
+    try {
+      await selectTenant(tenantId, 'user-selection:tenant-selection-page');
+      // Redirect to the dashboard overview after successful selection
+      window.location.replace('/dashboard/overview');
+    } catch (e) {
+      // keep UI minimal; show a simple error
+      setError(e);
+    }
   };
 
   return (
     <div style={{ padding: 24 }}>
       <h2>Select a tenant</h2>
-      {loading && <p>Loading...</p>}
+      {loading && <p>Loading tenants…</p>}
       {!loading && tenants.length === 0 && (
         <p>No tenants were found for your account. Please contact an administrator.</p>
       )}
       {!loading && tenants.length > 0 && (
         <ul style={{ listStyle: 'none', padding: 0 }}>
           {tenants.map((t) => {
-            const id = t.tenant_id || t.id || t.tenantId || t._id || String(t);
+            const id = normalizeTenantId(t);
             const name = t.tenant_name || t.name || id;
             return (
               <li key={id} style={{ marginBottom: 12 }}>
@@ -70,7 +72,7 @@ export default function TenantSelection() {
           })}
         </ul>
       )}
-      {error && <p style={{ color: '#EF4444' }}>{String(error)}</p>}
+      {error && <p style={{ color: '#EF4444' }}>{String(error?.message || error)}</p>}
     </div>
   );
 }
