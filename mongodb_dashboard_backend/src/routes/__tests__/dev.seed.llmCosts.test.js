@@ -29,7 +29,7 @@ jest.mock('../../models/llmCosts.model', () => {
 });
 
 describe('GET /api/dev/seed-llm-costs', () => {
-  test('seeds when empty and returns summary', async () => {
+  test('seeds when empty and returns summary (90 days by default)', async () => {
     const res = await request(app).get('/api/dev/seed-llm-costs');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
@@ -37,5 +37,7 @@ describe('GET /api/dev/seed-llm-costs', () => {
     expect(res.body).toHaveProperty('inserted');
     expect(res.body).toHaveProperty('after');
     expect(res.body).toHaveProperty('sample');
+    // With 3 models across 90 days, inserted should be at least 270
+    expect(res.body.inserted).toBeGreaterThanOrEqual(270);
   });
 });

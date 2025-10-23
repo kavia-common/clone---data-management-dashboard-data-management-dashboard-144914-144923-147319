@@ -389,7 +389,7 @@ router.get('/verify', asyncHandler(async (req, res) => {
  * PUBLIC_INTERFACE
  * GET /api/dev/seed-llm-costs
  * Seeds demo LLM cost records if the llm_costs collection is empty.
- * Generates small daily costs across multiple models for the past 30 days.
+ * Generates small daily costs across multiple models for the past 90 days.
  * This endpoint is intended for preview/dev only and does not enforce auth.
  */
 router.get('/seed-llm-costs', asyncHandler(async (req, res) => {
@@ -399,7 +399,7 @@ router.get('/seed-llm-costs', asyncHandler(async (req, res) => {
   if (before === 0) {
     const models = ['gpt-4o', 'claude-3', 'gpt-4o-mini'];
     const now = new Date();
-    const days = 30;
+    const days = 90;
     const docs = [];
     for (let i = 0; i < days; i++) {
       const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0, 0));

@@ -7,8 +7,8 @@
 // User Story: As a dashboard user, I want to see a stacked area chart of LLM model usage
 //             (total_cost) over the last N days so I can understand which models are used most.
 // Acceptance Criteria:
-//  - GET /api/llm-costs/usage-over-time returns daily buckets for last 30 days by default
-//  - Supports ?days=N (default 30, max 180), validation enforced
+ //  - GET /api/llm-costs/usage-over-time returns daily buckets for last 90 days by default
+ //  - Supports ?days=N (default 90, max 180) or ?range=90d/12w, validation enforced
 //  - Aggregates llm_costs by day and llm_model, summing total_cost
 //  - Response normalized as: { items: [ { date: 'YYYY-MM-DD', series: { [model]: number } } ], meta: { models, start, end, days } }
 //  - ISO 8601 dates and robust error handling
@@ -41,7 +41,31 @@ const LLMCost = require('../models/llmCosts.model');
 async function usageOverTime(req, res) {
   // Input validation
   const rawDays = req.query?.days;
-  let days = Number.isFinite(Number(rawDays)) ? parseInt(rawDays, 10) : 30;
+  const rawRange = req.query?.range;
+  const DEFAULT_DAYS = 90;
+  let days;
+
+  // Parse range first if provided: supports '90d' or '12w'
+  if (typeof rawRange === 'string' && rawRange.trim().length > 0) {
+    const mDays = rawRange.match(/^\s*(\d+)\s*d\s*$/i);
+    const mWeeks = rawRange.match(/^\s*(\d+)\s*w\s*$/i);
+    if (mDays) {
+      days = parseInt(mDays[1], 10);
+    } else if (mWeeks) {
+      days = parseInt(mWeeks[1], 10) * 7;
+    }
+  }
+
+  // Fallback to days param if range not used
+  if (!Number.isFinite(days)) {
+    if (rawDays !== undefined) {
+      const parsed = parseInt(rawDays, 10);
+      days = Number.isFinite(parsed) ? parsed : DEFAULT_DAYS;
+    } else {
+      days = DEFAULT_DAYS;
+    }
+  }
+
   if (!Number.isFinite(days) || days <= 0) {
     return res.status(400).json({ success: false, message: 'Invalid days parameter. Must be a positive integer.' });
   }
@@ -67,7 +91,7 @@ async function usageOverTime(req, res) {
         entity: 'llm_costs',
         endpoint: '/api/llm-costs/usage-over-time',
         userId: (req.user && (req.user.id || req.user.userId)) || null,
-        params: { days },
+        params: { days, range: rawRange ?? null },
         traceId: req.traceId || null,
       })
     );

@@ -63,7 +63,7 @@ router.get('/', asyncHandler(controller.list));
  *   get:
  *     summary: LLM model usage over time (stacked by model)
  *     description: |
- *       Aggregates llm_costs by day and llm_model for the last N days (default 30, max 180), summing total_cost.
+ *       Aggregates llm_costs by day and llm_model for the last N days (default 90, max 180), summing total_cost.
  *       Returns a normalized time series suitable for stacked area chart rendering.
  *     tags: [LLMCosts]
  *     parameters:
@@ -73,8 +73,14 @@ router.get('/', asyncHandler(controller.list));
  *           type: integer
  *           minimum: 1
  *           maximum: 180
- *           default: 30
+ *           default: 90
  *         description: Number of days to include, counting back from today.
+ *       - in: query
+ *         name: range
+ *         schema:
+ *           type: string
+ *           example: "90d"
+ *         description: Optional range string that overrides 'days'. Supports 'Nd' (days) or 'Nw' (weeks).
  *     responses:
  *       200:
  *         description: Aggregated usage series
