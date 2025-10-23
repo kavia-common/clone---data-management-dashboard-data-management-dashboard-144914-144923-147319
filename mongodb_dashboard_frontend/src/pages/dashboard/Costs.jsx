@@ -8,10 +8,63 @@ import { renderCreditsWithUsd } from "../../utils/currency";
 import { listLlmCosts } from "../../api/client";
 
 /**
+ * Inline section component for stacked cost visualization
+ */
+function StackedCostsCard() {
+  const [stackBy, setStackBy] = React.useState("environment");
+  // Lazy import TS hook to avoid circular import issues in Jest
+  const useCostAggregates = require("../../hooks/useCostAggregates").default;
+  const { default: CostsStackedBarChart } = require("../../components/costs/CostsStackedBarChart");
+  const { data, loading, error } = useCostAggregates();
+
+  return (
+    <Card
+      title="Service Costs"
+      subtitle="Total cost per service, stacked by environment or cost category"
+      className="mb-4"
+    >
+      <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ fontSize: 12, color: "var(--ocean-muted)" }}>
+          View cost composition by:
+        </span>
+        <div className="tabs" role="tablist" aria-label="Stack by selector">
+          <button
+            role="tab"
+            aria-selected={stackBy === "environment"}
+            className={`tab ${stackBy === "environment" ? "active" : ""}`}
+            onClick={() => setStackBy("environment")}
+          >
+            Environment
+          </button>
+          <button
+            role="tab"
+            aria-selected={stackBy === "cost_category"}
+            className={`tab ${stackBy === "cost_category" ? "active" : ""}`}
+            onClick={() => setStackBy("cost_category")}
+          >
+            Cost category
+          </button>
+        </div>
+      </div>
+
+      <CostsStackedBarChart
+        records={data}
+        stackBy={stackBy}
+        loading={loading}
+        error={error}
+        showSelector={false}
+        title="Service Costs (stacked)"
+        height={320}
+      />
+    </Card>
+  );
+}
+
+/**
  * PUBLIC_INTERFACE
  * Costs page
  * - Keeps compact LLM costs table with inspector for large fields.
- * - Removes deprecated "View All" costs modal and focuses on compact inspector UX.
+ * - Adds a service-level stacked chart section at the top.
  */
 export default function Costs() {
   const [allItems, setAllItems] = useState([]);
@@ -333,6 +386,8 @@ export default function Costs() {
 
   return (
     <div>
+      {/* New: Service-level stacked cost chart */}
+      <StackedCostsCard />
       <Card
         title="Costs"
         subtitle="LLM usage cost records — compact view with expandable details"
