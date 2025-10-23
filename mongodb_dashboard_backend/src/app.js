@@ -1,5 +1,6 @@
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
+const cookieParser = require('cookie-parser');
 const swaggerSpec = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { connectDB } = require('./config/db');
@@ -18,6 +19,7 @@ app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use(rateLimiter());
 app.use(auditLoggerMiddleware());
+app.use(cookieParser()); // enable cookie access for tenant selection
 
 // Parse JSON request body with sensible limits
 app.use(express.json({ limit: '1mb' }));

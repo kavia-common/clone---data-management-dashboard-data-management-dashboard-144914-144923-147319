@@ -19,7 +19,27 @@ const { attachAuthContext, requireAuth } = require('../middleware/auth');
 const { normalizeUserTenants } = require('../utils/rbac');
 const AuditLog = require('../models/auditLog.model');
 
-// Basic CRUD list/create/get/update/delete
+/**
+ * @swagger
+ * /api/tenants:
+ *   get:
+ *     summary: List tenants accessible to the authenticated user
+ *     description: Returns array of tenants the current user can access. Falls back to full list when no auth scope is requested.
+ *     tags: [Tenants]
+ *     parameters:
+ *       - in: query
+ *         name: authorized
+ *         schema: { type: string }
+ *         description: When 'true', returns only the tenants current user can access.
+ *       - in: query
+ *         name: scope
+ *         schema: { type: string }
+ *         description: Alias of authorized flag; when 'self' behaves the same.
+ *     responses:
+ *       200:
+ *         description: Authorized tenants for user or general list
+ */
+ // Basic CRUD list/create/get/update/delete
 // Special case: when ?scope=self or ?authorized=true is present, return the current user's authorized tenants
 router.get(
   '/',

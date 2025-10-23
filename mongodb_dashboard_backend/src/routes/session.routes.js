@@ -82,6 +82,37 @@ router.get(
  *       403:
  *         description: Forbidden (not member of tenant)
  */
+/**
+ * @swagger
+ * /api/tenants/select:
+ *   post:
+ *     summary: Select active tenant for current session
+ *     description: Validates user access to tenantId, records audit trail, and persists selection in cookie. Alias of /api/session/tenant.
+ *     tags: [Auth, Tenants]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               tenantId:
+ *                 type: string
+ *                 description: Tenant identifier to set as active
+ *               reason:
+ *                 type: string
+ *                 description: Optional reason for change for audit trail
+ *             required: [tenantId]
+ *     responses:
+ *       200:
+ *         description: Active tenant set
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (not member of tenant)
+ */
 // PUBLIC_INTERFACE
 router.post(
   '/tenant',
@@ -154,11 +185,24 @@ router.post(
       trace_id: req.traceId || null,
     });
 
-    return res.status(200).json({
+    const payload = {
       success: true,
       message: 'Active tenant set',
       activeTenant: tenantId,
-    });
+    };
+    return res.status(200).json(payload);
+  })
+);
+
+// PUBLIC_INTERFACE
+// Alias route mounted at /api/tenants/select via app.use('/api/session', router)
+router.post(
+  '/tenants/select',
+  requireAuth(),
+  asyncHandler(async (req, res, next) => {
+    // Reuse same handler by rewriting path to /tenant
+    req.url = '/tenant';
+    return router.handle(req, res, next);
   })
 );
 

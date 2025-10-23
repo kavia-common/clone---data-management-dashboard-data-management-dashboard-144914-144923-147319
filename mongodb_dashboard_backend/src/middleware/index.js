@@ -1,4 +1,9 @@
-// This file will export middleware as the application grows
+const { attachAuthContext, requireAuth } = require('./auth');
+const { tenantOptional, requireTenant } = require('./tenantContext');
+
 module.exports = {
-  // Add your middleware here
+  attachAuthContext,
+  requireAuth,
+  tenantOptional,
+  requireTenant,
 };
