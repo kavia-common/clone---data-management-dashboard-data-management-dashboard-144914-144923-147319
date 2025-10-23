@@ -102,6 +102,9 @@ export default function Sidebar() {
           <NavLink to="/dashboard/costs" className="nav-link">
             <span className="nav-label">Costs</span>
           </NavLink>
+          <NavLink to="/dashboard/agents" className="nav-link">
+            <span className="nav-label">Agents</span>
+          </NavLink>
         </nav>
       </div>
 
