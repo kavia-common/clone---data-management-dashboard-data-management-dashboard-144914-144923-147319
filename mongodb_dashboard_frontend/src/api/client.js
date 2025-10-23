@@ -1,18 +1,14 @@
 import axios from "axios";
+import { getApiBase, getHealthUrl } from "./config";
 
+// Resolve base dynamically (env -> window -> relative)
+const API_BASE_URL = getApiBase();
 
-const RAW_BASE_URL = "https://vscode-internal-32715-beta.beta01.cloud.kavia.ai:3001";
-const API_PREFIX = "/api";
-
-// Combine base + prefix safely
-function joinUrl(base, path) {
-  if (!base) return path || "";
-  const b = base.endsWith("/") ? base.slice(0, -1) : base;
-  const p = path ? (path.startsWith("/") ? path : `/${path}`) : "";
-  return `${b}${p}`;
+// Log in dev only
+if (typeof window !== "undefined" && process?.env?.NODE_ENV !== "production") {
+  // eslint-disable-next-line no-console
+  console.log(`[API] baseURL: ${API_BASE_URL}`);
 }
-
-const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
 
 // ✅ Create configured Axios instance
 const api = axios.create({
@@ -31,15 +27,17 @@ function normalizeListResponse(res) {
 }
 
 // === PUBLIC INTERFACE ===
+// PUBLIC_INTERFACE
 export function getApiClient() {
   /** Returns the configured Axios instance */
   return api;
 }
 
 // === HEALTH CHECK ===
+// PUBLIC_INTERFACE
 export async function health() {
-  /** GET / - backend health check */
-  const res = await axios.get(RAW_BASE_URL);
+  /** GET / - backend health check (uses computed origin) */
+  const res = await axios.get(getHealthUrl());
   return res.data;
 }
 
