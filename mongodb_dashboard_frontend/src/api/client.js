@@ -109,7 +109,9 @@ export async function listLlmCosts(params = {}) {
  */
 export async function getLlmUsageOverTime(days = 90) {
   const d = Math.max(1, Math.min(180, parseInt(days, 10) || 90));
-  const res = await api.get(`/llm-costs/usage-over-time`, { params: { days: d } });
+  // Send both 'range' (string, e.g., "90d") for new contract and 'days' (number) for backward compatibility
+  const params = { range: `${d}d`, days: d };
+  const res = await api.get(`/llm-costs/usage-over-time`, { params });
   return res.data;
 }
 

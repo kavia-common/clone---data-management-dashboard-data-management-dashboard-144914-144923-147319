@@ -11,13 +11,14 @@ import { getChartTheme, withAlpha } from "./chartTheme";
 // ============================================================================
 // Requirement ID: REQ-FE-LLM-CHART-OT-001
 // User Story: As a dashboard viewer, I want to see a stacked area chart showing total_cost
- //             by llm_model per day for the last 90 days.
+//             by llm_model per day for a selectable range (7/30/90/180 days).
 // Acceptance Criteria:
-//  - Fetches /api/llm-costs/usage-over-time?days=30
-//  - Renders stacked area chart by model with date X-axis (YYYY-MM-DD)
-//  - Legend, tooltip (per model and total), themed colors, accessible labels
-//  - Graceful loading and error states (empty dataset shows message + retry/seed)
-// GxP Impact: NO (read-only visualization), but audit is handled on backend.
+//  - Visible and accessible range control with options 7d, 30d, 90d, 180d
+//  - Selecting an option updates the chart by requesting /api/llm-costs/usage-over-time?range=<Nd>
+//  - Active option is visually indicated; default is 90d
+//  - Chart title reflects the selected range
+//  - Empty-state still displays and offers retry/seed
+// GxP Impact: NO (read-only visualization), backend audit logs range.
 // Risk Level: LOW
 // Validation Protocol: VP-FE-LLM-CHART-OT-001
 // ============================================================================
@@ -27,7 +28,7 @@ import { getChartTheme, withAlpha } from "./chartTheme";
  * PUBLIC_INTERFACE
  * LlmModelsOverTime
  * Props:
- *  - days?: number (default 30)
+ *  - days?: number (default 90)
  *  - height?: number (default 300)
  */
 export default function LlmModelsOverTime({ days = 90, height = 300 }) {
@@ -39,11 +40,21 @@ export default function LlmModelsOverTime({ days = 90, height = 300 }) {
   const [reload, setReload] = useState(0);
   const [seeding, setSeeding] = useState(false);
 
+  // Local UI state for selected range (in days)
+  const [selectedDays, setSelectedDays] = useState(Number.isFinite(days) ? days : 90);
+  // Keep local state in sync if prop changes externally
+  useEffect(() => {
+    if (Number.isFinite(days) && days !== selectedDays) {
+      setSelectedDays(days);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days]);
+
   const fetchData = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     setError("");
-    getLlmUsageOverTime(days)
+    getLlmUsageOverTime(selectedDays)
       .then((payload) => {
         if (cancelled) return;
         const its = Array.isArray(payload?.items) ? payload.items : [];
@@ -61,12 +72,12 @@ export default function LlmModelsOverTime({ days = 90, height = 300 }) {
     return () => {
       cancelled = true;
     };
-  }, [days]);
+  }, [selectedDays]);
 
   useEffect(() => {
     const cancel = fetchData();
     return () => cancel && cancel();
-  }, [days, reload, fetchData]);
+  }, [selectedDays, reload, fetchData]);
 
   const onRetry = () => setReload((v) => v + 1);
 
@@ -129,7 +140,7 @@ export default function LlmModelsOverTime({ days = 90, height = 300 }) {
     return base || theme.primary;
   };
 
-  // Compute X-axis tick configuration for up to 90 days
+  // Compute X-axis tick configuration for varying ranges
   const tickCount = useMemo(() => {
     const n = data?.length || 0;
     if (n <= 14) return n; // show all for small ranges
@@ -180,13 +191,37 @@ export default function LlmModelsOverTime({ days = 90, height = 300 }) {
     );
   };
 
+  // Accessible date range selector (segmented control)
+  const RangeButton = ({ value }) => {
+    const isActive = Number(selectedDays) === Number(value);
+    return (
+      <button
+        type="button"
+        onClick={() => setSelectedDays(Number(value))}
+        disabled={loading}
+        className={`btn ${isActive ? "btn-primary" : "btn-secondary"}`}
+        aria-pressed={isActive}
+        aria-label={`Set LLM usage date range to ${value} days`}
+      >
+        {value}d
+      </button>
+    );
+  };
+
   return (
     <Card
-      title={`LLM Model Usage (${Number.isFinite(days) ? days : 90}d)`}
+      title={`LLM Model Usage (${Number.isFinite(selectedDays) ? selectedDays : 90}d)`}
       subtitle="Daily total_cost by LLM model (stacked)"
       aria-label="LLM model usage over time card"
       actions={
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div role="group" aria-label="Date range" style={{ display: "flex", gap: 6 }}>
+            <RangeButton value={7} />
+            <RangeButton value={30} />
+            <RangeButton value={90} />
+            <RangeButton value={180} />
+          </div>
+          <div aria-hidden="true" style={{ width: 8 }} />
           <button
             type="button"
             onClick={onRetry}
@@ -233,7 +268,7 @@ export default function LlmModelsOverTime({ days = 90, height = 300 }) {
             textAlign: "center",
           }}
         >
-          No LLM usage data for the last {days} days. Use "Seed demo data" to insert sample usage or try Retry if data was recently ingested.
+          No LLM usage data for the last {selectedDays} days. Use "Seed demo data" to insert sample usage or try Retry if data was recently ingested.
         </div>
       ) : (
         <div style={{ width: "100%", height }}>
