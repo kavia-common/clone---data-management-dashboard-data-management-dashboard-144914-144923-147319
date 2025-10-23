@@ -15,7 +15,50 @@ const controller = buildCrudController(Tenant, '-created_at');
  *   description: Tenant (organization) endpoints with hierarchy and usage aggregations
  */
 
+const { attachAuthContext, requireAuth } = require('../middleware/auth');
+const { normalizeUserTenants } = require('../utils/rbac');
+const AuditLog = require('../models/auditLog.model');
+
 // Basic CRUD list/create/get/update/delete
+// Special case: when ?scope=self or ?authorized=true is present, return the current user's authorized tenants
+router.get(
+  '/',
+  attachAuthContext(),
+  asyncHandler(async (req, res, next) => {
+    const scope = (req.query.scope || '').toString().toLowerCase();
+    const authorizedFlag = String(req.query.authorized || '').toLowerCase();
+    const wantsSelf = scope === 'self' || authorizedFlag === 'true';
+
+    if (!wantsSelf) {
+      // Pass to default list handler
+      return next('route');
+    }
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const items = normalizeUserTenants(req.user);
+
+    // Audit READ
+    await AuditLog.create({
+      action: 'READ',
+      resource: 'tenants.authorized',
+      path: req.originalUrl,
+      method: req.method,
+      user_id: req.user?.id || null,
+      ip: req.ip,
+      user_agent: req.headers['user-agent'] || '',
+      before: null,
+      after: { count: items.length },
+      outcome: 'SUCCESS',
+      trace_id: req.traceId || null,
+    });
+
+    return res.status(200).json({ success: true, items, total: items.length });
+  })
+);
+
 router.get('/', asyncHandler(controller.list));
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));

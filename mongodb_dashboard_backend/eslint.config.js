@@ -19,7 +19,12 @@ const jsConfig = {
 };
 
 const ignoreConfig = {
-  ignores: ['node_modules/**'],
+  // Ignore node_modules and any nested frontend workspace copies to avoid ESM parsing errors
+  ignores: [
+    'node_modules/**',
+    'data-management-dashboard-144914-144924/**',
+    '**/mongodb_dashboard_frontend/**',
+  ],
 };
 
 module.exports = [ignoreConfig, jsConfig];
