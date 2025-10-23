@@ -3,6 +3,8 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import { listDeployments } from "../../api/client";
 import DeploymentsOverTime from "../../components/charts/DeploymentsOverTime.jsx";
+import DeploymentStatusBarChart from "../../components/charts/DeploymentStatusBarChart.jsx";
+import useDeploymentStatusCounts from "../../hooks/useDeploymentStatusCounts";
 
 /**
  * PUBLIC_INTERFACE
@@ -153,6 +155,15 @@ export default function Deployments() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Hook to show status counts in a bar chart
+  const { data: statusData, loading: statusLoading, error: statusError } = useDeploymentStatusCounts({
+    // Client-side aggregate for now; can switch to useServer: true when endpoint exists.
+    strategy: "clientAggregate",
+    useServer: false,
+    pageLimit: 200,
+    maxPages: 3,
+  });
+
   return (
 
     <div className="grid">
@@ -161,6 +172,17 @@ export default function Deployments() {
         <DeploymentsOverTime height={340} />
       </div>
 
+      {/* New: Status counts bar chart */}
+      <div className="block-full">
+        <DeploymentStatusBarChart
+          title="Deployments by Status"
+          subtitle="Processing, Success, and Failed"
+          data={statusData}
+          loading={statusLoading}
+          error={statusError}
+          height={300}
+        />
+      </div>
 
       {/* Keep the existing table in its own card; span full width */}
       <div className="block-full">
