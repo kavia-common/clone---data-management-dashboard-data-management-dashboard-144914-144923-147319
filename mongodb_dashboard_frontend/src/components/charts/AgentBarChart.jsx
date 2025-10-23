@@ -14,6 +14,7 @@ import {
 import { listLlmCosts } from "../../api/client";
 import { getChartTheme } from "./chartTheme";
 import { getOceanTheme } from "../../theme/oceanTheme";
+import { parseUsdToNumber } from "../../utils/currency";
 
 /**
 // ============================================================================
@@ -103,24 +104,58 @@ export default function AgentBarChart({
   // PUBLIC_INTERFACE
   // aggregateByAgent: exposed for testability via static property at bottom
   function aggregateByAgent(records, mode) {
+    /**
+     * Aggregates a list of LLM cost records into one row per unique agent.
+     * Agent normalization order: agent_name | agent | tool | metadata.agent_name | service_type.
+     * For totals, parses numbers robustly from numeric or currency-like strings (e.g., "$0.01", "1,234.56").
+     */
     const source = Array.isArray(records) ? records : [];
-    const m = (mode === "total_cost") ? "total_cost" : "count";
+    const m = mode === "total_cost" ? "total_cost" : "count";
+
+    const readAgent = (r) => {
+      try {
+        const v =
+          r?.agent_name ??
+          r?.agent ??
+          r?.tool ??
+          (r?.metadata && (r.metadata.agent_name ?? r.metadata.agent)) ??
+          r?.service_type ??
+          null;
+        const s = (v == null ? "" : String(v)).trim();
+        return s ? s : "Unknown";
+      } catch {
+        return "Unknown";
+      }
+    };
+
+    const readTotal = (r) => {
+      // prefer total_cost, but fallback to common fields when present
+      const candidates = [r?.total_cost, r?.total, r?.value, r?.amount];
+      for (const c of candidates) {
+        const n = parseUsdToNumber(c);
+        if (n != null) return n;
+      }
+      // final numeric coerce as last resort
+      const n = Number(r?.total_cost ?? 0);
+      return Number.isFinite(n) ? n : 0;
+    };
+
     const map = new Map();
     for (const r of source) {
-      const key = (r && r.agent_name ? String(r.agent_name) : "Unknown") || "Unknown";
+      const key = readAgent(r);
       if (!map.has(key)) map.set(key, 0);
       if (m === "count") {
         map.set(key, map.get(key) + 1);
       } else {
-        const val = Number(r?.total_cost ?? 0);
+        const val = readTotal(r);
         map.set(key, map.get(key) + (Number.isFinite(val) ? val : 0));
       }
     }
     const rows = Array.from(map.entries()).map(([agent_name, value]) => ({
       agent_name,
-      value: m === "count" ? Number(value) : Number(value),
+      value: Number(value) || 0,
     }));
-    // Sort desc by value
+    // Sort desc by value for a consistent visual
     rows.sort((a, b) => b.value - a.value);
     return rows;
   }
@@ -390,21 +425,45 @@ AgentBarChart.propTypes = {
   height: PropTypes.number,
 };
 
-// Expose aggregator for tests
+ // Expose aggregator for tests
 AgentBarChart.__private__ = {
   // PUBLIC_INTERFACE
   aggregateByAgent(records, mode) {
+    const m = mode === "total_cost" ? "total_cost" : "count";
+    const readAgent = (r) => {
+      try {
+        const v =
+          r?.agent_name ??
+          r?.agent ??
+          r?.tool ??
+          (r?.metadata && (r.metadata.agent_name ?? r.metadata.agent)) ??
+          r?.service_type ??
+          null;
+        const s = (v == null ? "" : String(v)).trim();
+        return s ? s : "Unknown";
+      } catch {
+        return "Unknown";
+      }
+    };
+    const readTotal = (r) => {
+      const candidates = [r?.total_cost, r?.total, r?.value, r?.amount];
+      for (const c of candidates) {
+        const n = parseUsdToNumber(c);
+        if (n != null) return n;
+      }
+      const n = Number(r?.total_cost ?? 0);
+      return Number.isFinite(n) ? n : 0;
+    };
     const map = new Map();
-    const m = (mode === "total_cost") ? "total_cost" : "count";
     for (const r of Array.isArray(records) ? records : []) {
-      const key = (r && r.agent_name ? String(r.agent_name) : "Unknown") || "Unknown";
+      const key = readAgent(r);
       if (!map.has(key)) map.set(key, 0);
       if (m === "count") map.set(key, map.get(key) + 1);
-      else {
-        const v = Number(r?.total_cost ?? 0);
-        map.set(key, map.get(key) + (Number.isFinite(v) ? v : 0));
-      }
+      else map.set(key, map.get(key) + readTotal(r));
     }
-    return Array.from(map.entries()).map(([agent_name, value]) => ({ agent_name, value }));
+    return Array.from(map.entries()).map(([agent_name, value]) => ({
+      agent_name,
+      value: Number(value) || 0,
+    }));
   },
 };

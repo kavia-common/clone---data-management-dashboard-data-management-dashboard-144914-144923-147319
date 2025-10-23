@@ -100,4 +100,30 @@ describe("AgentBarChart - aggregation", () => {
     expect(b.value).toBeCloseTo(5.5);
     expect(c.value).toBeCloseTo(3.25);
   });
+
+  test("normalizes agent key from agent|tool|metadata.agent_name|service_type and parses currency strings", () => {
+    const input = [
+      { agent: "Agent Alpha", total_cost: "$0.01" },
+      { tool: "Agent Beta", total_cost: "0.20" },
+      { metadata: { agent_name: "Agent Gamma" }, total_cost: "1,234.56" },
+      { service_type: "Agent Delta", total_cost: 0.5 },
+      { total_cost: "$0.10" }, // Unknown agent
+    ];
+    const out = AgentBarChart.__private__.aggregateByAgent(input, "total_cost");
+    // Expect unique agents
+    const names = out.map((r) => r.agent_name).sort();
+    expect(names).toEqual(["Agent Alpha", "Agent Beta", "Agent Delta", "Agent Gamma", "Unknown"].sort());
+
+    const alpha = out.find((r) => r.agent_name === "Agent Alpha");
+    const beta = out.find((r) => r.agent_name === "Agent Beta");
+    const gamma = out.find((r) => r.agent_name === "Agent Gamma");
+    const delta = out.find((r) => r.agent_name === "Agent Delta");
+    const unknown = out.find((r) => r.agent_name === "Unknown");
+
+    expect(alpha.value).toBeCloseTo(0.01);
+    expect(beta.value).toBeCloseTo(0.20);
+    expect(gamma.value).toBeCloseTo(1234.56);
+    expect(delta.value).toBeCloseTo(0.5);
+    expect(unknown.value).toBeCloseTo(0.10);
+  });
 });
