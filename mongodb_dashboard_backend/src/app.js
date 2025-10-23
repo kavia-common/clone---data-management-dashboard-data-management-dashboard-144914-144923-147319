@@ -1,10 +1,8 @@
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
-const cookieParser = require('cookie-parser');
 const swaggerSpec = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { connectDB } = require('./config/db');
-const { auditLoggerMiddleware } = require('./middleware/standardHandlers');
 
 // Initialize express app
 const app = express();
@@ -12,14 +10,10 @@ const app = express();
 // Trust proxy for proper protocol and IP detection
 app.set('trust proxy', true);
 
-/**
- * Security and audit middlewares
- */
+// Security middlewares
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use(rateLimiter());
-app.use(auditLoggerMiddleware());
-app.use(cookieParser()); // enable cookie access for tenant selection
 
 // Parse JSON request body with sensible limits
 app.use(express.json({ limit: '1mb' }));
@@ -123,9 +117,6 @@ app.use('/api/costs', require('./routes/costs.byAgent.routes'));
 // LLM costs endpoints (CRUD/list/get)
 app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
 app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
-
- // Session routes (active tenant selection, my tenants)
-app.use('/api/session', require('./routes/session.routes'));
 
  // Tenants and Projects (mapping, hierarchy, credits, usage)
 app.use('/api/tenants', require('./routes/tenants.routes'));
