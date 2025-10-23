@@ -3,7 +3,6 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "../components/layout/AppLayout";
 import Skeleton from "../components/ui/Skeleton.jsx";
 import ProtectedRoute from "../components/common/ProtectedRoute";
-import TenantSelection from "../pages/TenantSelection.jsx";
 
 const Overview = lazy(() => import("../pages/dashboard/Overview"));
 const Users = lazy(() => import("../pages/dashboard/Users"));
@@ -32,8 +31,6 @@ export default function AppRoutes() {
       />
       {/* Protected routes wrapper; ProtectedRoute renders an Outlet when authed */}
       <Route element={<ProtectedRoute />}>
-        {/* Tenant selection route (post-login) */}
-        <Route path="/select-tenant" element={<TenantSelection />} />
         {/* Default root redirects to dashboard overview */}
         <Route path="/" element={<Navigate to="/dashboard/overview" replace />} />
 
