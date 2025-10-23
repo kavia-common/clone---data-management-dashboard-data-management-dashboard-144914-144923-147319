@@ -73,20 +73,48 @@ function corsMiddleware() {
   whitelist.add('http://localhost:3000');
   whitelist.add('https://localhost:3000');
 
-  // Preview environment frontend
+  // Dynamic pattern allowances (preview pods, localhost-like ports)
+  const frontendPort = parseInt(process.env.FRONTEND_PORT || '3000', 10);
 
-  whitelist.add('https://vscode-internal-32715-beta.beta01.cloud.kavia.ai:3000');
+  // Allow patterns can be extended via env (comma-separated regex sources)
+  const envPatternSrc = (process.env.CORS_ORIGIN_PATTERNS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const patterns = [
+    // Allow any host on the configured frontend port (e.g., https://<preview-host>:3000)
+    new RegExp(`^https?:\\/\\/[^/]+:${frontendPort}$`),
+    // Always allow localhost variants on the configured port
+    new RegExp(`^http:\\/\\/localhost:${frontendPort}$`),
+    new RegExp(`^https:\\/\\/localhost:${frontendPort}$`),
+    // Example stricter preview domain (kept as safe default without pod id)
+    /^https?:\/\/vscode-internal-[\w-]+\.beta01\.cloud\.kavia\.ai:\d+$/i,
+    // Additional custom patterns from env
+    ...envPatternSrc.map((src) => {
+      try {
+        return new RegExp(src);
+      } catch {
+        return null;
+      }
+    }).filter(Boolean),
+  ];
 
   const allowCredentials =
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
 
   // eslint-disable-next-line no-console
-  console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
+  console.log('[CORS] Whitelist:', Array.from(whitelist), '| patterns=', patterns.map(String), '| credentials=', allowCredentials);
 
   const corsInstance = cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true); // SSR / curl / same-origin
       if (whitelist.has(origin)) return callback(null, true);
+
+      // Pattern-based allowance for known-safe shapes (e.g., preview :3000)
+      if (patterns.some((re) => re.test(origin))) {
+        return callback(null, true);
+      }
 
       // Check same hostname, different port
       try {
