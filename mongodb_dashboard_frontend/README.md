@@ -80,16 +80,9 @@ Caching behavior:
 ```
 
 Environment notes:
-- The API base is determined at runtime using the following precedence:
-  1) REACT_APP_API_URL (full base, may include /api)
-  2) REACT_APP_API_BASE_URL (full base, may include /api)
-  3) Computed from the current browser location: `${window.location.protocol}//${window.location.hostname}:${REACT_APP_BACKEND_PORT||3001}${REACT_APP_API_PREFIX||/api}`
-  4) Relative "/api" (proxied by the dev server)
+- The API base is determined by REACT_APP_API_BASE_URL and REACT_APP_API_PREFIX.
 - The frontend container recognizes:
-  - REACT_APP_API_URL
   - REACT_APP_API_BASE_URL
-  - REACT_APP_API_PREFIX (default /api)
-  - REACT_APP_BACKEND_PORT (default 3001)
   - REACT_APP_DANGEROUSLY_DISABLE_HOST_CHECK (if present in your environment to relax host checks in dev tooling)
 
 ## Quickstart
