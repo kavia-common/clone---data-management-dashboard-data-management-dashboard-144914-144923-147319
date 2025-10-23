@@ -100,31 +100,7 @@ export async function listLlmCosts(params = {}) {
   return normalizeListResponse(res);
 }
 
-/**
- * PUBLIC_INTERFACE
- * getLlmUsageOverTime
- * Fetch aggregated LLM usage over time for stacked area chart.
- * @param {number} days number of days (default 90)
- * @returns {{ items: Array<{date: string, series: Record<string, number>}>, meta: { models: string[], start: string, end: string, days: number } }}
- */
-export async function getLlmUsageOverTime(days = 90) {
-  const d = Math.max(1, Math.min(180, parseInt(days, 10) || 90));
-  // Send both 'range' (string, e.g., "90d") for new contract and 'days' (number) for backward compatibility
-  const params = { range: `${d}d`, days: d };
-  const res = await api.get(`/llm-costs/usage-over-time`, { params });
-  return res.data;
-}
 
-/**
- * PUBLIC_INTERFACE
- * seedLlmCostsDemo
- * Seed demo LLM costs in dev environments to populate charts.
- * Returns a summary of before/inserted/after counts and a sample document.
- */
-export async function seedLlmCostsDemo() {
-  const res = await api.get(`/dev/seed-llm-costs`);
-  return res.data;
-}
 
 // === USER COSTS ===
 export async function getUserCosts(userId) {
