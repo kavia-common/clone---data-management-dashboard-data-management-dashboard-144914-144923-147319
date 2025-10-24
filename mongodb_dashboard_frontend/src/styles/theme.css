@@ -235,3 +235,21 @@ html[data-theme="dark"] .hover-row:hover {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* Ocean Professional: themed surface for cards that should blend into the canvas
+   Gradient: from-blue-500/10 to canvas background (#f9fafb)
+   Keep subtle border and let the base .card radius/shadow apply. */
+.themedSurface {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, #3B82F6 10%, transparent) 0%,
+    var(--ocean-bg) 100%
+  );
+  border-color: var(--ocean-border);
+}
+
+/* Subtle lift on hover for summary items */
+.org-summary-item:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}

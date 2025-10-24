@@ -53,7 +53,7 @@ export default function CostsOrganizationSummary({ onLoaded, failChance = 0.1 })
     <Card
       title="Organization Summary"
       subtitle="Overview of organization-level costs and usage"
-      className="mb-4"
+      className="mb-4 themedSurface"
       actions={
         <Button variant="ghost" onClick={load} aria-label="Refresh organization summary">
           Refresh
@@ -103,10 +103,12 @@ function SummaryItem({ label, children, emphasize = false }) {
     <div
       className="org-summary-item"
       style={{
-        background: "#ffffff",
-        border: "1px solid #E5E7EB",
+        // Subtle white surface with a faint blue tint to harmonize with the themed surface
+        background:
+          "linear-gradient(180deg, color-mix(in oklab, #3B82F6 8%, #ffffff) 0%, #ffffff 100%)",
+        border: "1px solid var(--ocean-border)",
         borderRadius: 12,
-        boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+        boxShadow: "var(--shadow-sm)",
         padding: 12,
         transition: "box-shadow 160ms ease, transform 160ms ease",
       }}
@@ -115,7 +117,7 @@ function SummaryItem({ label, children, emphasize = false }) {
         className="org-summary-label"
         style={{
           fontSize: 12,
-          color: "#6B7280",
+          color: "var(--ocean-muted)",
           marginBottom: 6,
           letterSpacing: 0.2,
         }}
@@ -127,7 +129,7 @@ function SummaryItem({ label, children, emphasize = false }) {
         style={{
           fontSize: emphasize ? 20 : 16,
           fontWeight: emphasize ? 700 : 600,
-          color: emphasize ? "#2563EB" : "#111827",
+          color: emphasize ? "#2563EB" : "var(--ocean-text)",
           whiteSpace: "nowrap",
         }}
       >
