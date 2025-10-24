@@ -23,6 +23,18 @@ Description:
 - Values are rounded to 6 decimal places and returned as numbers (not strings).
 - If no data exists, returns an empty array [].
 
+Sample curl:
+```bash
+# Basic request
+curl -s http://localhost:3001/api/analytics/llm-cost-by-agent | jq .
+
+# Example response:
+# [
+#   { "agent": "GenerateDescriptionAgent", "total_cost": 1.234567 },
+#   { "agent": "SummarizeAgent", "total_cost": 0.447605 }
+# ]
+```
+
 Response example (200):
 [
   { "agent": "GenerateDescriptionAgent", "total_cost": 1.234567 },
@@ -30,5 +42,8 @@ Response example (200):
 ]
 
 Notes:
-- The aggregation parses costs from records where agent names and costs are present. The implementation handles malformed or missing values safely.
+- The service auto-detects plausible collections (llm-costs, llm_costs, llm_cost, logs, events, interactions, agentLogs) and supports both a flat schema (agent_name|agent|tool + total_cost|cost) and an Agents[] array schema with fields "Agent Name" and "Total Cost".
+- Missing/empty agent names fall back to "Unknown".
+- The aggregation strips leading '$' and commas from cost values and safely parses them to numbers.
+- The implementation handles malformed or missing values safely and returns [] when no data.
 - See /docs for OpenAPI details.
