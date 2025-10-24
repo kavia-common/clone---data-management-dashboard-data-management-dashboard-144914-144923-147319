@@ -42,7 +42,32 @@ const analyticsRouter = express.Router();
  *       500:
  *         description: Internal server error
  */
-analyticsRouter.get('/llm-cost-by-agent', asyncHandler(getLlmCostByAgentController));
+/**
+ * Lightweight health/reachability for the endpoint.
+ * - HEAD returns 204 with identifying header for quick checks and monitoring.
+ * - OPTIONS returns 204 for CORS preflight clarity (global CORS already handles it).
+ */
+analyticsRouter.head('/llm-cost-by-agent', (req, res) => {
+  res
+    .set('X-Endpoint', 'analytics-llm-cost-by-agent')
+    .set('Cache-Control', 'no-store')
+    .status(204)
+    .end();
+});
+analyticsRouter.options('/llm-cost-by-agent', (req, res) => res.sendStatus(204));
+
+/**
+ * Add a minimal request log for visibility in CI/preview environments.
+ */
+analyticsRouter.get(
+  '/llm-cost-by-agent',
+  (req, res, next) => {
+    // eslint-disable-next-line no-console
+    console.log(`[analytics] GET /api/analytics/llm-cost-by-agent ip=${req.ip} ua=${req.get('user-agent') || ''}`);
+    next();
+  },
+  asyncHandler(getLlmCostByAgentController)
+);
 
 /**
  * @swagger
