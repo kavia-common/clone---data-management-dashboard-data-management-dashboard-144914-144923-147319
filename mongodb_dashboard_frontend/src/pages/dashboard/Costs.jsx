@@ -464,14 +464,18 @@ export default function Costs() {
       </div>
 
       {/* Organization Summary section */}
-      <CostsOrganizationSummary />
+      <div style={{ marginBottom: 16 }}>
+        <CostsOrganizationSummary />
+      </div>
 
       {/* Conditional chart section */}
       {viewMode === "stacked" ? <StackedCostsCard /> : <AgentGroupedCostsCard />}
 
+      {/* Table section */}
       <Card
         title="Costs"
         subtitle="LLM usage cost records — compact view with expandable details"
+        className="mt-4"
       >
         <div className="toolbar" aria-label="Costs toolbar" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <input
