@@ -7,10 +7,10 @@
 // User Story: As a consumer, I need an API to get LLM total cost aggregated by agent name.
 // Acceptance Criteria:
 // - Service uses project DB connection (no duplicate connections).
- // - Honors env LLM_EVENTS_COLLECTION for collection name (single or comma-separated).
- // - Correct collection name aligns with schema (default 'llm_events' with fallback to 'llm_costs') and fallbacks.
+// - Honors env LLM_EVENTS_COLLECTION for collection name (single or comma-separated).
+// - Default collection name is 'llm_events' (with sensible fallbacks).
 // - Supports multiple shapes for agent and cost (USD):
-//     agent candidates: agent_name, agent, agentName, tool, metadata.agent, metadata.agentName, metadata["Agent Name"]
+//     agent candidates: agentName, agent, agent_name, tool, metadata.agent, metadata.agentName, metadata["Agent Name"]
 //     cost candidates: cost_usd, cost.amount where cost.currency==='USD', total_cost when currency==='USD' or currency missing, cost
 // - Aggregation sums by normalized agent (case-insensitive), but preserves a display casing.
 // - Sorted descending by total_cost and rounded to 6 decimals.
@@ -26,7 +26,7 @@ const { parseCurrencyToNumber, roundTo } = require('../utils/currency');
 /**
  * Utility: determine collection candidates from env and defaults.
  * - LLM_EVENTS_COLLECTION can be a single name or comma-separated names.
- * - Defaults prioritize 'llm_costs' (matches model) then fallbacks.
+ * - Defaults prioritize 'llm_events' then common LLM cost/event collections.
  */
 function resolveCollectionCandidates() {
   const envVal = (process.env.LLM_EVENTS_COLLECTION || '').trim();
@@ -39,7 +39,7 @@ function resolveCollectionCandidates() {
 
   // Deduplicate while preserving order
   const defaults = [
-    'llm_events', // preferred default collection for event-shaped docs
+    'llm_events', // preferred default per spec
     'llm-costs',
     'llm_costs',
     'llm_cost',
@@ -261,68 +261,6 @@ function buildFlatAgentCostPipeline() {
  */
 function buildAgentsArrayPipeline() {
   return [
-    // Ensure Agents is an array and has both fields in at least one element
-    {
-      $match: {
-        Agents: { $exists: true, $type: 'array' },
-        'Agents.Agent Name': { $exists: true },
-        'Agents.Total Cost': { $exists: true },
-      },
-    },
-    { $unwind: '$Agents' },
-    {
-      $set: {
-        _agent_display: {
-          $trim: { input: { $toString: { $ifNull: ['$Agents.Agent Name', ''] } } },
-        },
-        _cost_string: {
-          $replaceAll: {
-            input: {
-              $replaceAll: {
-                input: { $toString: { $ifNull: ['$Agents.Total Cost', 0] } },
-                find: ',',
-                replacement: '',
-              },
-            },
-            find: '$',
-            replacement: '',
-          },
-        },
-      },
-    },
-    {
-      $set: {
-        _agent: {
-          $let: {
-            vars: { t: '$_agent_display' },
-            in: {
-              $cond: [{ $eq: ['$$t', ''] }, 'unknown', { $toLower: '$$t' }],
-            },
-          },
-        },
-        _cost: {
-          $convert: { input: '$_cost_string', to: 'double', onError: 0, onNull: 0 },
-        },
-        _agent_display_final: {
-          $let: {
-            vars: { t: '$_agent_display' },
-            in: { $cond: [{ $eq: ['$$t', ''] }, 'Unknown', '$$t'] },
-          },
-        },
-      },
-    },
-    {
-      $group: {
-        _id: '$_agent',
-        total_cost: { $sum: '_$cost' }, // will be corrected below since Mongo doesn't accept '_$cost'
-      },
-    },
-  ];
-}
-
-// Fix: Mongo does not support a string like '_$cost' above; we recreate pipeline with correct grouping
-function buildAgentsArrayPipeline() {
-  return [
     {
       $match: {
         Agents: { $exists: true, $type: 'array' },
@@ -411,7 +349,7 @@ function aggregateAgentsInApp(documents = []) {
     for (const a of agents) {
       try {
         const nameRaw = a?.['Agent Name'];
-        const display = (String(nameRaw == null ? '' : nameRaw).trim() || 'Unknown');
+        const display = String(nameRaw == null ? '' : nameRaw).trim() || 'Unknown';
         // Normalize key for grouping
         const key = display ? display.toLowerCase() : 'unknown';
         const cost = parseCurrencyToNumber(a?.['Total Cost']);
