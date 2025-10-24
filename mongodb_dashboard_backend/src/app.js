@@ -129,8 +129,9 @@ app.use('/api/dashboard/overview', require('./routes/dashboard.modules.routes'))
 // Auth endpoints (login and config health)
 app.use('/api/auth', require('./routes/auth.routes'));
 
-// Analytics endpoints
-app.use('/api/analytics', require('./routes/analytics.routes'));
+ // Analytics endpoints
+const analyticsRouter = require('./routes/analytics');
+app.use('/api/analytics', analyticsRouter);
 
 // JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
 app.use((req, res) => {
