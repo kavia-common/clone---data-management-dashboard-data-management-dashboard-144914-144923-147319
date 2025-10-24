@@ -2,23 +2,27 @@ import React from "react";
 
 /**
  * Card surface with optional header, subtitle and actions.
- * Applies Ocean Professional surface styling via CSS classes in App.css.
+ * Applies Ocean Professional surface styling via CSS classes (theme.css/globals.css).
  */
 // PUBLIC_INTERFACE
-export default function Card({ title, subtitle, actions, children, className = "" }) {
+export default function Card({ title, subtitle, actions, children, className = "", ariaLabel }) {
   /** Surface card with optional header and action slot. */
   return (
-    <div className={`card ${className}`}>
+    <section
+      className={`card ${className}`}
+      aria-label={ariaLabel || (typeof title === "string" ? title : undefined)}
+      role="region"
+    >
       {(title || actions || subtitle) && (
-        <div className="card-header">
+        <header className="card-header">
           <div>
             {title && <h3 className="card-title">{title}</h3>}
             {subtitle && <div className="card-subtitle">{subtitle}</div>}
           </div>
           {actions && <div className="card-actions">{actions}</div>}
-        </div>
+        </header>
       )}
       <div className="card-content">{children}</div>
-    </div>
+    </section>
   );
 }

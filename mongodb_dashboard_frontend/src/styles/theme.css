@@ -141,11 +141,11 @@ body {
 
 /* Cards */
 .card {
-  /* Light theme surface */
-  background: var(--ocean-surface);
+  /* Default surface uses tokens; dark theme overrides in globals.css/html[data-theme="dark"] */
+  background: var(--bg-surface, var(--ocean-surface));
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
-  border: 1px solid var(--ocean-border);
+  border: 1px solid var(--border-subtle, var(--ocean-border));
 }
 
 /* Dark theme card surface override:

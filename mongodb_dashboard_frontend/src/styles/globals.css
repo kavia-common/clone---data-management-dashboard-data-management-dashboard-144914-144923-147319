@@ -164,14 +164,28 @@ html[data-theme="dark"] a:hover { color: #ffffff; }
 
 /* Cards: surface, radius, subtle shadow, spacing */
 html[data-theme="dark"] .card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--color-surface, #111827);
+  border: 1px solid var(--color-border, #374151);
   border-radius: var(--radius-8);
   box-shadow: var(--shadow-elev-1);
+  color: var(--color-text-primary, #E5E7EB);
+}
+html[data-theme="dark"] .card:hover {
+  box-shadow: 0 1px 0 rgba(0,0,0,0.55), 0 10px 20px rgba(0,0,0,0.3);
+}
+html[data-theme="dark"] .card:focus-within {
+  outline: 2px solid var(--focus-ring-color, var(--color-accent));
+  outline-offset: 2px;
 }
 html[data-theme="dark"] .card-header {
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border, #374151);
   padding: var(--space-16) var(--space-16) var(--space-12) var(--space-16);
+}
+html[data-theme="dark"] .card-title {
+  color: var(--color-text-primary, #F9FAFB);
+}
+html[data-theme="dark"] .card-subtitle {
+  color: var(--color-text-secondary, #9CA3AF);
 }
 html[data-theme="dark"] .card-content {
   padding: var(--space-16);
