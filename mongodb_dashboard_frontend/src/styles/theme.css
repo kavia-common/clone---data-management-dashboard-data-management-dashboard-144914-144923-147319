@@ -141,10 +141,46 @@ body {
 
 /* Cards */
 .card {
+  /* Light theme surface */
   background: var(--ocean-surface);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--ocean-border);
+}
+
+/* Dark theme card surface override:
+   - Use dark surface/background tokens defined in globals.css (:root[data-theme="dark"])
+   - Ensure readable text and subtle borders/shadows
+   - Keep hover/focus transitions accessible */
+html[data-theme="dark"] .card {
+  background: var(--color-surface, #111827);
+  border: 1px solid var(--color-border, #374151);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elev-1, 0 1px 0 rgba(0,0,0,0.5), 0 6px 12px rgba(0,0,0,0.25));
+  color: var(--color-text-primary, #E5E7EB);
+}
+
+html[data-theme="dark"] .card-title {
+  color: var(--color-text-primary, #F9FAFB);
+}
+
+html[data-theme="dark"] .card-subtitle {
+  color: var(--color-text-secondary, #9CA3AF);
+}
+
+html[data-theme="dark"] .card-header {
+  border-bottom: 1px solid var(--color-border, #374151);
+}
+
+html[data-theme="dark"] .card:hover {
+  /* Slightly lift on hover without harsh contrast */
+  box-shadow: var(--shadow-elev-1, 0 1px 0 rgba(0,0,0,0.5), 0 8px 16px rgba(0,0,0,0.28));
+}
+
+html[data-theme="dark"] .card:focus-within {
+  /* Accessible focus ring using accent */
+  outline: 2px solid var(--focus-ring-color, var(--color-accent, #F59E0B));
+  outline-offset: 2px;
 }
 
 .card-header {
