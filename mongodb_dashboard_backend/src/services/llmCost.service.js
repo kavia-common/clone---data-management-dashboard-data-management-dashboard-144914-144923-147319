@@ -146,7 +146,7 @@ function buildAgentsArrayPipeline() {
     {
       $set: {
         _agent: {
-          $cond: [{ $eq: ['_agent_trimmed', ''] }, 'Unknown', '$_agent_trimmed'],
+          $cond: [{ $eq: ['$_agent_trimmed', ''] }, 'Unknown', '$_agent_trimmed'],
         },
         _cost: {
           $toDouble: { $ifNull: ['$_cost_string', '0'] },
