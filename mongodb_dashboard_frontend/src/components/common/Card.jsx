@@ -2,9 +2,9 @@ import React from "react";
 
 /**
  * PUBLIC_INTERFACE
- * Card
+ * Card (Common)
  * A reusable panel/surface with optional title, subtitle, and actions area.
- * Applies Ocean Professional theme tokens via CSS (theme.css).
+ * Defaults to brown variant to align with dashboard KPI cards.
  */
 export default function Card({
   title,
@@ -13,18 +13,21 @@ export default function Card({
   children,
   className = "",
   ariaLabel,
+  variant = "brown",
 }) {
+  const base = "card";
+  const variantClass = variant === "brown" ? "card-brown on-brown" : "";
   return (
     <section
-      className={`card ${className}`}
+      className={`${base} ${variantClass} ${className}`.trim()}
       aria-label={ariaLabel || (typeof title === "string" ? title : undefined)}
       role="region"
     >
       {(title || actions || subtitle) && (
         <header className="card-header">
           <div>
-            {title && <h3 className="card-title">{title}</h3>}
-            {subtitle && <div className="card-subtitle">{subtitle}</div>}
+            {title && <h3 className="card-title title">{title}</h3>}
+            {subtitle && <div className="card-subtitle muted">{subtitle}</div>}
           </div>
           {actions && <div className="card-actions">{actions}</div>}
         </header>
