@@ -72,6 +72,7 @@ function buildFlatAgentCostPipeline() {
       $match: {
         $and: [
           {
+            // Agent candidates exist in top-level or metadata (excluding invalid dot-path for keys with spaces)
             $or: [
               { agent_name: { $exists: true } },
               { agent: { $exists: true } },
@@ -79,10 +80,10 @@ function buildFlatAgentCostPipeline() {
               { tool: { $exists: true } },
               { 'metadata.agent': { $exists: true } },
               { 'metadata.agentName': { $exists: true } },
-              { 'metadata.Agent Name': { $exists: true } },
             ],
           },
           {
+            // Cost candidates exist in at least one of the supported shapes
             $or: [
               { cost_usd: { $exists: true } },
               { 'cost.amount': { $exists: true } },
@@ -94,6 +95,18 @@ function buildFlatAgentCostPipeline() {
       },
     },
     // Derive normalized agent and a numeric cost candidate in USD
+    {
+      $addFields: {
+        // Access metadata['Agent Name'] safely (Mongo key with space) using $getField
+        _agent_meta_agent_name: {
+          $cond: [
+            { $and: [{ $ne: ['$metadata', null] }, { $eq: [{ $type: '$metadata' }, 'object'] }] },
+            { $getField: { field: 'Agent Name', input: '$metadata' } },
+            null,
+          ],
+        },
+      },
+    },
     {
       $addFields: {
         // Normalize agent: prefer explicit fields including metadata
@@ -112,7 +125,7 @@ function buildFlatAgentCostPipeline() {
                         {
                           $ifNull: [
                             '$metadata.agentName',
-                            { $ifNull: ['$metadata.Agent Name', { $ifNull: ['$tool', ''] }] },
+                            { $ifNull: ['$_agent_meta_agent_name', { $ifNull: ['$tool', ''] }] },
                           ],
                         },
                       ],
