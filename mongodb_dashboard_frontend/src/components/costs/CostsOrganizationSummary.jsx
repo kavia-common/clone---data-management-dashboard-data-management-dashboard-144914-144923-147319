@@ -101,38 +101,13 @@ export default function CostsOrganizationSummary({ onLoaded, failChance = 0.1 })
 function SummaryItem({ label, children, emphasize = false }) {
   return (
     <div
-      className="org-summary-item"
-      style={{
-        // Subtle white surface with a faint blue tint to harmonize with the themed surface
-        background:
-          "linear-gradient(180deg, color-mix(in oklab, #3B82F6 8%, #ffffff) 0%, #ffffff 100%)",
-        border: "1px solid var(--ocean-border)",
-        borderRadius: 12,
-        boxShadow: "var(--shadow-sm)",
-        padding: 12,
-        transition: "box-shadow 160ms ease, transform 160ms ease",
-      }}
+      className={`org-summary-item surface-dark${emphasize ? " org-summary-item--emphasis" : ""}`}
+      role="group"
+      aria-label={`${label} summary tile`}
+      tabIndex={0}
     >
-      <div
-        className="org-summary-label"
-        style={{
-          fontSize: 12,
-          color: "var(--ocean-muted)",
-          marginBottom: 6,
-          letterSpacing: 0.2,
-        }}
-      >
-        {label}
-      </div>
-      <div
-        className="org-summary-value"
-        style={{
-          fontSize: emphasize ? 20 : 16,
-          fontWeight: emphasize ? 700 : 600,
-          color: emphasize ? "#2563EB" : "var(--ocean-text)",
-          whiteSpace: "nowrap",
-        }}
-      >
+      <div className="org-summary-label">{label}</div>
+      <div className={`org-summary-value${emphasize ? " org-summary-value--emphasis" : ""}`}>
         {children}
       </div>
     </div>
