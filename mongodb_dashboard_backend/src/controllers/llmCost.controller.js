@@ -11,6 +11,7 @@ const { recordAudit } = require('../services/auditTrail');
  * GxP Critical: No (read-only analytics)
  * Params: none
  * Returns: 200 JSON array [{ agent: string, total_cost: number }]
+ * Errors: 500 JSON { error: string }
  */
 async function getLlmCostByAgentController(req, res) {
   try {
@@ -45,10 +46,13 @@ async function getLlmCostByAgentController(req, res) {
 
     // eslint-disable-next-line no-console
     console.error('[analytics] /llm-cost-by-agent failed:', err?.message || err);
-    return res.status(500).json({ success: false, message: 'Failed to aggregate LLM cost by agent' });
+    // Acceptance: return 500 with { error: 'message' }
+    return res.status(500).json({ error: 'Failed to aggregate LLM cost by agent' });
   }
 }
 
 module.exports = {
   getLlmCostByAgentController,
+  // Alias to satisfy handlers expecting this name per notes
+  getLlmCostByAgent: getLlmCostByAgentController,
 };
