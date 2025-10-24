@@ -7,8 +7,8 @@
 // User Story: As a consumer, I need an API to get LLM total cost aggregated by agent name.
 // Acceptance Criteria:
 // - Service uses project DB connection (no duplicate connections).
-// - Honors env LLM_EVENTS_COLLECTION for collection name (single or comma-separated).
-// - Correct collection name aligns with schema (default 'llm_costs') and fallbacks.
+ // - Honors env LLM_EVENTS_COLLECTION for collection name (single or comma-separated).
+ // - Correct collection name aligns with schema (default 'llm_events' with fallback to 'llm_costs') and fallbacks.
 // - Supports multiple shapes for agent and cost (USD):
 //     agent candidates: agent_name, agent, agentName, tool, metadata.agent, metadata.agentName, metadata["Agent Name"]
 //     cost candidates: cost_usd, cost.amount where cost.currency==='USD', total_cost when currency==='USD' or currency missing, cost
@@ -39,9 +39,11 @@ function resolveCollectionCandidates() {
 
   // Deduplicate while preserving order
   const defaults = [
-    'llm_costs', // model default
+    'llm_events', // preferred default collection for event-shaped docs
     'llm-costs',
+    'llm_costs',
     'llm_cost',
+    'llm-events',
     'events',
     'logs',
     'interactions',
@@ -97,20 +99,20 @@ function buildFlatAgentCostPipeline() {
         // Normalize agent: prefer explicit fields including metadata
         _agent_raw: {
           $ifNull: [
-            '$agent_name',
+            '$agentName',
             {
               $ifNull: [
                 '$agent',
                 {
                   $ifNull: [
-                    '$agentName',
+                    '$metadata.agent',
                     {
                       $ifNull: [
-                        '$tool',
+                        '$agent_name',
                         {
                           $ifNull: [
-                            '$metadata.agent',
-                            { $ifNull: ['$metadata.agentName', { $ifNull: ['$metadata.Agent Name', ''] }] },
+                            '$metadata.agentName',
+                            { $ifNull: ['$metadata.Agent Name', { $ifNull: ['$tool', ''] }] },
                           ],
                         },
                       ],
@@ -127,7 +129,7 @@ function buildFlatAgentCostPipeline() {
             { $eq: [{ $type: '$cost' }, 'object'] },
             {
               $cond: [
-                { $eq: [{ $toString: { $ifNull: ['$cost.currency', ''] } }, 'USD'] },
+                { $eq: [{ $toUpper: { $toString: { $ifNull: ['$cost.currency', ''] } } }, 'USD'] },
                 { $ifNull: ['$cost.amount', 0] },
                 null,
               ],
@@ -141,7 +143,7 @@ function buildFlatAgentCostPipeline() {
             {
               $and: [
                 { $ne: ['$currency', null] },
-                { $eq: [{ $toString: { $ifNull: ['$currency', ''] } }, 'USD'] },
+                { $eq: [{ $toUpper: { $toString: { $ifNull: ['$currency', ''] } } }, 'USD'] },
               ],
             },
             { $ifNull: ['$total_cost', null] },
