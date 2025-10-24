@@ -19,7 +19,8 @@ const jsConfig = {
 };
 
 const ignoreConfig = {
-  ignores: ['node_modules/**'],
+  // Ignore vendored frontend code nested under backend workspace (ESM modules trigger parsing errors)
+  ignores: ['node_modules/**', 'data-management-dashboard-144914-144924/**'],
 };
 
 module.exports = [ignoreConfig, jsConfig];

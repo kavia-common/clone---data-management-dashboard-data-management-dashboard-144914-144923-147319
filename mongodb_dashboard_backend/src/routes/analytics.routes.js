@@ -3,6 +3,7 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { newUsersOverTime } = require('../controllers/analytics.controller');
+const { getLlmCostByAgentController } = require('../controllers/llmCost.controller');
 
 const router = express.Router();
 
@@ -74,5 +75,36 @@ const router = express.Router();
  *                         type: integer
  */
 router.get('/users/new-over-time', asyncHandler(newUsersOverTime));
+
+/**
+ * @swagger
+ * /api/analytics/llm-cost-by-agent:
+ *   get:
+ *     summary: LLM cost distribution by agent
+ *     description: >
+ *       Aggregates the llm_cost/llm_costs collection by Agents[]."Agent Name", summing numeric values parsed
+ *       from Agents[]."Total Cost" (strips leading '$'). Returns an array sorted in descending order of total_cost.
+ *     tags:
+ *       - Analytics
+ *     responses:
+ *       200:
+ *         description: Aggregated cost by agent (descending)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   agent:
+ *                     type: string
+ *                     description: Agent name
+ *                   total_cost:
+ *                     type: number
+ *                     description: Total cost in USD (rounded to 6 decimals)
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/llm-cost-by-agent', asyncHandler(getLlmCostByAgentController));
 
 module.exports = router;
