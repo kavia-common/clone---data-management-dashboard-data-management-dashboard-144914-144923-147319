@@ -21,7 +21,8 @@ const { parseCurrencyToNumber, roundTo } = require('../utils/currency');
 
 /**
  * Build a Mongo pipeline for flat schema:
- * - Accepts docs with agent_name|agent|tool and total_cost|cost
+ * - Accepts docs with agent_name|agent|tool|agentName and total_cost|cost_usd|cost
+ * - Supports nested { cost: { amount, currency } } and sums only when currency == 'USD'
  * - Ensures only docs with both an agent identifier and a cost are considered
  * - Groups and sums, projects rounded totals, sorts desc
  */
@@ -34,30 +35,72 @@ function buildFlatAgentCostPipeline() {
             $or: [
               { agent_name: { $exists: true } },
               { agent: { $exists: true } },
+              { agentName: { $exists: true } },
               { tool: { $exists: true } },
             ],
           },
           {
-            $or: [{ total_cost: { $exists: true } }, { cost: { $exists: true } }],
+            $or: [
+              { total_cost: { $exists: true } },
+              { cost_usd: { $exists: true } },
+              { cost: { $exists: true } },
+            ],
           },
         ],
       },
     },
+    // Derive normalized agent and a numeric cost
     {
       $addFields: {
-        agent_norm: {
-          $trim: {
-            input: {
-              $ifNull: ['$agent_name', { $ifNull: ['$agent', { $ifNull: ['$tool', ''] }] }],
+        // Normalize agent: prefer explicit agent_name -> agent -> agentName -> tool
+        _agent_raw: {
+          $ifNull: [
+            '$agent_name',
+            { $ifNull: ['$agent', { $ifNull: ['$agentName', { $ifNull: ['$tool', ''] }] }] },
+          ],
+        },
+        // Cost from nested object if shape = { cost: { amount, currency }}
+        _cost_from_object: {
+          $cond: [
+            { $eq: [{ $type: '$cost' }, 'object'] },
+            {
+              $cond: [
+                { $eq: [{ $toString: { $ifNull: ['$cost.currency', ''] } }, 'USD'] },
+                { $ifNull: ['$cost.amount', 0] },
+                0,
+              ],
             },
-          },
+            null,
+          ],
         },
-        // Prepare number by coercing potential strings, removing $ and commas
-        _cost_str: {
-          $toString: {
-            $ifNull: ['$total_cost', { $ifNull: ['$cost', 0] }],
-          },
+      },
+    },
+    {
+      $addFields: {
+        // Pick first available cost candidate in USD-context
+        _cost_prefer: {
+          $ifNull: [
+            '$total_cost',
+            {
+              $ifNull: [
+                '$cost_usd',
+                {
+                  $ifNull: [
+                    '$_cost_from_object',
+                    // As a last fallback consider 'cost' (may be number or string)
+                    '$cost',
+                  ],
+                },
+              ],
+            },
+          ],
         },
+      },
+    },
+    {
+      $addFields: {
+        // Sanitize to string for uniform parsing when value is not strictly numeric
+        _cost_str: { $toString: { $ifNull: ['_cost_prefer', 0] } },
       },
     },
     {
@@ -78,17 +121,30 @@ function buildFlatAgentCostPipeline() {
       },
     },
     {
-      $addFields: {
+      $set: {
+        // Normalize agent to lowercase for grouping and trim; empty -> 'unknown'
+        agent_norm: {
+          $let: {
+            vars: {
+              t: { $trim: { input: { $toString: '$_agent_raw' } } },
+            },
+            in: {
+              $cond: [
+                { $eq: ['$$t', ''] },
+                'unknown',
+                { $toLower: '$$t' },
+              ],
+            },
+          },
+        },
         total_num: {
           $ifNull: [{ $toDouble: '$_cost_sanitized' }, 0],
         },
       },
     },
     {
-      $set: {
-        agent_norm: {
-          $cond: [{ $eq: ['$agent_norm', ''] }, 'Unknown', '$agent_norm'],
-        },
+      $match: {
+        $and: [{ agent_norm: { $ne: '' } }, { total_num: { $gt: 0 } }],
       },
     },
     {
@@ -110,7 +166,8 @@ function buildFlatAgentCostPipeline() {
 
 /**
  * Build the MongoDB aggregation pipeline for array schema with Agents[] having
- * "Agent Name" and "Total Cost"
+ * "Agent Name" and "Total Cost".
+ * - Normalizes agent to lowercase for case-insensitive grouping.
  */
 function buildAgentsArrayPipeline() {
   return [
@@ -146,7 +203,12 @@ function buildAgentsArrayPipeline() {
     {
       $set: {
         _agent: {
-          $cond: [{ $eq: ['$_agent_trimmed', ''] }, 'Unknown', '$_agent_trimmed'],
+          $let: {
+            vars: { t: '$_agent_trimmed' },
+            in: {
+              $cond: [{ $eq: ['$$t', ''] }, 'unknown', { $toLower: '$$t' }],
+            },
+          },
         },
         _cost: {
           $toDouble: { $ifNull: ['$_cost_string', '0'] },
@@ -187,7 +249,8 @@ function aggregateAgentsInApp(documents = []) {
     for (const a of agents) {
       try {
         const nameRaw = a?.['Agent Name'];
-        const agent = String(nameRaw == null ? '' : nameRaw).trim() || 'Unknown';
+        // Normalize: trim + lowercase
+        const agent = (String(nameRaw == null ? '' : nameRaw).trim() || 'unknown').toLowerCase();
         const cost = parseCurrencyToNumber(a?.['Total Cost']);
         const prev = totals.get(agent) || 0;
         totals.set(agent, prev + (Number.isFinite(cost) ? cost : 0));
@@ -226,13 +289,13 @@ async function getLlmCostByAgent() {
   ]);
 
   try {
-    // First, try a flat schema pipeline (agent_name/agent/tool + total_cost/cost)
+    // First, try a flat schema pipeline (agent_name/agent/agentName/tool + total_cost/cost_usd/cost or cost.amount with currency USD)
     const flatPipeline = buildFlatAgentCostPipeline();
     const flatResults = await collection.aggregate(flatPipeline, { allowDiskUse: true }).toArray();
 
     if (Array.isArray(flatResults) && flatResults.length > 0) {
       const arr = flatResults.map((r) => ({
-        agent: String(r?.agent ?? 'Unknown'),
+        agent: String(r?.agent ?? 'unknown'),
         // Use numeric rounding with 6-decimal precision
         total_cost: roundTo(Number(r?.total_cost ?? 0), 6),
       }));
@@ -247,7 +310,7 @@ async function getLlmCostByAgent() {
 
     if (Array.isArray(arrayResults) && arrayResults.length > 0) {
       const arr = arrayResults.map((r) => ({
-        agent: String(r?.agent ?? 'Unknown'),
+        agent: String(r?.agent ?? 'unknown'),
         total_cost: roundTo(Number(r?.total_cost ?? 0), 6),
       }));
       arr.sort((a, b) => b.total_cost - a.total_cost);
