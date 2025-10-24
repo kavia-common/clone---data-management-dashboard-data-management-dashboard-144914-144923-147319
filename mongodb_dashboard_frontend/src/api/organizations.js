@@ -3,43 +3,66 @@ import { getApiClient } from "./client";
 /**
  * PUBLIC_INTERFACE
  * listOrganizations
- * Fetch a list of organizations (tenants) authorized for the current user.
+ * Fetch list of organizations (tenants) for the current user.
  *
- * Attempts the following endpoints:
- *  - GET /api/session/tenants           (preferred; requires Authorization)
- *  - TODO: GET /api/organizations       (not yet available)
+ * Calls:
+ *  - GET /api/session/tenants
  *
- * Returns normalized items in the shape:
- *  - [{ id: string, name?: string|null }]
+ * Expects response.items: Array<{ id, name }>, but normalizes a few common variants.
+ * Returns: Array<{ id: string, name: string|null }>
  */
 export async function listOrganizations() {
   const api = getApiClient();
-
-  // Preferred endpoint based on backend openapi: /api/session/tenants
-  // Expected shapes can vary; we normalize to { id, name }
   try {
     const res = await api.get("/session/tenants");
     const data = res?.data;
     let items = [];
 
-    // Handle various possible payloads:
-    // 1) Array<string|object>
     if (Array.isArray(data)) {
       items = data.map((it) => {
         if (it && typeof it === "object") {
-          const id = it.tenant_id || it.tenantId || it.id || it._id || it.organization_id || it.org_id || String(it);
-          const name = it.tenant_name || it.tenantName || it.name || it.organization_name || it.org_name || null;
+          const id =
+            it.id ||
+            it.tenant_id ||
+            it.tenantId ||
+            it._id ||
+            it.organization_id ||
+            it.org_id ||
+            String(it);
+          const name =
+            it.name ||
+            it.tenant_name ||
+            it.tenantName ||
+            it.organization_name ||
+            it.org_name ||
+            null;
           return { id: String(id), name: name != null ? String(name) : null };
         }
         return { id: String(it), name: null };
       });
     } else if (data && typeof data === "object") {
-      // 2) Object with items key
-      const arr = Array.isArray(data.items) ? data.items : Array.isArray(data.data) ? data.data : [];
+      const arr = Array.isArray(data.items)
+        ? data.items
+        : Array.isArray(data.data)
+        ? data.data
+        : [];
       items = arr.map((it) => {
         if (it && typeof it === "object") {
-          const id = it.tenant_id || it.tenantId || it.id || it._id || it.organization_id || it.org_id || String(it);
-          const name = it.tenant_name || it.tenantName || it.name || it.organization_name || it.org_name || null;
+          const id =
+            it.id ||
+            it.tenant_id ||
+            it.tenantId ||
+            it._id ||
+            it.organization_id ||
+            it.org_id ||
+            String(it);
+          const name =
+            it.name ||
+            it.tenant_name ||
+            it.tenantName ||
+            it.organization_name ||
+            it.org_name ||
+            null;
           return { id: String(id), name: name != null ? String(name) : null };
         }
         return { id: String(it), name: null };
@@ -48,7 +71,7 @@ export async function listOrganizations() {
       items = [];
     }
 
-    // Sort by name then id for better UX (stable)
+    // Sort by name then id
     items.sort((a, b) => {
       const an = (a.name || "").toLowerCase();
       const bn = (b.name || "").toLowerCase();
@@ -58,8 +81,6 @@ export async function listOrganizations() {
 
     return items;
   } catch (err) {
-    // Fallback NOTE:
-    // TODO: Add GET /api/organizations when backend provides it.
     throw new Error(err?.message || "Failed to load organizations");
   }
 }
@@ -67,65 +88,63 @@ export async function listOrganizations() {
 /**
  * PUBLIC_INTERFACE
  * getOrganizationSummary
- * Aggregates a tenant's usage to produce an organization summary with:
- *  - organizationId
- *  - organizationName (optional; pass through from the caller if known)
- *  - totalCost (sum of user usage costs where available)
- *  - users (distinct user count or number of rows)
+ * Build summary for a tenant with:
+ *  - id
+ *  - name (best-effort; may fetch navigation if not available)
+ *  - totalCost (sum of users[].total_cost)
+ *  - usersCount (users.length)
  *
- * Implementation:
- *  - GET /api/tenants/{tenantId}/users/usage
- *    We compute totalCost by summing common cost fields per user entry:
- *      total_cost | totalCost | usd | amount_usd | amountUSD | cost
- *    Users count: number of distinct user_id fields; fallback to array length.
+ * Calls:
+ *  - GET /api/tenants/:tenantId/users/usage -> { users: [...] } or { items: [...] }
+ *  - Optionally GET /api/tenants/:tenantId/navigation to derive tenant_name
  *
  * @param {string} tenantId
- * @returns {Promise<{ organizationId: string, organizationName: string|null, totalCost: number, users: number }>}
+ * @returns {Promise<{ id: string, name: string|null, totalCost: number, usersCount: number }>}
  */
 export async function getOrganizationSummary(tenantId) {
   const api = getApiClient();
-  if (!tenantId) {
-    throw new Error("tenantId is required");
-  }
+  if (!tenantId) throw new Error("tenantId is required");
   try {
     const res = await api.get(`/tenants/${encodeURIComponent(tenantId)}/users/usage`);
-    const data = res?.data;
+    const payload = res?.data || {};
+    // Expected shape: { users: [...] }
+    const users = Array.isArray(payload.users)
+      ? payload.users
+      : Array.isArray(payload.items)
+      ? payload.items
+      : Array.isArray(payload.data)
+      ? payload.data
+      : Array.isArray(payload)
+      ? payload
+      : [];
 
-    const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
     let totalCost = 0;
-    const userIds = new Set();
+    for (const u of users) {
+      const n = Number(
+        (u && (u.total_cost ?? u.totalCost ?? u.usd ?? u.amount_usd ?? u.amountUSD ?? u.cost)) || 0
+      );
+      if (Number.isFinite(n)) totalCost += n;
+    }
 
-    for (const row of items) {
-      if (row && typeof row === "object") {
-        const uid = row.user_id || row.userId || row.id || row._id;
-        if (uid != null) userIds.add(String(uid));
-        // Flexible cost fields aggregation
-        const cand = [
-          row.total_cost,
-          row.totalCost,
-          row.usd,
-          row.amount_usd,
-          row.amountUSD,
-          row.cost,
-        ];
-        for (const c of cand) {
-          const n = Number(c);
-          if (Number.isFinite(n)) {
-            totalCost += n;
-            break;
-          }
-        }
-      }
+    // Try to fetch tenant_name if not available
+    let name = null;
+    try {
+      const nav = await api.get(`/tenants/${encodeURIComponent(tenantId)}/navigation`);
+      name =
+        nav?.data?.tenant_name ??
+        nav?.data?.tenantName ??
+        null;
+    } catch {
+      // ignore name fetch errors
     }
 
     return {
-      organizationId: String(tenantId),
-      organizationName: null, // caller can overwrite if they have display name
+      id: String(tenantId),
+      name,
       totalCost: Number.isFinite(totalCost) ? totalCost : 0,
-      users: userIds.size || items.length || 0,
+      usersCount: users.length || 0,
     };
   } catch (err) {
-    // Surface a controlled message
     throw new Error(err?.message || "Failed to load organization summary");
   }
 }

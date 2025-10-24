@@ -1,7 +1,10 @@
 import axios from "axios";
+import { getStoredAuth } from "../config/auth";
 
-
-const RAW_BASE_URL = "https://vscode-internal-41729-beta.beta01.cloud.kavia.ai:3001";
+// Resolve base URL from env when provided, fallback to default
+const RAW_BASE_URL =
+  (process.env.REACT_APP_API_BASE_URL && String(process.env.REACT_APP_API_BASE_URL).trim()) ||
+  "https://vscode-internal-41729-beta.beta01.cloud.kavia.ai:3001";
 const API_PREFIX = "/api";
 
 // Combine base + prefix safely
@@ -18,12 +21,35 @@ const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { "Content-Type": "application/json" },
+  withCredentials: true, // send cookies when needed (proxy or cross-origin)
+});
+
+// Attach Authorization header from stored auth if available
+api.interceptors.request.use((config) => {
+  try {
+    const auth = getStoredAuth && getStoredAuth();
+    const token = auth && auth.token;
+    if (token) {
+      config.headers = config.headers || {};
+      // Standard Bearer token header
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return config;
 });
 
 // Helper: normalize list/envelope responses
 function normalizeListResponse(res) {
   const payload = res?.data || {};
-  const items = Array.isArray(payload) ? payload : payload.data || [];
+  const items = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload.items)
+    ? payload.items
+    : Array.isArray(payload.data)
+    ? payload.data
+    : [];
   const total =
     (payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
     (Array.isArray(items) ? items.length : 0);
@@ -31,8 +57,9 @@ function normalizeListResponse(res) {
 }
 
 // === PUBLIC INTERFACE ===
+// PUBLIC_INTERFACE
 export function getApiClient() {
-  /** Returns the configured Axios instance */
+  /** Returns the configured Axios instance. Includes Authorization header if a token is stored and sends credentials by default. */
   return api;
 }
 
@@ -125,3 +152,6 @@ export async function getUserProjectsCosts(userId) {
   const res = await api.get(`/users`);
   return res.data?.data ?? res.data;
 }
+
+// Default export of the configured axios instance for convenience
+export default api;

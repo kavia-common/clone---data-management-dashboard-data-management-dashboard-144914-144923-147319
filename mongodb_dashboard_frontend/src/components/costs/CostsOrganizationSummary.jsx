@@ -9,7 +9,7 @@ import { listOrganizations, getOrganizationSummary } from "../../api/organizatio
 /**
  * PUBLIC_INTERFACE
  * CostsOrganizationSummary
- * Organization-driven summary with dropdown selection.
+ * Organization-driven summary with dropdown selection using real backend endpoints.
  *
  * Displays:
  *  - Organization ID
@@ -18,11 +18,11 @@ import { listOrganizations, getOrganizationSummary } from "../../api/organizatio
  *  - Users
  *
  * Behavior:
- *  - On mount: loads organizations list and selects the first by default (if any).
- *  - When a selection changes: fetches the selected organization's summary.
- *  - Preserves loading skeleton for summary tiles and error UI with retry for both organization list and summary load.
- *  - Dropdown is disabled while loading the summary.
- *  - Ocean Professional theme and dark surface styles applied via CSS classes.
+ *  - On mount: loads organizations list and selects the first by default.
+ *  - On selection: fetches organization summary using GET /api/tenants/:tenantId/users/usage
+ *    and, when necessary, GET /api/tenants/:tenantId/navigation to resolve name.
+ *  - Keeps loading skeletons and error states with retry for both list and summary calls.
+ *  - Dropdown is disabled while summary is loading.
  *
  * Props:
  * - onLoaded?: (data) => void   // optional callback when summary loads successfully
@@ -68,34 +68,46 @@ export default function CostsOrganizationSummary({ onLoaded, failChance }) {
         setSummaryState({ loading: false, error: "", data: null });
       }
     } catch (e) {
-      setOrgsState({ loading: false, error: e?.message || "Failed to load organizations.", items: [] });
+      setOrgsState({
+        loading: false,
+        error: e?.message || "Failed to load organizations.",
+        items: [],
+      });
     }
   }, [useMock, failChance, selectedOrgId]);
 
   // Load summary for selected organization
-  const loadSummary = React.useCallback(async (orgId, orgName = null) => {
-    if (!orgId) {
-      setSummaryState({ loading: false, error: "", data: null });
-      return;
-    }
-    setSummaryState({ loading: true, error: "", data: null });
-    try {
-      let payload;
-      if (useMock) {
-        payload = await mockFetchOrganizationSummary(failChance);
-      } else {
-        const summary = await getOrganizationSummary(orgId);
-        payload = {
-          ...summary,
-          organizationName: summary.organizationName ?? orgName ?? null,
-        };
+  const loadSummary = React.useCallback(
+    async (orgId, orgName = null) => {
+      if (!orgId) {
+        setSummaryState({ loading: false, error: "", data: null });
+        return;
       }
-      setSummaryState({ loading: false, error: "", data: payload });
-      if (onLoaded) onLoaded(payload);
-    } catch (e) {
-      setSummaryState({ loading: false, error: e?.message || "Failed to load organization summary.", data: null });
-    }
-  }, [useMock, failChance, onLoaded]);
+      setSummaryState({ loading: true, error: "", data: null });
+      try {
+        let payload;
+        if (useMock) {
+          payload = await mockFetchOrganizationSummary(failChance);
+        } else {
+          const summary = await getOrganizationSummary(orgId);
+          payload = {
+            ...summary,
+            // Prefer dropdown label when API name is not available
+            name: summary.name ?? orgName ?? null,
+          };
+        }
+        setSummaryState({ loading: false, error: "", data: payload });
+        if (onLoaded) onLoaded(payload);
+      } catch (e) {
+        setSummaryState({
+          loading: false,
+          error: e?.message || "Failed to load organization summary.",
+          data: null,
+        });
+      }
+    },
+    [useMock, failChance, onLoaded]
+  );
 
   // On mount: load organizations
   React.useEffect(() => {
@@ -166,8 +178,12 @@ export default function CostsOrganizationSummary({ onLoaded, failChance }) {
     >
       {/* Handle organizations loading/error/empty states at the top of the card */}
       {orgsLoading ? (
-        <div className="org-summary-grid" aria-busy="true" aria-label="Loading organizations" style={styles.grid}>
-          {/* Keep the summary grid skeleton to preserve the original UX */}
+        <div
+          className="org-summary-grid"
+          aria-busy="true"
+          aria-label="Loading organizations"
+          style={styles.grid}
+        >
           <SummarySkeleton />
         </div>
       ) : orgsError ? (
@@ -179,29 +195,46 @@ export default function CostsOrganizationSummary({ onLoaded, failChance }) {
             <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
               Ask an administrator to grant you access or try refreshing.
             </div>
-            <Button variant="secondary" onClick={loadOrganizations} aria-label="Reload organizations">Reload</Button>
+            <Button variant="secondary" onClick={loadOrganizations} aria-label="Reload organizations">
+              Reload
+            </Button>
           </div>
         </div>
       ) : (
         // With organizations loaded, render the summary states
         <>
           {loading ? (
-            <div className="org-summary-grid" aria-busy="true" aria-label="Loading organization summary" style={styles.grid}>
+            <div
+              className="org-summary-grid"
+              aria-busy="true"
+              aria-label="Loading organization summary"
+              style={styles.grid}
+            >
               <SummarySkeleton />
             </div>
           ) : error ? (
-            <ErrorState message={error} onRetry={() => {
-              const selected = (orgs || []).find((o) => o.id === selectedOrgId);
-              loadSummary(selectedOrgId, selected?.name ?? null);
-            }} />
+            <ErrorState
+              message={error}
+              onRetry={() => {
+                const selected = (orgs || []).find((o) => o.id === selectedOrgId);
+                loadSummary(selectedOrgId, selected?.name ?? null);
+              }}
+            />
           ) : (
             <div className="org-summary-grid" style={styles.grid}>
-              <SummaryItem label="Organization ID">{data?.organizationId || "—"}</SummaryItem>
-              <SummaryItem label="Organization">{data?.organizationName || (orgs.find(o => o.id === selectedOrgId)?.name || "—")}</SummaryItem>
-              <SummaryItem label="Total Cost" emphasize>
-                {formatCurrencyAmount(data?.totalCost ?? 0, { currency: "USD", maximumFractionDigits: 6 })}
+              <SummaryItem label="Organization ID">{data?.id || "—"}</SummaryItem>
+              <SummaryItem label="Organization">
+                {data?.name || orgs.find((o) => o.id === selectedOrgId)?.name || "—"}
               </SummaryItem>
-              <SummaryItem label="Users">{Number(data?.users ?? 0).toLocaleString()}</SummaryItem>
+              <SummaryItem label="Total Cost" emphasize>
+                {formatCurrencyAmount(data?.totalCost ?? 0, {
+                  currency: "USD",
+                  maximumFractionDigits: 6,
+                })}
+              </SummaryItem>
+              <SummaryItem label="Users">
+                {Number(data?.usersCount ?? 0).toLocaleString()}
+              </SummaryItem>
             </div>
           )}
         </>
@@ -251,7 +284,7 @@ function SummarySkeleton() {
 
 /**
  * Mock helpers used only when `failChance` prop is provided (test harness).
- * This preserves the original tests while enabling real API in production.
+ * This preserves tests while enabling real API in production.
  */
 async function mockFetchOrganizations(failChance = 0.1) {
   await delay(200 + Math.random() * 300);
@@ -268,10 +301,10 @@ async function mockFetchOrganizationSummary(failChance = 0.1) {
     throw new Error("Network error: Unable to fetch organization summary");
   }
   return {
-    organizationId: "T0002",
-    organizationName: "KAVIA",
+    id: "T0002",
+    name: "KAVIA",
     totalCost: 2663.216423,
-    users: 25,
+    usersCount: 25,
   };
 }
 
