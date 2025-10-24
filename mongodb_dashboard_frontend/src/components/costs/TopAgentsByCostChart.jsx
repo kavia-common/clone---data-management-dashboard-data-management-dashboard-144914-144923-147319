@@ -40,7 +40,7 @@ export default function TopAgentsByCostChart({ data = [], loading = false, error
           <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
           <XAxis dataKey="name" tick={tickStyle} />
           <YAxis tick={tickStyle} tickFormatter={(v) => `$${Number(v).toFixed(2)}`} />
-          <Tooltip formatter={(v) => [`$${Number(v).toFixed(4)}`, "Total cost"]} />
+          <Tooltip formatter={(v) => [`$${Number(v).toFixed(6)}`, "Total cost"]} />
           <Bar dataKey="total" name="Total cost (USD)" radius={[8, 8, 0, 0]} fill={brandBlue}>
             <LabelList dataKey="total" position="top" formatter={(v) => `$${Number(v).toFixed(2)}`} style={{ fontSize: 11, fill: "#111827" }} />
           </Bar>

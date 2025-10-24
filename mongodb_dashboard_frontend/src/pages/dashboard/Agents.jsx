@@ -1,6 +1,7 @@
 import React from "react";
 import Card from "../../components/ui/Card.jsx";
-import AgentBarChart from "../../components/charts/AgentBarChart.jsx";
+import TopAgentsByCostChart from "../../components/costs/TopAgentsByCostChart.jsx";
+import { getLlmCostByAgent } from "../../api/client";
 
 /**
 // ============================================================================
@@ -23,25 +24,42 @@ import AgentBarChart from "../../components/charts/AgentBarChart.jsx";
  * - Uses Ocean Professional theme via shared UI components.
  */
 export default function Agents() {
+  const [data, setData] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState("");
+
+  React.useEffect(() => {
+    let mounted = true;
+    async function load() {
+      setLoading(true);
+      setError("");
+      try {
+        const items = await getLlmCostByAgent();
+        if (!mounted) return;
+        const arr = Array.isArray(items) ? items : [];
+        setData(arr);
+      } catch (e) {
+        if (!mounted) return;
+        setError(e?.message || "Failed to load LLM cost distribution by agent.");
+        setData([]);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <div>
       <Card
-        title="Agents"
-        subtitle="Bar chart grouped by agent name. Use the controls to change metric and limit."
+        title="LLM Cost Distribution by Agent"
+        subtitle="Summed USD cost per agent (descending). Tooltip shows exact cost to 6 decimals."
         className="mb-4"
       >
-        <AgentBarChart defaultMetric="count" defaultTopN={10} height={360} />
-      </Card>
-
-      <Card title="Usage Notes" subtitle="About this visualization">
-        <ul style={{ margin: "0.5rem 1rem" }}>
-          <li>Metric selector switches between record count and total cost per agent.</li>
-          <li>Top N limits the number of agents displayed (1 to 50).</li>
-          <li>
-            Data is fetched from the backend LLM costs endpoint and aggregated on the client. No
-            backend modifications were required.
-          </li>
-        </ul>
+        <TopAgentsByCostChart data={data.map(d => ({ agent_name: d.agent, total_cost: d.total_cost }))} loading={loading} error={error} height={360} />
       </Card>
     </div>
   );

@@ -1,7 +1,7 @@
 import axios from "axios";
 
 
-const RAW_BASE_URL = "https://vscode-internal-17371-beta.beta01.cloud.kavia.ai:3001";
+const RAW_BASE_URL = "https://vscode-internal-40359-beta.beta01.cloud.kavia.ai:3001";
 const API_PREFIX = "/api";
 
 // Combine base + prefix safely
@@ -34,6 +34,16 @@ function normalizeListResponse(res) {
 export function getApiClient() {
   /** Returns the configured Axios instance */
   return api;
+}
+
+/** PUBLIC_INTERFACE
+ * getLlmCostByAgent
+ * Fetches pre-aggregated LLM costs by agent.
+ * Returns array: [{ agent: string, total_cost: number }]
+ */
+export async function getLlmCostByAgent() {
+  const res = await api.get('/analytics/llm-cost-by-agent');
+  return res.data;
 }
 
 // === HEALTH CHECK ===
