@@ -174,8 +174,12 @@ export default function AgentsChart({
 
       const res = await apiGet<any>(url, { signal: controller.signal });
 
+      // Debug log: fetched payload (raw response)
+      console.debug("[AgentsChart][data-test-id=agents-chart-fetched-payload]", res);
+
       const aggregated = normalizeToAggregated(res);
-      console.debug("[AgentsChart] Aggregated agent cost", aggregated);
+      // Debug log: aggregated agent totals
+      console.debug("[AgentsChart][data-test-id=agents-chart-aggregated]", aggregated);
 
       // Also expose via callback when provided
       try {
@@ -191,6 +195,9 @@ export default function AgentsChart({
         name: row.agent,
         value: row.total_cost, // keep precision; only round in tooltips/labels as needed
       }));
+
+      // Debug log: derived chart dataset
+      console.debug("[AgentsChart][data-test-id=agents-chart-derived-dataset]", shaped);
 
       // Only treat empty-state when there are no agents (length === 0), even if totals are zero.
       setData(shaped);
