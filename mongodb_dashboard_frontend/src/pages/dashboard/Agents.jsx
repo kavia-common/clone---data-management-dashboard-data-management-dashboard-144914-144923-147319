@@ -1,6 +1,5 @@
 import React from "react";
-// Import the new TypeScript version explicitly to avoid ambiguity with the legacy JSX component
-import AgentsChart from "../../components/charts/AgentsChart.tsx";
+import AgentsChart from "../../components/charts/AgentsChart";
 
 /**
  * PUBLIC_INTERFACE
