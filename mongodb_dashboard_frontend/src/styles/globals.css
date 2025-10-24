@@ -359,10 +359,3 @@ html[data-theme="dark"] .topbar {
 
 /* Hover helpers */
 html[data-theme="dark"] .hover-bright:hover { color: #ffffff !important; }
-
-/* Error state on dark surfaces: readable text and subtle tinted background */
-html[data-theme="dark"] .error {
-  background: color-mix(in oklab, #EF4444 18%, transparent);
-  color: #FCA5A5;
-  border: 1px solid var(--color-border);
-}

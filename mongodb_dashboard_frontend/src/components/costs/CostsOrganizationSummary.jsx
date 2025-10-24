@@ -53,7 +53,7 @@ export default function CostsOrganizationSummary({ onLoaded, failChance = 0.1 })
     <Card
       title="Organization Summary"
       subtitle="Overview of organization-level costs and usage"
-      className="mb-4 themedSurface"
+      className="mb-4"
       actions={
         <Button variant="ghost" onClick={load} aria-label="Refresh organization summary">
           Refresh
@@ -101,13 +101,36 @@ export default function CostsOrganizationSummary({ onLoaded, failChance = 0.1 })
 function SummaryItem({ label, children, emphasize = false }) {
   return (
     <div
-      className={`org-summary-item surface-dark${emphasize ? " org-summary-item--emphasis" : ""}`}
-      role="group"
-      aria-label={`${label} summary tile`}
-      tabIndex={0}
+      className="org-summary-item"
+      style={{
+        background: "#ffffff",
+        border: "1px solid #E5E7EB",
+        borderRadius: 12,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+        padding: 12,
+        transition: "box-shadow 160ms ease, transform 160ms ease",
+      }}
     >
-      <div className="org-summary-label">{label}</div>
-      <div className={`org-summary-value${emphasize ? " org-summary-value--emphasis" : ""}`}>
+      <div
+        className="org-summary-label"
+        style={{
+          fontSize: 12,
+          color: "#6B7280",
+          marginBottom: 6,
+          letterSpacing: 0.2,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        className="org-summary-value"
+        style={{
+          fontSize: emphasize ? 20 : 16,
+          fontWeight: emphasize ? 700 : 600,
+          color: emphasize ? "#2563EB" : "#111827",
+          whiteSpace: "nowrap",
+        }}
+      >
         {children}
       </div>
     </div>
