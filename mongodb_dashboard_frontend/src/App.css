@@ -778,6 +778,13 @@ input:focus, select:focus, textarea:focus {
   .chart-wrapper { min-height: 240px; }
 }
 
+/* Organization Summary hover subtle elevation */
+.org-summary-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+
 /* On tablet, keep labels visible and align left; rely on horizontal scroll for overflow */
 @media (max-width: 1023px) {
   .nav-link .nav-label { display: inline !important; }

@@ -115,3 +115,11 @@ export function formatUsdWithCreditsText(usd, options = {}) {
   if (!Number.isFinite(n)) return '—';
   return formatCurrencyAmount(n, { currency: 'USD', includeCredits: true, ...options });
 }
+
+// PUBLIC_INTERFACE
+export function formatUsdUpToSixDecimals(amount) {
+  /** Format a USD amount with thousands separators and up to 6 decimal places. */
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return '—';
+  return formatCurrencyAmount(n, { currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 6 });
+}
