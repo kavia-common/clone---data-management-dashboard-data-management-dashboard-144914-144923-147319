@@ -11,6 +11,7 @@ const llmCostsRoutes = require('./llmCosts.routes');
 const llmCostsAggregateRoutes = require('./llmCosts.aggregate.routes');
 const costsByAgentRoutes = require('./costs.byAgent.routes');
 const sessionTrackingRoutes = require('./sessionTracking.routes');
+const sessionRoutes = require('./session.routes');
 const appDeploymentsRoutes = require('./appDeployments.routes');
 const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
@@ -59,6 +60,7 @@ router.use('/analytics', analyticsRoutes);
 router.use('/llm-costs', llmCostsRoutes);
 router.use('/llm-costs-aggregate', llmCostsAggregateRoutes);
 router.use('/costs', costsByAgentRoutes);
+router.use('/session', sessionRoutes);
 router.use('/session-tracking', sessionTrackingRoutes);
 router.use('/app-deployments', appDeploymentsRoutes);
 

@@ -121,6 +121,7 @@ app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
  // Tenants and Projects (mapping, hierarchy, credits, usage)
 app.use('/api/tenants', require('./routes/tenants.routes'));
 app.use('/api/projects', require('./routes/projects.routes'));
+app.use('/api/session', require('./routes/session.routes'));
 
  // Dashboard overview routes
 app.use('/api/dashboard', require('./routes/dashboard.routes'));
