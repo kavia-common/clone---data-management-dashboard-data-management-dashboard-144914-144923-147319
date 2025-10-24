@@ -38,11 +38,12 @@ function resolveCollectionCandidates() {
     : [];
 
   // Deduplicate while preserving order
+  // Default priority updated to prefer 'llm_cost' as the canonical collection name
   const defaults = [
-    'llm_events', // preferred default per spec
-    'llm-costs',
+    'llm_cost',   // preferred default
     'llm_costs',
-    'llm_cost',
+    'llm-costs',
+    'llm_events',
     'llm-events',
     'events',
     'logs',
@@ -68,33 +69,7 @@ function resolveCollectionCandidates() {
  */
 function buildFlatAgentCostPipeline() {
   return [
-    {
-      $match: {
-        $and: [
-          {
-            // Agent candidates exist in top-level or metadata (excluding invalid dot-path for keys with spaces)
-            $or: [
-              { agent_name: { $exists: true } },
-              { agent: { $exists: true } },
-              { agentName: { $exists: true } },
-              { tool: { $exists: true } },
-              { 'metadata.agent': { $exists: true } },
-              { 'metadata.agentName': { $exists: true } },
-            ],
-          },
-          {
-            // Cost candidates exist in at least one of the supported shapes
-            $or: [
-              { cost_usd: { $exists: true } },
-              { 'cost.amount': { $exists: true } },
-              { total_cost: { $exists: true } },
-              { cost: { $exists: true } },
-            ],
-          },
-        ],
-      },
-    },
-    // Derive normalized agent and a numeric cost candidate in USD
+    // Compute helper fields up-front so we can safely reference keys with spaces
     {
       $addFields: {
         // Access metadata['Agent Name'] safely (Mongo key with space) using $getField
@@ -105,11 +80,15 @@ function buildFlatAgentCostPipeline() {
             null,
           ],
         },
+        // Access top-level fields with spaces using $getField on $$ROOT
+        _root_agent_name: { $getField: { field: 'Agent Name', input: '$$ROOT' } },
+        _root_total_cost: { $getField: { field: 'Total Cost', input: '$$ROOT' } },
       },
     },
+    // Derive normalized agent and a numeric cost candidate in USD
     {
       $addFields: {
-        // Normalize agent: prefer explicit fields including metadata
+        // Normalize agent: prefer explicit fields including metadata and top-level 'Agent Name'
         _agent_raw: {
           $ifNull: [
             '$agentName',
@@ -125,7 +104,9 @@ function buildFlatAgentCostPipeline() {
                         {
                           $ifNull: [
                             '$metadata.agentName',
-                            { $ifNull: ['$_agent_meta_agent_name', { $ifNull: ['$tool', ''] }] },
+                            {
+                              $ifNull: ['$_agent_meta_agent_name', { $ifNull: ['$_root_agent_name', { $ifNull: ['$tool', ''] }] }],
+                            },
                           ],
                         },
                       ],
@@ -179,9 +160,14 @@ function buildFlatAgentCostPipeline() {
                     '$_cost_from_top_total_if_usd',
                     {
                       $ifNull: [
-                        '$total_cost',
-                        // As a last fallback consider 'cost' (may be number or string)
-                        '$cost',
+                        '$_root_total_cost', // support top-level 'Total Cost' (already aggregated)
+                        {
+                          $ifNull: [
+                            '$total_cost',
+                            // As a last fallback consider 'cost' (may be number or string)
+                            '$cost',
+                          ],
+                        },
                       ],
                     },
                   ],
