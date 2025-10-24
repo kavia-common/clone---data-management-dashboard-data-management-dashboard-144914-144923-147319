@@ -463,10 +463,7 @@ export default function Costs() {
         </div>
       </div>
 
-      {/* Organization Summary section */}
-      <div style={{ marginBottom: 16 }}>
-        <CostsOrganizationSummary />
-      </div>
+
 
       {/* Conditional chart section */}
       {viewMode === "stacked" ? <StackedCostsCard /> : <AgentGroupedCostsCard />}
@@ -489,6 +486,9 @@ export default function Costs() {
           {/* View All button removed per requirements */}
         </div>
         {error && <div className="error" role="alert">{error}</div>}
+        <div className="mb-6">
+          <CostsOrganizationSummary />
+        </div>
         <DataTable
           columns={columns}
           data={items}
