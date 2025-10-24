@@ -1,5 +1,6 @@
 import React from "react";
-import AgentsChart from "../../components/charts/AgentsChart.jsx";
+// Import the new TypeScript version explicitly to avoid ambiguity with the legacy JSX component
+import AgentsChart from "../../components/charts/AgentsChart.tsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -7,8 +8,8 @@ import AgentsChart from "../../components/charts/AgentsChart.jsx";
  * Dedicated page to display LLM Cost Distribution by Agent using the AgentsChart component.
  *
  * Notes:
- * - This page intentionally composes a single purpose chart component.
- * - AgentsChart handles data fetching, sorting, and robust loading/error/empty states.
+ * - This page composes a single-purpose chart component with built-in data fetching.
+ * - The chart includes loading, error (with retry), and empty-state handling.
  */
 export default function Agents() {
   return (
