@@ -17,10 +17,25 @@ export default function TopAgentsByCostChart({ data = [], loading = false, error
   const tickStyle = { fontSize: 12, fill: "#1f2937" };
 
   const prepared = React.useMemo(() => {
-    return (data || []).map((d) => ({
-      name: d?.agent_name || "unknown",
-      total: Number(d?.total_cost || 0),
-    }));
+    const toNumber = (v) => {
+      if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+      if (v == null) return 0;
+      const s = String(v).replace(/[$,]/g, "").trim();
+      const n = Number.parseFloat(s);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const arr = (Array.isArray(data) ? data : [])
+      .map((d) => {
+        const name = d?.agent_name ?? d?.agent ?? "unknown";
+        const total = toNumber(d?.total_cost ?? d?.total ?? 0);
+        return { name: name || "unknown", total };
+      })
+      .filter((x) => Number.isFinite(x.total));
+
+    // Ensure descending sort regardless of server behavior
+    arr.sort((a, b) => b.total - a.total);
+    return arr;
   }, [data]);
 
   if (error) {
