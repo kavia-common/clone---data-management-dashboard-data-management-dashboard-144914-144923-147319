@@ -27,28 +27,54 @@ const { parseCurrencyToNumber, roundTo } = require('../utils/currency');
  */
 function buildPipeline() {
   return [
+    // Ensure Agents is an array
     { $match: { Agents: { $exists: true, $type: 'array' } } },
     { $unwind: '$Agents' },
+
+    // Normalize agent name and cost fields safely
     {
       $set: {
-        _agent: '$Agents.Agent Name',
-        _cost: {
-          $toDouble: {
-            $replaceAll: {
-              input: { $ifNull: ['$Agents.Total Cost', '0'] },
-              find: '$',
-              replacement: '',
+        _agent_trimmed: {
+          $trim: {
+            input: { $toString: { $ifNull: ['$Agents.Agent Name', ''] } },
+          },
+        },
+        _cost_string: {
+          // Stringify, then strip commas and '$' before converting to double
+          $replaceAll: {
+            input: {
+              $replaceAll: {
+                input: { $toString: { $ifNull: ['$Agents.Total Cost', 0] } },
+                find: ',',
+                replacement: '',
+              },
             },
+            find: '$',
+            replacement: '',
           },
         },
       },
     },
+    {
+      $set: {
+        _agent: {
+          $cond: [{ $eq: ['$_agent_trimmed', ''] }, 'Unknown', '$_agent_trimmed'],
+        },
+        _cost: {
+          $toDouble: { $ifNull: ['$_cost_string', '0'] },
+        },
+      },
+    },
+
+    // Group and sum
     {
       $group: {
         _id: '$_agent',
         total_cost: { $sum: '$_cost' },
       },
     },
+
+    // Project and round to 6 decimals
     {
       $project: {
         _id: 0,
@@ -56,6 +82,8 @@ function buildPipeline() {
         total_cost: { $round: ['$total_cost', 6] },
       },
     },
+
+    // Sort descending
     { $sort: { total_cost: -1 } },
   ];
 }
@@ -103,8 +131,8 @@ function aggregateAgentsInApp(documents = []) {
  * @returns {Promise<Array<{agent: string, total_cost: number}>>}
  */
 async function getLlmCostByAgent() {
-  // Prefer collection name 'llm_cost', fall back to 'llm_costs'
-  const collection = await getCollection(['llm_cost', 'llm_costs']);
+  // Prefer common names, including hyphenated and underscored variants
+  const collection = await getCollection(['llm-costs', 'llm_cost', 'llm_costs']);
   try {
     const pipeline = buildPipeline();
     const results = await collection.aggregate(pipeline, { allowDiskUse: true }).toArray();
