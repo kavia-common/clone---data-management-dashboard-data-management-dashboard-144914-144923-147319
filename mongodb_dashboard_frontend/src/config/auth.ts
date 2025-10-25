@@ -2,14 +2,15 @@ export const FASTAPI_BASE_URL = 'https://kaviaqa-worktool.cloud.kavia.ai';
 /**
  * PUBLIC_INTERFACE
  * Validated tenant salt: use the same value as frontend JS config resolves.
- * Source of truth is REACT_APP_SECRET_SALT with a dev default; TS side should mirror JS export.
+ * Source of truth is REACT_APP_SECRET_SALT only (no defaults). This module validates the env and throws
+ * helpful errors when missing/invalid to prevent insecure fallbacks.
  */
 declare const process: any;
-const ENV_SALT =
+
+const ENV_SALT: string =
   (typeof process !== 'undefined' &&
-    process?.env &&
-    String(process.env.REACT_APP_SECRET_SALT || '').trim()) || '';
-const DEFAULT_SECRET_SALT = 'g5StFHvCyj0Hf9g8j87nGA';
+    (process as any)?.env &&
+    String((process as any).env.REACT_APP_SECRET_SALT || '').trim()) || '';
 
 function normalizeBase64Url(s: string) {
   return String(s || '')
@@ -19,4 +20,31 @@ function normalizeBase64Url(s: string) {
     .replace(/=+$/g, '');
 }
 
-export const VALIDATED_TENANT_SALT = normalizeBase64Url(ENV_SALT || DEFAULT_SECRET_SALT);
+/**
+ * Validate env-provided salt strictly:
+ * - Must be non-empty
+ * - After normalization, must be >= 16 characters
+ * - Must be URL-safe base64 charset only
+ */
+function validateSaltOrThrow(raw: string): string {
+  const normalized = normalizeBase64Url(raw);
+  if (!normalized) {
+    throw new Error(
+      'REACT_APP_SECRET_SALT is required but was not provided. Please set it in your environment (e.g., .env) before building/running the app.'
+    );
+  }
+  if (normalized.length < 16) {
+    throw new Error(
+      'REACT_APP_SECRET_SALT is too short after normalization. Provide a sufficiently random URL-safe string (>=16 chars).'
+    );
+  }
+  if (!/^[A-Za-z0-9\-_]+$/.test(normalized)) {
+    throw new Error(
+      'REACT_APP_SECRET_SALT contains invalid characters. Use only URL-safe base64 characters (A-Z, a-z, 0-9, -, _).'
+    );
+  }
+  return normalized;
+}
+
+// PUBLIC_INTERFACE
+export const VALIDATED_TENANT_SALT: string = validateSaltOrThrow(ENV_SALT);

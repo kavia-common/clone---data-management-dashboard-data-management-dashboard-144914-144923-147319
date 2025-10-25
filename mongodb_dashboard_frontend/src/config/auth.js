@@ -12,8 +12,9 @@ export const API_BASE_URL =
  * PUBLIC_INTERFACE
  * Tenant secret salt for the frontend.
  * IMPORTANT: organization_id in login payload MUST equal this exact value (no encryption/encoding).
- * Single source of truth: REACT_APP_SECRET_SALT (URL-safe, no padding). Example: g5StFHvCyj0Hf9g8j87nGA
- * For local dev, you may set a fallback DEFAULT_SECRET_SALT below if env is missing.
+ * Single source of truth: REACT_APP_SECRET_SALT (URL-safe, no padding).
+ * This module validates the presence and format of the environment variable and will throw
+ * a clear error if it's missing or invalid to prevent insecure defaults.
  */
 const ENV_SALT =
   (typeof process !== 'undefined' &&
@@ -21,9 +22,8 @@ const ENV_SALT =
     String(process.env.REACT_APP_SECRET_SALT || '').trim()) ||
   '';
 
-const DEFAULT_SECRET_SALT = 'g5StFHvCyj0Hf9g8j87nGA'; // safe dev default; override in production via env
-
 function normalizeBase64Url(s) {
+  // Ensure a base64url-safe string without padding
   return String(s || '')
     .trim()
     .replace(/\+/g, '-')
@@ -31,7 +31,35 @@ function normalizeBase64Url(s) {
     .replace(/=+$/g, '');
 }
 
-export const VALIDATED_TENANT_SALT = normalizeBase64Url(ENV_SALT || DEFAULT_SECRET_SALT);
+/**
+ * Validate env-provided salt strictly:
+ * - Must be non-empty
+ * - After normalization, must be >= 16 characters to avoid trivial/placeholder values
+ * - Only URL-safe base64 characters [-_A-Za-z0-9] (enforced by normalization + regex)
+ */
+function validateSaltOrThrow(raw) {
+  const normalized = normalizeBase64Url(raw);
+  if (!normalized) {
+    const msg =
+      'REACT_APP_SECRET_SALT is required but was not provided. Please set it in your environment (e.g., .env) before building/running the app.';
+    // Throwing here prevents the app from using any insecure default
+    throw new Error(msg);
+  }
+  if (normalized.length < 16) {
+    throw new Error(
+      'REACT_APP_SECRET_SALT is too short after normalization. Provide a sufficiently random URL-safe string (>=16 chars).'
+    );
+  }
+  if (!/^[A-Za-z0-9\-_]+$/.test(normalized)) {
+    throw new Error(
+      'REACT_APP_SECRET_SALT contains invalid characters. Use only URL-safe base64 characters (A-Z, a-z, 0-9, -, _).'
+    );
+  }
+  return normalized;
+}
+
+// PUBLIC_INTERFACE
+export const VALIDATED_TENANT_SALT = validateSaltOrThrow(ENV_SALT);
 
 // Storage keys and helpers for auth/session
 // PUBLIC_INTERFACE
