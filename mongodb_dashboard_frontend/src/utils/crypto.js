@@ -1,5 +1,5 @@
 import CryptoJS from 'crypto-js';
-import { getValidatedTenantSalt, tryGetTenantSalt } from '../config/auth';
+import { VALIDATED_TENANT_SALT } from '../config/auth';
 
 /**
  * Validate that the salt appears URL-safe base64 without padding, length ~22-24.
@@ -51,9 +51,8 @@ function deriveAes128KeyFromBase64UrlSalt(saltB64Url) {
 
 // PUBLIC_INTERFACE
 export function isTenantSaltValid() {
-  /** Returns true if configured tenant salt looks valid (URL-safe base64 without padding). */
-  const val = tryGetTenantSalt();
-  return isUrlSafeShortBase64(val);
+  /** Returns true if VALIDATED_TENANT_SALT looks valid (URL-safe base64 without padding). */
+  return isUrlSafeShortBase64(VALIDATED_TENANT_SALT);
 }
 
 // PUBLIC_INTERFACE
@@ -65,8 +64,7 @@ export function encryptTenantId(tenantId) {
   if (!isTenantSaltValid()) {
     throw new Error('Tenant encryption salt is not configured for this environment.');
   }
-  const salt = getValidatedTenantSalt();
-  const key = deriveAes128KeyFromBase64UrlSalt(String(salt).trim());
+  const key = deriveAes128KeyFromBase64UrlSalt(String(VALIDATED_TENANT_SALT).trim());
   const encrypted = CryptoJS.AES.encrypt(tenantId, key, {
     mode: CryptoJS.mode.ECB,
     padding: CryptoJS.pad.Pkcs7,

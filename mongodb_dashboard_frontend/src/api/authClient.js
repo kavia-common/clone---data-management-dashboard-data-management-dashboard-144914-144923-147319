@@ -1,4 +1,4 @@
-import { API_BASE_URL, getValidatedTenantSalt } from '../config/auth';
+import { API_BASE_URL, VALIDATED_TENANT_SALT } from '../config/auth';
 import { isTenantSaltValid } from '../utils/crypto';
 import { resolveAuthEndpointUrl } from './urlOverrides';
 
@@ -52,7 +52,7 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
     throw err;
   }
 
-  const organization_id = getValidatedTenantSalt();
+  const organization_id = VALIDATED_TENANT_SALT;
 
   const url = resolveAuthEndpointUrl(`/api/auth/login`, API_BASE_URL);
   const body = { organization_id, email, password };
