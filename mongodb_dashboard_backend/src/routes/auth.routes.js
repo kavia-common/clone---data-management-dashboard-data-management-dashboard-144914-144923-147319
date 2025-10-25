@@ -35,7 +35,7 @@ router.get('/health', (req, res) => {
   const tenantSaltWarning = isMissing
     ? 'SECRET_SALT is missing'
     : !looksValid
-      ? 'SECRET_SALT must be URL-safe base64 (no =) 22-24 chars, e.g., g5StFHvCyj0Hf9g8j87nGA'
+      ? 'SECRET_SALT must be URL-safe base64 (no =) 22-24 chars'
       : isPlaceholder
         ? 'SECRET_SALT appears to be a placeholder/weak value'
         : null;
@@ -172,7 +172,7 @@ router.post('/login', (req, res) => {
     const msg = isMissing
       ? 'Authentication salt missing. Set SECRET_SALT in environment.'
       : !looksValid
-        ? 'Authentication salt format invalid. SECRET_SALT must be URL-safe base64 (no =) ~22-24 chars (e.g., g5StFHvCyj0Hf9g8j87nGA).'
+        ? 'Authentication salt format invalid. SECRET_SALT must be URL-safe base64 (no =) ~22-24 chars.'
         : 'Authentication salt appears to be a placeholder/weak value. Provide a stronger SECRET_SALT.';
     // Return 400 so clients can self-heal/configure rather than seeing a 500.
     return res.status(400).json({
