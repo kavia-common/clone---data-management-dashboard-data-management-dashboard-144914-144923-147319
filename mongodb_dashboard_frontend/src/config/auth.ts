@@ -46,5 +46,23 @@ function validateSaltOrThrow(raw: string): string {
   return normalized;
 }
 
+/** PUBLIC_INTERFACE
+ * Returns the validated tenant salt or throws if missing/invalid.
+ */
+export function getValidatedTenantSalt(): string {
+  return validateSaltOrThrow(ENV_SALT);
+}
+
+/** PUBLIC_INTERFACE
+ * Returns the normalized tenant salt or null if invalid/missing.
+ */
+export function tryGetTenantSalt(): string | null {
+  try {
+    return validateSaltOrThrow(ENV_SALT);
+  } catch {
+    return null;
+  }
+}
+
 // PUBLIC_INTERFACE
-export const VALIDATED_TENANT_SALT: string = validateSaltOrThrow(ENV_SALT);
+export const VALIDATED_TENANT_SALT: string | undefined = undefined; // deprecated to avoid import-time eval

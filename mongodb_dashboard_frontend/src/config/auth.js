@@ -37,12 +37,12 @@ function normalizeBase64Url(s) {
  * - After normalization, must be >= 16 characters to avoid trivial/placeholder values
  * - Only URL-safe base64 characters [-_A-Za-z0-9] (enforced by normalization + regex)
  */
+// Validate but do not throw at module import time. Consumers can call validate explicitly.
 function validateSaltOrThrow(raw) {
   const normalized = normalizeBase64Url(raw);
   if (!normalized) {
     const msg =
-      'REACT_APP_SECRET_SALT is required but was not provided. Please set it in your environment (e.g., .env) before building/running the app.';
-    // Throwing here prevents the app from using any insecure default
+      'REACT_APP_SECRET_SALT is required but was not provided. Please set it in your environment (e.g., .env) before using auth features.';
     throw new Error(msg);
   }
   if (normalized.length < 16) {
@@ -59,7 +59,23 @@ function validateSaltOrThrow(raw) {
 }
 
 // PUBLIC_INTERFACE
-export const VALIDATED_TENANT_SALT = validateSaltOrThrow(ENV_SALT);
+export function getValidatedTenantSalt() {
+  /** Returns validated tenant salt or throws if invalid/missing. */
+  return validateSaltOrThrow(ENV_SALT);
+}
+
+// PUBLIC_INTERFACE
+export function tryGetTenantSalt() {
+  /** Returns normalized tenant salt or null if missing/invalid (no throw). */
+  try {
+    return validateSaltOrThrow(ENV_SALT);
+  } catch {
+    return null;
+  }
+}
+
+// PUBLIC_INTERFACE
+export const VALIDATED_TENANT_SALT = undefined; // deprecated constant to prevent import-time evaluation
 
 // Storage keys and helpers for auth/session
 // PUBLIC_INTERFACE

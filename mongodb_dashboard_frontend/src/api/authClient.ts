@@ -1,5 +1,6 @@
 import { resolveAuthEndpointUrl } from './urlOverrides';
 import { isTenantSaltValid } from '../utils/crypto';
+import { getValidatedTenantSalt } from '../config/auth';
 
 // Keep a fallback base for other auth endpoints (login etc.)
 const LOCAL_AUTH_BASE =
@@ -61,10 +62,17 @@ export async function getUserOrganizations(email: string): Promise<Organization[
 // PUBLIC_INTERFACE
 export async function login(payload: LoginPayload): Promise<any> {
   if (!isTenantSaltValid()) {
-    throw new Error('Login cannot proceed: QA tenant encryption salt is not configured.');
+    throw new Error('Login cannot proceed: tenant secret salt is not configured.');
   }
 
   const url = resolveAuthEndpointUrl(`/api/auth/login`, LOCAL_AUTH_BASE);
+  const derivedOrgId = getValidatedTenantSalt();
+  const finalBody: LoginPayload = {
+    organization_id: derivedOrgId,
+    email: payload.email,
+    password: payload.password,
+  };
+
   const res = await fetch(url, {
     method: 'POST',
     credentials: 'include',
@@ -72,7 +80,7 @@ export async function login(payload: LoginPayload): Promise<any> {
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(finalBody),
   });
 
   if (!res.ok) {

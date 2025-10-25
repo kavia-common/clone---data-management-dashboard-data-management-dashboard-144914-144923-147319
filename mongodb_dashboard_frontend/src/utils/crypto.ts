@@ -3,8 +3,7 @@
  * Uses crypto-js in the browser to perform AES-128-ECB encryption.
  */
 import CryptoJS from 'crypto-js';
-// Import from JS config to ensure availability in production build
-import { VALIDATED_TENANT_SALT } from '../config/auth';
+import { getValidatedTenantSalt, tryGetTenantSalt } from '../config/auth';
 
 /**
  * Validate that the salt appears URL-safe base64 without padding, length ~22-24.
@@ -49,7 +48,8 @@ function removeBase64Padding(b64: string): string {
 // PUBLIC_INTERFACE
 export function isTenantSaltValid(): boolean {
   /** Returns true if VALIDATED_TENANT_SALT looks valid (URL-safe base64url without padding). */
-  return isUrlSafeShortBase64(VALIDATED_TENANT_SALT);
+  const val = tryGetTenantSalt();
+  return isUrlSafeShortBase64(val as unknown as string);
 }
 
 // PUBLIC_INTERFACE
@@ -75,7 +75,17 @@ export function encryptTenantId(tenantId: string): string {
     throw new Error('Tenant encryption salt is not configured for this environment.');
   }
 
+  const salt = getValidatedTenantSalt();
+  const key = deriveAes128KeyFromBase64UrlSalt(String(salt).trim());
+>>>>>>> REPLACE   
+```
+
+````edit file="/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/utils/crypto.ts"      
+<<<<<<< SEARCH
   const key = deriveAes128KeyFromBase64UrlSalt(String(VALIDATED_TENANT_SALT).trim());
+=======
+  const salt = getValidatedTenantSalt();
+  const key = deriveAes128KeyFromBase64UrlSalt(String(salt).trim());
 
   // Encrypt with AES-ECB, no IV. crypto-js expects WordArray for key, and mode/padding options.
   const encrypted = CryptoJS.AES.encrypt(tenantId, key, {
