@@ -74,13 +74,7 @@ async function connectDB() {
     console.warn('MongoDB disconnected');
   });
 
-  try {
-    await mongoose.connect(uri, options);
-  } catch (err) {
-    // Log and continue; do not throw to avoid blocking server startup.
-    // eslint-disable-next-line no-console
-    console.error('MongoDB initial connect failed (non-fatal):', err.message);
-  }
+  await mongoose.connect(uri, options);
   return mongoose.connection;
 }
 
