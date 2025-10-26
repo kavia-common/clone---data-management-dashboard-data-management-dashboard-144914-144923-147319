@@ -56,8 +56,12 @@ router.get(
  * /api/session/tenant:
  *   post:
  *     summary: Set active tenant for current session
- *     description: Sets the active tenant in the session/token context. Validates RBAC: the user must belong to the tenant. Returns confirmation.
- *     tags: [Auth, Tenants]
+ *     description: >
+ *       Sets the active tenant in the session/token context. Validates RBAC: the user must belong to the tenant.
+ *       Returns confirmation.
+ *     tags:
+ *       - Auth
+ *       - Tenants
  *     requestBody:
  *       required: true
  *       content:
@@ -71,7 +75,8 @@ router.get(
  *               reason:
  *                 type: string
  *                 description: Optional reason for change for audit trail
- *             required: [tenantId]
+ *             required:
+ *               - tenantId
  *     responses:
  *       200:
  *         description: Active tenant set
@@ -87,8 +92,12 @@ router.get(
  * /api/tenants/select:
  *   post:
  *     summary: Select active tenant for current session
- *     description: Validates user access to tenantId, records audit trail, and persists selection in cookie. Alias of /api/session/tenant.
- *     tags: [Auth, Tenants]
+ *     description: >
+ *       Validates user access to tenantId, records audit trail, and persists selection in cookie.
+ *       Alias of /api/session/tenant.
+ *     tags:
+ *       - Auth
+ *       - Tenants
  *     requestBody:
  *       required: true
  *       content:
@@ -102,7 +111,8 @@ router.get(
  *               reason:
  *                 type: string
  *                 description: Optional reason for change for audit trail
- *             required: [tenantId]
+ *             required:
+ *               - tenantId
  *     responses:
  *       200:
  *         description: Active tenant set
