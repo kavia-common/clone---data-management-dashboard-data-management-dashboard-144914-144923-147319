@@ -154,10 +154,21 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Kick off DB connection once on app startup
-connectDB().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('Failed to connect to MongoDB on startup:', err.message);
+/**
+ * Kick off DB connection once on app startup.
+ * Do not block server startup on DB unavailability; try in background.
+ */
+setImmediate(() => {
+  connectDB()
+    .then(() => {
+      // eslint-disable-next-line no-console
+      console.log('[startup] MongoDB connection attempt completed (see connected/disconnected events for status).');
+    })
+    .catch((err) => {
+      // This should not occur since connectDB traps errors, but log just in case.
+      // eslint-disable-next-line no-console
+      console.error('[startup] Unexpected error during Mongo connection attempt:', err?.message || err);
+    });
 });
 
 module.exports = app;
