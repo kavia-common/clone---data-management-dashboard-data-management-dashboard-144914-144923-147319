@@ -7,6 +7,7 @@ const User = require('../models/user.model');
 const Sample = require('../models/sample.model');
 const Tenant = require('../models/tenant.model');
 const Project = require('../models/project.model');
+const LLMCost = require('../models/llmCosts.model');
 
 
 const router = express.Router();
@@ -386,5 +387,72 @@ router.get('/verify', asyncHandler(async (req, res) => {
 }));
 
 
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/dev/seed-llm-costs
+ * When the llm_costs collection is empty, seeds 90 days of entries for at least 3 models.
+ * Returns: { success, before, inserted, after, sample }
+ */
+router.get(
+  '/seed-llm-costs',
+  asyncHandler(async (req, res) => {
+    // Count before seeding
+    const before = await LLMCost.countDocuments({});
+
+    let inserted = 0;
+    if (before === 0) {
+      const days = 90;
+      // At least 3 models as required by test
+      const models = ['gpt-4o', 'gpt-4o-mini', 'claude-3-5-sonnet'];
+
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const docs = [];
+
+      for (let i = 0; i < days; i += 1) {
+        const ts = new Date(startOfToday);
+        ts.setDate(startOfToday.getDate() - i);
+
+        for (const model of models) {
+          // Generate small positive non-zero costs
+          const totalCost = Number((Math.random() * 0.1 + 0.001).toFixed(3));
+          const inputTokens = Math.floor(Math.random() * 500) + 1;
+          const outputTokens = Math.floor(Math.random() * 500) + 1;
+
+          docs.push({
+            llm_model: model,
+            provider: model.includes('claude') ? 'anthropic' : 'openai',
+            service_type: 'chat.completions',
+            operation: 'inference',
+            total_cost: totalCost,
+            currency: 'USD',
+            breakdown: {
+              input_tokens: inputTokens,
+              output_tokens: outputTokens,
+            },
+            timestamp: ts,
+            created_at: ts,
+            updated_at: ts,
+          });
+        }
+      }
+
+      const result = await LLMCost.insertMany(docs);
+      inserted = Array.isArray(result) ? result.length : 0;
+    }
+
+    const after = await LLMCost.countDocuments({});
+    const sample = await LLMCost.findOne({}).sort({ _id: -1 }).lean();
+
+    return res.status(200).json({
+      success: true,
+      before,
+      inserted,
+      after,
+      sample: sample || null,
+    });
+  })
+);
 
 module.exports = router;
