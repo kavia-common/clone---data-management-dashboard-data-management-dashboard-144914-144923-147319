@@ -211,10 +211,52 @@ async function ensureTenantOrgSalt(tenantDoc) {
   }
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Hash password with version selection. Defaults to v2 (tenant orgSalt + optional global pepper).
+ * For v1, uses legacy static salt fallback.
+ * @param {Object} params
+ * @param {string} params.password - Plaintext password
+ * @param {Object} [params.tenant] - Tenant doc/POJO with orgSalt (required for version=2)
+ * @param {number} [params.version=2] - Hashing version (1|2)
+ * @returns {Promise<{ hash: string, version: number, algo: string }>}
+ */
+async function hashPassword({ password, tenant, version = 2 }) {
+  if (version === 2) {
+    return hashPasswordV2(password, tenant);
+  }
+  return hashPasswordV1(password);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Verify a candidate password and, when applicable, provide new hash/version for migration.
+ * - If verification fails: { valid: false, migrated: false }
+ * - If verification succeeds on legacy (v1) and tenant provided: { valid: true, migrated: true, newHash, newVersion: 2 }
+ * - If verification succeeds on current (v2): { valid: true, migrated: false }
+ * @param {Object} params
+ * @param {string} params.candidate - Candidate plaintext password
+ * @param {{ password_hash: string, hashVersion?: number, _id?: any }} params.user - User doc (lean or hydrated)
+ * @param {{ orgSalt?: string }} params.tenant - Tenant doc/POJO with orgSalt
+ * @returns {Promise<{ valid: boolean, migrated: boolean, newHash?: string, newVersion?: number }>}
+ */
+async function verifyAndMigrate({ candidate, user, tenant }) {
+  const { ok, needsMigration } = await verifyPassword({ password: candidate, user, tenant });
+  if (!ok) return { valid: false, migrated: false };
+  if (needsMigration) {
+    const { hash, version } = await hashPasswordV2(candidate, tenant);
+    return { valid: true, migrated: true, newHash: hash, newVersion: version };
+  }
+  return { valid: true, migrated: false };
+}
+
 module.exports = {
   getPepper,
   hashPasswordV1,
   hashPasswordV2,
   verifyPassword,
   ensureTenantOrgSalt,
+  // New public wrappers
+  hashPassword,
+  verifyAndMigrate,
 };

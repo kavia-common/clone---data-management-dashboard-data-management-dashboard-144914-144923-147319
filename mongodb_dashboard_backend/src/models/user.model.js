@@ -42,7 +42,8 @@ const UserSchema = new mongoose.Schema(
     // We intentionally keep it selectable to simplify this backend; do not expose in API responses.
     password_hash: { type: String, default: null },
     // hashVersion: 1 (legacy static salt), 2 (tenant orgSalt + pepper)
-    hashVersion: { type: Number, default: null },
+    // Default to 2 for new accounts; legacy documents may have null/1 and will be migrated on login.
+    hashVersion: { type: Number, default: 2 },
 
     // Not required and not unique in production datasets; keep a sparse index only on present docs
     referral_code: { type: String, index: true, sparse: true },

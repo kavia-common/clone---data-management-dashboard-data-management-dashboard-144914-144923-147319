@@ -2,7 +2,7 @@ const express = require('express');
 const { getTenantSaltConfig, getTenantConfig } = require('../config/auth');
 const User = require('../models/user.model');
 const Tenant = require('../models/tenant.model');
-const { hashPasswordV2, verifyPassword, ensureTenantOrgSalt } = require('../utils/authHash');
+const { hashPassword, verifyAndMigrate, ensureTenantOrgSalt } = require('../utils/authHash');
 
 const router = express.Router();
 // Note: This router is mounted at /api/auth in app.js, so endpoints are effective under /api/auth.
@@ -126,7 +126,7 @@ router.post('/signup', async (req, res) => {
     }
     await ensureTenantOrgSalt(tenant);
 
-    const { hash, version } = await hashPasswordV2(password, tenant);
+    const { hash, version } = await hashPassword({ password, tenant, version: 2 });
     const now = new Date();
 
     const doc = await User.findOneAndUpdate(
@@ -252,16 +252,18 @@ router.post('/login', async (req, res) => {
       return res.status(200).json({ success: true, tenant_id: tenantId, token: 'ok' });
     }
 
-    const { ok, needsMigration } = await verifyPassword({ password, user, tenant });
-    if (!ok) {
+    const { valid, migrated, newHash, newVersion } = await verifyAndMigrate({ candidate: password, user, tenant });
+    if (!valid) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
     // On-login migration: if legacy verified, rehash with v2 and update
-    if (needsMigration) {
+    if (migrated && newHash && newVersion) {
       try {
-        const { hash, version } = await hashPasswordV2(password, tenant);
-        await User.updateOne({ _id: user._id }, { $set: { password_hash: hash, hashVersion: version, updated_at: new Date() } });
+        await User.updateOne(
+          { _id: user._id },
+          { $set: { password_hash: newHash, hashVersion: newVersion, updated_at: new Date() } }
+        );
         // eslint-disable-next-line no-console
         console.info('[auth.login] migrated user hash to v2', { user_id: String(user._id) });
       } catch (e) {

@@ -54,16 +54,28 @@ TenantSchema.pre('findOneAndUpdate', function (next) {
   next();
 });
 
-// Generate per-organization salt on creation if missing.
+/**
+ * Ensure orgSalt exists before validation to satisfy required:true on creation.
+ * Also set orgSaltVersion default (1) when not present.
+ */
+TenantSchema.pre('validate', function (next) {
+  if (!this.orgSalt || typeof this.orgSalt !== 'string' || this.orgSalt.trim() === '') {
+    this.orgSalt = crypto.randomBytes(32).toString('base64');
+  }
+  if (!this.orgSaltVersion) {
+    this.orgSaltVersion = 1;
+  }
+  next();
+});
+
+// Generate per-organization salt on creation if missing (safety net).
 // Uses 32 random bytes -> base64 string (not URL-safe intentionally, stored internally and never exposed).
 TenantSchema.pre('save', function (next) {
   if (!this.orgSalt || typeof this.orgSalt !== 'string' || this.orgSalt.trim() === '') {
-    // Do not log actual salt; only safe metadata
-    const newSalt = crypto.randomBytes(32).toString('base64');
-    this.orgSalt = newSalt;
-    if (!this.orgSaltVersion) {
-      this.orgSaltVersion = 1;
-    }
+    this.orgSalt = crypto.randomBytes(32).toString('base64');
+  }
+  if (!this.orgSaltVersion) {
+    this.orgSaltVersion = 1;
   }
   next();
 });
