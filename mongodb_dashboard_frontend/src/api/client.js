@@ -1,7 +1,7 @@
 import axios from "axios";
 
 
-const RAW_BASE_URL = "https://vscode-internal-26650-beta.beta01.cloud.kavia.ai:3001";
+const RAW_BASE_URL = "https://vscode-internal-19829-beta.beta01.cloud.kavia.ai:3001";
 
 const API_PREFIX = "/api";
 
