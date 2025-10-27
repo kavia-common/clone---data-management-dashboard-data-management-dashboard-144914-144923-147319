@@ -1,10 +1,6 @@
 'use strict';
 
 const User = require('../models/user.model');
-const { deriveDeterministicUserId } = require('../utils/idFromSalt');
-
-// Compute once per process; deterministic across restarts for same salt
-const DEFAULT_DERIVED_ID = deriveDeterministicUserId();
 
 /**
 // ============================================================================
@@ -43,17 +39,14 @@ function getBearerToken(req) {
  */
 function deriveIdentityFromToken(token) {
   if (!token) return {};
-  // For demo/stub auth, 'ok' now maps to a deterministic id derived from secret salt
-  if (token === 'ok') return { id: DEFAULT_DERIVED_ID };
+  if (token === 'ok') return { id: 'demo' };
   if (token.startsWith('user:')) {
-    // honor explicit user:<id> tokens; still fallback to deterministic id if missing
-    return { id: token.slice('user:'.length) || DEFAULT_DERIVED_ID };
+    return { id: token.slice('user:'.length) || 'demo' };
   }
   if (token.startsWith('email:')) {
     return { email: token.slice('email:'.length) || '' };
   }
-  // Fallback to deterministic id (no hardcoded/demo id)
-  return { id: DEFAULT_DERIVED_ID };
+  return { id: 'demo' };
 }
 
 /**
