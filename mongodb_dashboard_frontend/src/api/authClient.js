@@ -1,6 +1,8 @@
-import { API_BASE_URL, VALIDATED_TENANT_SALT,generateOrganizationId,isTenantSaltValid } from '../config/auth';
-// import { isTenantSaltValid } from '../utils/crypto';
-import { resolveAuthEndpointUrl } from './urlOverrides';
+
+import { API_BASE_URL } from "../config/auth";
+import { generateOrganizationId, isTenantSaltValid } from "../utils/crypto";
+import { resolveAuthEndpointUrl } from "./urlOverrides";
+
 
 // PUBLIC_INTERFACE
 export async function fetchUserOrganizationsByEmail(email) {

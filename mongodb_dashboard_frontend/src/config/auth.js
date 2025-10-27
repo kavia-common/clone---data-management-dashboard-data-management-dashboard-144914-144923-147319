@@ -1,68 +1,49 @@
-/**
- * Auth and API configuration
- * API_BASE_URL must be absolute and point to external FastAPI by default.
- * If REACT_APP_API_BASE_URL is provided, it will override this default.
- */
+// src/config/auth.js
+// central auth/config for frontend
 
-import { generateOrganizationId, isTenantSaltValid } from "../utils/crypto";
-
-// ---------------------------------------------
-// API base URL (from .env or fallback default)
-// ---------------------------------------------
+// API base URL (env or default)
 export const API_BASE_URL =
   (process.env.REACT_APP_API_BASE_URL && String(process.env.REACT_APP_API_BASE_URL).trim()) ||
   "https://kaviaqa-worktool.cloud.kavia.ai";
 
-// ---------------------------------------------
-// Tenant salt (from environment or default)
-// ---------------------------------------------
-export const VALIDATED_TENANT_SALT =
-  (process.env.REACT_APP_SECRET_SALT && String(process.env.REACT_APP_SECRET_SALT).trim()) ||
-  "67486f90cb935d7165b796ba397e1c23"; // safe fallback for local dev
+// Read salt from either common env names (compatibility)
+const RAW_SALT =
+  String(process.env.REACT_APP_SECRET_SALT || process.env.REACT_APP_AUTH_SECRET_SALT || "").trim();
 
-// ---------------------------------------------
-// LocalStorage keys and helpers for auth/session
-// ---------------------------------------------
+// Expose salt value (frontend will use it in crypto helpers)
+export const VALIDATED_TENANT_SALT = RAW_SALT;
+
+// Storage helpers used across app
 export const AUTH_STORAGE_KEY = "auth";
 
-/**
- * Retrieve auth session from localStorage
- */
 export function getStoredAuth() {
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (err) {
-    console.warn("Invalid auth storage format", err);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    console.warn("Invalid auth storage format", e);
     return null;
   }
 }
 
-/**
- * Save auth session to localStorage
- */
 export function saveAuthSession(token) {
   const data = token ? { loggedIn: true, token } : { loggedIn: true };
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn("Failed to store auth session:", e);
+  }
 }
 
-/**
- * Clear stored auth session
- */
 export function clearAuthSession() {
-  localStorage.removeItem(AUTH_STORAGE_KEY);
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch (e) {
+    console.warn("Failed to clear auth session:", e);
+  }
 }
 
-/**
- * Check if user is authenticated
- */
 export function isAuthenticated() {
-  const auth = getStoredAuth();
-  return !!(auth && auth.loggedIn);
+  const a = getStoredAuth();
+  return !!(a && a.loggedIn);
 }
-
-// ---------------------------------------------
-// Exports from crypto.js
-// ---------------------------------------------
-export { generateOrganizationId, isTenantSaltValid };
