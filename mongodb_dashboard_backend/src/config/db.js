@@ -25,6 +25,16 @@ async function connectDB() {
 
   mongoose.set('strictQuery', true);
 
+  // In test mode, prefer fast failures and no buffering to keep tests snappy.
+  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
+  if (isTest) {
+    try {
+      mongoose.set('bufferCommands', false);
+    } catch {
+      // ignore
+    }
+  }
+
   // Connection options recommended for modern Mongoose
   // - Disable autoIndex by default to avoid failures on clusters with existing duplicate data.
   //   You can override by setting MONGOOSE_AUTO_INDEX=true
@@ -36,8 +46,8 @@ async function connectDB() {
   const options = {
     autoIndex,
     maxPoolSize: 10,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
+    serverSelectionTimeoutMS: isTest ? 250 : 5000,
+    socketTimeoutMS: isTest ? 500 : 45000,
     family: 4,
     ...(dbName ? { dbName } : {}),
   };

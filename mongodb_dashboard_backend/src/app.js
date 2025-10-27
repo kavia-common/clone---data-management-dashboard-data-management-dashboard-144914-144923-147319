@@ -3,6 +3,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { connectDB } = require('./config/db');
+const mongoose = require('mongoose');
 
 // Initialize express app
 const app = express();
@@ -89,6 +90,36 @@ app.use('/docs', swaggerUi.serve, (req, res, next) => {
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
 
+// In test mode, avoid hanging requests if DB is not connected.
+// Return 503 quickly for most /api routes while allowing health, docs, and dev utilities.
+if (process.env.NODE_ENV === 'test') {
+  try {
+    // Disable mongoose buffering so accidental model calls fail fast instead of hanging
+    mongoose.set('bufferCommands', false);
+  } catch {
+    // ignore
+  }
+  app.use((req, res, next) => {
+    const p = req.path || req.originalUrl || '';
+    // Paths to bypass: health, openapi, docs, and dev helpers
+    const bypass =
+      p === '/' ||
+      p.startsWith('/health') ||
+      p.startsWith('/openapi.json') ||
+      p.startsWith('/docs') ||
+      p.startsWith('/api/dev');
+    if (bypass) return next();
+
+    // For most API calls, if DB isn't connected, return 503 quickly in test mode
+    if (mongoose.connection.readyState !== 1) {
+      return res
+        .status(503)
+        .json({ success: false, message: 'Service unavailable: database not connected (test mode)' });
+    }
+    return next();
+  });
+}
+
 /**
  * Dev utilities (seed data / db status) - non-auth, for debugging only.
  * Mount under /api/dev
@@ -154,10 +185,20 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Kick off DB connection once on app startup
-connectDB().catch((err) => {
+/* Kick off DB connection once on app startup (skip in tests) */
+if (process.env.NODE_ENV !== 'test') {
+  connectDB().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error('Failed to connect to MongoDB on startup:', err.message);
+  });
+} else {
   // eslint-disable-next-line no-console
-  console.error('Failed to connect to MongoDB on startup:', err.message);
-});
+  console.log('[startup] Skipping MongoDB connection in test environment');
+  try {
+    mongoose.set('bufferCommands', false);
+  } catch {
+    // ignore
+  }
+}
 
 module.exports = app;
