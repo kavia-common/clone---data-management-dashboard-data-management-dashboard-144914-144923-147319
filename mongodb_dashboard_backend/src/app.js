@@ -20,12 +20,19 @@ app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Expose OpenAPI JSON (useful for tooling and external consumers)
-app.get('/openapi.json', (req, res) => {
-  // Inject dynamic server similar to /docs
+/**
+ * PUBLIC_INTERFACE
+ * OpenAPI JSON (primary): GET /openapi.json
+ * PUBLIC_INTERFACE
+ * OpenAPI JSON alias:    GET /api-docs.json
+ *
+ * Both endpoints inject a dynamic server URL based on the incoming request,
+ * ensuring the documented base path matches the running server (port 3001).
+ */
+const buildDynamicSpec = (req) => {
   const host = req.get('host');
   let protocol = req.protocol;
-  const actualPort = req.socket.localPort;
+  const actualPort = req.socket?.localPort;
   const hasPort = host.includes(':');
   const needsPort =
     !hasPort &&
@@ -34,7 +41,7 @@ app.get('/openapi.json', (req, res) => {
   const fullHost = needsPort ? `${host}:${actualPort}` : host;
   protocol = req.secure ? 'https' : protocol;
 
-  const dynamicSpec = {
+  return {
     ...swaggerSpec,
     info: {
       ...swaggerSpec.info,
@@ -47,42 +54,35 @@ app.get('/openapi.json', (req, res) => {
     },
     servers: [{ url: `${protocol}://${fullHost}` }],
   };
+};
+
+// Expose OpenAPI JSON (primary)
+app.get('/openapi.json', (req, res) => {
+  const dynamicSpec = buildDynamicSpec(req);
   res.json(dynamicSpec);
 });
 
-// Swagger UI with dynamic server URL
-app.use('/docs', swaggerUi.serve, (req, res, next) => {
-  const host = req.get('host');
-  let protocol = req.protocol;
-  const actualPort = req.socket.localPort;
-  const hasPort = host.includes(':');
-
-  const needsPort =
-    !hasPort &&
-    ((protocol === 'http' && actualPort !== 80) ||
-      (protocol === 'https' && actualPort !== 443));
-  const fullHost = needsPort ? `${host}:${actualPort}` : host;
-  protocol = req.secure ? 'https' : protocol;
-
-  const dynamicSpec = {
-    ...swaggerSpec,
-    info: {
-      ...swaggerSpec.info,
-      title: process.env.SWAGGER_TITLE || swaggerSpec.info?.title || 'Dashboard API',
-      version: process.env.SWAGGER_VERSION || swaggerSpec.info?.version || '1.0.0',
-      description:
-        process.env.SWAGGER_DESCRIPTION ||
-        swaggerSpec.info?.description ||
-        'REST API for Dashboard backed by MongoDB',
-    },
-    servers: [
-      {
-        url: `${protocol}://${fullHost}`,
-      },
-    ],
-  };
-  swaggerUi.setup(dynamicSpec)(req, res, next);
+// Expose OpenAPI JSON alias at /api-docs.json for compatibility
+app.get('/api-docs.json', (req, res) => {
+  const dynamicSpec = buildDynamicSpec(req);
+  res.json(dynamicSpec);
 });
+
+/**
+ * PUBLIC_INTERFACE
+ * Swagger UI (primary): GET /docs
+ * PUBLIC_INTERFACE
+ * Swagger UI alias:     GET /api-docs
+ *
+ * Serves interactive Swagger UI using the same dynamic spec.
+ */
+const setupSwaggerUi = (req, res, next) => {
+  const dynamicSpec = buildDynamicSpec(req);
+  return swaggerUi.setup(dynamicSpec)(req, res, next);
+};
+
+app.use('/docs', swaggerUi.serve, setupSwaggerUi);
+app.use('/api-docs', swaggerUi.serve, setupSwaggerUi);
 
 /**
  * Health and base routes
