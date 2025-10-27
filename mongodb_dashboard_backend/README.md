@@ -38,6 +38,11 @@ Security notes:
 - Use strong values for SECRET_SALT and AUTH_PASSWORD_PEPPER in production.
 - For production, implement JWTs signed with `AUTH_JWT_SECRET` and proper RBAC checks.
 
+Deterministic user ID for stub auth:
+- When using the placeholder token (`Authorization: Bearer ok`), the backend now derives a deterministic, URL-safe user id from a secret salt via HMAC-SHA256.
+- Configure the secret via `AUTH_SECRET_SALT` in the environment. If not set, a built-in fallback is used for development only.
+- The derived id is stable across restarts for the same salt and different across different salts. No raw secrets are logged.
+
 ## Analytics: LLM cost distribution by agent
 
 GET /api/analytics/llm-cost-by-agent
