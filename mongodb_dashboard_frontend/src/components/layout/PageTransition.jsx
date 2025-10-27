@@ -5,6 +5,8 @@ import { shouldReduceMotion } from "../../utils/motion";
  * PUBLIC_INTERFACE
  * PageTransition
  * Wraps route content with a fade/slide enter animation respecting prefers-reduced-motion.
+ * Note: This component only toggles CSS classes and does NOT call React.startTransition,
+ * so it does not conflict with React Router's v7_startTransition behavior.
  *
  * Usage:
  * <PageTransition><YourRouteContent /></PageTransition>
