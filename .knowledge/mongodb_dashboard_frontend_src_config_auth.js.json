@@ -1,1 +1,243 @@
-{"is_source_file": true, "format": "JavaScript", "description": "This file contains configuration and utility functions related to authentication and API connection settings for a React frontend application, including environment variable handling, storage key management, and session persistence.", "external_files": ["localStorage", "process.env"], "external_methods": ["localStorage.getItem", "localStorage.setItem", "localStorage.removeItem", "JSON.parse", "console.warn"], "published": ["API_BASE_URL", "VALIDATED_TENANT_SALT", "AUTH_STORAGE_KEY", "getStoredAuth", "isAuthenticated", "saveAuthSession", "clearAuthSession"], "classes": [], "methods": [{"name": "normalizeBase64Url(s)", "description": "Normalizes a string to Base64 URL-safe format by replacing characters and removing padding.", "scope": "", "scopeKind": ""}, {"name": "getStoredAuth()", "description": "Retrieves and parses the stored authentication object from local storage.", "scope": "", "scopeKind": ""}, {"name": "isAuthenticated()", "description": "Checks if the user is currently authenticated based on stored session data.", "scope": "", "scopeKind": ""}, {"name": "saveAuthSession(token)", "description": "Saves the login session information into local storage, including token if provided.", "scope": "", "scopeKind": ""}, {"name": "clearAuthSession()", "description": "Removes authentication session data from local storage.", "scope": "", "scopeKind": ""}], "calls": ["localStorage.getItem", "localStorage.setItem", "localStorage.removeItem", "JSON.parse", "console.warn"], "search-terms": ["auth configuration", "API base URL", "session storage", "React environment variables", "local storage auth"], "state": 2, "file_id": 5, "knowledge_revision": 15, "git_revision": "3eaf5e0f955054a2795ea41df9463c721d248e1c", "ctags": [{"_type": "tag", "name": "API_BASE_URL", "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js", "pattern": "/^export const API_BASE_URL =$/", "language": "JavaScript", "kind": "constant"}, {"_type": "tag", "name": "AUTH_STORAGE_KEY", "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js", "pattern": "/^export const AUTH_STORAGE_KEY = 'auth';$/", "language": "JavaScript", "kind": "constant"}, {"_type": "tag", "name": "DEFAULT_SECRET_SALT", "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js", "pattern": "/^const DEFAULT_SECRET_SALT = 'g5StFHvCyj0Hf9g8j87nGA'; \\/\\/ safe dev default; override in product/", "language": "JavaScript", "kind": "constant"}, {"_type": "tag", "name": "ENV_SALT", "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js", "pattern": "/^const ENV_SALT =$/", "language": "JavaScript", "kind": "constant"}, {"_type": "tag", "name": "clearAuthSession", "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js", "pattern": "/^export function clearAuthSession() {$/", "language": "JavaScript", "kind": "function", "signature": "()"}, {"_type": "tag", "name": "getStoredAuth", "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js", "pattern": "/^export function getStoredAuth() {$/", "language": "JavaScript", "kind": "function", "signature": "()"}, {"_type": "tag", "name": "isAuthenticated", "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js", "pattern": "/^export function isAuthenticated() {$/", "language": "JavaScript", "kind": "function", "signature": "()"}, {"_type": "tag", "name": "normalizeBase64Url", "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js", "pattern": "/^function normalizeBase64Url(s) {$/", "language": "JavaScript", "kind": "function", "signature": "(s)"}, {"_type": "tag", "name": "saveAuthSession", "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js", "pattern": "/^export function saveAuthSession(token) {$/", "language": "JavaScript", "kind": "function", "signature": "(token)"}], "hash": "0430f8c6725dc8111c7fcca4d40f5290", "format-version": 4, "code-base-name": "mongodb_dashboard_frontend", "filename": "mongodb_dashboard_frontend/src/config/auth.js", "revision_history": [{"15": "3eaf5e0f955054a2795ea41df9463c721d248e1c"}]}
+// {
+//     "is_source_file": true,
+//     "format": "JavaScript",
+//     "description": "This file contains configuration and utility functions related to authentication and API connection settings for a React frontend application, including environment variable handling, storage key management, and session persistence.",
+//     "external_files": [
+//         "localStorage",
+//         "process.env"
+//     ],
+//     "external_methods": [
+//         "localStorage.getItem",
+//         "localStorage.setItem",
+//         "localStorage.removeItem",
+//         "JSON.parse",
+//         "console.warn"
+//     ],
+//     "published": [
+//         "API_BASE_URL",
+//         "VALIDATED_TENANT_SALT",
+//         "AUTH_STORAGE_KEY",
+//         "getStoredAuth",
+//         "isAuthenticated",
+//         "saveAuthSession",
+//         "clearAuthSession"
+//     ],
+//     "classes": [],
+//     "methods": [
+//         {
+//             "name": "normalizeBase64Url(s)",
+//             "description": "Normalizes a string to Base64 URL-safe format by replacing characters and removing padding.",
+//             "scope": "",
+//             "scopeKind": ""
+//         },
+//         {
+//             "name": "getStoredAuth()",
+//             "description": "Retrieves and parses the stored authentication object from local storage.",
+//             "scope": "",
+//             "scopeKind": ""
+//         },
+//         {
+//             "name": "isAuthenticated()",
+//             "description": "Checks if the user is currently authenticated based on stored session data.",
+//             "scope": "",
+//             "scopeKind": ""
+//         },
+//         {
+//             "name": "saveAuthSession(token)",
+//             "description": "Saves the login session information into local storage, including token if provided.",
+//             "scope": "",
+//             "scopeKind": ""
+//         },
+//         {
+//             "name": "clearAuthSession()",
+//             "description": "Removes authentication session data from local storage.",
+//             "scope": "",
+//             "scopeKind": ""
+//         }
+//     ],
+//     "calls": [
+//         "localStorage.getItem",
+//         "localStorage.setItem",
+//         "localStorage.removeItem",
+//         "JSON.parse",
+//         "console.warn"
+//     ],
+//     "search-terms": [
+//         "auth configuration",
+//         "API base URL",
+//         "session storage",
+//         "React environment variables",
+//         "local storage auth"
+//     ],
+//     "state": 2,
+//     "file_id": 5,
+//     "knowledge_revision": 15,
+//     "git_revision": "3eaf5e0f955054a2795ea41df9463c721d248e1c",
+//     "ctags": [
+//         {
+//             "_type": "tag",
+//             "name": "API_BASE_URL",
+//             "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js",
+//             "pattern": "/^export const API_BASE_URL =$/",
+//             "language": "JavaScript",
+//             "kind": "constant"
+//         },
+//         {
+//             "_type": "tag",
+//             "name": "AUTH_STORAGE_KEY",
+//             "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js",
+//             "pattern": "/^export const AUTH_STORAGE_KEY = 'auth';$/",
+//             "language": "JavaScript",
+//             "kind": "constant"
+//         },
+//         {
+//             "_type": "tag",
+//             "name": "DEFAULT_SECRET_SALT",
+//             "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js",
+//             "pattern": "/^const DEFAULT_SECRET_SALT = 'g5StFHvCyj0Hf9g8j87nGA'; \\/\\/ safe dev default; override in product/",
+//             "language": "JavaScript",
+//             "kind": "constant"
+//         },
+//         {
+//             "_type": "tag",
+//             "name": "ENV_SALT",
+//             "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js",
+//             "pattern": "/^const ENV_SALT =$/",
+//             "language": "JavaScript",
+//             "kind": "constant"
+//         },
+//         {
+//             "_type": "tag",
+//             "name": "clearAuthSession",
+//             "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js",
+//             "pattern": "/^export function clearAuthSession() {$/",
+//             "language": "JavaScript",
+//             "kind": "function",
+//             "signature": "()"
+//         },
+//         {
+//             "_type": "tag",
+//             "name": "getStoredAuth",
+//             "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js",
+//             "pattern": "/^export function getStoredAuth() {$/",
+//             "language": "JavaScript",
+//             "kind": "function",
+//             "signature": "()"
+//         },
+//         {
+//             "_type": "tag",
+//             "name": "isAuthenticated",
+//             "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js",
+//             "pattern": "/^export function isAuthenticated() {$/",
+//             "language": "JavaScript",
+//             "kind": "function",
+//             "signature": "()"
+//         },
+//         {
+//             "_type": "tag",
+//             "name": "normalizeBase64Url",
+//             "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js",
+//             "pattern": "/^function normalizeBase64Url(s) {$/",
+//             "language": "JavaScript",
+//             "kind": "function",
+//             "signature": "(s)"
+//         },
+//         {
+//             "_type": "tag",
+//             "name": "saveAuthSession",
+//             "path": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/config/auth.js",
+//             "pattern": "/^export function saveAuthSession(token) {$/",
+//             "language": "JavaScript",
+//             "kind": "function",
+//             "signature": "(token)"
+//         }
+//     ],
+//     "hash": "0430f8c6725dc8111c7fcca4d40f5290",
+//     "format-version": 4,
+//     "code-base-name": "mongodb_dashboard_frontend",
+//     "filename": "mongodb_dashboard_frontend/src/config/auth.js",
+//     "revision_history": [
+//         {
+//             "15": "3eaf5e0f955054a2795ea41df9463c721d248e1c"
+//         }
+//     ]
+// }
+
+/**
+ * Authentication and API configuration
+ * ------------------------------------
+ * Handles API connection settings, authentication session storage,
+ * and secure dynamic organization ID generation using AES encryption.
+ */
+
+import CryptoJS from "crypto-js"; // install: npm install crypto-js
+
+// ===== Environment Setup =====
+export const API_BASE_URL =
+  process.env.REACT_APP_API_BASE_URL || "http://localhost:3001";
+
+// ===== Secret Salt Handling =====
+const SECRET_KEY = process.env.REACT_APP_SECRET_SALT; // this is your encryption key
+const SECRET_SALT_ID = "67486f90cb935d7165b796ba397e1c23"; // base salt to be encrypted
+
+const FALLBACK_KEY = "fallback_dev_key";
+
+/**
+ * Encrypts the secret salt ID using AES with the secret key.
+ * Returns a Base64URL-safe string to use as organization_id.
+ */
+function encryptOrganizationId(key, saltId) {
+  try {
+    const encrypted = CryptoJS.AES.encrypt(saltId, key).toString();
+    // Make it URL-safe
+    return encrypted.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch (err) {
+    console.warn("Error encrypting organization ID:", err);
+    return "fallback-org-id";
+  }
+}
+
+// Generate the dynamic encrypted organization ID
+export const VALIDATED_TENANT_SALT = encryptOrganizationId(
+  SECRET_KEY || FALLBACK_KEY,
+  SECRET_SALT_ID
+);
+
+// ===== Auth Storage =====
+export const AUTH_STORAGE_KEY = "auth";
+
+/**
+ * Retrieves and parses the stored authentication object from local storage.
+ */
+export function getStoredAuth() {
+  try {
+    const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch (err) {
+    console.warn("Failed to parse stored auth:", err);
+    return null;
+  }
+}
+
+/**
+ * Checks if the user is currently authenticated.
+ */
+export function isAuthenticated() {
+  const auth = getStoredAuth();
+  return !!(auth && auth.token);
+}
+
+/**
+ * Saves login session info into local storage.
+ */
+export function saveAuthSession(token) {
+  if (!token) return;
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token }));
+}
+
+/**
+ * Clears authentication session data.
+ */
+export function clearAuthSession() {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+}
