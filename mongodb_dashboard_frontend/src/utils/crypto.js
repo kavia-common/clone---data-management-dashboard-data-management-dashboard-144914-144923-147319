@@ -139,18 +139,20 @@ function deriveAes128Key(salt) {
  */
 export function generateOrganizationId(email) {
   if (!email) throw new Error("Email is required to generate organization ID");
+
   const key = deriveAes128Key(String(VALIDATED_TENANT_SALT).trim());
+
+  // NOTE: no CryptoJS.enc.Utf8.parse needed; CryptoJS handles string inputs itself
   const encrypted = CryptoJS.AES.encrypt(email, key, {
     mode: CryptoJS.mode.ECB,
     padding: CryptoJS.pad.Pkcs7,
   });
 
-  // Convert ciphertext → Base64 string
-  const ciphertext = encrypted.ciphertext.toString(CryptoJS.enc.Base64);
-
-  // URL encode safely
-  return encodeURIComponent(ciphertext.replace(/=+$/, ""));
+  // Use CryptoJS default .toString() (it’s base64)
+  return encrypted.toString().replace(/=+$/, "");
 }
+
+
 
 /**
  * Decrypt organization_id → email (for testing)
