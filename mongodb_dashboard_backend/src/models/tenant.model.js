@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 /**
  * Tenant (organization) model
@@ -31,6 +32,11 @@ const TenantSchema = new mongoose.Schema(
     users: { type: [TenantUserSchema], default: [] },
     projects: { type: [String], default: [] }, // list of project_id
 
+    // Per-organization dynamic salt for password hashing (v2)
+    // orgSalt is required for new tenants. For legacy tenants, a pre-save hook will populate it safely.
+    orgSalt: { type: String, required: true },
+    orgSaltVersion: { type: Number, default: 1 },
+
     // Audit
     created_at: { type: Date, default: Date.now, index: true },
     updated_at: { type: Date, default: Date.now, index: true },
@@ -42,8 +48,23 @@ const TenantSchema = new mongoose.Schema(
 
 TenantSchema.index({ status: 1, created_at: -1 });
 
+// Ensure updated_at is current on updates
 TenantSchema.pre('findOneAndUpdate', function (next) {
   this.set({ updated_at: new Date() });
+  next();
+});
+
+// Generate per-organization salt on creation if missing.
+// Uses 32 random bytes -> base64 string (not URL-safe intentionally, stored internally and never exposed).
+TenantSchema.pre('save', function (next) {
+  if (!this.orgSalt || typeof this.orgSalt !== 'string' || this.orgSalt.trim() === '') {
+    // Do not log actual salt; only safe metadata
+    const newSalt = crypto.randomBytes(32).toString('base64');
+    this.orgSalt = newSalt;
+    if (!this.orgSaltVersion) {
+      this.orgSaltVersion = 1;
+    }
+  }
   next();
 });
 

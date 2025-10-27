@@ -13,6 +13,31 @@ CORS
 Key route to verify:
 - GET /api/users/active-trend (e.g., http://localhost:3001/api/users/active-trend)
 
+## Authentication and Password Hashing (v1 → v2 migration)
+
+This backend implements a versioned password hashing strategy with per-organization salts.
+
+- v1 (legacy): static salt from environment (SECRET_SALT/AUTH_TENANT_SALT/PASSWORD_SALT). Used only for verification of existing hashes.
+- v2 (current): per-organization dynamic salt stored on each Tenant document (`orgSalt`), plus optional global pepper (`AUTH_PASSWORD_PEPPER` or `AUTH_PEPPER`). Preferred algorithm is Argon2id if the `argon2` package is available, falling back to `bcrypt` if available, then to Node.js `scrypt` as a last resort.
+
+On-Login Migration:
+- When a user with a v1 hash logs in successfully, their password will be re-hashed immediately with v2 and updated in the database (online migration).
+- If a user document has no `password_hash`, we preserve backward compatibility and allow login (placeholder token), so existing users are not broken.
+
+Tenant Salt:
+- New tenants automatically receive an `orgSalt` (base64) on creation.
+- If a legacy tenant is missing `orgSalt`, it is generated automatically upon signup/login/reset operations.
+
+New endpoints:
+- POST /api/auth/signup { organization_id, email, password } → creates/updates a user with v2 hash.
+- POST /api/auth/login { organization_id, email, password } → verifies and migrates v1→v2 when needed.
+- POST /api/auth/reset-password { organization_id, email, password } → sets a new v2 hash (demo only; add token validation for production).
+
+Security notes:
+- Do not expose salts/peppers or any secrets in logs.
+- Use strong values for SECRET_SALT and AUTH_PASSWORD_PEPPER in production.
+- For production, implement JWTs signed with `AUTH_JWT_SECRET` and proper RBAC checks.
+
 ## Analytics: LLM cost distribution by agent
 
 GET /api/analytics/llm-cost-by-agent

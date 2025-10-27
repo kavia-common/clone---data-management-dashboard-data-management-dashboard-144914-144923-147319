@@ -36,6 +36,14 @@ const ReferralHistoryItemSchema = new mongoose.Schema(
 
 const UserSchema = new mongoose.Schema(
   {
+    // Core auth fields (optional, added for auth flows)
+    email: { type: String, index: true, sparse: true },
+    // password_hash stores algorithm-encoded string (argon2/bcrypt/scrypt).
+    // We intentionally keep it selectable to simplify this backend; do not expose in API responses.
+    password_hash: { type: String, default: null },
+    // hashVersion: 1 (legacy static salt), 2 (tenant orgSalt + pepper)
+    hashVersion: { type: Number, default: null },
+
     // Not required and not unique in production datasets; keep a sparse index only on present docs
     referral_code: { type: String, index: true, sparse: true },
     // Accept either object or array for referral_stats using Mixed to match heterogeneous data in cluster
@@ -62,6 +70,9 @@ UserSchema.index({ 'referral_stats.last_referral_date': -1 });
 // Indexes aligned with schema guidance for referral_history
 UserSchema.index({ 'referral_history.user_id': 1 });
 UserSchema.index({ 'referral_history.status': 1, 'referral_history.referred_at': -1 });
+
+// Optional convenience index for email-based auth lookups
+UserSchema.index({ email: 1 }, { sparse: true });
 
 // Keep updated_at current on update operations
 UserSchema.pre('findOneAndUpdate', function (next) {
