@@ -8,7 +8,7 @@ export const API_BASE_URL =
 
 // Read salt from either common env names (compatibility)
 const RAW_SALT =
-  String(process.env.REACT_APP_SECRET_SALT || process.env.REACT_APP_AUTH_SECRET_SALT || "").trim();
+  String(process.env.REACT_APP_AUTH_SECRET_SALT || "").trim();
 
 // Expose salt value (frontend will use it in crypto helpers)
 export const VALIDATED_TENANT_SALT = RAW_SALT;

@@ -2,6 +2,7 @@ import pluginJs from "@eslint/js";
 import pluginReact from "eslint-plugin-react";
 
 export default [
+  { ignores: ["**/*.ts", "**/*.tsx", "**/*.d.ts"] },
   { files: ["**/*.{js,mjs,cjs,jsx}"] },
   { 
     languageOptions: { 
@@ -21,6 +22,18 @@ export default [
 
      'no-unused-vars': ['error', { varsIgnorePattern: 'React|App' }]
 
+    }
+  },
+  {
+    files: ["**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Program",
+          message: "TypeScript files are disallowed in this project. Use JS/JSX only.",
+        }
+      ]
     }
   },
   pluginJs.configs.recommended,
