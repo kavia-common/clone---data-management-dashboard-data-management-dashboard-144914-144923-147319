@@ -560,6 +560,21 @@ html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selecte
   padding: 2px 8px; border-radius: 9999px;
 }
 
+/* Wrapped variant for long/multi-line values */
+.status-badge--wrap {
+  display: inline-flex;              /* better baseline alignment across lines */
+  align-items: center;
+  white-space: normal;               /* allow wrapping across lines */
+  word-break: break-word;            /* break long tokens like snake_case */
+  overflow-wrap: anywhere;           /* wrap anywhere to avoid overflow */
+  line-height: 1.3;
+  min-height: unset;                 /* remove any inherited min-height */
+  height: auto;                      /* auto-expand height as lines wrap */
+  padding: 4px 8px;                  /* consistent padding with theme */
+  border-radius: 10px;               /* keep pill look on multiple lines */
+  max-width: 380px;                  /* avoid overly wide badges in tables */
+}
+
 /* Allow the Status column to wrap long values without breaking layout */
 .td-status-wrap {
   /* Override table defaults */
@@ -571,8 +586,10 @@ html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selecte
 }
 
 /* Ensure the badge itself can wrap and break on long tokens like snake_case */
-.td-status-wrap .status-badge {
-  display: inline-block;
+.td-status-wrap .status-badge,
+.td-status-wrap .status-badge--wrap {
+  display: inline-flex;
+  align-items: center;
   white-space: normal;
   word-break: break-word;
   overflow-wrap: anywhere;
@@ -585,7 +602,8 @@ html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selecte
 
 /* Increase specificity to override the mobile nowrap rule for status badge */
 @media (max-width: 767px) {
-  .td.td-status-wrap .status-badge {
+  .td.td-status-wrap .status-badge,
+  .td.td-status-wrap .status-badge--wrap {
     white-space: normal;
     max-width: 300px;
   }

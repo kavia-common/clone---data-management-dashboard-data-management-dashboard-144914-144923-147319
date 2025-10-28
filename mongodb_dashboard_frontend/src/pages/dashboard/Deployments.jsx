@@ -84,16 +84,8 @@ export default function Deployments() {
       ? "—"
       : (
         <span
-          className="status-badge"
+          className="status-badge status-badge--wrap"
           title={text}
-          style={{
-            display: "inline-block",
-            whiteSpace: "normal",
-            overflowWrap: "anywhere",
-            wordBreak: "break-word",
-            maxWidth: 380,
-            lineHeight: 1.3,
-          }}
         >
           {text}
         </span>
