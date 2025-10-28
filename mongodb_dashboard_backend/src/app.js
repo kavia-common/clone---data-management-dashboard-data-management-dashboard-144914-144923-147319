@@ -1,6 +1,6 @@
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('../swagger');
+const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
@@ -41,15 +41,17 @@ const buildDynamicSpec = (req) => {
   const fullHost = needsPort ? `${host}:${actualPort}` : host;
   protocol = req.secure ? 'https' : protocol;
 
+  const baseSpec = getBaseOpenApiSpec();
+
   return {
-    ...swaggerSpec,
+    ...baseSpec,
     info: {
-      ...swaggerSpec.info,
-      title: process.env.SWAGGER_TITLE || swaggerSpec.info?.title || 'Dashboard API',
-      version: process.env.SWAGGER_VERSION || swaggerSpec.info?.version || '1.0.0',
+      ...baseSpec.info,
+      title: process.env.SWAGGER_TITLE || baseSpec.info?.title || 'Dashboard API',
+      version: process.env.SWAGGER_VERSION || baseSpec.info?.version || '1.0.0',
       description:
         process.env.SWAGGER_DESCRIPTION ||
-        swaggerSpec.info?.description ||
+        baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
     servers: [{ url: `${protocol}://${fullHost}` }],
@@ -74,15 +76,20 @@ app.get('/api-docs.json', (req, res) => {
  * PUBLIC_INTERFACE
  * Swagger UI alias:     GET /api-docs
  *
- * Serves interactive Swagger UI using the same dynamic spec.
+ * Serves interactive Swagger UI. Prefer fetching from /openapi.json to avoid inline spec issues.
+ * Fallback is ensured by buildDynamicSpec above (and swagger.js sanitization).
  */
-const setupSwaggerUi = (req, res, next) => {
-  const dynamicSpec = buildDynamicSpec(req);
-  return swaggerUi.setup(dynamicSpec)(req, res, next);
-};
+const swaggerUiHandler = swaggerUi.setup(null, {
+  swaggerOptions: {
+    url: '/openapi.json',
+    displayRequestDuration: true,
+    docExpansion: 'none',
+  },
+  customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
+});
 
-app.use('/docs', swaggerUi.serve, setupSwaggerUi);
-app.use('/api-docs', swaggerUi.serve, setupSwaggerUi);
+app.use('/docs', swaggerUi.serve, swaggerUiHandler);
+app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
 /**
  * Health and base routes
@@ -106,7 +113,9 @@ if (process.env.NODE_ENV === 'test') {
       p === '/' ||
       p.startsWith('/health') ||
       p.startsWith('/openapi.json') ||
+      p.startsWith('/api-docs.json') ||
       p.startsWith('/docs') ||
+      p.startsWith('/api-docs') ||
       p.startsWith('/api/dev');
     if (bypass) return next();
 
