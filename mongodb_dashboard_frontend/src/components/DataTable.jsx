@@ -309,8 +309,12 @@ export default function DataTable({
         const w = text ? measureTextWidth(text, fontCell) : headerW;
         if (w > maxW) maxW = w;
       });
+      // Add some padding allowance
       maxW += 24 + 16;
-      widths[c.key] = Math.min(Math.max(maxW, minColWidth), maxColWidth);
+      // Respect optional per-column min/max width overrides when provided
+      const colMin = typeof c.minWidth === "number" ? c.minWidth : minColWidth;
+      const colMax = typeof c.maxWidth === "number" ? c.maxWidth : maxColWidth;
+      widths[c.key] = Math.min(Math.max(maxW, colMin), colMax);
     });
 
     if (actionColIncluded) {
@@ -336,7 +340,7 @@ export default function DataTable({
           <thead>
             <tr>
               {columns.map((c) => {
-                const thClass = `th ${c.priority ? `col-priority-${c.priority}` : ""}`.trim();
+                const thClass = `th ${c.priority ? `col-priority-${c.priority}` : ""} ${c.className || ""}`.trim();
                 return (
                   <th
                     key={c.key}
@@ -431,7 +435,7 @@ export default function DataTable({
                     return (
                       <td
                         key={c.key}
-                        className={`td ${isNumber ? "num" : ""} ${priorityClass} ${c.key === "name" ? "td--emphasis-name" : ""}`.trim()}
+                        className={`td ${isNumber ? "num" : ""} ${priorityClass} ${c.key === "name" ? "td--emphasis-name" : ""} ${c.className || ""}`.trim()}
                         style={baseStyle}
                         title={typeof content === "string" ? content : undefined}
                       >

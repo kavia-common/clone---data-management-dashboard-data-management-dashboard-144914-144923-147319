@@ -62,6 +62,10 @@ export default function Deployments() {
             return text === "—" ? "—" : <span className="status-badge" title={text}>{text}</span>;
           },
           priority: 2,
+          className: "col-status-wide",
+          // Slightly wider so long snake_case values fit on desktop without wrap
+          minWidth: 200,
+          maxWidth: 520,
         };
       }
       if (k === "created_at" || k === "updated_at") {

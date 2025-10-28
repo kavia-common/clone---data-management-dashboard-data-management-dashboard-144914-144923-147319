@@ -562,7 +562,40 @@ html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selecte
 
 
 
-/* Increase specificity to override the mobile nowrap rule for status badge */
+/* Status badge: prevent overflow and keep layout consistent */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.25;
+  height: auto;             /* allow natural height if wrapping is enabled */
+  max-width: 100%;          /* don't exceed the cell */
+  vertical-align: middle;
+  overflow: hidden;         /* enable ellipsis when nowrap is active */
+  text-overflow: ellipsis;
+  white-space: nowrap;      /* default: single line with ellipsis (tooltip shows full) */
+  overflow-wrap: anywhere;  /* safe fallback if wrapping is enabled */
+  word-break: break-word;   /* break long tokens if wrapping is enabled */
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--badge-text) 12%, transparent) inset;
+}
+
+/* Wider Status column helper; DataTable will also enforce width via colgroup */
+.col-status-wide {
+  min-width: 200px;
+}
+
+/* If you choose to wrap on very narrow screens, uncomment:
+@media (max-width: 767px) {
+  .table .td.col-status-wide { white-space: normal; height: auto; }
+  .table .td.col-status-wide .status-badge { white-space: normal; text-overflow: clip; }
+}
+*/
 
 
 /* Optional utility marker classes to use on th/td when needed */
