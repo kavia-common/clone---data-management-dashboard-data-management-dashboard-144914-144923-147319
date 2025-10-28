@@ -80,7 +80,24 @@ export default function Deployments() {
 
   function renderStatus(v) {
     const text = v == null || v === "" ? "—" : String(v);
-    return text === "—" ? "—" : <span className="status-badge">{text}</span>;
+    return text === "—"
+      ? "—"
+      : (
+        <span
+          className="status-badge"
+          title={text}
+          style={{
+            display: "inline-block",
+            whiteSpace: "normal",
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
+            maxWidth: 380,
+            lineHeight: 1.3,
+          }}
+        >
+          {text}
+        </span>
+      );
   }
 
   function buildColumns() {
@@ -93,7 +110,13 @@ export default function Deployments() {
         priority: 1,
       },
       { key: "branch_name", label: "Branch Name", render: (v) => (v == null || v === "" ? "—" : String(v)), priority: 2 },
-      { key: "status", label: "Status", render: renderStatus, priority: 2 },
+      {
+        key: "status",
+        label: "Status",
+        render: renderStatus,
+        priority: 2,
+        cellClassName: "td-status-wrap",
+      },
       { key: "created_at", label: "Created At", render: (v) => fmtDate(v), priority: 3 },
       { key: "updated_at", label: "Updated At", render: (v) => fmtDate(v), priority: 3 },
     ];

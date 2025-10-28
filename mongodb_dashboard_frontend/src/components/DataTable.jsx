@@ -17,6 +17,14 @@ function measureTextWidth(text, font = "14px Helvetica, Arial, sans-serif") {
   }
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * DataTable
+ * Supports optional per-column header and cell modifiers:
+ * - headerClassName?: string | (col) => string
+ * - cellClassName?: string | (value, row) => string
+ * - cellStyle?: object | (value, row) => object
+ */
 // PUBLIC_INTERFACE
 export default function DataTable({
   columns,
@@ -330,21 +338,25 @@ export default function DataTable({
           </colgroup>
           <thead>
             <tr>
-              {columns.map((c) => (
-                <th
-                  key={c.key}
-                  onClick={() => toggleSort(c.key)}
-                  role="button"
-                  className={`th ${c.priority ? `col-priority-${c.priority}` : ""}`.trim()}
-                  scope="col"
-                  aria-sort={sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-                  title="Click to sort"
-                  style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
-                >
-                  {c.label}
-                  {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
-                </th>
-              ))}
+              {columns.map((c) => {
+                const headerExtraClass = typeof c.headerClassName === "function" ? c.headerClassName(c) : c.headerClassName;
+                const thClass = `th ${c.priority ? `col-priority-${c.priority}` : ""} ${headerExtraClass || ""}`.trim();
+                return (
+                  <th
+                    key={c.key}
+                    onClick={() => toggleSort(c.key)}
+                    role="button"
+                    className={thClass}
+                    scope="col"
+                    aria-sort={sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                    title="Click to sort"
+                    style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
+                  >
+                    {c.label}
+                    {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
+                  </th>
+                );
+              })}
               {actionColIncluded ? (
                 <th
                   className="th col-priority-4"
@@ -419,11 +431,15 @@ export default function DataTable({
                     const content = c.render ? c.render(value, row) : value ?? "";
                     const isNumber = typeof value === "number";
                     const priorityClass = c.priority ? `col-priority-${c.priority}` : "";
+                    const extraCellClass = typeof c.cellClassName === "function" ? c.cellClassName(value, row) : c.cellClassName;
+                    const baseStyle = autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined;
+                    const extraStyle = typeof c.cellStyle === "function" ? c.cellStyle(value, row) : c.cellStyle;
+                    const mergedStyle = baseStyle || extraStyle ? { ...(baseStyle || {}), ...(extraStyle || {}) } : undefined;
                     return (
                       <td
                         key={c.key}
-                        className={`td ${isNumber ? "num" : ""} ${priorityClass} ${c.key === "name" ? "td--emphasis-name" : ""}`.trim()}
-                        style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
+                        className={`td ${isNumber ? "num" : ""} ${priorityClass} ${c.key === "name" ? "td--emphasis-name" : ""} ${extraCellClass || ""}`.trim()}
+                        style={mergedStyle}
                         title={typeof content === "string" ? content : undefined}
                       >
                         {content === null || content === undefined || content === "" ? "—" : content}
