@@ -256,7 +256,11 @@ function UserProjectsView({ userId, tenantId, from, to }) {
             >
               Project ID
             </div>
-            <div
+            <span
+              title={String(id)}
+              tabIndex={0}
+              aria-label="Project ID"
+              data-testid="project-id-pill"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -271,7 +275,7 @@ function UserProjectsView({ userId, tenantId, from, to }) {
               }}
             >
               {String(id)}
-            </div>
+            </span>
           </div>
 
           <dl
