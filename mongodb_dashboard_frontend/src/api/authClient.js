@@ -1,11 +1,10 @@
 import { API_BASE_URL } from "../config/auth";
-import { isTenantSaltValid } from "../utils/crypto"; // removed generateOrganizationId since we won’t use it
+import { decryptTenantId, encryptTenantId } from "../utils/hash";
 import { resolveAuthEndpointUrl } from "./urlOverrides";
 
-// ✅ Static organization ID
-const STATIC_ORGANIZATION_ID = "g5StFHvCyj0Hf9g8j87nGA";
-
-// PUBLIC_INTERFACE
+/**
+* Fetch organizations for a given email
+*/
 export async function fetchUserOrganizationsByEmail(email) {
   const relativePath = `/api/auth/user-organizations?email=${encodeURIComponent(email)}`;
   const url = resolveAuthEndpointUrl(relativePath, API_BASE_URL);
@@ -33,28 +32,59 @@ export async function fetchUserOrganizationsByEmail(email) {
   throw err;
 }
 
-// PUBLIC_INTERFACE
+/**
+* Get dynamic organization ID by email
+*/
+async function getOrganizationIdByEmail(email) {
+  const orgResponse = await fetchUserOrganizationsByEmail(email);
+
+  if (!orgResponse?.organizations?.length) {
+    throw new Error("No organizations found for this email");
+  }
+
+  // ✅ Select "KAVIA" or fallback to first organization
+  const selectedOrg =
+    orgResponse.organizations.find(
+      (org) => org.name.toLowerCase() === "kavia"
+    ) || orgResponse.organizations[0];
+
+  console.log("✅ Selected organization:", selectedOrg);
+
+  if (!selectedOrg?.id) {
+    throw new Error("Organization ID not found in response");
+  }
+
+  return selectedOrg.id;
+}
+
+/**
+* Login with dynamically fetched and encrypted organization ID
+*/
 export async function loginWithOrgEmailPassword({ email, password }) {
   if (!email) throw new Error("email is required");
   if (!password) throw new Error("password is required");
 
-  if (!isTenantSaltValid()) {
-    const err = new Error(
-      "Login cannot proceed: tenant secret salt is not configured."
-    );
-    err.code = "SALT_NOT_CONFIGURED";
-    throw err;
-  }
+  // 1️⃣ Fetch org ID dynamically
+  const organization_id = await getOrganizationIdByEmail(email);
 
-  // ✅ Use static organization ID instead of dynamic
-  const organization_id = STATIC_ORGANIZATION_ID;
+  // 2️⃣ Encrypt the org ID before sending
+  const encryptedOrgId = encryptTenantId(organization_id);
+
+  console.log("🔐 Organization ID Encrypted:", encryptedOrgId);
+  console.log("🔓 Decrypted for debug:", decryptTenantId(encryptedOrgId));
+
+  // 3️⃣ Build request payload using encrypted ID
+  const body = {
+    organization_id: encryptedOrgId,
+    email,
+    password,
+  };
 
   const url = resolveAuthEndpointUrl(`/api/auth/login`, API_BASE_URL);
-  const body = { organization_id, email, password };
 
   if (process.env.NODE_ENV !== "production") {
     console.log("Auth payload preview", {
-      organization_id,
+      organization_id: encryptedOrgId,
       email,
       password: "[REDACTED]",
     });
@@ -90,7 +120,7 @@ export async function loginWithOrgEmailPassword({ email, password }) {
 
     const msg =
       res.status === 500
-        ? `${baseMsg}. The server reported an internal error. If you are using a placeholder QA salt, please configure a valid salt.`
+        ? `${baseMsg}. The server reported an internal error.`
         : baseMsg;
 
     const err = new Error(msg);
@@ -108,3 +138,4 @@ export async function loginWithOrgEmailPassword({ email, password }) {
 
   return { token, payload };
 }
+ 
