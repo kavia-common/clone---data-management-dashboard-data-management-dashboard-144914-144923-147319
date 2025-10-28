@@ -11,7 +11,6 @@ import useDeploymentStatusCounts from "../../hooks/useDeploymentStatusCounts";
  * Deployments page
  * Restore prior column definitions.
  * Columns:
- * - deployment_id
  * - branch_name
  * - status (badge)
  * - created_at
@@ -26,7 +25,7 @@ export default function Deployments() {
 
   // Allowed and ordered fields (prior version)
   const allowedOrdered = useMemo(
-    () => ["deployment_id", "branch_name", "status", "created_at", "updated_at"],
+    () => ["branch_name", "status", "created_at", "updated_at"],
     []
   );
 
@@ -95,7 +94,6 @@ export default function Deployments() {
     setError("");
     try {
       const sortFieldMap = {
-        deployment_id: "deployment_id",
         branch_name: "branch_name",
         status: "status",
         created_at: "created_at",
@@ -108,13 +106,21 @@ export default function Deployments() {
       }
       const res = await listDeployments(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      setItems(arr || []);
+      // Ensure a stable hidden key for React row keys by normalizing to _id,
+      // without exposing any ID in the visible columns.
+      const arrMapped = (arr || []).map((d) => {
+        if (d && (d._id || d.id || d.deployment_id)) {
+          return { _id: d._id || d.id || d.deployment_id, ...d };
+        }
+        return d;
+      });
+      setItems(arrMapped || []);
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,
-        total: res?.meta?.total ?? (Array.isArray(arr) ? arr.length : 0),
+        total: res?.meta?.total ?? (Array.isArray(arrMapped) ? arrMapped.length : 0),
       });
-      setColumns(buildColumns(arr || []));
+      setColumns(buildColumns(arrMapped || []));
     } catch (e) {
       setItems([]);
       setColumns(buildColumns([]));
