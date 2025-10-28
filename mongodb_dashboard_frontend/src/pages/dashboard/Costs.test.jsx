@@ -22,8 +22,8 @@ jest.mock('../../components/DataTable.jsx', () => {
   };
 });
 
-// Mock listLlmCosts to return a record that uses camelCase key and a numeric string
-jest.mock('../../api/client', () => ({
+ // Mock listLlmCosts to return a record that uses camelCase key and a numeric string
+jest.mock('../../api', () => ({
   listLlmCosts: jest.fn(async () => ({
     items: [
       {

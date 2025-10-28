@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
-import { listUsers } from "../api/client";
+import { listUsers } from "../api";
 
 /**
  * PUBLIC_INTERFACE

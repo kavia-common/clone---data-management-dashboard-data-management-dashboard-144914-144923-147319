@@ -6,7 +6,7 @@ import TreeView from "../../components/TreeView.jsx";
 import CostsOrganizationSummary from "../../components/costs/CostsOrganizationSummary.jsx";
 
 import { renderCreditsWithUsd } from "../../utils/currency";
-import { listLlmCosts } from "../../api/client";
+import { listLlmCosts } from "../../api";
 
 /**
  * Inline section component for stacked cost visualization

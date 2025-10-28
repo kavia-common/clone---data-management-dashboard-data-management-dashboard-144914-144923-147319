@@ -3,7 +3,7 @@
  * Provides helpers to resolve projectName from deployments enrichment.
  */
 
-import client from './client';
+import { getApiClient } from './index';
 import { buildFilterParam } from './util';
 
 /**
@@ -24,7 +24,8 @@ export async function fetchProjectNameByProjectId(projectId) {
     params.set('filter', filterParam);
     params.set('limit', '1');
 
-    const res = await client.get(`/api/app-deployments?${params.toString()}`);
+    const api = getApiClient();
+    const res = await api.get(`/api/app-deployments?${params.toString()}`);
     // Response can be either array or { success, data, meta }
     const data = Array.isArray(res.data) ? res.data : res.data?.data;
 

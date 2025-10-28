@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
-import { listUsers, listSessions, listDeployments, health } from "../../api/client";
+import { listUsers, listSessions, listDeployments, health } from "../../api";
 
 
 // PUBLIC_INTERFACE

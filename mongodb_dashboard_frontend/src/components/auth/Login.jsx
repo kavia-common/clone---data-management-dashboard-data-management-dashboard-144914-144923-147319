@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import api from '../../api/client';
+import { loginWithOrgEmailPassword } from '../../api/authClient';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/theme.css';
 import '../../index.css';
@@ -39,14 +39,14 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      // attempt login with API; login should throw on non-2xx
-      await login(form, api);
+      // Perform login using auth client (throws on non-2xx)
+      const { token } = await loginWithOrgEmailPassword(form);
+      // Persist session via context
+      login(token || null);
       // success -> redirect to dashboard overview or prior route
       navigate(from, { replace: true });
     } catch (err) {
       const msg =
-        err?.response?.data?.message ||
-        err?.response?.data ||
         err?.message ||
         'Invalid credentials. Please try again.';
       setError(typeof msg === 'string' ? msg : 'Login failed.');

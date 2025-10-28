@@ -6,7 +6,7 @@
 
 import axios from 'axios';
 import { getApiBaseUrl } from './util';
-import { getApiClient } from './client';
+import { getApiClient } from './index';
 
 /**
  * PUBLIC_INTERFACE

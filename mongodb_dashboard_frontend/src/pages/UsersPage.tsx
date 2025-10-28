@@ -3,7 +3,7 @@ import Card from "../components/ui/Card.jsx";
 import DataTable from "../components/DataTable.jsx";
 import Button from "../components/ui/Button.jsx";
 import UserProjectsModal from "../components/users/UserProjectsModal.jsx";
-import { listUsers } from "../api/client";
+import { listUsers } from "../api";
 
 /**
  * PUBLIC_INTERFACE

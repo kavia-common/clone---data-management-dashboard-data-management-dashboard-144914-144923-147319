@@ -13,7 +13,7 @@ import {
 import Card from "../ui/Card.jsx";
 import Button from "../ui/Button.jsx";
 import Skeleton from "../ui/Skeleton.jsx";
-import { listDeployments } from "../../api/client";
+import { listDeployments } from "../../api";
 import { darkThemeTokens as tokens, getCurrentTheme } from "../../theme";
 
 /**

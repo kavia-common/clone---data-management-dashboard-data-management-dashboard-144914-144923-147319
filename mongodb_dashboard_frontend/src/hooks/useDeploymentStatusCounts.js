@@ -17,7 +17,7 @@
 // ============================================================================
  */
 import { useEffect, useMemo, useState } from "react";
-import { listDeployments, getApiClient } from "../api/client";
+import { listDeployments, getApiClient } from "../api";
 
 /**
  * Normalize a status string into one of the three canonical statuses.

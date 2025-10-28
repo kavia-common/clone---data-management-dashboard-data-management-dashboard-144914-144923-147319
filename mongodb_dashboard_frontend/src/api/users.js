@@ -1,4 +1,4 @@
-import { getApiClient } from "./client";
+import { getApiClient } from "./index";
 
 /**
  * PUBLIC_INTERFACE
