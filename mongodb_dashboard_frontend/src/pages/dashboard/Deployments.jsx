@@ -84,7 +84,7 @@ export default function Deployments() {
       ? "—"
       : (
         <span
-          className="status-badge status-badge--wrap"
+          className="status-badge"
           title={text}
         >
           {text}
@@ -107,10 +107,25 @@ export default function Deployments() {
         label: "Status",
         render: renderStatus,
         priority: 2,
-        cellClassName: "td-status-wrap",
+        headerClassName: "col-status",
+        cellClassName: "col-status",
       },
-      { key: "created_at", label: "Created At", render: (v) => fmtDate(v), priority: 3 },
-      { key: "updated_at", label: "Updated At", render: (v) => fmtDate(v), priority: 3 },
+      {
+        key: "created_at",
+        label: "Created At",
+        render: (v) => fmtDate(v),
+        priority: 3,
+        headerClassName: "col-created-at",
+        cellClassName: "col-created-at",
+      },
+      {
+        key: "updated_at",
+        label: "Updated At",
+        render: (v) => fmtDate(v),
+        priority: 3,
+        headerClassName: "col-updated-at",
+        cellClassName: "col-updated-at",
+      },
     ];
   }
 
@@ -213,6 +228,7 @@ export default function Deployments() {
             fetchPage={async (page, limit, sortKey, sortDir) => {
               await load(page, limit, sortKey, sortDir);
             }}
+            autoWidth={false}
             paginationTitle="Deployment pages"
           />
         </Card>

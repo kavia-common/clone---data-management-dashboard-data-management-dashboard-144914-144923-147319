@@ -618,6 +618,39 @@ html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selecte
 .col-priority-6 {}
 .col-priority-7 {}
 
+/* Deployments table column sizing (CSS-driven when autoWidth={false}) */
+.th.col-created-at, .td.col-created-at {
+  width: clamp(140px, 18vw, 160px);
+  min-width: 140px;
+  max-width: 180px;
+}
+.th.col-updated-at, .td.col-updated-at {
+  width: clamp(140px, 18vw, 160px);
+  min-width: 140px;
+  max-width: 180px;
+}
+/* Status column: single-line, wider base to fit long values */
+.th.col-status, .td.col-status {
+  width: clamp(240px, 30vw, 420px);
+  min-width: 240px;
+  /* keep inherited nowrap + ellipsis; rely on title for tooltip */
+}
+
+/* Mobile overrides: relax global 240px max for these columns */
+@media (max-width: 767px) {
+  .th.col-status, .td.col-status {
+    width: clamp(200px, 50vw, 320px);
+    min-width: 200px;
+    max-width: none; /* override global max-width: 240px */
+  }
+  .th.col-created-at, .td.col-created-at,
+  .th.col-updated-at, .td.col-updated-at {
+    width: clamp(120px, 24vw, 150px);
+    min-width: 120px;
+    max-width: none; /* allow clamp to control width */
+  }
+}
+
 /* Modal legacy classes neutralized to avoid conflicts with shared Modal overlay */
 .modal-backdrop,
 .modal-overlay,
