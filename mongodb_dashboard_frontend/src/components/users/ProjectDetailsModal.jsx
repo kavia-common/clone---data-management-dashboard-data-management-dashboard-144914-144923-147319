@@ -113,11 +113,38 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
 
 function KeyValueList({ items = [] }) {
   // Ocean Professional: subtle labels, clear values, consistent grid to avoid layout shift.
+  // Forward any style/className provided for the value node (valueProps / valueStyle / valueClassName).
   return (
     <dl style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: "8px 12px", margin: 0 }}>
       {items.map((it, idx) => {
         const isElement = React.isValidElement(it.value);
         const titleText = !isElement && it.value != null ? String(it.value) : undefined;
+
+        // Normalize optional props for the value node
+        const valueProps = it.valueProps || {};
+        const normalizedValueProps = {
+          className: valueProps.className || valueProps.valueClassName,
+          style: { ...(valueProps.style || {}), ...(valueProps.valueStyle || {}) },
+        };
+
+        // Build the final value node, cloning element when necessary to merge styles/className
+        let valueNode = null;
+        if (isElement) {
+          const orig = it.value;
+          const mergedClassName =
+            [orig.props?.className, normalizedValueProps.className].filter(Boolean).join(" ") || undefined;
+          const mergedStyle = { ...(orig.props?.style || {}), ...(normalizedValueProps.style || {}) };
+          valueNode = React.cloneElement(orig, { className: mergedClassName, style: mergedStyle });
+        } else {
+          valueNode = (
+            <span className={normalizedValueProps.className} style={normalizedValueProps.style}>
+              {String(it.value ?? "—")}
+            </span>
+          );
+        }
+
+        // For "Project ID", stack the value immediately below the label (span full grid width)
+        const isProjectIdRow = String(it.label).toLowerCase() === "project id";
 
         return (
           <React.Fragment key={idx}>
@@ -126,8 +153,9 @@ function KeyValueList({ items = [] }) {
                 color: "var(--text-tertiary)",
                 fontWeight: 600,
                 fontSize: 12,
-                textAlign: "right",
+                textAlign: isProjectIdRow ? "left" : "right",
                 whiteSpace: "nowrap",
+                ...(isProjectIdRow ? { gridColumn: "1 / -1", marginBottom: 2 } : {}),
               }}
               title={String(it.label || "")}
             >
@@ -141,10 +169,11 @@ function KeyValueList({ items = [] }) {
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
+                ...(isProjectIdRow ? { gridColumn: "1 / -1" } : {}),
               }}
               title={titleText}
             >
-              {isElement ? it.value : String(it.value ?? "—")}
+              {valueNode}
             </dd>
           </React.Fragment>
         );
