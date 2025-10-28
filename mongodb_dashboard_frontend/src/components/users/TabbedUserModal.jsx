@@ -181,7 +181,23 @@ function UserProjectsView({ userId, tenantId, from, to }) {
   if (!enabled) {
     return <div className="text-gray-500">Select a user with a valid tenant to view projects.</div>;
   }
-  if (loading) return <div className="table-empty">Loading projects…</div>;
+  if (loading) return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        background: 'transparent',
+        color: '#ffffff',
+        border: 'none',
+        boxShadow: 'none',
+        textAlign: 'center',
+        padding: 12,
+        borderRadius: 8,
+      }}
+    >
+      Loading projects…
+    </div>
+  );
   if (error) {
     return (
       <div className="error" role="alert" style={{ marginBottom: 12 }}>
@@ -314,7 +330,17 @@ function UserProjectsView({ userId, tenantId, from, to }) {
   return (
     <div role="list" aria-label="User projects list" style={{ display: 'grid', gap: 12 }}>
       {list.length === 0 && (
-        <div className="table-empty" style={{ color: 'var(--text-tertiary)' }}>
+        <div
+          style={{
+            background: 'transparent',
+            color: '#ffffff',
+            border: 'none',
+            boxShadow: 'none',
+            textAlign: 'center',
+            padding: 12,
+            borderRadius: 8,
+          }}
+        >
           No projects found for this user.
         </div>
       )}
@@ -396,7 +422,7 @@ export default function TabbedUserModal({
   }
 
   return (
-    <Modal title={title} open={open} onClose={onClose}>
+    <Modal title={title} open={open} onClose={onClose} className="tabbed-user-modal">
       <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "var(--bg-surface, #fff)" }}>
         <div style={{ padding: "12px 20px" }}>
           <ThemedTabs activeKey={activeTab} onChange={setActiveTab} />
