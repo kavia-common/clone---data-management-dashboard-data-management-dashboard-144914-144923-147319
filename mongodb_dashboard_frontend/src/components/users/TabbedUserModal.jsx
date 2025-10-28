@@ -256,26 +256,17 @@ function UserProjectsView({ userId, tenantId, from, to }) {
             >
               Project ID
             </div>
-            <span
+            <div
               title={String(id)}
-              tabIndex={0}
-              aria-label="Project ID"
-              data-testid="project-id-pill"
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                background: 'rgb(248, 250, 252)',
+                margin: 0,
                 color: 'var(--text-primary, #111827)',
-                border: '1px solid var(--border-subtle, #E6EAF0)',
-                borderRadius: '9999px',
-                padding: '6px 10px',
-                fontFamily: 'ui-monospace, monospace',
                 fontWeight: 600,
+                wordBreak: 'break-word',
               }}
             >
               {String(id)}
-            </span>
+            </div>
           </div>
 
           <dl

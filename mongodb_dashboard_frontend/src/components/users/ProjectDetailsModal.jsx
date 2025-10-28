@@ -1,4 +1,4 @@
-/**
+ /**
  * PUBLIC_INTERFACE
  * ProjectDetailsModal
  * Displays project details for a given project (Project ID, Project Name, Updated At).
@@ -57,32 +57,7 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
 
   const details = useMemo(() => {
     const rows = [];
-    const idValue =
-      projectId
-        ? (
-            // Accessible pill for Project ID with exact enforced inline styles
-            <span
-              title={String(projectId)}
-              tabIndex={0}
-              aria-label="Project ID"
-              data-testid="project-id-pill"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                background: 'rgb(248, 250, 252)',
-                color: 'var(--text-primary, #111827)',
-                border: '1px solid var(--border-subtle, #E6EAF0)',
-                borderRadius: '9999px',
-                padding: '6px 10px',
-                fontFamily: 'ui-monospace, monospace',
-                fontWeight: 600,
-              }}
-            >
-              {String(projectId)}
-            </span>
-          )
-        : "—";
+    const idValue = projectId ? String(projectId) : "—";
     rows.push({ label: "Project ID", value: idValue });
     rows.push({ label: "Project Name", value: loading ? "Loading…" : (projectName || "—") });
     rows.push({
@@ -113,7 +88,7 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
 
 function KeyValueList({ items = [] }) {
   // Ocean Professional: subtle labels, clear values, consistent grid to avoid layout shift.
-  // Forward any style/className provided for the value node (valueProps / valueStyle / valueClassName).
+  // Values render as plain text consistent across fields.
   return (
     <dl style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: "8px 12px", margin: 0 }}>
       {items.map((it, idx) => {
@@ -143,9 +118,6 @@ function KeyValueList({ items = [] }) {
           );
         }
 
-        // For "Project ID", stack the value immediately below the label (span full grid width)
-        const isProjectIdRow = String(it.label).toLowerCase() === "project id";
-
         return (
           <React.Fragment key={idx}>
             <dt
@@ -153,9 +125,8 @@ function KeyValueList({ items = [] }) {
                 color: "var(--text-tertiary)",
                 fontWeight: 600,
                 fontSize: 12,
-                textAlign: isProjectIdRow ? "left" : "right",
+                textAlign: "right",
                 whiteSpace: "nowrap",
-                ...(isProjectIdRow ? { gridColumn: "1 / -1", marginBottom: 2 } : {}),
               }}
               title={String(it.label || "")}
             >
@@ -169,7 +140,6 @@ function KeyValueList({ items = [] }) {
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
-                ...(isProjectIdRow ? { gridColumn: "1 / -1" } : {}),
               }}
               title={titleText}
             >
