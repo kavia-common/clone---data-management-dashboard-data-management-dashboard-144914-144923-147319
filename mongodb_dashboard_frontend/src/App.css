@@ -553,61 +553,17 @@ html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selecte
   .table { min-width: 520px; }
   .th, .td { padding: 8px 10px; }
 }
-.status-badge {
-  background: var(--badge-bg);
-  color: var(--badge-text);
-  font-size: 12px; font-weight: 600;
-  padding: 2px 8px; border-radius: 9999px;
-}
+
 
 /* Wrapped variant for long/multi-line values */
-.status-badge--wrap {
-  display: inline-flex;              /* better baseline alignment across lines */
-  align-items: center;
-  white-space: normal;               /* allow wrapping across lines */
-  word-break: break-word;            /* break long tokens like snake_case */
-  overflow-wrap: anywhere;           /* wrap anywhere to avoid overflow */
-  line-height: 1.3;
-  min-height: unset;                 /* remove any inherited min-height */
-  height: auto;                      /* auto-expand height as lines wrap */
-  padding: 4px 8px;                  /* consistent padding with theme */
-  border-radius: 10px;               /* keep pill look on multiple lines */
-  max-width: 380px;                  /* avoid overly wide badges in tables */
-}
 
-/* Allow the Status column to wrap long values without breaking layout */
-.td-status-wrap {
-  /* Override table defaults */
-  white-space: normal;
-  text-overflow: clip;
-  overflow: visible;
-  height: auto;
-  line-height: 1.3;
-}
 
-/* Ensure the badge itself can wrap and break on long tokens like snake_case */
-.td-status-wrap .status-badge,
-.td-status-wrap .status-badge--wrap {
-  display: inline-flex;
-  align-items: center;
-  white-space: normal;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  max-width: 380px;
-  line-height: 1.3;
-  /* Multi-line pill stays readable */
-  border-radius: 10px;
-  padding: 4px 8px;
-}
+
+
+
 
 /* Increase specificity to override the mobile nowrap rule for status badge */
-@media (max-width: 767px) {
-  .td.td-status-wrap .status-badge,
-  .td.td-status-wrap .status-badge--wrap {
-    white-space: normal;
-    max-width: 300px;
-  }
-}
+
 
 /* Optional utility marker classes to use on th/td when needed */
 .col-priority-1 {}
@@ -618,39 +574,9 @@ html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selecte
 .col-priority-6 {}
 .col-priority-7 {}
 
-/* Deployments table column sizing (CSS-driven when autoWidth={false}) */
-/* Timestamps widened so locale strings are comfortably visible; keep single-line with ellipsis + title tooltip via DataTable */
-.th.col-created-at, .td.col-created-at {
-  width: clamp(220px, 24vw, 340px);
-  min-width: 220px;
-  max-width: 340px;
-}
-.th.col-updated-at, .td.col-updated-at {
-  width: clamp(220px, 24vw, 340px);
-  min-width: 220px;
-  max-width: 340px;
-}
-/* Status column: single-line, larger base to fit long snake_case without wrapping (ellipsis when necessary) */
-.th.col-status, .td.col-status {
-  width: clamp(280px, 32vw, 480px);
-  min-width: 280px;
-  /* keep inherited nowrap + ellipsis; rely on title for tooltip */
-}
 
-/* Mobile overrides: relax global 240px max for these columns, keep sensible clamps */
-@media (max-width: 767px) {
-  .th.col-status, .td.col-status {
-    width: clamp(220px, 60vw, 360px);
-    min-width: 220px;
-    max-width: none; /* override global max-width: 240px */
-  }
-  .th.col-created-at, .td.col-created-at,
-  .th.col-updated-at, .td.col-updated-at {
-    width: clamp(180px, 50vw, 240px);
-    min-width: 180px;
-    max-width: none; /* allow clamp to control width */
-  }
-}
+
+
 
 /* Modal legacy classes neutralized to avoid conflicts with shared Modal overlay */
 .modal-backdrop,
