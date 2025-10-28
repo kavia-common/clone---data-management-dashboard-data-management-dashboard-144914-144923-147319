@@ -400,3 +400,19 @@ html[data-theme="dark"] .topbar {
 
 /* Hover helpers */
 html[data-theme="dark"] .hover-bright:hover { color: #ffffff !important; }
+
+/* Dark theme: Project ID pill overrides */
+html[data-theme="dark"] .project-id-pill {
+  background: color-mix(in oklab, var(--color-accent, #FF6600) 82%, black);
+  color: #ffffff;
+  border: 1px solid #D97706;
+}
+html[data-theme="dark"] .project-id-pill:hover {
+  background: color-mix(in oklab, var(--color-accent, #FF6600) 88%, black);
+  color: #ffffff;
+  border-color: #D97706;
+}
+html[data-theme="dark"] .project-id-pill:focus-visible {
+  outline: 3px solid color-mix(in oklab, var(--color-accent, #FF6600) 35%, transparent);
+  outline-offset: 2px;
+}

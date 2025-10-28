@@ -58,7 +58,15 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
 
   const details = useMemo(() => {
     const rows = [];
-    rows.push({ label: "Project ID", value: projectId || "—" });
+    const idValue =
+      projectId
+        ? (
+            <span className="project-id-pill" title={String(projectId)}>
+              {String(projectId)}
+            </span>
+          )
+        : "—";
+    rows.push({ label: "Project ID", value: idValue });
     rows.push({ label: "Project Name", value: loading ? "Loading…" : (projectName || "—") });
     rows.push({
       label: "Updated At",
@@ -90,35 +98,40 @@ function KeyValueList({ items = [] }) {
   // Ocean Professional: subtle labels, clear values, consistent grid to avoid layout shift.
   return (
     <dl style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: "8px 12px", margin: 0 }}>
-      {items.map((it, idx) => (
-        <React.Fragment key={idx}>
-          <dt
-            style={{
-              color: "var(--text-tertiary)",
-              fontWeight: 600,
-              fontSize: 12,
-              textAlign: "right",
-              whiteSpace: "nowrap",
-            }}
-            title={String(it.label || "")}
-          >
-            {it.label}
-          </dt>
-          <dd
-            style={{
-              margin: 0,
-              color: "var(--text-primary)",
-              fontSize: 14,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={String(it.value ?? "—")}
-          >
-            {String(it.value ?? "—")}
-          </dd>
-        </React.Fragment>
-      ))}
+      {items.map((it, idx) => {
+        const isElement = React.isValidElement(it.value);
+        const titleText = !isElement && it.value != null ? String(it.value) : undefined;
+
+        return (
+          <React.Fragment key={idx}>
+            <dt
+              style={{
+                color: "var(--text-tertiary)",
+                fontWeight: 600,
+                fontSize: 12,
+                textAlign: "right",
+                whiteSpace: "nowrap",
+              }}
+              title={String(it.label || "")}
+            >
+              {it.label}
+            </dt>
+            <dd
+              style={{
+                margin: 0,
+                color: "var(--text-primary)",
+                fontSize: 14,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={titleText}
+            >
+              {isElement ? it.value : String(it.value ?? "—")}
+            </dd>
+          </React.Fragment>
+        );
+      })}
     </dl>
   );
 }

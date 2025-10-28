@@ -109,6 +109,38 @@ body {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--ocean-primary) 20%, transparent);
 }
 
+/* Project ID pill (light theme)
+   - White bold text
+   - Light orange background (theme secondary)
+   - Darker orange border
+   - Rounded full with small padding
+*/
+.project-id-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 9999px;
+  background: var(--ocean-secondary, #F59E0B);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 12px;
+  border: 1px solid #D97706; /* darker orange border */
+  line-height: 1;
+  white-space: nowrap;
+  user-select: text; /* allow copy of project id */
+}
+.project-id-pill:hover {
+  background: color-mix(in oklab, var(--ocean-secondary, #F59E0B) 90%, #000 10%);
+  color: #ffffff;
+  border-color: #D97706;
+}
+.project-id-pill:focus-visible {
+  outline: 3px solid color-mix(in oklab, var(--ocean-secondary, #F59E0B) 35%, transparent);
+  outline-offset: 2px;
+}
+
 /* Tabs styling to improve visibility/readability */
 .tabs {
   display: inline-flex;
