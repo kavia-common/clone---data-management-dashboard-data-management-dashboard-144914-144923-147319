@@ -19,48 +19,7 @@ import ErrorState from "../common/ErrorState.jsx";
 import Card from "../ui/Card.jsx";
 import { useAuth } from "../../context/AuthContext";
 import { formatStatusLabel } from "../../utils/formatStatusLabel";
-
-/**
- * INTERNAL
- * Deterministic color generator for unknown statuses: hash -> HSL.
- * Produces pastel-ish colors that are distinct enough for legends.
- */
-function colorFromString(key, { saturation = 55, lightness = 55 } = {}) {
-  const str = String(key || "");
-  let hash = 0;
-  for (let i = 0; i < str.length; i += 1) {
-    // simple 32-bit hash
-    // eslint-disable-next-line no-bitwise
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    // eslint-disable-next-line no-bitwise
-    hash |= 0;
-  }
-  // eslint-disable-next-line no-bitwise
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-}
-
-/**
- * INTERNAL
- * Map a status to a theme-based color where possible; otherwise generate a deterministic color.
- */
-function getStatusColor(status, oc) {
-  const s = String(status || "").toLowerCase().trim();
-  if (["processing", "in_progress", "in-progress", "pending", "queued"].includes(s)) {
-    return oc.primary;
-  }
-  if (["success", "succeeded", "ok", "completed", "complete", "done"].includes(s)) {
-    return oc.success || oc.secondary;
-  }
-  if (["failed", "error", "failure"].includes(s)) {
-    return oc.error;
-  }
-  if (s === "unknown" || s === "" || s === "null" || s === "undefined") {
-    // mildly toned secondary for unknown
-    return "rgba(245, 158, 11, 0.6)"; // soft amber
-  }
-  return colorFromString(s);
-}
+import { getStatusColor } from "../../utils/statusColors";
 
 /**
  * PUBLIC_INTERFACE

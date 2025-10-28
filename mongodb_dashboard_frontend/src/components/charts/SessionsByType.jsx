@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -8,9 +8,12 @@ import {
   Legend,
   CartesianGrid,
   ResponsiveContainer,
+  Cell,
 } from "recharts";
 import { getChartTheme } from "./chartTheme";
 import getOceanColors from "../../theme/colors";
+import { getStatusColor } from "../../utils/statusColors";
+import { formatStatusLabel } from "../../utils/formatStatusLabel";
 
 /**
  * PUBLIC_INTERFACE
@@ -35,16 +38,35 @@ export default function SessionsByType({
   const oc = getOceanColors();
   const gridStroke = t.grid;
 
+  const rows = useMemo(() => {
+    const arr = Array.isArray(data) ? data : [];
+    return arr.map((d) => {
+      const session_type = String(d?.session_type ?? "Unknown");
+      const session_count = Number(d?.session_count || 0);
+      const fill = getStatusColor(session_type, oc);
+      return { ...d, session_type, session_count, fill };
+    });
+  }, [data, oc]);
+
   function truncateLabel(label, max = 14) {
     const s = String(label ?? "");
     return s.length > max ? s.slice(0, max - 1) + "…" : s;
   }
 
+  const legendPayload = useMemo(() => {
+    return rows.map((r) => ({
+      id: r.session_type,              // keep raw key for mapping
+      value: formatStatusLabel(r.session_type), // display formatted label
+      type: "square",
+      color: r.fill,
+    }));
+  }, [rows]);
+
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
-      const item = payload[0];
-      const count = item?.value ?? 0;
-      const fullLabel = String(label ?? "Unknown");
+      const dp = payload[0]?.payload || {};
+      const count = Number(dp.session_count || payload[0]?.value || 0);
+      const fullLabel = formatStatusLabel(dp.session_type || label || "Unknown");
       return (
         <div
           role="dialog"
@@ -85,7 +107,7 @@ export default function SessionsByType({
       ) : (
         <ResponsiveContainer>
           <BarChart
-            data={data}
+            data={rows}
             margin={{ top: 8, right: 24, bottom: 0, left: 0 }}
             barCategoryGap={18}
           >
@@ -95,7 +117,7 @@ export default function SessionsByType({
               tick={{ fontSize: 12, fill: t.axisTick }}
               minTickGap={10}
               interval="preserveStartEnd"
-              tickFormatter={(v) => truncateLabel(v, 14)}
+              tickFormatter={(v) => truncateLabel(formatStatusLabel(v), 14)}
             />
             <YAxis tick={{ fontSize: 12, fill: t.axisTick }} allowDecimals={false} />
             <Tooltip
@@ -106,15 +128,18 @@ export default function SessionsByType({
               verticalAlign="top"
               height={24}
               wrapperStyle={{ fontSize: 12, color: t.legend.text }}
+              payload={legendPayload}
             />
             <Bar
               dataKey="session_count"
               name="Sessions"
-              fill={oc.secondary}
-              stroke={oc.secondary}
               aria-label="Sessions count"
               radius={[4, 4, 0, 0]}
-            />
+            >
+              {rows.map((entry, idx) => (
+                <Cell key={`cell-${idx}`} fill={entry.fill} />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       )}
