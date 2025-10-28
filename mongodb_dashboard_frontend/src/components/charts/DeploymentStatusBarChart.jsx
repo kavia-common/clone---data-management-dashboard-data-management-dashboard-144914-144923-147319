@@ -18,6 +18,7 @@ import LoadingState from "../common/LoadingState.jsx";
 import ErrorState from "../common/ErrorState.jsx";
 import Card from "../ui/Card.jsx";
 import { useAuth } from "../../context/AuthContext";
+import { formatStatusLabel } from "../../utils/formatStatusLabel";
 
 /**
  * INTERNAL
@@ -119,7 +120,7 @@ export default function DeploymentStatusBarChart({
             color: t.tooltip.text,
           }}
         >
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>{String(dp.status || label)}</div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>{formatStatusLabel(dp.status || label)}</div>
           <div>Count: {Number(dp.count || 0)}</div>
         </div>
       );
@@ -168,8 +169,8 @@ export default function DeploymentStatusBarChart({
   // Dynamic legend payload
   const legendPayload = useMemo(() => {
     return rows.map((r) => ({
-      id: r.status,
-      value: r.status,
+      id: r.status, // keep raw status as id for mapping/interaction
+      value: formatStatusLabel(r.status), // display formatted label
       type: "square",
       color: r.fill,
     }));
@@ -204,6 +205,7 @@ export default function DeploymentStatusBarChart({
                 dataKey="status"
                 tick={{ fontSize: 12, fill: axisTick }}
                 tickMargin={8}
+                tickFormatter={(value) => formatStatusLabel(value)}
               />
               <YAxis
                 tick={{ fontSize: 12, fill: axisTick }}
