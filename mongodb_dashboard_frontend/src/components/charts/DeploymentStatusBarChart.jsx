@@ -20,24 +20,56 @@ import Card from "../ui/Card.jsx";
 import { useAuth } from "../../context/AuthContext";
 
 /**
- * Validate and normalize input data to ensure exactly three statuses in a stable order.
+ * INTERNAL
+ * Deterministic color generator for unknown statuses: hash -> HSL.
+ * Produces pastel-ish colors that are distinct enough for legends.
  */
-function validateData(data) {
-  const source = Array.isArray(data) ? data : [];
-  const map = new Map(source.map((d) => [String(d?.status), Number(d?.count || 0)]));
-  const statuses = ["Processing", "Success", "Failed"];
-  return statuses.map((s) => ({ status: s, count: isFinite(map.get(s)) ? Number(map.get(s)) : 0 }));
+function colorFromString(key, { saturation = 55, lightness = 55 } = {}) {
+  const str = String(key || "");
+  let hash = 0;
+  for (let i = 0; i < str.length; i += 1) {
+    // simple 32-bit hash
+    // eslint-disable-next-line no-bitwise
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    // eslint-disable-next-line no-bitwise
+    hash |= 0;
+  }
+  // eslint-disable-next-line no-bitwise
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+}
+
+/**
+ * INTERNAL
+ * Map a status to a theme-based color where possible; otherwise generate a deterministic color.
+ */
+function getStatusColor(status, oc) {
+  const s = String(status || "").toLowerCase().trim();
+  if (["processing", "in_progress", "in-progress", "pending", "queued"].includes(s)) {
+    return oc.primary;
+  }
+  if (["success", "succeeded", "ok", "completed", "complete", "done"].includes(s)) {
+    return oc.success || oc.secondary;
+  }
+  if (["failed", "error", "failure"].includes(s)) {
+    return oc.error;
+  }
+  if (s === "unknown" || s === "" || s === "null" || s === "undefined") {
+    // mildly toned secondary for unknown
+    return "rgba(245, 158, 11, 0.6)"; // soft amber
+  }
+  return colorFromString(s);
 }
 
 /**
  * PUBLIC_INTERFACE
  * DeploymentStatusBarChart
- * A themed, accessible bar chart showing counts of deployments by status.
+ * A themed, accessible bar chart showing counts of deployments by status (dynamic).
  *
  * Props:
  * - title?: string
  * - subtitle?: string
- * - data?: Array<{ status: 'Processing'|'Success'|'Failed', count: number }>
+ * - data?: Array<{ status: string, count: number }>
  * - loading?: boolean
  * - error?: string
  * - height?: number
@@ -45,7 +77,7 @@ function validateData(data) {
  */
 export default function DeploymentStatusBarChart({
   title = "Deployments by Status",
-  subtitle = "Counts across Processing, Success and Failed",
+  subtitle = "Counts by status (dynamic)",
   data = [],
   loading = false,
   error = "",
@@ -56,16 +88,18 @@ export default function DeploymentStatusBarChart({
   const oc = getOceanColors();
   const auth = useAuth();
 
-  // Apply per-bar colors based on status
   const rows = useMemo(() => {
-    return validateData(data).map((d) => {
-      let fill = oc.primary; // default to Processing
-      if (d.status === "Success") fill = oc.success || oc.secondary;
-      if (d.status === "Failed") fill = oc.error;
-      return { ...d, fill };
+    const arr = Array.isArray(data) ? data : [];
+    // De-duplicate statuses and coerce numeric counts
+    return arr.map((d) => {
+      const status = String(d?.status ?? "Unknown");
+      const count = Number(d?.count || 0);
+      const fill = getStatusColor(status, oc);
+      return { status, count, fill };
     });
   }, [data, oc]);
 
+  const hasData = rows.some((r) => r.count > 0);
   const gridStroke = t.grid;
   const axisTick = t.axisTick;
 
@@ -131,63 +165,67 @@ export default function DeploymentStatusBarChart({
     }
   }
 
+  // Dynamic legend payload
+  const legendPayload = useMemo(() => {
+    return rows.map((r) => ({
+      id: r.status,
+      value: r.status,
+      type: "square",
+      color: r.fill,
+    }));
+  }, [rows]);
+
   return (
     <Card title={title} subtitle={subtitle} className="block-full">
       {loading ? (
         <LoadingState message="Loading deployment status..." height={height} />
       ) : error ? (
         <ErrorState message={error} />
+      ) : !hasData ? (
+        <div className="screen-center" style={{ height }}>No data</div>
       ) : (
         <div role="region" aria-label="Deployment status bar chart" style={{ width: "100%", height }}>
-          {rows.length === 0 ? (
-            <div className="screen-center" style={{ height }}>No data</div>
-          ) : (
-            <ResponsiveContainer>
-              <BarChart
-                data={rows}
-                margin={{ top: 12, right: 24, bottom: 12, left: 12 }}
-                barCategoryGap={24}
-                onClick={(e) => {
-                  if (e && e.activePayload && e.activePayload[0]?.payload) {
-                    const datum = e.activePayload[0].payload;
-                    auditLogInteraction("bar-click", { status: datum.status, count: datum.count });
-                    if (onBarClick) onBarClick(datum);
-                  }
-                }}
-                aria-label="Bar chart of deployments by status"
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-                <XAxis
-                  dataKey="status"
-                  tick={{ fontSize: 12, fill: axisTick }}
-                  tickMargin={8}
-                />
-                <YAxis
-                  tick={{ fontSize: 12, fill: axisTick }}
-                  allowDecimals={false}
-                />
-                <Tooltip content={<CustomTooltip />} wrapperStyle={{ outline: "none" }} />
-                <Legend
-                  verticalAlign="top"
-                  height={24}
-                  wrapperStyle={{ fontSize: 12, color: t.legend.text }}
-                  payload={[
-                    { id: "Processing", value: "Processing", type: "square", color: oc.primary },
-                    { id: "Success", value: "Success", type: "square", color: oc.success || oc.secondary },
-                    { id: "Failed", value: "Failed", type: "square", color: oc.error },
-                  ]}
-                  onClick={(p) => auditLogInteraction("legend-click", { id: p?.id, value: p?.value })}
-                />
-                <Bar dataKey="count" name="Deployments" isAnimationActive radius={[4, 4, 0, 0]}>
-                  <LabelList dataKey="count" content={<ValueLabel />} />
-                  {/* Color each bar individually using 'fill' from datum */}
-                  {rows.map((entry, idx) => (
-                    <Cell key={`cell-${idx}`} fill={entry.fill} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+          <ResponsiveContainer>
+            <BarChart
+              data={rows}
+              margin={{ top: 12, right: 24, bottom: 12, left: 12 }}
+              barCategoryGap={24}
+              onClick={(e) => {
+                if (e && e.activePayload && e.activePayload[0]?.payload) {
+                  const datum = e.activePayload[0].payload;
+                  auditLogInteraction("bar-click", { status: datum.status, count: datum.count });
+                  if (onBarClick) onBarClick(datum);
+                }
+              }}
+              aria-label="Bar chart of deployments by status"
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <XAxis
+                dataKey="status"
+                tick={{ fontSize: 12, fill: axisTick }}
+                tickMargin={8}
+              />
+              <YAxis
+                tick={{ fontSize: 12, fill: axisTick }}
+                allowDecimals={false}
+              />
+              <Tooltip content={<CustomTooltip />} wrapperStyle={{ outline: "none" }} />
+              <Legend
+                verticalAlign="top"
+                height={24}
+                wrapperStyle={{ fontSize: 12, color: t.legend.text }}
+                payload={legendPayload}
+                onClick={(p) => auditLogInteraction("legend-click", { id: p?.id, value: p?.value })}
+              />
+              <Bar dataKey="count" name="Deployments" isAnimationActive radius={[4, 4, 0, 0]}>
+                <LabelList dataKey="count" content={<ValueLabel />} />
+                {/* Color each bar individually using 'fill' from datum */}
+                {rows.map((entry, idx) => (
+                  <Cell key={`cell-${idx}`} fill={entry.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
     </Card>
@@ -199,7 +237,7 @@ DeploymentStatusBarChart.propTypes = {
   subtitle: PropTypes.string,
   data: PropTypes.arrayOf(
     PropTypes.shape({
-      status: PropTypes.oneOf(["Processing", "Success", "Failed"]).isRequired,
+      status: PropTypes.string.isRequired,
       count: PropTypes.number.isRequired,
     })
   ),
@@ -211,7 +249,7 @@ DeploymentStatusBarChart.propTypes = {
 
 DeploymentStatusBarChart.defaultProps = {
   title: "Deployments by Status",
-  subtitle: "Counts across Processing, Success and Failed",
+  subtitle: "Counts by status (dynamic)",
   data: [],
   loading: false,
   error: "",

@@ -176,7 +176,7 @@ export default function Deployments() {
       <div className="block-full">
         <DeploymentStatusBarChart
           title="Deployments by Status"
-          subtitle="Processing, Success, and Failed"
+          subtitle="All statuses"
           data={statusData}
           loading={statusLoading}
           error={statusError}
