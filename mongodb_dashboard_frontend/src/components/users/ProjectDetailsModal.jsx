@@ -64,6 +64,8 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
             <span
               className="project-id-pill"
               title={String(projectId)}
+              tabIndex={0}
+              aria-label={`Project ID ${String(projectId)}`}
               style={{
                 color: "#FFFFFF",
                 fontWeight: 700,
@@ -82,6 +84,7 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
+                transition: "background-color 120ms ease, box-shadow 120ms ease",
               }}
             >
               {String(projectId)}
