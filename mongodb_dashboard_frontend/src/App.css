@@ -619,34 +619,35 @@ html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selecte
 .col-priority-7 {}
 
 /* Deployments table column sizing (CSS-driven when autoWidth={false}) */
+/* Slightly wider timestamps so locale strings don't cramp; keep single-line with ellipsis + title tooltip via DataTable */
 .th.col-created-at, .td.col-created-at {
-  width: clamp(140px, 18vw, 160px);
-  min-width: 140px;
-  max-width: 180px;
+  width: clamp(170px, 20vw, 200px);
+  min-width: 170px;
+  max-width: 210px;
 }
 .th.col-updated-at, .td.col-updated-at {
-  width: clamp(140px, 18vw, 160px);
-  min-width: 140px;
-  max-width: 180px;
+  width: clamp(170px, 20vw, 200px);
+  min-width: 170px;
+  max-width: 210px;
 }
-/* Status column: single-line, wider base to fit long values */
+/* Status column: single-line, larger base to fit long snake_case without wrapping (ellipsis when necessary) */
 .th.col-status, .td.col-status {
-  width: clamp(240px, 30vw, 420px);
-  min-width: 240px;
+  width: clamp(280px, 32vw, 480px);
+  min-width: 280px;
   /* keep inherited nowrap + ellipsis; rely on title for tooltip */
 }
 
-/* Mobile overrides: relax global 240px max for these columns */
+/* Mobile overrides: relax global 240px max for these columns, keep sensible clamps */
 @media (max-width: 767px) {
   .th.col-status, .td.col-status {
-    width: clamp(200px, 50vw, 320px);
-    min-width: 200px;
+    width: clamp(220px, 60vw, 360px);
+    min-width: 220px;
     max-width: none; /* override global max-width: 240px */
   }
   .th.col-created-at, .td.col-created-at,
   .th.col-updated-at, .td.col-updated-at {
-    width: clamp(120px, 24vw, 150px);
-    min-width: 120px;
+    width: clamp(140px, 28vw, 180px);
+    min-width: 140px;
     max-width: none; /* allow clamp to control width */
   }
 }
