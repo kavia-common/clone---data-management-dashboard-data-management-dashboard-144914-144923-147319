@@ -8,58 +8,7 @@ import CostsOrganizationSummary from "../../components/costs/CostsOrganizationSu
 import { renderCreditsWithUsd } from "../../utils/currency";
 import { listLlmCosts } from "../../api";
 
-/**
- * Inline section component for stacked cost visualization
- */
-function StackedCostsCard() {
-  const [stackBy, setStackBy] = React.useState("environment");
-  // Lazy import TS hook to avoid circular import issues in Jest
-  const useCostAggregates = require("../../hooks/useCostAggregates").default;
-  const { default: CostsStackedBarChart } = require("../../components/costs/CostsStackedBarChart");
-  const { data, loading, error } = useCostAggregates();
 
-  return (
-    <Card
-      title="Service Costs"
-      subtitle="Total cost per service, stacked by environment or cost category"
-      className="mb-4"
-    >
-      <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
-        <span style={{ fontSize: 12, color: "var(--ocean-muted)" }}>
-          View cost composition by:
-        </span>
-        <div className="tabs" role="tablist" aria-label="Stack by selector">
-          <button
-            role="tab"
-            aria-selected={stackBy === "environment"}
-            className={`tab ${stackBy === "environment" ? "active" : ""}`}
-            onClick={() => setStackBy("environment")}
-          >
-            Environment
-          </button>
-          <button
-            role="tab"
-            aria-selected={stackBy === "cost_category"}
-            className={`tab ${stackBy === "cost_category" ? "active" : ""}`}
-            onClick={() => setStackBy("cost_category")}
-          >
-            Cost category
-          </button>
-        </div>
-      </div>
-
-      <CostsStackedBarChart
-        records={data}
-        stackBy={stackBy}
-        loading={loading}
-        error={error}
-        showSelector={false}
-        title="Service Costs (stacked)"
-        height={320}
-      />
-    </Card>
-  );
-}
 
 /**
  * PUBLIC_INTERFACE
@@ -385,8 +334,7 @@ export default function Costs() {
     return base.slice();
   }, [items]);
 
-  // View mode toggle: 'stacked' (service) | 'grouped' (agent)
-  const [viewMode, setViewMode] = useState("stacked");
+
 
   function AgentGroupedCostsCard() {
     const [groupBy, setGroupBy] = React.useState("environment");
@@ -440,33 +388,7 @@ export default function Costs() {
 
   return (
     <div>
-      {/* View toggle control */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <span style={{ fontSize: 12, color: "var(--ocean-muted)" }}>Chart view:</span>
-        <div className="tabs" role="tablist" aria-label="Costs chart view">
-          <button
-            role="tab"
-            aria-selected={viewMode === "stacked"}
-            className={`tab ${viewMode === "stacked" ? "active" : ""}`}
-            onClick={() => setViewMode("stacked")}
-          >
-            Stacked by Service
-          </button>
-          <button
-            role="tab"
-            aria-selected={viewMode === "grouped"}
-            className={`tab ${viewMode === "grouped" ? "active" : ""}`}
-            onClick={() => setViewMode("grouped")}
-          >
-            Grouped by Agent
-          </button>
-        </div>
-      </div>
-
-
-
-      {/* Conditional chart section */}
-      {viewMode === "stacked" ? <StackedCostsCard /> : <AgentGroupedCostsCard />}
+      <AgentGroupedCostsCard />
 
       {/* Organization Summary section (standalone, immediately after chart) */}
       <CostsOrganizationSummary />
