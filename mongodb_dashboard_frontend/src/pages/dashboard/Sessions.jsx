@@ -228,10 +228,15 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts row */}
-      <div className="grid sessions-charts" role="region" aria-label="Session insights">
+      {/* Charts stacked vertically */}
+      <div
+        className="sessions-charts"
+        role="region"
+        aria-label="Session insights"
+        style={{ display: "flex", flexDirection: "column", gap: 24 }}
+      >
         <Card
-          className="col-span-6 chart-card"
+          className="chart-card"
           title="Sessions by Organization"
           subtitle="Count of sessions per organization"
         >
@@ -244,7 +249,7 @@ export default function Sessions() {
           </div>
         </Card>
         <Card
-          className="col-span-6 chart-card"
+          className="chart-card"
           title="Sessions by Type"
           subtitle="Count of sessions per type"
         >
