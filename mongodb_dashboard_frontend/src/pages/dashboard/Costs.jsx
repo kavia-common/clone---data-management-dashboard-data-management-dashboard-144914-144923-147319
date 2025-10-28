@@ -9,12 +9,10 @@ import { renderCreditsWithUsd } from "../../utils/currency";
 import { listLlmCosts } from "../../api";
 
 
-
 /**
  * PUBLIC_INTERFACE
  * Costs page
  * - Keeps compact LLM costs table with inspector for large fields.
- * - Adds a service-level stacked chart section at the top.
  */
 export default function Costs() {
   const [allItems, setAllItems] = useState([]);
@@ -334,63 +332,9 @@ export default function Costs() {
     return base.slice();
   }, [items]);
 
-
-
-  function AgentGroupedCostsCard() {
-    const [groupBy, setGroupBy] = React.useState("environment");
-    // Lazy import JS hook/component similarly
-    const useCostAggregatesByAgent = require("../../hooks/useCostAggregatesByAgent").default;
-    const { default: CostsGroupedBarChart } = require("../../components/costs/CostsGroupedBarChart");
-    const { data, loading, error } = useCostAggregatesByAgent({}, groupBy);
-
-    return (
-      <Card
-        title="Agent Costs"
-        subtitle="Total cost per agent, grouped by environment or cost category"
-        className="mb-4"
-      >
-        <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ fontSize: 12, color: "var(--ocean-muted)" }}>
-            View per-agent grouping by:
-          </span>
-          <div className="tabs" role="tablist" aria-label="Group by selector">
-            <button
-              role="tab"
-              aria-selected={groupBy === "environment"}
-              className={`tab ${groupBy === "environment" ? "active" : ""}`}
-              onClick={() => setGroupBy("environment")}
-            >
-              Environment
-            </button>
-            <button
-              role="tab"
-              aria-selected={groupBy === "cost_category"}
-              className={`tab ${groupBy === "cost_category" ? "active" : ""}`}
-              onClick={() => setGroupBy("cost_category")}
-            >
-              Cost category
-            </button>
-          </div>
-        </div>
-
-        <CostsGroupedBarChart
-          records={data}
-          groupBy={groupBy}
-          loading={loading}
-          error={error}
-          showSelector={false}
-          title="Agent Costs (grouped)"
-          height={320}
-        />
-      </Card>
-    );
-  }
-
   return (
     <div>
-      <AgentGroupedCostsCard />
-
-      {/* Organization Summary section (standalone, immediately after chart) */}
+      {/* Organization Summary section (standalone, after agent chart removal) */}
       <CostsOrganizationSummary />
 
       {/* Table section */}
