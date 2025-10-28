@@ -78,17 +78,24 @@ function sanitizeOpenApiDoc(doc) {
   if (!doc || typeof doc !== 'object') return null;
 
   // Remove invalid path keys (Swagger UI will break on these)
+  let hasAnyValidPath = false;
   if (doc.paths && typeof doc.paths === 'object') {
     const validPaths = {};
     Object.entries(doc.paths).forEach(([key, val]) => {
       if (typeof key === 'string' && key.startsWith('/')) {
         validPaths[key] = val;
+        hasAnyValidPath = true;
       }
       // Drop keys that are not valid path templates
     });
     doc.paths = validPaths;
   } else {
     doc.paths = {};
+  }
+
+  // If there are no valid paths after sanitization, treat as invalid to trigger JSDoc fallback
+  if (!hasAnyValidPath) {
+    return null;
   }
 
   if (!doc.openapi) {
