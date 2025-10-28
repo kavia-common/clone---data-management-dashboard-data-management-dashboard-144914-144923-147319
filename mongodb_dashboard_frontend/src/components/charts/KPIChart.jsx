@@ -26,7 +26,18 @@ export default function KPIChart({ data = [], xKey = "label", yKey = "value", co
           <XAxis dataKey={xKey} tick={{ fontSize: 12, fill: axis }} />
           <YAxis tick={{ fontSize: 12, fill: axis }} />
           <Tooltip contentStyle={tooltipStyle} />
-          <Area type="monotone" dataKey={yKey} stroke={color} fillOpacity={1} fill="url(#kpiColor)" />
+          <Area
+            type="monotone"
+            dataKey={yKey}
+            stroke={color}
+            fillOpacity={1}
+            fill="url(#kpiColor)"
+            // Smooth animation for initial render and data updates
+            isAnimationActive
+            animationBegin={0}
+            animationDuration={450}
+            animationEasing="ease-out"
+          />
         </AreaChart>
       </ResponsiveContainer>
     </div>

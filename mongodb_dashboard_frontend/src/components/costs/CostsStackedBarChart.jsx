@@ -80,6 +80,14 @@ export default function CostsStackedBarChart({
       ? colorMap
       : getCategoryColorMap(shaped.categories);
 
+  // Shared animation defaults for Recharts series
+  const anim = {
+    isActive: true,
+    begin: 0,
+    duration: 450,
+    easing: "ease-out",
+  };
+
   if (error) {
     return <div className="error" role="alert">{error}</div>;
   }
@@ -172,6 +180,11 @@ export default function CostsStackedBarChart({
                 stackId="total"
                 fill={paletteMap[cat]}
                 radius={[6, 6, 0, 0]}
+                // Animate stacked bars consistently
+                isAnimationActive={anim.isActive}
+                animationBegin={anim.begin}
+                animationDuration={anim.duration}
+                animationEasing={anim.easing}
               />
             ))}
           </BarChart>

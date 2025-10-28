@@ -56,7 +56,17 @@ export default function TopAgentsByCostChart({ data = [], loading = false, error
           <XAxis dataKey="name" tick={tickStyle} />
           <YAxis tick={tickStyle} tickFormatter={(v) => `$${Number(v).toFixed(2)}`} />
           <Tooltip formatter={(v) => [`$${Number(v).toFixed(6)}`, "Total cost"]} />
-          <Bar dataKey="total" name="Total cost (USD)" radius={[8, 8, 0, 0]} fill={brandBlue}>
+          <Bar
+            dataKey="total"
+            name="Total cost (USD)"
+            radius={[8, 8, 0, 0]}
+            fill={brandBlue}
+            // Animation defaults
+            isAnimationActive
+            animationBegin={0}
+            animationDuration={450}
+            animationEasing="ease-out"
+          >
             <LabelList dataKey="total" position="top" formatter={(v) => `$${Number(v).toFixed(2)}`} style={{ fontSize: 11, fill: "#111827" }} />
           </Bar>
         </BarChart>

@@ -34,6 +34,7 @@ export default function SessionsByOrganization({
   const t = getChartTheme();
   const oc = getOceanColors();
   const gridStroke = t.grid;
+  const anim = t.animation; // shared animation
 
   function truncateLabel(label, max = 14) {
     const s = String(label ?? "");
@@ -113,6 +114,11 @@ export default function SessionsByOrganization({
               fill={oc.primary}
               stroke={oc.primary}
               aria-label="Sessions count"
+              // Animation on mount/update
+              isAnimationActive={Boolean(anim?.isActive)}
+              animationBegin={anim?.begin ?? 0}
+              animationDuration={anim?.duration ?? 450}
+              animationEasing={anim?.easing ?? "ease-out"}
               radius={[4, 4, 0, 0]}
             />
           </BarChart>

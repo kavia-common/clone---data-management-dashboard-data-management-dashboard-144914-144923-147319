@@ -66,6 +66,7 @@ export default function TopReferralSourcesBarChart({
   const primary = t.primary;
   const primaryDark = t.primaryActive;
   const gridStroke = t.grid;
+  const anim = t.animation; // shared animation
 
   const data = useMemo(
     () =>
@@ -197,6 +198,11 @@ export default function TopReferralSourcesBarChart({
                 fill={primary}
                 stroke={primaryDark}
                 radius={[4, 4, 4, 4]}
+                // Animation on mount/update
+                isAnimationActive={Boolean(anim?.isActive)}
+                animationBegin={anim?.begin ?? 0}
+                animationDuration={anim?.duration ?? 450}
+                animationEasing={anim?.easing ?? "ease-out"}
               >
                 <LabelList dataKey="count" content={valueLabel} />
               </Bar>
