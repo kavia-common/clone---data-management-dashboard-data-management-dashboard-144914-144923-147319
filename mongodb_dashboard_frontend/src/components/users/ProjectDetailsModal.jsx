@@ -61,7 +61,29 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
     const idValue =
       projectId
         ? (
-            <span className="project-id-pill" title={String(projectId)}>
+            <span
+              className="project-id-pill"
+              title={String(projectId)}
+              style={{
+                color: "#FFFFFF",
+                fontWeight: 700,
+                backgroundColor: "#F59E0B",
+                border: "1px solid #D97706",
+                borderRadius: 9999,
+                padding: "4px 12px",
+                fontSize: "0.875rem",
+                lineHeight: 1.25,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                boxShadow: "0 1px 0 rgba(0,0,0,0.06)",
+                textDecoration: "none",
+                maxWidth: "100%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
               {String(projectId)}
             </span>
           )
@@ -78,6 +100,34 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
   return (
     <Modal title="Project Details" open={open} onClose={onClose}>
       <div className="space-y-4">
+        <style>{`
+          /* Project ID pill enforced styling (Ocean Professional amber) */
+          .project-id-pill {
+            color: #FFFFFF !important;
+            font-weight: 700 !important;
+            background-color: #F59E0B !important; /* light orange */
+            border: 1px solid #D97706 !important;  /* dark orange */
+            border-radius: 9999px !important;      /* rounded-full */
+            padding: 4px 12px !important;          /* px-3 py-1 */
+            font-size: 0.875rem !important;        /* text-sm */
+            line-height: 1.25 !important;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .project-id-pill:hover {
+            background-color: #fbbf24 !important; /* keep legible on hover */
+          }
+          .project-id-pill:focus-visible {
+            outline: none !important;
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.4) !important; /* focus:ring-2 ring-amber/40 */
+          }
+        `}</style>
         <KeyValueList items={details} />
         {!loading && projectId && projectName === "—" && (
           <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
