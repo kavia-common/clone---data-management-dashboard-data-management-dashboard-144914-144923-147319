@@ -442,12 +442,7 @@ export default function TabbedUserModal({
         <button
           type="button"
           onClick={onClose}
-          className="btn btn-secondary"
-          style={{
-            width: "100%",
-            borderRadius: 10,
-            /* Remove explicit color styling so it remains neutral */
-          }}
+          className="btn-modal-close"
           aria-label="Close"
           title="Close"
         >
