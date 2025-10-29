@@ -252,6 +252,50 @@ html[data-theme="dark"] .card:focus-within {
   padding: 12px 16px 16px 16px;
 }
 
+/* KPI cards: transparent surface with inherited background, keep border/radius/padding/shadow */
+.kpi {
+  background: transparent; /* inherit surface */
+  border: 1px solid var(--border-subtle, var(--ocean-border));
+  border-radius: var(--radius-md, 12px);
+  padding: 16px;
+  box-shadow: var(--shadow-md, 0 2px 8px rgba(0,0,0,0.06));
+  min-width: 160px;
+  flex: 1 1 160px;
+}
+
+.kpi-label {
+  font-size: 12px;
+  color: var(--text-tertiary, var(--ocean-muted));
+}
+
+.kpi-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary, var(--ocean-text));
+}
+
+.kpi-hint {
+  font-size: 12px;
+  color: var(--text-tertiary, var(--ocean-muted));
+}
+
+/* Dark theme adjustments for KPI cards */
+html[data-theme="dark"] .kpi {
+  background: transparent;
+  border: 1px solid var(--color-border, #374151);
+  border-radius: var(--radius-8, 8px);
+  box-shadow: var(--shadow-elev-1, 0 1px 0 rgba(0,0,0,0.5), 0 6px 12px rgba(0,0,0,0.25));
+}
+
+html[data-theme="dark"] .kpi-label,
+html[data-theme="dark"] .kpi-hint {
+  color: var(--color-text-secondary, #9CA3AF);
+}
+
+html[data-theme="dark"] .kpi-value {
+  color: var(--color-text-primary, #E5E7EB);
+}
+
 .toolbar {
   display: flex;
   gap: 12px;

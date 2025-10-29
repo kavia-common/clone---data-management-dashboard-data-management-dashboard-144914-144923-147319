@@ -212,21 +212,12 @@ export default function UsersAnalytics() {
   const Kpi = ({ label, value, hint }) => (
     <div
       className="kpi"
-      style={{
-        background: "#ffffff",
-        border: "1px solid var(--color-border, #E5E7EB)",
-        borderRadius: 12,
-        padding: 16,
-        boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-        minWidth: 160,
-        flex: "1 1 160px",
-      }}
       role="group"
       aria-label={`${label} metric`}
     >
-      <div style={{ fontSize: 12, color: "var(--color-text-secondary, #6B7280)" }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: "var(--color-text-primary, #111827)" }}>{value}</div>
-      {hint ? <div style={{ fontSize: 12, color: "var(--color-text-secondary, #6B7280)" }}>{hint}</div> : null}
+      <div className="kpi-label">{label}</div>
+      <div className="kpi-value">{value}</div>
+      {hint ? <div className="kpi-hint">{hint}</div> : null}
     </div>
   );
 
