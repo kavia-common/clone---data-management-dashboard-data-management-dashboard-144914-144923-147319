@@ -61,4 +61,73 @@ export async function getTenantUsersSummary(params = {}) {
   }
 }
 
-export default { getActiveUsersTrend, getTenantUsersSummary };
+/**
+ * PUBLIC_INTERFACE
+ * getDailyActiveUsers
+ * GET /api/users/analytics/daily-active?days=30
+ */
+export async function getDailyActiveUsers(params = { days: 30 }) {
+  const base = getApiBase();
+  const url = `${base}/users/analytics/daily-active`;
+  const res = await axios.get(url, { params });
+  return res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getUsersByDepartment
+ * GET /api/users/analytics/by-department?windowDays=14
+ */
+export async function getUsersByDepartment(params = { windowDays: 14 }) {
+  const base = getApiBase();
+  const url = `${base}/users/analytics/by-department`;
+  const res = await axios.get(url, { params });
+  return res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getActiveVsInactive
+ * GET /api/users/analytics/active-vs-inactive?windowDays=14
+ */
+export async function getActiveVsInactive(params = { windowDays: 14 }) {
+  const base = getApiBase();
+  const url = `${base}/users/analytics/active-vs-inactive`;
+  const res = await axios.get(url, { params });
+  return res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getTopActiveUsers
+ * GET /api/users/analytics/top-active?limit=10&windowDays=30
+ */
+export async function getTopActiveUsers(params = { limit: 10, windowDays: 30 }) {
+  const base = getApiBase();
+  const url = `${base}/users/analytics/top-active`;
+  const res = await axios.get(url, { params });
+  return res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getUsersAnalyticsSummary
+ * GET /api/users/analytics/summary
+ * Returns KPIs for the Users Analytics page.
+ */
+export async function getUsersAnalyticsSummary() {
+  const base = getApiBase();
+  const url = `${base}/users/analytics/summary`;
+  const res = await axios.get(url);
+  return res.data;
+}
+
+export default {
+  getActiveUsersTrend,
+  getTenantUsersSummary,
+  getDailyActiveUsers,
+  getUsersByDepartment,
+  getActiveVsInactive,
+  getTopActiveUsers,
+  getUsersAnalyticsSummary,
+};
