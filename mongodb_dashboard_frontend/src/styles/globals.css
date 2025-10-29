@@ -416,3 +416,9 @@ html[data-theme="dark"] .project-id-pill:focus-visible {
   outline: 3px solid color-mix(in oklab, var(--color-accent, #FF6600) 35%, transparent);
   outline-offset: 2px;
 }
+
+/* Ensure tv-badge never has a filled white background globally */
+.tv-badge {
+  background: transparent !important;
+  background-color: transparent !important;
+}

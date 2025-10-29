@@ -79,7 +79,9 @@
 }
 
 .tv-badge {
-  background: var(--tv-badge-bg);
+  /* Ensure transparent background to avoid white fill while preserving text/border styles */
+  background: transparent !important;
+  background-color: transparent !important;
   color: var(--tv-badge-text);
   font-size: 11px;
   font-weight: 700;
