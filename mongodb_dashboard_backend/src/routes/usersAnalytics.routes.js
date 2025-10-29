@@ -5,22 +5,15 @@ const router = express.Router();
 
 const ctrl = require('../controllers/usersAnalytics.controller');
 
-// Summary KPIs
-router.get('/overview', ctrl.overview);
-
-// Daily active users
-router.get('/daily-active', ctrl.dailyActive);
-
-// By department activity
-router.get('/by-department', ctrl.byDepartment);
-
-// Active vs inactive
-router.get('/active-vs-inactive', ctrl.activeVsInactive);
-
-// Top active users
-router.get('/top-active', ctrl.topActive);
-
-// Growth (new users trend)
-router.get('/growth', ctrl.growth);
+/**
+ * Note: Legacy aliases moved under /legacy to avoid overlapping with primary analytics metrics routes.
+ * This prevents conflicts when both routers are mounted at /api/users/analytics.
+ */
+router.get('/legacy/overview', ctrl.overview);
+router.get('/legacy/daily-active', ctrl.dailyActive);
+router.get('/legacy/by-department', ctrl.byDepartment);
+router.get('/legacy/active-vs-inactive', ctrl.activeVsInactive);
+router.get('/legacy/top-active', ctrl.topActive);
+router.get('/legacy/growth', ctrl.growth);
 
 module.exports = router;
