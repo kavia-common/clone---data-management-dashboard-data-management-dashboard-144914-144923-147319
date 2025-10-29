@@ -1,3 +1,5 @@
+@import "./styles/modal.css";
+
 :root {
   /* Ocean Professional — blue primary with amber accents */
   --bg-canvas: #F3F6F9;

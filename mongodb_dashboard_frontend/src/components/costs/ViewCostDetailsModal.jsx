@@ -309,18 +309,10 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
             onClick={onClose}
             aria-label="Close modal"
             data-testid="cdm-close"
-            className="btn btn-ghost"
-            style={{
-              height: 36,
-              width: 36,
-              display: "grid",
-              placeItems: "center",
-              border: "1px solid var(--border-subtle)",
-              borderRadius: 10,
-            }}
+            className="btn-modal-close compact"
             title="Close"
           >
-            ×
+            Close
           </button>
         </div>
 
