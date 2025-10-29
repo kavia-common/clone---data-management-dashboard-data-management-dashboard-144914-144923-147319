@@ -28,7 +28,13 @@ import {
   Cell,
 } from "recharts";
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * UsersAnalytics
+ * Users Analytics page that renders KPI cards, charts, and tables for user activity.
+ * Applies filters (organization_id, department, start_date, end_date) to all widgets,
+ * persists them in the URL, and handles loading and error states.
+ */
 export default function UsersAnalytics() {
   /** Users Analytics page with filters persisted via URL and applied to all widgets. */
 

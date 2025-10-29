@@ -1,4 +1,4 @@
-import apiClient from './baseClient';
+import { getApiClient } from './baseClient';
 import axios from 'axios';
 import { getApiBase } from './config';
 
@@ -6,7 +6,7 @@ import { getApiBase } from './config';
  * INTERNAL: Prefer fetch-based apiClient when path starts with /api. Some existing code uses axios with absolute URLs.
  */
 function http() {
-  const client = apiClient.getApiClient();
+  const client = getApiClient();
   return {
     get: (path, options = {}) => client.get(path, options),
   };

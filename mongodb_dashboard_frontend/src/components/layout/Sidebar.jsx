@@ -48,6 +48,7 @@ export function clearClientAuthArtifacts(extraKeys = []) {
  * PUBLIC_INTERFACE
  * Sidebar
  * Static, always-open sidebar for primary navigation with a bottom-aligned Logout control.
+ * Includes link to Users Analytics route (/dashboard/users/analytics).
  */
 export default function Sidebar() {
   /** Always-visible sidebar with main navigation links and a pinned Logout button. */

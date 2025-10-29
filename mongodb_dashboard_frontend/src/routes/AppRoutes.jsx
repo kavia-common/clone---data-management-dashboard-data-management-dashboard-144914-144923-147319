@@ -15,9 +15,11 @@ const Login = lazy(() => import("../pages/Login"));
 
 /**
  * PUBLIC_INTERFACE
+ * AppRoutes
  * Application route tree under a single root BrowserRouter (provided by index.js).
  * - /login remains public.
  * - All dashboard routes are guarded by ProtectedRoute.
+ * - Includes Users Analytics at /dashboard/users/analytics and is linked from Sidebar.
  */
 export default function AppRoutes() {
   return (
