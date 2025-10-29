@@ -317,6 +317,9 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
               placeItems: "center",
               border: "1px solid var(--border-subtle)",
               borderRadius: 10,
+              /* Remove any explicit color/hover overrides so it stays neutral */
+              background: "transparent",
+              color: "inherit",
             }}
             title="Close"
           >
