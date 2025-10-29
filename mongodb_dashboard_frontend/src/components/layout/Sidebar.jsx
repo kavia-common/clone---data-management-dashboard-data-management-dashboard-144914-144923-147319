@@ -91,9 +91,7 @@ export default function Sidebar() {
           <NavLink to="/dashboard/overview" end className="nav-link">
             <span className="nav-label">Overview</span>
           </NavLink>
-          <NavLink to="/dashboard/users" className="nav-link">
-            <span className="nav-label">Users</span>
-          </NavLink>
+
           <NavLink to="/dashboard/users/analytics" className="nav-link">
             <span className="nav-label">Users Analytics</span>
           </NavLink>

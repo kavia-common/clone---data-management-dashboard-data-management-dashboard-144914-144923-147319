@@ -10,7 +10,7 @@ import {
   CartesianGrid,
   LabelList,
 } from "recharts";
-import { getReferralSources } from "../../api/usersAnalytics";
+import { getApiClient } from "../../api";
 import { getChartTheme } from "../charts/chartTheme";
 
 /**
@@ -40,9 +40,15 @@ export default function TopReferralSourcesBarChart({
       setLoading(true);
       setErr("");
       try {
-        const res = await getReferralSources({ from, to, top });
+        const api = getApiClient();
+        const params = {};
+        if (typeof top === "number") params.limit = top;
+        if (from) params.from = from;
+        if (to) params.to = to;
+        const res = await api.get("/users/referral-sources", { params });
         if (!mounted) return;
-        const items = Array.isArray(res?.items) ? res.items : [];
+        const payload = res?.data;
+        const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : [];
         // Sort desc by count
         const sorted = [...items].sort(
           (a, b) => (b?.count || 0) - (a?.count || 0)

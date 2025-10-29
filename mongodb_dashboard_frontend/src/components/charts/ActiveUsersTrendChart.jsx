@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { getActiveUsersTrend } from "../../api/usersAnalytics";
+import { getApiClient } from "../../api";
 import { getChartTheme, withAlpha } from "./chartTheme";
 
 /**
@@ -42,9 +42,17 @@ export default function ActiveUsersTrendChart({
       setLoading(true);
       setErr("");
       try {
-        const res = await getActiveUsersTrend({ from, to, granularity, status, tenant_id });
+        const api = getApiClient();
+        const params = {};
+        if (from) params.from = from;
+        if (to) params.to = to;
+        if (granularity) params.granularity = granularity;
+        if (status) params.status = status;
+        if (tenant_id) params.tenant_id = tenant_id;
+        const res = await api.get("/users/active-trend", { params });
         if (!mounted) return;
-        const items = Array.isArray(res?.items) ? res.items : [];
+        const data = res?.data;
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
         // console debug to verify backend payload for troubleshooting empty states
         if (process.env.NODE_ENV !== "production") {
           // eslint-disable-next-line no-console
