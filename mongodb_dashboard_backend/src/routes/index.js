@@ -17,6 +17,7 @@ const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
 const countsRoutes = require('./counts.routes');
 const usersAnalyticsMetricsRoutes = require('./users.analytics.metrics.routes');
+const usersAnalyticsRoutes = require('./usersAnalytics.routes');
 
 const router = express.Router();
 
@@ -74,6 +75,7 @@ router.use('/dashboard/overview', dashboardModulesRoutes);
  * Mounted under /api/users/analytics
  */
 router.use('/users/analytics', usersAnalyticsMetricsRoutes);
+router.use('/users/analytics', usersAnalyticsRoutes);
 
 // Counts endpoints mounted at top-level /api
 router.use('/', countsRoutes);
