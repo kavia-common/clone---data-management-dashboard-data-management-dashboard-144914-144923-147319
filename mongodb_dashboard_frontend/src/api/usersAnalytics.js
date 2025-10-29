@@ -87,6 +87,34 @@ export async function getUsersByDepartment(params = { windowDays: 14 }) {
 
 /**
  * PUBLIC_INTERFACE
+ * getDepartmentsFilterOptions
+ * GET /api/users/analytics/filters/departments
+ * Returns array of distinct department strings.
+ */
+export async function getDepartmentsFilterOptions() {
+  const base = getApiBase();
+  const url = `${base}/users/analytics/filters/departments`;
+  const res = await axios.get(url);
+  const data = res?.data;
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getOrganizationsFilterOptions
+ * GET /api/users/analytics/filters/organizations
+ * Returns array of distinct organization_id strings.
+ */
+export async function getOrganizationsFilterOptions() {
+  const base = getApiBase();
+  const url = `${base}/users/analytics/filters/organizations`;
+  const res = await axios.get(url);
+  const data = res?.data;
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * PUBLIC_INTERFACE
  * getActiveVsInactive
  * GET /api/users/analytics/active-vs-inactive?windowDays=14
  */
@@ -130,4 +158,6 @@ export default {
   getActiveVsInactive,
   getTopActiveUsers,
   getUsersAnalyticsSummary,
+  getDepartmentsFilterOptions,
+  getOrganizationsFilterOptions,
 };

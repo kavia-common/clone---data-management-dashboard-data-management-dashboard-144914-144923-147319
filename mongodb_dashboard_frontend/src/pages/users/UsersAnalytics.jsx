@@ -5,6 +5,8 @@ import {
   getTopActiveUsers,
   getUsersAnalyticsSummary,
   getUsersByDepartment,
+  getDepartmentsFilterOptions,
+  getOrganizationsFilterOptions,
 } from "../../api/usersAnalytics";
 import { getChartTheme } from "../../components/charts/chartTheme";
 import LoadingState from "../../components/common/LoadingState";
@@ -40,8 +42,14 @@ import {
 export default function UsersAnalytics() {
   // Filters scaffold (only date range currently influences DAU via 'days')
   const [days, setDays] = useState(30);
-  const [department, setDepartment] = useState("all"); // scaffold; not wired unless backend supports
-  const [organization, setOrganization] = useState("all"); // scaffold; not wired unless backend supports
+  const [department, setDepartment] = useState("all");
+  const [organization, setOrganization] = useState("all");
+
+  // Filter option lists and their states
+  const [departments, setDepartments] = useState([]);
+  const [organizations, setOrganizations] = useState([]);
+  const [filtersLoading, setFiltersLoading] = useState(true);
+  const [filtersError, setFiltersError] = useState("");
 
   // Data states
   const [loading, setLoading] = useState(true);
@@ -52,6 +60,12 @@ export default function UsersAnalytics() {
   const [byDept, setByDept] = useState([]);
   const [activeSplit, setActiveSplit] = useState({ active: 0, inactive: 0 });
   const [topActive, setTopActive] = useState([]);
+
+  // Filtered sections specific loading/error
+  const [byDeptLoading, setByDeptLoading] = useState(false);
+  const [byDeptError, setByDeptError] = useState("");
+  const [topActiveLoading, setTopActiveLoading] = useState(false);
+  const [topActiveError, setTopActiveError] = useState("");
 
   const theme = getChartTheme();
   const anim = theme.animation;
@@ -91,6 +105,35 @@ export default function UsersAnalytics() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days]);
 
+  // Load dropdown filter options on mount
+  useEffect(() => {
+    let mounted = true;
+    async function loadFilters() {
+      setFiltersLoading(true);
+      setFiltersError("");
+      try {
+        const [deps, orgs] = await Promise.all([
+          getDepartmentsFilterOptions(),
+          getOrganizationsFilterOptions(),
+        ]);
+        if (!mounted) return;
+        setDepartments(["all", ...deps]);
+        setOrganizations(["all", ...orgs]);
+      } catch (e) {
+        if (!mounted) return;
+        setFiltersError(e?.message || "Failed to load filters");
+        setDepartments(["all"]);
+        setOrganizations(["all"]);
+      } finally {
+        if (mounted) setFiltersLoading(false);
+      }
+    }
+    loadFilters();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   // Memos to shape chart data
   const dauSeries = useMemo(
     () =>
@@ -100,6 +143,51 @@ export default function UsersAnalytics() {
       })),
     [dau]
   );
+
+  // Fetch Active by Department with filters
+  async function loadByDepartmentFiltered() {
+    setByDeptLoading(true);
+    setByDeptError("");
+    try {
+      const params = {
+        windowDays: 14,
+      };
+      if (department && department !== "all") params.department = department;
+      if (organization && organization !== "all") params.organization_id = organization;
+      const data = await getUsersByDepartment(params);
+      setByDept(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setByDept([]);
+      setByDeptError(e?.message || "Failed to load Active by Department");
+    } finally {
+      setByDeptLoading(false);
+    }
+  }
+
+  // Fetch Top Active Users with filters
+  async function loadTopActiveFiltered() {
+    setTopActiveLoading(true);
+    setTopActiveError("");
+    try {
+      const params = { limit: 10, windowDays: 30 };
+      if (department && department !== "all") params.department = department;
+      if (organization && organization !== "all") params.organization_id = organization;
+      const data = await getTopActiveUsers(params);
+      setTopActive(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setTopActive([]);
+      setTopActiveError(e?.message || "Failed to load Top Active Users");
+    } finally {
+      setTopActiveLoading(false);
+    }
+  }
+
+  // Watch filters and refetch filtered sections
+  useEffect(() => {
+    loadByDepartmentFiltered();
+    loadTopActiveFiltered();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [department, organization]);
 
   const deptSeries = useMemo(
     () =>
@@ -178,10 +266,14 @@ export default function UsersAnalytics() {
           value={department}
           onChange={(e) => setDepartment(e.target.value)}
           className="ui-input"
-          style={{ minWidth: 160 }}
+          style={{ minWidth: 180, borderColor: "var(--ocean-border)", borderRadius: 8, padding: "8px 10px" }}
+          disabled={filtersLoading}
         >
-          <option value="all">All</option>
-          {/* scaffold only; not yet wired */}
+          {(departments.length ? departments : ["all"]).map((opt) => (
+            <option key={`dept-${opt}`} value={opt}>
+              {opt === "all" ? "All" : opt}
+            </option>
+          ))}
         </select>
       </label>
 
@@ -192,26 +284,41 @@ export default function UsersAnalytics() {
           value={organization}
           onChange={(e) => setOrganization(e.target.value)}
           className="ui-input"
-          style={{ minWidth: 160 }}
+          style={{ minWidth: 200, borderColor: "var(--ocean-border)", borderRadius: 8, padding: "8px 10px" }}
+          disabled={filtersLoading}
         >
-          <option value="all">All</option>
-          {/* scaffold only; not yet wired */}
+          {(organizations.length ? organizations : ["all"]).map((opt) => (
+            <option key={`org-${opt}`} value={opt}>
+              {opt === "all" ? "All" : opt}
+            </option>
+          ))}
         </select>
       </label>
 
-      <div style={{ marginLeft: "auto" }}>
+      {filtersError ? (
+        <div style={{ color: "#EF4444", fontSize: 12 }} role="alert">
+          {filtersError}
+        </div>
+      ) : null}
+
+      <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8 }}>
+        <button
+          type="button"
+          onClick={() => {
+            setDepartment("all");
+            setOrganization("all");
+          }}
+          className="btn btn-ghost"
+          style={{ borderColor: "var(--ocean-border)" }}
+          aria-label="Clear Filters"
+        >
+          Clear Filters
+        </button>
         <button
           type="button"
           onClick={loadAll}
           className="btn btn-secondary"
-          style={{
-            background: "color-mix(in oklab, var(--color-accent, #F59E0B) 14%, transparent)",
-            border: "1px solid var(--color-border, #E5E7EB)",
-            color: "var(--color-text-primary, #111827)",
-            borderRadius: 8,
-            padding: "8px 12px",
-            cursor: "pointer",
-          }}
+          aria-label="Refresh analytics"
         >
           Refresh
         </button>
@@ -309,7 +416,11 @@ export default function UsersAnalytics() {
             {/* Active by Department Bar */}
             <Card title="Active by Department" subtitle="Recent 14d" variant="brown">
               <div style={{ height: 320 }}>
-                {deptSeries.length === 0 ? (
+                {byDeptLoading ? (
+                  <LoadingState message="Loading by department..." height={320} />
+                ) : byDeptError ? (
+                  <ErrorState message={byDeptError} onRetry={loadByDepartmentFiltered} />
+                ) : deptSeries.length === 0 ? (
                   <div className="screen-center">No data</div>
                 ) : (
                   <ResponsiveContainer>
@@ -392,6 +503,11 @@ export default function UsersAnalytics() {
             {/* Top Active Users Table */}
             <Card title="Top Active Users" subtitle="Recent 30d" variant="brown">
               <div style={{ overflowX: "auto" }}>
+                {topActiveLoading ? (
+                  <LoadingState message="Loading top active users..." height={220} />
+                ) : topActiveError ? (
+                  <ErrorState message={topActiveError} onRetry={loadTopActiveFiltered} />
+                ) : null}
                 <table className="data-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
@@ -403,7 +519,7 @@ export default function UsersAnalytics() {
                     </tr>
                   </thead>
                   <tbody>
-                    {topActive.length === 0 ? (
+                    {!topActiveLoading && !topActiveError && topActive.length === 0 ? (
                       <tr>
                         <td colSpan={5} style={{ padding: 12, textAlign: "center", color: "var(--color-text-secondary)" }}>
                           No data
