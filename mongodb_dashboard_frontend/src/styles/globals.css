@@ -1,5 +1,3 @@
-@import url('./modal.css');
-
 :root {
   /* Common animation/transition durations (global motion tokens) */
   --transition-fast: 120ms;
@@ -259,18 +257,15 @@ html[data-theme="dark"] .btn {
   transition: transform 50ms ease, box-shadow var(--transition-base) ease, background var(--transition-base) ease, color var(--transition-base) ease, border-color var(--transition-base) ease;
 }
 html[data-theme="dark"] .btn-primary {
-  /* Orange accent for primary in dark theme for parity with style guide (#F59E0B) */
-  background: var(--color-accent, #F59E0B);
-  color: #111827; /* better contrast on orange */
-  border-color: transparent;
+  background: var(--color-accent);
+  color: #ffffff;
 }
 html[data-theme="dark"] .btn-primary:hover {
-  background: var(--brand-secondary-hover, #ffb020);
-  color: #111827;
+  background: var(--brand-secondary-hover, #ff7a1a);
+  color: #ffffff;
 }
 html[data-theme="dark"] .btn-primary:active {
-  background: var(--brand-secondary-active, #d97706);
-  color: #111827;
+  background: var(--brand-secondary-active, #e65c00);
 }
 html[data-theme="dark"] .btn-secondary {
   background: var(--color-border);

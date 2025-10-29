@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
-import { getApiClient } from "../../api";
+import { getTenantUsersSummary } from "../../api/usersAnalytics";
 import "./../../App.css";
 
 /**
@@ -37,16 +37,11 @@ const UsersByTenantBarChart = ({
       setLoading(true);
       setError(null);
       try {
-        const api = getApiClient();
-        const params = {};
-        if (from) params.from = from;
-        if (to) params.to = to;
-        if (status) params.status = status;
-        if (includeInactive != null) params.includeInactive = includeInactive;
-        const res = await api.get("/users/tenant-summary", { params });
+        const params = { from, to, status, includeInactive };
+        // getTenantUsersSummary expected to return { items: [{ tenant_id, tenant_name, user_count }], total }
+        const res = await getTenantUsersSummary(params);
         if (!mounted) return;
-        const payload = res?.data;
-        const data = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : [];
+        const data = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
         // Sort by user_count desc by default
         const sorted = [...data].sort((a, b) => (b?.user_count || 0) - (a?.user_count || 0));
         setItems(sorted);

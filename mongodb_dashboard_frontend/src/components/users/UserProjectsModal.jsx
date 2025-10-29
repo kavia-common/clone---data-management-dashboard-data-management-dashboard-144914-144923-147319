@@ -106,7 +106,7 @@ export default function UserProjectsModal({
         footer={
           <div className="modal-actions">
             <Button variant="ghost" onClick={() => refetch()}>Refresh</Button>
-            <button type="button" className="btn-modal-close" onClick={onClose}>Close</button>
+            <Button variant="ghost" onClick={onClose}>Close</Button>
           </div>
         }
       >

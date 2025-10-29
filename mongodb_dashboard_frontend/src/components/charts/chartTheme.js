@@ -4,7 +4,6 @@
 // Dark-mode aware chart color tokens sourced from CSS variables with fallbacks to theme tokens.
 //
 import { darkThemeTokens } from "../../theme/darkTheme";
-import { motionTokens, shouldReduceMotion } from "../../utils/motion";
 
 /**
  * Read a CSS variable from :root. If unavailable, return fallback.
@@ -49,11 +48,7 @@ export function withAlpha(hex, alpha, fallbackColor = "rgba(255,102,0,0.4)") {
   }
 }
 
-/**
- * PUBLIC_INTERFACE
- * getChartTheme
- * Adds a shared animation config for charts with sensible defaults.
- */
+// PUBLIC_INTERFACE
 export function getChartTheme() {
   // Pull from CSS variables first; fall back to dark theme tokens
   const accent = getCssVar("--chart-primary", darkThemeTokens.accent || "#FF6600");
@@ -67,17 +62,6 @@ export function getChartTheme() {
   // Slight variants for hover/active
   const primaryHover = getCssVar("--chart-primary-hover", "#ff7a1a");
   const primaryActive = getCssVar("--chart-primary-active", "#e65c00");
-
-  // Consistent animation tokens for Recharts; respects prefers-reduced-motion.
-  const m = motionTokens();
-  const reduce = shouldReduceMotion();
-  const animation = {
-    isActive: !reduce,             // disable animations if user prefers reduced motion
-    begin: 0,                      // start immediately
-    duration: 450,                 // default duration ~450ms
-    easing: "ease-out",            // consistent easing across charts
-    // Alternative easing can be m.ease if converted to a supported keyword
-  };
 
   return {
     primary: accent,
@@ -94,6 +78,5 @@ export function getChartTheme() {
     legend: {
       text: legendText,
     },
-    animation, // expose animation defaults
   };
 }

@@ -10,7 +10,7 @@ import {
   CartesianGrid,
   LabelList,
 } from "recharts";
-import { getApiClient } from "../../api";
+import { getReferralSources } from "../../api/usersAnalytics";
 import { getChartTheme } from "../charts/chartTheme";
 
 /**
@@ -40,15 +40,9 @@ export default function TopReferralSourcesBarChart({
       setLoading(true);
       setErr("");
       try {
-        const api = getApiClient();
-        const params = {};
-        if (typeof top === "number") params.limit = top;
-        if (from) params.from = from;
-        if (to) params.to = to;
-        const res = await api.get("/users/referral-sources", { params });
+        const res = await getReferralSources({ from, to, top });
         if (!mounted) return;
-        const payload = res?.data;
-        const items = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : [];
+        const items = Array.isArray(res?.items) ? res.items : [];
         // Sort desc by count
         const sorted = [...items].sort(
           (a, b) => (b?.count || 0) - (a?.count || 0)
@@ -72,7 +66,6 @@ export default function TopReferralSourcesBarChart({
   const primary = t.primary;
   const primaryDark = t.primaryActive;
   const gridStroke = t.grid;
-  const anim = t.animation; // shared animation
 
   const data = useMemo(
     () =>
@@ -204,11 +197,6 @@ export default function TopReferralSourcesBarChart({
                 fill={primary}
                 stroke={primaryDark}
                 radius={[4, 4, 4, 4]}
-                // Animation on mount/update
-                isAnimationActive={Boolean(anim?.isActive)}
-                animationBegin={anim?.begin ?? 0}
-                animationDuration={anim?.duration ?? 450}
-                animationEasing={anim?.easing ?? "ease-out"}
               >
                 <LabelList dataKey="count" content={valueLabel} />
               </Bar>

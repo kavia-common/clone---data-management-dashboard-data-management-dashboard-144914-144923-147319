@@ -5,20 +5,18 @@ import Skeleton from "../components/ui/Skeleton.jsx";
 import ProtectedRoute from "../components/common/ProtectedRoute";
 
 const Overview = lazy(() => import("../pages/dashboard/Overview"));
+const Users = lazy(() => import("../pages/dashboard/Users"));
 const Sessions = lazy(() => import("../pages/dashboard/Sessions"));
 const Deployments = lazy(() => import("../pages/dashboard/Deployments"));
 const Costs = lazy(() => import("../pages/dashboard/Costs"));
-const UsersAnalytics = lazy(() => import("../pages/users/UsersAnalytics.jsx"));
 
 const Login = lazy(() => import("../pages/Login"));
 
 /**
  * PUBLIC_INTERFACE
- * AppRoutes
  * Application route tree under a single root BrowserRouter (provided by index.js).
  * - /login remains public.
  * - All dashboard routes are guarded by ProtectedRoute.
- * - Includes Users Analytics at /dashboard/users/analytics and is linked from Sidebar.
  */
 export default function AppRoutes() {
   return (
@@ -52,7 +50,16 @@ export default function AppRoutes() {
           }
         />
 
-
+        <Route
+          path="/dashboard/users"
+          element={
+            <AppLayout>
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
+                <Users />
+              </Suspense>
+            </AppLayout>
+          }
+        />
         <Route
           path="/dashboard/sessions"
           element={
@@ -79,16 +86,6 @@ export default function AppRoutes() {
             <AppLayout>
               <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
                 <Costs />
-              </Suspense>
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/dashboard/users/analytics"
-          element={
-            <AppLayout>
-              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={320} /></div>}>
-                <UsersAnalytics />
               </Suspense>
             </AppLayout>
           }

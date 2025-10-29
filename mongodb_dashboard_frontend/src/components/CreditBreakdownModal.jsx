@@ -17,7 +17,7 @@ export default function CreditBreakdownModal({ open, onClose, title = "Credit Br
       onClose={onClose}
       footer={
         <div className="modal-actions">
-          <button className="btn-modal-close" type="button" onClick={onClose}>Close</button>
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
         </div>
       }
     >

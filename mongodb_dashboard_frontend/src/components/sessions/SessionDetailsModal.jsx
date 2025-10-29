@@ -445,15 +445,17 @@ function SessionDetailsModal({ open, onClose, session }) {
           background: 'var(--bg-surface, #ffffff)',
         }}
       >
-        <button
+        <Button
           type="button"
           onClick={onClose}
-          className="btn-modal-close"
+          variant="danger"
+          className="w-100"
+          style={{ width: '100%', height: 46, borderRadius: 12 }}
           aria-label="Close"
           title="Close"
         >
           Close
-        </button>
+        </Button>
       </div>
 
       <style>{`

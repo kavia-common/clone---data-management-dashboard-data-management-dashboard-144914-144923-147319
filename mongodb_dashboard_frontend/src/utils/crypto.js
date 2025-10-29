@@ -3,14 +3,14 @@ import CryptoJS from "crypto-js";
 import { VALIDATED_TENANT_SALT } from "../config/auth";
 
 /**
-* Generate organization_id:
-* - Interpret VALIDATED_TENANT_SALT as HEX bytes (16 bytes expected).
-* - Use those raw bytes directly as AES-128 key (no extra hashing).
-* - AES-128-ECB encrypt the normalized email (trim + toLowerCase()) with PKCS7 padding.
-* - Take ciphertext bytes -> Base64, strip '=' padding, then URL-encode when returning.
-*
-* This matches Python: AES.new(bytes.fromhex(salt), AES.MODE_ECB).encrypt(...)
-*/
+ * Generate organization_id:
+ * - Interpret VALIDATED_TENANT_SALT as HEX bytes (16 bytes expected).
+ * - Use those raw bytes directly as AES-128 key (no extra hashing).
+ * - AES-128-ECB encrypt the normalized email (trim + toLowerCase()) with PKCS7 padding.
+ * - Take ciphertext bytes -> Base64, strip '=' padding, then URL-encode when returning.
+ *
+ * This matches Python: AES.new(bytes.fromhex(salt), AES.MODE_ECB).encrypt(...)
+ */
 function hexToWordArray(hex) {
   return CryptoJS.enc.Hex.parse(hex);
 }
@@ -44,8 +44,8 @@ export function generateOrganizationId(email) {
 }
 
 /**
-* Optional: decrypt (for local debugging)
-*/
+ * Optional: decrypt (for local debugging)
+ */
 export function decryptOrganizationId(encUrlEncoded) {
   const salt = String(VALIDATED_TENANT_SALT || "").trim();
   const key = hexToWordArray(salt);
@@ -62,4 +62,3 @@ export function decryptOrganizationId(encUrlEncoded) {
 export function isTenantSaltValid() {
   return Boolean(VALIDATED_TENANT_SALT && String(VALIDATED_TENANT_SALT).trim().length > 0);
 }
- 

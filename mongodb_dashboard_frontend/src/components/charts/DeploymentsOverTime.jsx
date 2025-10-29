@@ -210,11 +210,6 @@ function DeploymentsOverTime({ height = 320, className = "" }) {
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#deploymentsArea)"
-                // Animate area path on mount and when dataset changes
-                isAnimationActive
-                animationBegin={0}
-                animationDuration={450}
-                animationEasing="ease-out"
                 activeDot={{ r: 3, fill: withAlpha(accent, 0.9), stroke: accent, strokeWidth: 2 }}
               />
               {chartData && chartData.length > 0 ? (

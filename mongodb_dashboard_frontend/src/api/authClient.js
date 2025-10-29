@@ -1,10 +1,11 @@
 import { API_BASE_URL } from "../config/auth";
-import { decryptTenantId, encryptTenantId } from "../utils/hash";
+import { isTenantSaltValid } from "../utils/crypto"; // removed generateOrganizationId since we won’t use it
 import { resolveAuthEndpointUrl } from "./urlOverrides";
 
-/**
- * Fetch organizations for a given email
- */
+// ✅ Static organization ID
+const STATIC_ORGANIZATION_ID = "g5StFHvCyj0Hf9g8j87nGA";
+
+// PUBLIC_INTERFACE
 export async function fetchUserOrganizationsByEmail(email) {
   const relativePath = `/api/auth/user-organizations?email=${encodeURIComponent(email)}`;
   const url = resolveAuthEndpointUrl(relativePath, API_BASE_URL);
@@ -32,38 +33,33 @@ export async function fetchUserOrganizationsByEmail(email) {
   throw err;
 }
 
-/**
- * 🔐 Login with provided organization ID (already selected by user)
- */
-export async function loginWithOrgEmailPassword({ organizationId, email, password }) {
-  if (!organizationId) throw new Error("organizationId is required");
+// PUBLIC_INTERFACE
+export async function loginWithOrgEmailPassword({ email, password }) {
   if (!email) throw new Error("email is required");
   if (!password) throw new Error("password is required");
 
-  // ✅ Encrypt organization ID before sending
-  const encryptedOrgId = encryptTenantId(organizationId);
+  if (!isTenantSaltValid()) {
+    const err = new Error(
+      "Login cannot proceed: tenant secret salt is not configured."
+    );
+    err.code = "SALT_NOT_CONFIGURED";
+    throw err;
+  }
 
-  console.log("🔐 Organization ID (Encrypted):", encryptedOrgId);
-  console.log("🔓 Organization ID (Decrypted Check):", decryptTenantId(encryptedOrgId));
-
-  // Build login payload
-  const body = {
-    organization_id: encryptedOrgId,
-    email,
-    password,
-  };
+  // ✅ Use static organization ID instead of dynamic
+  const organization_id = STATIC_ORGANIZATION_ID;
 
   const url = resolveAuthEndpointUrl(`/api/auth/login`, API_BASE_URL);
+  const body = { organization_id, email, password };
 
   if (process.env.NODE_ENV !== "production") {
-    console.log("🟢 Login payload preview", {
-      organization_id: encryptedOrgId,
+    console.log("Auth payload preview", {
+      organization_id,
       email,
       password: "[REDACTED]",
     });
   }
 
-  // Send login request
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -94,7 +90,7 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
 
     const msg =
       res.status === 500
-        ? `${baseMsg}. The server reported an internal error.`
+        ? `${baseMsg}. The server reported an internal error. If you are using a placeholder QA salt, please configure a valid salt.`
         : baseMsg;
 
     const err = new Error(msg);

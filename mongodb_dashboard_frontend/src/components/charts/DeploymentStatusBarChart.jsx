@@ -62,7 +62,6 @@ export default function DeploymentStatusBarChart({
   const hasData = rows.some((r) => r.count > 0);
   const gridStroke = t.grid;
   const axisTick = t.axisTick;
-  const anim = t.animation; // shared animation config
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -179,16 +178,7 @@ export default function DeploymentStatusBarChart({
                 payload={legendPayload}
                 onClick={(p) => auditLogInteraction("legend-click", { id: p?.id, value: p?.value })}
               />
-              <Bar
-                dataKey="count"
-                name="Deployments"
-                // Animation settings (centralized)
-                isAnimationActive={Boolean(anim?.isActive)}
-                animationBegin={anim?.begin ?? 0}
-                animationDuration={anim?.duration ?? 450}
-                animationEasing={anim?.easing ?? "ease-out"}
-                radius={[4, 4, 0, 0]}
-              >
+              <Bar dataKey="count" name="Deployments" isAnimationActive radius={[4, 4, 0, 0]}>
                 <LabelList dataKey="count" content={<ValueLabel />} />
                 {/* Color each bar individually using 'fill' from datum */}
                 {rows.map((entry, idx) => (

@@ -216,32 +216,18 @@ export default function DataTable({
               …
             </button>
           )}
-          {pages.map((p) => {
-            const isActive = p === currentPage;
-            return (
-              <button
-                key={p}
-                className={`btn ${isActive ? "btn-primary" : "btn-ghost"}`}
-                onClick={() => setPageAndNotify(p)}
-                aria-current={isActive ? "page" : undefined}
-                aria-label={`Page ${p}`}
-                style={
-                  isActive
-                    ? {
-                        /* Use orange accent for active state explicitly to ensure consistency even without dark theme root */
-                        background: "#F59E0B",
-                        color: "#111827",
-                        borderColor: "transparent",
-                        fontWeight: 800,
-                      }
-                    : undefined
-                }
-                title={isActive ? "Current page" : `Go to page ${p}`}
-              >
-                {p}
-              </button>
-            );
-          })}
+          {pages.map((p) => (
+            <button
+              key={p}
+              className={`btn ${p === currentPage ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setPageAndNotify(p)}
+              aria-current={p === currentPage ? "page" : undefined}
+              aria-label={`Page ${p}`}
+            >
+              {p}
+            </button>
+
+          ))}
           {endPage < totalPages && (
             <button
               className="btn btn-ghost"

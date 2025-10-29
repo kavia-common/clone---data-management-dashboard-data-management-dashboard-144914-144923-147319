@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { getApiClient } from "../../api";
+import { getActiveUsersTrend } from "../../api/usersAnalytics";
 import { getChartTheme, withAlpha } from "./chartTheme";
 
 /**
@@ -42,17 +42,9 @@ export default function ActiveUsersTrendChart({
       setLoading(true);
       setErr("");
       try {
-        const api = getApiClient();
-        const params = {};
-        if (from) params.from = from;
-        if (to) params.to = to;
-        if (granularity) params.granularity = granularity;
-        if (status) params.status = status;
-        if (tenant_id) params.tenant_id = tenant_id;
-        const res = await api.get("/users/active-trend", { params });
+        const res = await getActiveUsersTrend({ from, to, granularity, status, tenant_id });
         if (!mounted) return;
-        const data = res?.data;
-        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        const items = Array.isArray(res?.items) ? res.items : [];
         // console debug to verify backend payload for troubleshooting empty states
         if (process.env.NODE_ENV !== "production") {
           // eslint-disable-next-line no-console
@@ -93,7 +85,6 @@ export default function ActiveUsersTrendChart({
   const primary = t.primary;
   const primaryDark = t.primaryActive;
   const gridStroke = t.grid;
-  const anim = t.animation; // centralized animation settings
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -178,11 +169,6 @@ export default function ActiveUsersTrendChart({
                 name="Active users"
                 stroke={primary}
                 strokeWidth={2}
-                // Enable smooth animations on mount and on data changes
-                isAnimationActive={Boolean(anim?.isActive)}
-                animationBegin={anim?.begin ?? 0}
-                animationDuration={anim?.duration ?? 450}
-                animationEasing={anim?.easing ?? "ease-out"}
                 dot={{ r: 2, stroke: primaryDark, strokeWidth: 1, fill: withAlpha(primary, 0.1) }}
                 activeDot={{ r: 4, stroke: primaryDark, strokeWidth: 2 }}
               />

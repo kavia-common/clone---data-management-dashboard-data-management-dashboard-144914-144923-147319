@@ -108,7 +108,6 @@ export default function UsersByTenantChart({
   const primaryDark = t.primaryActive;
   const secondary = t.primaryHover;
   const gridStroke = t.grid;
-  const anim = t.animation; // shared animation
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -227,11 +226,6 @@ export default function UsersByTenantChart({
                 name="Users"
                 fill={primary}
                 stroke={primaryDark}
-                // Animation on mount/update
-                isAnimationActive={Boolean(anim?.isActive)}
-                animationBegin={anim?.begin ?? 0}
-                animationDuration={anim?.duration ?? 450}
-                animationEasing={anim?.easing ?? "ease-out"}
                 radius={[4, 4, 4, 4]}
                 onClick={(d) => {
                   if (onBarClick && d && d.activePayload && d.activePayload[0]?.payload) {
