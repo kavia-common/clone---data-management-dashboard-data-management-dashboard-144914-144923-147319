@@ -1,26 +1,26 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
-  getActiveVsInactive,
-  getDailyActiveUsers,
-  getTopActiveUsers,
-  getUsersAnalyticsSummary,
-  getUsersByDepartment,
-  getDepartmentsFilterOptions,
-  getOrganizationsFilterOptions,
+  fetchUsersAnalyticsFilters,
+  fetchUsersSummary,
+  fetchDailyActiveUsers,
+  fetchActiveVsInactive,
+  fetchUsersByDepartment,
+  fetchTopActiveUsers,
 } from "../../api/usersAnalytics";
-import { getChartTheme } from "../../components/charts/chartTheme";
 import LoadingState from "../../components/common/LoadingState";
 import ErrorState from "../../components/common/ErrorState";
-import Card from "../../components/ui/Card.jsx";
+import Card from "../../components/common/Card";
+import UsersAnalyticsFilters from "../../components/users/UsersAnalyticsFilters";
 import {
+  ResponsiveContainer,
   LineChart,
-  Line,
+  CartesianGrid,
   XAxis,
   YAxis,
   Tooltip,
-  CartesianGrid,
-  ResponsiveContainer,
   Legend,
+  Line,
   BarChart,
   Bar,
   PieChart,
@@ -28,446 +28,210 @@ import {
   Cell,
 } from "recharts";
 
-/**
- * PUBLIC_INTERFACE
- * UsersAnalytics
- * Users Analytics dashboard page rendering:
- * - KPIs (summary)
- * - Daily Active Users (line)
- * - Active by Department (bar)
- * - Active vs Inactive (pie)
- * - Top Active Users (table)
- * Includes scaffold filters (date range, department, organization) as UI only for now.
- */
+// PUBLIC_INTERFACE
 export default function UsersAnalytics() {
-  // Filters scaffold (only date range currently influences DAU via 'days')
-  const [days, setDays] = useState(30);
-  const [department, setDepartment] = useState("all");
-  const [organization, setOrganization] = useState("all");
+  /** Users Analytics page with filters persisted via URL and applied to all widgets. */
 
-  // Filter option lists and their states
-  const [departments, setDepartments] = useState([]);
-  const [organizations, setOrganizations] = useState([]);
-  const [filtersLoading, setFiltersLoading] = useState(true);
-  const [filtersError, setFiltersError] = useState("");
+  // Read/write filters from URL
+  const [filters, setFilters] = useUrlQueryState({
+    organization_id: "",
+    department: "",
+    start_date: "",
+    end_date: "",
+  });
+
+  const [options, setOptions] = useState({ organizations: [], departments: [] });
 
   // Data states
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const [kpis, setKpis] = useState(null);
-  const [dau, setDau] = useState([]);
-  const [byDept, setByDept] = useState([]);
-  const [activeSplit, setActiveSplit] = useState({ active: 0, inactive: 0 });
+  const [summary, setSummary] = useState(null);
+  const [dailyActive, setDailyActive] = useState([]);
+  const [activeVsInactive, setActiveVsInactive] = useState(null);
+  const [byDepartment, setByDepartment] = useState([]);
   const [topActive, setTopActive] = useState([]);
 
-  // Filtered sections specific loading/error
-  const [byDeptLoading, setByDeptLoading] = useState(false);
-  const [byDeptError, setByDeptError] = useState("");
-  const [topActiveLoading, setTopActiveLoading] = useState(false);
-  const [topActiveError, setTopActiveError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadingFilters, setLoadingFilters] = useState(true);
+  const [error, setError] = useState(null);
 
-  const theme = getChartTheme();
-  const anim = theme.animation;
-  const orange = "#F59E0B"; // Ocean Professional accent for highlights
-  const primary = theme.primary; // usually blue
-  const pieColors = [orange, theme.primaryActive];
-
-  async function loadAll() {
-    setLoading(true);
-    setError("");
-    try {
-      const [summary, dauResp, deptResp, splitResp, topResp] = await Promise.all([
-        getUsersAnalyticsSummary(),
-        getDailyActiveUsers({ days }),
-        getUsersByDepartment({ windowDays: 14 }),
-        getActiveVsInactive({ windowDays: 14 }),
-        getTopActiveUsers({ limit: 10, windowDays: 30 }),
-      ]);
-
-      setKpis(summary || null);
-      setDau(Array.isArray(dauResp) ? dauResp : []);
-      setByDept(Array.isArray(deptResp) ? deptResp : []);
-      setActiveSplit({
-        active: Number(splitResp?.active || 0),
-        inactive: Number(splitResp?.inactive || 0),
-      });
-      setTopActive(Array.isArray(topResp) ? topResp : []);
-    } catch (e) {
-      setError(e?.message || "Failed to load Users Analytics");
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  // Fetch filter options
   useEffect(() => {
-    loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days]);
-
-  // Load dropdown filter options on mount
-  useEffect(() => {
-    let mounted = true;
-    async function loadFilters() {
-      setFiltersLoading(true);
-      setFiltersError("");
+    let ignore = false;
+    async function load() {
       try {
-        const [deps, orgs] = await Promise.all([
-          getDepartmentsFilterOptions(),
-          getOrganizationsFilterOptions(),
-        ]);
-        if (!mounted) return;
-        setDepartments(["all", ...deps]);
-        setOrganizations(["all", ...orgs]);
+        setLoadingFilters(true);
+        const res = await fetchUsersAnalyticsFilters();
+        if (!ignore) setOptions(res);
       } catch (e) {
-        if (!mounted) return;
-        setFiltersError(e?.message || "Failed to load filters");
-        setDepartments(["all"]);
-        setOrganizations(["all"]);
+        // non-fatal; component renders dropdowns empty
+        // eslint-disable-next-line no-console
+        console.warn("Failed to load analytics filters", e);
       } finally {
-        if (mounted) setFiltersLoading(false);
+        if (!ignore) setLoadingFilters(false);
       }
     }
-    loadFilters();
+    load();
     return () => {
-      mounted = false;
+      ignore = true;
     };
   }, []);
 
-  // Memos to shape chart data
+  // Build params for API calls
+  const computedParams = useMemo(() => {
+    const base = {};
+    if (filters.organization_id) base.organization_id = filters.organization_id;
+    if (filters.department) base.department = filters.department;
+
+    const haveRange = Boolean(filters.start_date && filters.end_date);
+    if (haveRange) {
+      base.start_date =
+        filters.start_date.length === 10
+          ? `${filters.start_date}T00:00:00Z`
+          : filters.start_date;
+      base.end_date =
+        filters.end_date.length === 10
+          ? `${filters.end_date}T23:59:59Z`
+          : filters.end_date;
+    }
+    return { base, haveRange };
+  }, [filters]);
+
+  // Load all widgets
+  const loadAll = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const kpiParams = { ...computedParams.base };
+      const dailyParams = computedParams.haveRange
+        ? { ...computedParams.base }
+        : { ...computedParams.base, days: 30 };
+      const aviParams = computedParams.haveRange
+        ? { ...computedParams.base }
+        : { ...computedParams.base, windowDays: 14 };
+      const byDeptParams = computedParams.haveRange
+        ? { ...computedParams.base }
+        : { ...computedParams.base, windowDays: 14 };
+      const topParams = computedParams.haveRange
+        ? { ...computedParams.base, limit: 10 }
+        : { ...computedParams.base, limit: 10, windowDays: 30 };
+
+      const [summaryRes, dailyRes, aviRes, byDeptRes, topRes] = await Promise.all([
+        fetchUsersSummary(kpiParams),
+        fetchDailyActiveUsers(dailyParams),
+        fetchActiveVsInactive(aviParams),
+        fetchUsersByDepartment(byDeptParams),
+        fetchTopActiveUsers(topParams),
+      ]);
+
+      setSummary(summaryRes || null);
+      setDailyActive(Array.isArray(dailyRes) ? dailyRes : []);
+      setActiveVsInactive(aviRes || null);
+      setByDepartment(Array.isArray(byDeptRes) ? byDeptRes : []);
+      setTopActive(Array.isArray(topRes) ? topRes : []);
+    } catch (e) {
+      setError(e?.message || "Failed to load analytics");
+    } finally {
+      setLoading(false);
+    }
+  }, [computedParams]);
+
+  // Initial and on-filter-change load
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
+
+  // Handle filter changes from filter bar
+  const onFiltersChange = useCallback(
+    (next) => {
+      setFilters(next);
+    },
+    [setFilters]
+  );
+
   const dauSeries = useMemo(
     () =>
-      (dau || []).map((d) => ({
+      (dailyActive || []).map((d) => ({
         date: d?.date || "",
         activeCount: Number(d?.activeCount || 0),
       })),
-    [dau]
+    [dailyActive]
   );
-
-  // Fetch Active by Department with filters
-  async function loadByDepartmentFiltered() {
-    setByDeptLoading(true);
-    setByDeptError("");
-    try {
-      const params = {
-        windowDays: 14,
-      };
-      if (department && department !== "all") params.department = department;
-      if (organization && organization !== "all") params.organization_id = organization;
-      const data = await getUsersByDepartment(params);
-      setByDept(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setByDept([]);
-      setByDeptError(e?.message || "Failed to load Active by Department");
-    } finally {
-      setByDeptLoading(false);
-    }
-  }
-
-  // Fetch Top Active Users with filters
-  async function loadTopActiveFiltered() {
-    setTopActiveLoading(true);
-    setTopActiveError("");
-    try {
-      const params = { limit: 10, windowDays: 30 };
-      if (department && department !== "all") params.department = department;
-      if (organization && organization !== "all") params.organization_id = organization;
-      const data = await getTopActiveUsers(params);
-      setTopActive(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setTopActive([]);
-      setTopActiveError(e?.message || "Failed to load Top Active Users");
-    } finally {
-      setTopActiveLoading(false);
-    }
-  }
-
-  // Watch filters and refetch filtered sections
-  useEffect(() => {
-    loadByDepartmentFiltered();
-    loadTopActiveFiltered();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [department, organization]);
 
   const deptSeries = useMemo(
     () =>
-      (byDept || []).map((d) => ({
+      (byDepartment || []).map((d) => ({
         department: d?.department || "Unknown",
         activeCount: Number(d?.activeCount || 0),
       })),
-    [byDept]
+    [byDepartment]
   );
 
-  const splitSeries = useMemo(
-    () => [
-      { name: "Active", value: Number(activeSplit.active || 0) },
-      { name: "Inactive", value: Number(activeSplit.inactive || 0) },
-    ],
-    [activeSplit]
-  );
-
+  const splitSeries = useMemo(() => {
+    const active = Number(activeVsInactive?.active || 0);
+    const inactive = Number(activeVsInactive?.inactive || 0);
+    return [
+      { name: "Active", value: active },
+      { name: "Inactive", value: inactive },
+    ];
+  }, [activeVsInactive]);
   const totalSplit = splitSeries.reduce((s, x) => s + x.value, 0);
-
-  // KPI Card component
-  const Kpi = ({ label, value, hint }) => (
-    <div
-      className="kpi"
-      role="group"
-      aria-label={`${label} metric`}
-    >
-      <div className="kpi-label">{label}</div>
-      <div className="kpi-value">{value}</div>
-      {hint ? <div className="kpi-hint">{hint}</div> : null}
-    </div>
-  );
-
-  // Filters toolbar
-  const Filters = (
-    <div
-      className="toolbar"
-      style={{
-        display: "flex",
-        flexWrap: "wrap",
-        alignItems: "center",
-        gap: 12,
-      }}
-      aria-label="Users analytics filters"
-    >
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Date range</span>
-        <select
-          aria-label="Date range"
-          value={days}
-          onChange={(e) => setDays(Number(e.target.value))}
-          className="ui-input"
-          style={{ minWidth: 160 }}
-        >
-          <option value={7}>Last 7 days</option>
-          <option value={14}>Last 14 days</option>
-          <option value={30}>Last 30 days</option>
-          <option value={60}>Last 60 days</option>
-          <option value={90}>Last 90 days</option>
-        </select>
-      </label>
-
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Department</span>
-        <select
-          aria-label="Department"
-          value={department}
-          onChange={(e) => setDepartment(e.target.value)}
-          className="ui-input"
-          style={{ minWidth: 180, borderColor: "var(--ocean-border)", borderRadius: 8, padding: "8px 10px" }}
-          disabled={filtersLoading}
-        >
-          {(departments.length ? departments : ["all"]).map((opt) => (
-            <option key={`dept-${opt}`} value={opt}>
-              {opt === "all" ? "All" : opt}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Organization</span>
-        <select
-          aria-label="Organization"
-          value={organization}
-          onChange={(e) => setOrganization(e.target.value)}
-          className="ui-input"
-          style={{ minWidth: 200, borderColor: "var(--ocean-border)", borderRadius: 8, padding: "8px 10px" }}
-          disabled={filtersLoading}
-        >
-          {(organizations.length ? organizations : ["all"]).map((opt) => (
-            <option key={`org-${opt}`} value={opt}>
-              {opt === "all" ? "All" : opt}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {filtersError ? (
-        <div style={{ color: "#EF4444", fontSize: 12 }} role="alert">
-          {filtersError}
-        </div>
-      ) : null}
-
-      <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8 }}>
-        <button
-          type="button"
-          onClick={() => {
-            setDepartment("all");
-            setOrganization("all");
-          }}
-          className="btn btn-ghost"
-          style={{ borderColor: "var(--ocean-border)" }}
-          aria-label="Clear Filters"
-        >
-          Clear Filters
-        </button>
-        <button
-          type="button"
-          onClick={loadAll}
-          className="btn btn-secondary"
-          aria-label="Refresh analytics"
-        >
-          Refresh
-        </button>
-      </div>
-    </div>
-  );
+  const pieColors = ["#2563EB", "#F59E0B"];
 
   return (
-    <div style={{ padding: 8 }}>
-      {/* Header */}
-      <div style={{ marginBottom: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 22 }}>Users Analytics</h2>
-        <div style={{ color: "var(--color-text-secondary, #6B7280)", marginTop: 4, fontSize: 14 }}>
-          Insights into user activity across your organization
-        </div>
-      </div>
+    <div className="users-analytics-page" style={{ padding: 8 }}>
+      <UsersAnalyticsFilters
+        organizations={options.organizations}
+        departments={options.departments}
+        values={filters}
+        onChange={onFiltersChange}
+        loading={loading || loadingFilters}
+        error={null}
+      />
 
-      {/* Filters */}
-      <Card title={null} subtitle={null} actions={Filters} variant="brown" />
-
-      {/* Loading / Error */}
       {loading ? (
-        <LoadingState message="Loading analytics..." height={220} />
+        <LoadingState />
       ) : error ? (
         <ErrorState message={error} onRetry={loadAll} />
       ) : (
         <>
-          {/* KPIs */}
-          <div
-            className="kpi-grid"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-              gap: 12,
-              margin: "12px 0",
-            }}
-          >
-            <Kpi label="Total Active (14d)" value={kpis?.totalActive ?? 0} />
-            <Kpi label="New Users This Week" value={kpis?.newUsersThisWeek ?? 0} />
-            <Kpi label="Inactive (30d)" value={kpis?.inactive30Days ?? 0} />
-            <Kpi label="Compliance" value={`${(kpis?.compliancePct ?? 0).toFixed(0)}%`} />
-            <Kpi label="WAU" value={kpis?.WAU ?? 0} />
-            <Kpi label="MAU" value={kpis?.MAU ?? 0} hint={kpis?.generatedAt ? `as of ${new Date(kpis.generatedAt).toLocaleString()}` : undefined} />
-          </div>
-
-          {/* Charts Grid */}
-          <div
-            className="charts-grid"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-              gap: 12,
-            }}
-          >
-            {/* Daily Active Users Line */}
-            <Card title="Daily Active Users" subtitle={`Last ${days} days`} variant="brown">
-              <div style={{ height: 280 }}>
-                {dauSeries.length === 0 ? (
-                  <div className="screen-center">No data</div>
-                ) : (
-                  <ResponsiveContainer>
-                    <LineChart data={dauSeries} margin={{ top: 8, right: 24, bottom: 8, left: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
-                      <XAxis dataKey="date" tick={{ fontSize: 12, fill: theme.axisTick }} tickMargin={8} minTickGap={28} />
-                      <YAxis tick={{ fontSize: 12, fill: theme.axisTick }} allowDecimals={false} />
-                      <Tooltip
-                        wrapperStyle={{ outline: "none" }}
-                        contentStyle={{
-                          background: theme.tooltip.bg,
-                          border: `1px solid ${theme.tooltip.border}`,
-                          borderRadius: 8,
-                          color: theme.tooltip.text,
-                        }}
-                      />
-                      <Legend verticalAlign="top" height={24} wrapperStyle={{ fontSize: 12 }} />
-                      <Line
-                        type="monotone"
-                        dataKey="activeCount"
-                        name="Active"
-                        stroke={primary}
-                        strokeWidth={2}
-                        isAnimationActive={Boolean(anim?.isActive)}
-                        animationBegin={anim?.begin ?? 0}
-                        animationDuration={anim?.duration ?? 450}
-                        animationEasing={anim?.easing ?? "ease-out"}
-                        dot={{ r: 2, stroke: theme.primaryActive, strokeWidth: 1, fill: "rgba(37,99,235,0.1)" }}
-                        activeDot={{ r: 4, stroke: theme.primaryActive, strokeWidth: 2 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card title="KPIs">
+              <div
+                className="kpi-grid"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                <Kpi label="Total Active (14d)" value={summary?.totalActive ?? 0} />
+                <Kpi label="New Users This Week" value={summary?.newUsersThisWeek ?? 0} />
+                <Kpi label="Inactive (30d)" value={summary?.inactive30Days ?? 0} />
+                <Kpi
+                  label="Compliance"
+                  value={`${Math.round(summary?.compliancePct ?? 0)}%`}
+                />
+                <Kpi label="WAU" value={summary?.WAU ?? 0} />
+                <Kpi
+                  label="MAU"
+                  value={summary?.MAU ?? 0}
+                  hint={
+                    summary?.generatedAt
+                      ? `as of ${new Date(summary.generatedAt).toLocaleString()}`
+                      : undefined
+                  }
+                />
               </div>
             </Card>
 
-            {/* Active by Department Bar */}
-            <Card title="Active by Department" subtitle="Recent 14d" variant="brown">
-              <div style={{ height: 320 }}>
-                {byDeptLoading ? (
-                  <LoadingState message="Loading by department..." height={320} />
-                ) : byDeptError ? (
-                  <ErrorState message={byDeptError} onRetry={loadByDepartmentFiltered} />
-                ) : deptSeries.length === 0 ? (
-                  <div className="screen-center">No data</div>
-                ) : (
-                  <ResponsiveContainer>
-                    <BarChart
-                      data={deptSeries}
-                      margin={{ top: 8, right: 24, bottom: 8, left: 8 }}
-                      barCategoryGap={12}
-                      aria-label="Active users by department"
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
-                      <XAxis dataKey="department" tick={{ fontSize: 12, fill: theme.axisTick }} minTickGap={24} />
-                      <YAxis tick={{ fontSize: 12, fill: theme.axisTick }} allowDecimals={false} />
-                      <Tooltip
-                        wrapperStyle={{ outline: "none" }}
-                        contentStyle={{
-                          background: theme.tooltip.bg,
-                          border: `1px solid ${theme.tooltip.border}`,
-                          borderRadius: 8,
-                          color: theme.tooltip.text,
-                        }}
-                      />
-                      <Bar
-                        dataKey="activeCount"
-                        name="Active"
-                        fill={orange}
-                        stroke={theme.primaryActive}
-                        isAnimationActive={Boolean(anim?.isActive)}
-                        animationBegin={anim?.begin ?? 0}
-                        animationDuration={anim?.duration ?? 450}
-                        animationEasing={anim?.easing ?? "ease-out"}
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </Card>
-
-            {/* Active vs Inactive Pie */}
-            <Card title="Active vs Inactive" subtitle="Recent 14d" variant="brown">
-              <div style={{ height: 320, display: "grid", gridTemplateColumns: "1fr", alignItems: "center" }}>
+            <Card title="Active vs Inactive">
+              <div style={{ height: 280, display: "grid", alignItems: "center" }}>
                 {totalSplit === 0 ? (
                   <div className="screen-center">No data</div>
                 ) : (
                   <ResponsiveContainer>
                     <PieChart>
                       <Legend verticalAlign="top" height={24} wrapperStyle={{ fontSize: 12 }} />
-                      <Tooltip
-                        wrapperStyle={{ outline: "none" }}
-                        contentStyle={{
-                          background: theme.tooltip.bg,
-                          border: `1px solid ${theme.tooltip.border}`,
-                          borderRadius: 8,
-                          color: theme.tooltip.text,
-                        }}
-                      />
+                      <Tooltip wrapperStyle={{ outline: "none" }} />
                       <Pie
                         data={splitSeries}
                         dataKey="value"
@@ -475,10 +239,6 @@ export default function UsersAnalytics() {
                         cx="50%"
                         cy="50%"
                         outerRadius={90}
-                        isAnimationActive={Boolean(anim?.isActive)}
-                        animationBegin={anim?.begin ?? 0}
-                        animationDuration={anim?.duration ?? 450}
-                        animationEasing={anim?.easing ?? "ease-out"}
                         label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                       >
                         {splitSeries.map((entry, index) => (
@@ -491,14 +251,8 @@ export default function UsersAnalytics() {
               </div>
             </Card>
 
-            {/* Top Active Users Table */}
-            <Card title="Top Active Users" subtitle="Recent 30d" variant="brown">
+            <Card title="Top Active Users">
               <div style={{ overflowX: "auto" }}>
-                {topActiveLoading ? (
-                  <LoadingState message="Loading top active users..." height={220} />
-                ) : topActiveError ? (
-                  <ErrorState message={topActiveError} onRetry={loadTopActiveFiltered} />
-                ) : null}
                 <table className="data-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
@@ -510,9 +264,9 @@ export default function UsersAnalytics() {
                     </tr>
                   </thead>
                   <tbody>
-                    {!topActiveLoading && !topActiveError && topActive.length === 0 ? (
+                    {topActive.length === 0 ? (
                       <tr>
-                        <td colSpan={5} style={{ padding: 12, textAlign: "center", color: "var(--color-text-secondary)" }}>
+                        <td colSpan={5} style={{ padding: 12, textAlign: "center" }}>
                           No data
                         </td>
                       </tr>
@@ -534,8 +288,97 @@ export default function UsersAnalytics() {
               </div>
             </Card>
           </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+            <Card title="Active by Department">
+              <div style={{ height: 320 }}>
+                {deptSeries.length === 0 ? (
+                  <div className="screen-center">No data</div>
+                ) : (
+                  <ResponsiveContainer>
+                    <BarChart data={deptSeries} margin={{ top: 8, right: 24, bottom: 8, left: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="department" tick={{ fontSize: 12 }} minTickGap={24} />
+                      <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                      <Tooltip wrapperStyle={{ outline: "none" }} />
+                      <Bar dataKey="activeCount" name="Active" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </Card>
+
+            <Card title="Daily Active Users">
+              <div style={{ height: 280 }}>
+                {dauSeries.length === 0 ? (
+                  <div className="screen-center">No data</div>
+                ) : (
+                  <ResponsiveContainer>
+                    <LineChart data={dauSeries} margin={{ top: 8, right: 24, bottom: 8, left: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12 }} tickMargin={8} minTickGap={28} />
+                      <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                      <Tooltip wrapperStyle={{ outline: "none" }} />
+                      <Legend verticalAlign="top" height={24} wrapperStyle={{ fontSize: 12 }} />
+                      <Line
+                        type="monotone"
+                        dataKey="activeCount"
+                        name="Active"
+                        stroke="#2563EB"
+                        strokeWidth={2}
+                        dot={{ r: 2 }}
+                        activeDot={{ r: 4 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </Card>
+          </div>
         </>
       )}
+    </div>
+  );
+}
+
+function useUrlQueryState(defaults) {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const state = useMemo(() => {
+    const entries = {};
+    for (const key of Object.keys(defaults)) {
+      const v = params.get(key);
+      entries[key] = v ?? defaults[key];
+    }
+    return entries;
+  }, [params, defaults]);
+
+  const setState = useCallback(
+    (next) => {
+      const np = new URLSearchParams(location.search);
+      Object.entries(next).forEach(([k, v]) => {
+        if (v === undefined || v === null || v === "") {
+          np.delete(k);
+        } else {
+          np.set(k, v);
+        }
+      });
+      navigate({ search: np.toString() }, { replace: false });
+    },
+    [location.search, navigate]
+  );
+
+  return [state, setState];
+}
+
+function Kpi({ label, value, hint }) {
+  return (
+    <div className="kpi" role="group" aria-label={`${label} metric`}>
+      <div className="kpi-label">{label}</div>
+      <div className="kpi-value">{value}</div>
+      {hint ? <div className="kpi-hint">{hint}</div> : null}
     </div>
   );
 }

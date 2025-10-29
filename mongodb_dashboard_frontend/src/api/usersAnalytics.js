@@ -1,12 +1,93 @@
-import axios from "axios";
-import { getApiBase } from "./config";
+import apiClient from './baseClient';
+import axios from 'axios';
+import { getApiBase } from './config';
+
+/**
+ * INTERNAL: Prefer fetch-based apiClient when path starts with /api. Some existing code uses axios with absolute URLs.
+ */
+function http() {
+  const client = apiClient.getApiClient();
+  return {
+    get: (path, options = {}) => client.get(path, options),
+  };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * fetchUsersAnalyticsFilters
+ * Retrieves available filter values for users analytics: organizations and departments.
+ */
+export async function fetchUsersAnalyticsFilters() {
+  const client = http();
+  const [orgsRes, deptsRes] = await Promise.all([
+    client.get('/api/users/analytics/filters/organizations'),
+    client.get('/api/users/analytics/filters/departments'),
+  ]);
+  return {
+    organizations: orgsRes.data || [],
+    departments: deptsRes.data || [],
+  };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * fetchDailyActiveUsers
+ * Fetches Daily Active Users time series with optional filters and date range.
+ */
+export async function fetchDailyActiveUsers(params = {}) {
+  const client = http();
+  const res = await client.get('/api/users/analytics/daily-active', { params });
+  return res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * fetchActiveVsInactive
+ * Fetches active vs inactive user counts with optional filters and date range.
+ */
+export async function fetchActiveVsInactive(params = {}) {
+  const client = http();
+  const res = await client.get('/api/users/analytics/active-vs-inactive', { params });
+  return res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * fetchUsersByDepartment
+ * Fetches active users grouped by department with optional filters and date range.
+ */
+export async function fetchUsersByDepartment(params = {}) {
+  const client = http();
+  const res = await client.get('/api/users/analytics/by-department', { params });
+  return res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * fetchTopActiveUsers
+ * Fetches top active users list by most recent activity with optional filters and date range.
+ */
+export async function fetchTopActiveUsers(params = {}) {
+  const client = http();
+  const res = await client.get('/api/users/analytics/top-active', { params });
+  return res.data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * fetchUsersSummary
+ * Fetches KPI summary values (totalActive, newUsersThisWeek, inactive30Days, compliancePct, WAU, MAU).
+ */
+export async function fetchUsersSummary(params = {}) {
+  const client = http();
+  const res = await client.get('/api/users/analytics/summary', { params });
+  return res.data;
+}
 
 /**
  * PUBLIC_INTERFACE
  * getActiveUsersTrend
- * Fetch active users trend from backend.
- * @param {{ from?: string, to?: string, status?: string, tenant_id?: string, granularity?: 'day'|'week'|'month' }} params
- * @returns {Promise<{ items: Array<{ date: string, total: number }>, meta?: any }>}
+ * Backwards compatibility export for other parts using axios + config base (unchanged).
  */
 export async function getActiveUsersTrend(params = {}) {
   const base = getApiBase();
@@ -18,146 +99,89 @@ export async function getActiveUsersTrend(params = {}) {
 /**
  * PUBLIC_INTERFACE
  * getTenantUsersSummary
- * Fetch aggregated users by tenant summary.
- *
- * Parameters:
- * - from?: string (ISO) - optional start date-time
- * - to?: string (ISO) - optional end date-time
- * - status?: string - optional status filter (default handled by backend)
- * - includeInactive?: boolean - whether to include inactive tenants
- *
- * Returns a normalized payload:
- * - { items: Array<{ tenant_id: string, tenant_name?: string|null, user_count: number }>, total?: number }
- *   or raw array fallback if backend returns array.
- *
- * Notes:
- * - Backend endpoint: GET /api/users/tenant-summary
+ * Backwards compatibility export.
  */
 export async function getTenantUsersSummary(params = {}) {
   const base = getApiBase();
   const url = `${base}/users/tenant-summary`;
-  try {
-    const res = await axios.get(url, { params });
-    const data = res?.data ?? res;
-
-    // Normalize shapes:
-    if (data && Array.isArray(data.items)) {
-      return { items: data.items, total: data.total ?? data.items.length };
-    }
-    if (Array.isArray(data)) {
-      return { items: data, total: data.length };
-    }
-    // Pass-through minimal object
-    if (data && typeof data === "object") {
-      const items = Array.isArray(data.data) ? data.data : Array.isArray(data.items) ? data.items : [];
-      return { items, total: data.total ?? items.length ?? 0 };
-    }
-    return { items: [], total: 0 };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("[UsersAnalyticsAPI] getTenantUsersSummary failed:", err);
-    // Surface a controlled error message; caller can show a toast or inline error
-    throw new Error(err?.message || "Failed to load tenant users summary");
-  }
-}
-
-/**
- * PUBLIC_INTERFACE
- * getDailyActiveUsers
- * GET /api/users/analytics/daily-active?days=30
- */
-export async function getDailyActiveUsers(params = { days: 30 }) {
-  const base = getApiBase();
-  const url = `${base}/users/analytics/daily-active`;
   const res = await axios.get(url, { params });
   return res.data;
 }
 
 /**
  * PUBLIC_INTERFACE
- * getUsersByDepartment
- * GET /api/users/analytics/by-department?windowDays=14
+ * getUsersAnalyticsSummary (legacy alias)
  */
-export async function getUsersByDepartment(params = { windowDays: 14 }) {
-  const base = getApiBase();
-  const url = `${base}/users/analytics/by-department`;
-  const res = await axios.get(url, { params });
-  return res.data;
+export async function getUsersAnalyticsSummary(params = {}) {
+  return fetchUsersSummary(params);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getDailyActiveUsers (legacy alias)
+ */
+export async function getDailyActiveUsers(params = {}) {
+  return fetchDailyActiveUsers(params);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getActiveVsInactive (legacy alias)
+ */
+export async function getActiveVsInactive(params = {}) {
+  return fetchActiveVsInactive(params);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getUsersByDepartment (legacy alias)
+ */
+export async function getUsersByDepartment(params = {}) {
+  return fetchUsersByDepartment(params);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getTopActiveUsers (legacy alias)
+ */
+export async function getTopActiveUsers(params = {}) {
+  return fetchTopActiveUsers(params);
 }
 
 /**
  * PUBLIC_INTERFACE
  * getDepartmentsFilterOptions
- * GET /api/users/analytics/filters/departments
- * Returns array of distinct department strings.
  */
 export async function getDepartmentsFilterOptions() {
-  const base = getApiBase();
-  const url = `${base}/users/analytics/filters/departments`;
-  const res = await axios.get(url);
-  const data = res?.data;
-  return Array.isArray(data) ? data : [];
+  const client = http();
+  const res = await client.get('/api/users/analytics/filters/departments');
+  return Array.isArray(res.data) ? res.data : [];
 }
 
 /**
  * PUBLIC_INTERFACE
  * getOrganizationsFilterOptions
- * GET /api/users/analytics/filters/organizations
- * Returns array of distinct organization_id strings.
  */
 export async function getOrganizationsFilterOptions() {
-  const base = getApiBase();
-  const url = `${base}/users/analytics/filters/organizations`;
-  const res = await axios.get(url);
-  const data = res?.data;
-  return Array.isArray(data) ? data : [];
-}
-
-/**
- * PUBLIC_INTERFACE
- * getActiveVsInactive
- * GET /api/users/analytics/active-vs-inactive?windowDays=14
- */
-export async function getActiveVsInactive(params = { windowDays: 14 }) {
-  const base = getApiBase();
-  const url = `${base}/users/analytics/active-vs-inactive`;
-  const res = await axios.get(url, { params });
-  return res.data;
-}
-
-/**
- * PUBLIC_INTERFACE
- * getTopActiveUsers
- * GET /api/users/analytics/top-active?limit=10&windowDays=30
- */
-export async function getTopActiveUsers(params = { limit: 10, windowDays: 30 }) {
-  const base = getApiBase();
-  const url = `${base}/users/analytics/top-active`;
-  const res = await axios.get(url, { params });
-  return res.data;
-}
-
-/**
- * PUBLIC_INTERFACE
- * getUsersAnalyticsSummary
- * GET /api/users/analytics/summary
- * Returns KPIs for the Users Analytics page.
- */
-export async function getUsersAnalyticsSummary() {
-  const base = getApiBase();
-  const url = `${base}/users/analytics/summary`;
-  const res = await axios.get(url);
-  return res.data;
+  const client = http();
+  const res = await client.get('/api/users/analytics/filters/organizations');
+  return Array.isArray(res.data) ? res.data : [];
 }
 
 export default {
+  fetchUsersAnalyticsFilters,
+  fetchDailyActiveUsers,
+  fetchActiveVsInactive,
+  fetchUsersByDepartment,
+  fetchTopActiveUsers,
+  fetchUsersSummary,
   getActiveUsersTrend,
   getTenantUsersSummary,
-  getDailyActiveUsers,
-  getUsersByDepartment,
-  getActiveVsInactive,
-  getTopActiveUsers,
   getUsersAnalyticsSummary,
+  getDailyActiveUsers,
+  getActiveVsInactive,
+  getUsersByDepartment,
+  getTopActiveUsers,
   getDepartmentsFilterOptions,
   getOrganizationsFilterOptions,
 };

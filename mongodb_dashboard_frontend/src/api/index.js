@@ -1,4 +1,2 @@
-export { default as api } from './baseClient';
-export { getApiClient, listUsers, listSessions, listDeployments, listLlmCosts, health } from './baseClient';
-export * from './baseClient';
-export * from './modulesClient';
+export { default } from './baseClient';
+export { getApiClient, health, listUsers, listSessions, listDeployments, listLlmCosts } from './baseClient';

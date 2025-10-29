@@ -1,11 +1,8 @@
 import React from "react";
-import UsersDashboard from "../dashboard/Users.jsx";
+import UsersAnalytics from "../users/UsersAnalytics";
 
-/**
- * PUBLIC_INTERFACE
- * UsersIndex
- * Thin wrapper to reuse the Dashboard Users view under /pages/Users/
- */
+// PUBLIC_INTERFACE
 export default function UsersIndex() {
-  return <UsersDashboard />;
+  /** Users page entrypoint that renders UsersAnalytics */
+  return <UsersAnalytics />;
 }
