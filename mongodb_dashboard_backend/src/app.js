@@ -154,6 +154,11 @@ app.use('/api/data', require('./routes/data.routes'));
 // Costs aggregate endpoints (custom analytics-like)
 app.use('/api/costs', require('./routes/costs.byAgent.routes'));
 
+/**
+ * Users analytics (DAU/WAU/MAU and insights)
+ */
+app.use('/api/users/analytics', require('./routes/users.analytics.metrics.routes'));
+
 // LLM costs endpoints (CRUD/list/get)
 app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
 app.use('/api/llmCosts', require('./routes/llmCosts.routes'));

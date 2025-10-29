@@ -16,6 +16,7 @@ const appDeploymentsRoutes = require('./appDeployments.routes');
 const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
 const countsRoutes = require('./counts.routes');
+const usersAnalyticsMetricsRoutes = require('./users.analytics.metrics.routes');
 
 const router = express.Router();
 
@@ -67,6 +68,12 @@ router.use('/app-deployments', appDeploymentsRoutes);
 // Dashboard overview routes
 router.use('/dashboard/overview', dashboardRoutes);
 router.use('/dashboard/overview', dashboardModulesRoutes);
+
+/**
+ * Users analytics (DAU/WAU/MAU and insights)
+ * Mounted under /api/users/analytics
+ */
+router.use('/users/analytics', usersAnalyticsMetricsRoutes);
 
 // Counts endpoints mounted at top-level /api
 router.use('/', countsRoutes);
