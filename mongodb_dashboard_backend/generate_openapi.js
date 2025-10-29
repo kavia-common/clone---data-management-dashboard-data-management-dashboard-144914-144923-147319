@@ -14,3 +14,5 @@ const spec = getBaseOpenApiSpec();
 // Persist generated spec to file
 fs.writeFileSync(outputPath, JSON.stringify(spec, null, 2));
 console.log(`[openapi] Spec written to ${outputPath} with ${Object.keys(spec.paths || {}).length} paths.`);
+
+// Note: User Analysis endpoints were removed; spec reflects remaining core routes.

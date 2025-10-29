@@ -1,3 +1,5 @@
+'use strict';
+
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
@@ -6,33 +8,18 @@ const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 
-// Initialize express app
 const app = express();
 
-// Trust proxy for proper protocol and IP detection
 app.set('trust proxy', true);
-
-// Security middlewares
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use(rateLimiter());
-
-// Parse JSON request body with sensible limits
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-/**
- * PUBLIC_INTERFACE
- * OpenAPI JSON (primary): GET /openapi.json
- * PUBLIC_INTERFACE
- * OpenAPI JSON alias:    GET /api-docs.json
- *
- * Both endpoints inject a dynamic server URL based on the incoming request,
- * ensuring the documented base path matches the running server (port 3001).
- */
 const buildDynamicSpec = (req) => {
   const host = req.get('host');
-  let protocol = req.protocol;
+  let protocol = req.secure ? 'https' : req.protocol;
   const actualPort = req.socket?.localPort;
   const hasPort = host.includes(':');
   const needsPort =
@@ -40,10 +27,8 @@ const buildDynamicSpec = (req) => {
     ((protocol === 'http' && actualPort !== 80) ||
       (protocol === 'https' && actualPort !== 443));
   const fullHost = needsPort ? `${host}:${actualPort}` : host;
-  protocol = req.secure ? 'https' : protocol;
 
   const baseSpec = getBaseOpenApiSpec();
-
   return {
     ...baseSpec,
     info: {
@@ -59,27 +44,9 @@ const buildDynamicSpec = (req) => {
   };
 };
 
-// Expose OpenAPI JSON (primary)
-app.get('/openapi.json', (req, res) => {
-  const dynamicSpec = buildDynamicSpec(req);
-  res.json(dynamicSpec);
-});
+app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
+app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 
-// Expose OpenAPI JSON alias at /api-docs.json for compatibility
-app.get('/api-docs.json', (req, res) => {
-  const dynamicSpec = buildDynamicSpec(req);
-  res.json(dynamicSpec);
-});
-
-/**
- * PUBLIC_INTERFACE
- * Swagger UI (primary): GET /docs
- * PUBLIC_INTERFACE
- * Swagger UI alias:     GET /api-docs
- *
- * Serves interactive Swagger UI. Prefer fetching from /openapi.json to avoid inline spec issues.
- * Fallback is ensured by buildDynamicSpec above (and swagger.js sanitization).
- */
 const swaggerUiHandler = swaggerUi.setup(null, {
   swaggerOptions: {
     url: '/openapi.json',
@@ -88,24 +55,17 @@ const swaggerUiHandler = swaggerUi.setup(null, {
   },
   customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
 });
-
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-/**
- * Health and base routes
- */
+// Base router (non-/api) for health and overview
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
 
 /**
- * PUBLIC_INTERFACE
- * GET /api/health - simple health check with DB status
- * Returns 200 with status and db connectivity flag.
- * When db is disconnected, includes a hint to configure MONGODB_URI.
+ * Simple health with DB status
  */
 app.get('/api/health', (req, res) => {
-  // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
   const payload = { status: 'ok', db };
@@ -115,18 +75,10 @@ app.get('/api/health', (req, res) => {
   return res.status(200).json(payload);
 });
 
-// In test mode, avoid hanging requests if DB is not connected.
-// Return 503 quickly for most /api routes while allowing health, docs, and dev utilities.
 if (process.env.NODE_ENV === 'test') {
-  try {
-    // Disable mongoose buffering so accidental model calls fail fast instead of hanging
-    mongoose.set('bufferCommands', false);
-  } catch {
-    // ignore
-  }
+  try { mongoose.set('bufferCommands', false); } catch {}
   app.use((req, res, next) => {
     const p = req.path || req.originalUrl || '';
-    // Paths to bypass: health, openapi, docs, and dev helpers
     const bypass =
       p === '/' ||
       p.startsWith('/health') ||
@@ -136,8 +88,6 @@ if (process.env.NODE_ENV === 'test') {
       p.startsWith('/api-docs') ||
       p.startsWith('/api/dev');
     if (bypass) return next();
-
-    // For most API calls, if DB isn't connected, return 503 quickly in test mode
     if (mongoose.connection.readyState !== 1) {
       return res
         .status(503)
@@ -147,60 +97,40 @@ if (process.env.NODE_ENV === 'test') {
   });
 }
 
-/**
- * Dev utilities (seed data / db status) - non-auth, for debugging only.
- * Mount under /api/dev
- */
+// Dev utilities
 app.use('/api/dev', require('./routes/dev.routes'));
 
-/**
- * Public API routes (no authentication middleware).
- * All collection endpoints are mounted under /api to provide a stable prefix.
- */
+// Public API routes: mount only core endpoints
 app.use('/api/users', require('./routes/users.routes'));
 
-// Provide both kebab-case and camelCase route aliases to match frontend calls
+// Provide both kebab and camelCase aliases for session tracking and deployments
 app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
 app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 
 app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
 
- // Sample data endpoint (demonstration): /api/data
+// Sample data
 app.use('/api/data', require('./routes/data.routes'));
 
-// Costs aggregate endpoints (custom analytics-like)
+// Costs aggregate endpoints (non-users analytics)
 app.use('/api/costs', require('./routes/costs.byAgent.routes'));
 
-/**
- * Users analytics (DAU/WAU/MAU and insights)
- */
-app.use('/api/users/analytics', require('./routes/users.analytics.metrics.routes'));
-app.use('/api/users/analytics', require('./routes/usersAnalytics.routes'));
-
-// LLM costs endpoints (CRUD/list/get)
+// LLM costs endpoints
 app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
 app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
 
- // Tenants and Projects (mapping, hierarchy, credits, usage)
+// Tenants, Projects, Auth, Session
 app.use('/api/tenants', require('./routes/tenants.routes'));
 app.use('/api/projects', require('./routes/projects.routes'));
 app.use('/api/session', require('./routes/session.routes'));
-
- // Dashboard overview routes
 app.use('/api/dashboard', require('./routes/dashboard.routes'));
 app.use('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
-
-// Auth endpoints (login and config health)
 app.use('/api/auth', require('./routes/auth.routes'));
 
- // Analytics endpoints
-const analyticsRouter = require('./routes/analytics');
-app.use('/api/analytics', analyticsRouter);
+// Note: users analytics routes removed
 
-/**
- * JSON 404 handler for unmatched routes
- */
+// 404 JSON
 app.use((req, res) => {
   return res.status(404).json({
     success: false,
@@ -209,12 +139,8 @@ app.use((req, res) => {
   });
 });
 
-/**
- * Central error handler (after all routes)
- */
 app.use(errorHandler);
 
-/* Kick off DB connection once on app startup (skip in tests) */
 if (process.env.NODE_ENV !== 'test') {
   connectDB().catch((err) => {
     // eslint-disable-next-line no-console
@@ -223,11 +149,7 @@ if (process.env.NODE_ENV !== 'test') {
 } else {
   // eslint-disable-next-line no-console
   console.log('[startup] Skipping MongoDB connection in test environment');
-  try {
-    mongoose.set('bufferCommands', false);
-  } catch {
-    // ignore
-  }
+  try { mongoose.set('bufferCommands', false); } catch {}
 }
 
 module.exports = app;
