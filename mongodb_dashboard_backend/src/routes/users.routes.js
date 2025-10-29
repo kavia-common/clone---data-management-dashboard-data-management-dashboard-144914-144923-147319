@@ -75,49 +75,69 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const explicit =
-      Object.prototype.hasOwnProperty.call(req.query, 'page') ||
-      Object.prototype.hasOwnProperty.call(req.query, 'limit');
+    // Determine if envelope should be returned
+    const hasPage = Object.prototype.hasOwnProperty.call(req.query, 'page');
+    const hasLimit = Object.prototype.hasOwnProperty.call(req.query, 'limit');
+    const explicit = hasPage || hasLimit;
 
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
+    // Parse pagination defensively
+    const pageRaw = Number.parseInt(req.query.page, 10);
+    const limitRaw = Number.parseInt(req.query.limit, 10);
+    const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 20;
     const skip = (page - 1) * limit;
 
-    const sort = req.query.sort || '-created_at';
+    // Sort parsing: allow strings only, fallback default
+    const sort = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort : '-created_at';
 
-    const filterRaw = req.query.filter ? req.query.filter : '{}';
+    // Filter parsing: ignore malformed JSON instead of throwing
     let filter = {};
     try {
-      filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
-    } catch (e) {
-      // ignore malformed filter and continue
+      const filterRaw = req.query.filter;
+      if (typeof filterRaw === 'string' && filterRaw.trim()) {
+        filter = JSON.parse(filterRaw);
+      } else if (filterRaw && typeof filterRaw === 'object') {
+        filter = filterRaw;
+      }
+    } catch {
       filter = {};
     }
 
-    let items = [];
-    let total = 0;
-
-    try {
-      if (explicit) {
-        [items, total] = await Promise.all([
-          User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-          User.countDocuments(filter),
-        ]);
-      } else {
-        items = await User.find(filter).sort(sort).lean();
-        total = items.length;
+    // Core query with robust error mapping
+    const execQuery = async () => {
+      try {
+        if (explicit) {
+          const [items, total] = await Promise.all([
+            User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+            User.countDocuments(filter),
+          ]);
+          return { items, total };
+        } else {
+          const items = await User.find(filter).sort(sort).lean();
+          return { items, total: items.length };
+        }
+      } catch (err) {
+        const message = err?.message || 'Request failed';
+        // Validation errors -> 400
+        if (err?.name === 'CastError' || /Cast to/i.test(message)) {
+          return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
+        }
+        // Database connectivity issues -> 503 when disconnected
+        const ready = (require('mongoose').connection || {}).readyState;
+        if (ready !== 1) {
+          return res.status(503).json({ success: false, message: 'Service unavailable: database not connected' });
+        }
+        // Other unexpected errors as 500
+        return res.status(500).json({ success: false, message: 'Internal Server Error' });
       }
-    } catch (err) {
-      const message = err?.message || 'Request failed';
-      if (err?.name === 'CastError' || /Cast to/i.test(message)) {
-        return res
-          .status(400)
-          .json({ success: false, message: 'Invalid value provided (list)', details: message });
-      }
-      return res.status(500).json({ success: false, message: 'Internal Server Error' });
-    }
+    };
 
-    if (total === 0) {
+    let result = await execQuery();
+    // If execQuery already responded (on error), return early
+    if (!result || result.success === false) return;
+
+    // Optional light seeding for empty DB (non-fatal)
+    if ((result.total || 0) === 0) {
       try {
         const before = await User.countDocuments({});
         if (before === 0) {
@@ -142,28 +162,20 @@ router.get(
             },
           ];
           await User.insertMany(demoUsers);
-        }
-        if (explicit) {
-          [items, total] = await Promise.all([
-            User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-            User.countDocuments(filter),
-          ]);
-        } else {
-          items = await User.find(filter).sort(sort).lean();
-          total = items.length;
+          // re-run query to return items consistently
+          result = await execQuery();
+          if (!result || result.success === false) return;
         }
       } catch {
-        // swallow seeding errors
+        // seeding errors ignored intentionally
       }
     }
 
+    const { items, total } = result;
     if (explicit) {
-      return res.status(200).json({
-        success: true,
-        data: items,
-        meta: { page, limit, total },
-      });
+      return res.status(200).json({ success: true, data: items, meta: { page, limit, total } });
     }
+    // When not explicit, still return plain array for compatibility
     return res.status(200).json(items);
   })
 );

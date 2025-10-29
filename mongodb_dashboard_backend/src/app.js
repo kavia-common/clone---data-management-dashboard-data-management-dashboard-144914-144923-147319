@@ -128,7 +128,7 @@ app.use('/api/dashboard', require('./routes/dashboard.routes'));
 app.use('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
 app.use('/api/auth', require('./routes/auth.routes'));
 
-// Note: users analytics routes removed
+/* Users analytics routes have been fully removed to avoid dangling references */
 
 // 404 JSON
 app.use((req, res) => {
