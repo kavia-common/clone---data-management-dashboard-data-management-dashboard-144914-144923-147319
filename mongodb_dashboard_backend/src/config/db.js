@@ -4,23 +4,28 @@ const mongoose = require('mongoose');
  * PUBLIC_INTERFACE
  * Establishes a connection to MongoDB using Mongoose.
  * - Reads the connection string from process.env.MONGODB_URI
- * - Falls back to a predefined default if the environment variable is not set
+ * - Does NOT hard-code any default credentials or URIs (security and environment portability)
  * - Emits useful, non-sensitive logs for verification
  *
  * Returns the active mongoose.connection.
+ *
+ * ENVIRONMENT VARIABLES REQUIRED:
+ * - MONGODB_URI: Mongo connection string (e.g. mongodb://user:pass@host:27017/db)
+ * - MONGODB_DB (optional): Database name override
+ * - MONGOOSE_AUTO_INDEX (optional): 'true' to enable autoIndex
  */
 async function connectDB() {
-  // Default URI provided per task requirement; can be overridden by MONGODB_URI env var
-  const DEFAULT_URI =
-    'mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData';
+  // Enforce env-based configuration; never hard-code credentials
+  const uri = process.env.MONGODB_URI;
 
-  const uri = process.env.MONGODB_URI || DEFAULT_URI;
-
-  if (!process.env.MONGODB_URI) {
+  if (!uri || typeof uri !== 'string' || uri.trim() === '') {
     // eslint-disable-next-line no-console
-    console.warn(
-      'MONGODB_URI not set in environment. Falling back to built-in default MongoDB URI.'
+    console.error(
+      'MongoDB connection aborted: MONGODB_URI is not set. Configure it in the environment (.env).'
     );
+    const err = new Error('MONGODB_URI is not configured');
+    err.status = 503;
+    throw err;
   }
 
   mongoose.set('strictQuery', true);
@@ -41,7 +46,7 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = process.env.MONGODB_DB; // Optional; if not set, Mongo will use the URI/path default (often 'test')
+  const dbName = process.env.MONGODB_DB; // Optional; if not set, Mongo will use the URI/path default
 
   const options = {
     autoIndex,
@@ -58,7 +63,7 @@ async function connectDB() {
     const parsed = new URL(uri);
     clusterHost = parsed.hostname || clusterHost;
   } catch {
-    // swallow parse errors; we will still connect
+    // swallow parse errors; we will still attempt to connect
   }
 
   mongoose.connection.on('connected', () => {

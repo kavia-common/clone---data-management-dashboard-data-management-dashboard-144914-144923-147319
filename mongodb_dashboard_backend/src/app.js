@@ -98,12 +98,21 @@ app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
 
-// PUBLIC_INTERFACE
-// GET /api/health - simple health check with DB status
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/health - simple health check with DB status
+ * Returns 200 with status and db connectivity flag.
+ * When db is disconnected, includes a hint to configure MONGODB_URI.
+ */
 app.get('/api/health', (req, res) => {
   // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting
-  const db = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-  return res.status(200).json({ status: 'ok', db });
+  const ready = mongoose.connection.readyState;
+  const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+  const payload = { status: 'ok', db };
+  if (db !== 'connected') {
+    payload.hint = 'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
+  }
+  return res.status(200).json(payload);
 });
 
 // In test mode, avoid hanging requests if DB is not connected.
