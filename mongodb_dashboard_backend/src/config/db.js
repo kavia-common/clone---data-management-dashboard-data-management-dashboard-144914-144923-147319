@@ -134,4 +134,14 @@ async function getCollection(nameOrNames) {
   }
 }
 
-module.exports = { connectDB, getDb, getCollection };
+/**
+ * PUBLIC_INTERFACE
+ * isDbConnected
+ * Returns boolean indicating if Mongoose is currently connected to MongoDB.
+ */
+function isDbConnected() {
+  // 1 means connected
+  return mongoose.connection && mongoose.connection.readyState === 1;
+}
+
+module.exports = { connectDB, getDb, getCollection, isDbConnected };

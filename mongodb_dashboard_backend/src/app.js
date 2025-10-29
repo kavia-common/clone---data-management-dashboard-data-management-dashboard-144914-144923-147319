@@ -4,6 +4,7 @@ const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
+const { errorHandler } = require('./middleware/standardHandlers');
 
 // Initialize express app
 const app = express();
@@ -97,6 +98,14 @@ app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
 
+// PUBLIC_INTERFACE
+// GET /api/health - simple health check with DB status
+app.get('/api/health', (req, res) => {
+  // 0=disconnected, 1=connected, 2=connecting, 3=disconnecting
+  const db = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  return res.status(200).json({ status: 'ok', db });
+});
+
 // In test mode, avoid hanging requests if DB is not connected.
 // Return 503 quickly for most /api routes while allowing health, docs, and dev utilities.
 if (process.env.NODE_ENV === 'test') {
@@ -180,7 +189,9 @@ app.use('/api/auth', require('./routes/auth.routes'));
 const analyticsRouter = require('./routes/analytics');
 app.use('/api/analytics', analyticsRouter);
 
-// JSON 404 handler for unmatched routes (helps frontend diagnose correctly instead of generic HTML)
+/**
+ * JSON 404 handler for unmatched routes
+ */
 app.use((req, res) => {
   return res.status(404).json({
     success: false,
@@ -188,17 +199,11 @@ app.use((req, res) => {
     path: req.originalUrl,
   });
 });
-// Error handling middleware
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  // eslint-disable-next-line no-console
-  console.error(err);
-  const status = err.status || 500;
-  res.status(status).json({
-    success: false,
-    message: err.message || 'Internal Server Error',
-  });
-});
+
+/**
+ * Central error handler (after all routes)
+ */
+app.use(errorHandler);
 
 /* Kick off DB connection once on app startup (skip in tests) */
 if (process.env.NODE_ENV !== 'test') {

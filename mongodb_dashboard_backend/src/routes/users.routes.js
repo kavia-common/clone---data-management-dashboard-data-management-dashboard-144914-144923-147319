@@ -403,13 +403,15 @@ router.get(
 
     const sort = req.query.sort || '-created_at';
 
-    // Parse filter safely
+    // Parse filter safely: ignore malformed JSON and continue with empty filter
     const filterRaw = req.query.filter ? req.query.filter : '{}';
     let filter = {};
     try {
       filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
-    } catch {
-      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('users.list: Ignoring malformed filter JSON. Received:', filterRaw);
+      filter = {}; // default to no filter
     }
 
     // First pass: check data presence without sending a response
@@ -428,12 +430,32 @@ router.get(
         total = items.length;
       }
     } catch (err) {
-      // Map common cast errors to 400 to avoid 500
+      // Enhanced error mapping:
       const message = err?.message || 'Request failed';
-      if (err?.name === 'CastError' || /Cast to/.test(message)) {
-        return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
+
+      // Mongoose cast errors (e.g., invalid ObjectId in filter)
+      if (err?.name === 'CastError' || /Cast to/i.test(message)) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Invalid value provided (list)', details: message });
       }
-      return res.status(400).json({ success: false, message: 'Request failed', details: message });
+
+      // Database connectivity/network issues -> 503
+      const name = String(err?.name || '');
+      if (
+        name.includes('MongoNetworkError') ||
+        /ECONNREFUSED/i.test(message) ||
+        /failed to connect/i.test(message)
+      ) {
+        // eslint-disable-next-line no-console
+        console.error('users.list: Database connectivity issue:', message);
+        return res.status(503).json({ success: false, message: 'Database unavailable' });
+      }
+
+      // Unexpected errors -> 500
+      // eslint-disable-next-line no-console
+      console.error('users.list: Unexpected error:', err);
+      return res.status(500).json({ success: false, message: 'Internal Server Error' });
     }
 
     // If empty and no documents exist at all, seed and re-run once
