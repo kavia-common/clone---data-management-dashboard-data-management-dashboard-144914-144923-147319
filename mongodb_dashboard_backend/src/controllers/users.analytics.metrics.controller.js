@@ -119,10 +119,18 @@ async function byDepartment(req, res, next) {
     const users = db.collection('users');
     const start = windowStart(windowDays);
 
+    // Optional filters
+    const { department, organization_id } = req.query || {};
+    const match = { updated_at: { $gte: start } };
+    if (department) {
+      match.department = department;
+    }
+    if (organization_id) {
+      match.organization_id = organization_id;
+    }
+
     const pipeline = [
-      {
-        $match: { updated_at: { $gte: start } },
-      },
+      { $match: match },
       {
         $group: {
           _id: { $ifNull: ['$department', 'Unknown'] },
@@ -199,8 +207,17 @@ async function topActive(req, res, next) {
     const users = db.collection('users');
     const start = windowStart(windowDays);
 
+    const { department, organization_id } = req.query || {};
+    const match = { updated_at: { $gte: start } };
+    if (department) {
+      match.department = department;
+    }
+    if (organization_id) {
+      match.organization_id = organization_id;
+    }
+
     const pipeline = [
-      { $match: { updated_at: { $gte: start } } },
+      { $match: match },
       {
         $project: {
           _id: 1,
@@ -331,6 +348,47 @@ async function ensureUsersAnalyticsIndexes() {
   ]);
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/analytics/filters/departments
+ * Returns array of distinct department values (strings), excluding null/empty.
+ */
+async function getDistinctDepartments(req, res, next) {
+  try {
+    const db = await getDb();
+    const users = db.collection('users');
+    const values = await users.distinct('department', { department: { $exists: true, $ne: null, $ne: '' } });
+    // Normalize to strings and sort
+    const items = values
+      .map((v) => (v == null ? null : String(v)))
+      .filter((v) => v && v.trim() !== '')
+      .sort((a, b) => a.localeCompare(b));
+    res.json(items);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/analytics/filters/organizations
+ * Returns array of distinct organization_id values (strings), excluding null/empty.
+ */
+async function getDistinctOrganizations(req, res, next) {
+  try {
+    const db = await getDb();
+    const users = db.collection('users');
+    const values = await users.distinct('organization_id', { organization_id: { $exists: true, $ne: null, $ne: '' } });
+    const items = values
+      .map((v) => (v == null ? null : String(v)))
+      .filter((v) => v && v.trim() !== '')
+      .sort((a, b) => a.localeCompare(b));
+    res.json(items);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   dailyActive,
   byDepartment,
@@ -338,4 +396,6 @@ module.exports = {
   topActive,
   summary,
   ensureUsersAnalyticsIndexes,
+  getDistinctDepartments,
+  getDistinctOrganizations,
 };
