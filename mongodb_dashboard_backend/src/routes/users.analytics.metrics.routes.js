@@ -26,8 +26,35 @@ ensureUsersAnalyticsIndexes().catch((e) => {
  * Note: Route handlers return JSON with ISO dates and counts as per requirements.
  */
 
-// PUBLIC_INTERFACE
-// GET /api/users/analytics/daily-active?days=30
+/**
+ * @swagger
+ * /api/users/analytics/daily-active:
+ *   get:
+ *     summary: Daily Active Users (DAU)
+ *     description: Returns counts of active users per day using users.updated_at within the provided date range. Defaults to last 30 days when not provided.
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema: { type: integer, minimum: 1, maximum: 365, default: 30 }
+ *         description: Lookback window in days when start_date/end_date are not provided.
+ *       - in: query
+ *         name: start_date
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO start datetime (inclusive). When provided, overrides days default.
+ *       - in: query
+ *         name: end_date
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO end datetime (inclusive). Default now.
+ *       - in: query
+ *         name: department
+ *         schema: { type: string }
+ *         description: Optional department filter.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *         description: Optional organization filter.
+ */
 router.get('/daily-active', dailyActive);
 
 /**
@@ -41,7 +68,15 @@ router.get('/daily-active', dailyActive);
  *       - in: query
  *         name: windowDays
  *         schema: { type: integer, minimum: 1, maximum: 365, default: 14 }
- *         description: Active window in days
+ *         description: Active window in days (used if start_date/end_date are not provided)
+ *       - in: query
+ *         name: start_date
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO start datetime (inclusive)
+ *       - in: query
+ *         name: end_date
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO end datetime (inclusive)
  *       - in: query
  *         name: department
  *         schema: { type: string }
@@ -56,8 +91,38 @@ router.get('/daily-active', dailyActive);
  */
 router.get('/by-department', byDepartment);
 
-// PUBLIC_INTERFACE
-// GET /api/users/analytics/active-vs-inactive?windowDays=14
+/**
+ * @swagger
+ * /api/users/analytics/active-vs-inactive:
+ *   get:
+ *     summary: Active vs Inactive users
+ *     description: Computes active vs inactive counts using users.updated_at within the provided window or status=='active'. When no dates are provided, uses last 14 days.
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: windowDays
+ *         schema: { type: integer, minimum: 1, maximum: 365, default: 14 }
+ *         description: Active window in days (used if start_date/end_date are not provided)
+ *       - in: query
+ *         name: start_date
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO start datetime (inclusive)
+ *       - in: query
+ *         name: end_date
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO end datetime (inclusive)
+ *       - in: query
+ *         name: department
+ *         schema: { type: string }
+ *         description: Optional department filter
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *         description: Optional organization filter
+ *     responses:
+ *       200:
+ *         description: Active vs inactive counts
+ */
 router.get('/active-vs-inactive', activeVsInactive);
 
 /**
@@ -75,7 +140,15 @@ router.get('/active-vs-inactive', activeVsInactive);
  *       - in: query
  *         name: windowDays
  *         schema: { type: integer, minimum: 1, maximum: 365, default: 30 }
- *         description: Activity window in days
+ *         description: Activity window in days (used if start_date/end_date are not provided)
+ *       - in: query
+ *         name: start_date
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO start datetime (inclusive)
+ *       - in: query
+ *         name: end_date
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO end datetime (inclusive)
  *       - in: query
  *         name: department
  *         schema: { type: string }
@@ -129,8 +202,34 @@ router.get('/filters/departments', getDistinctDepartments);
  */
 router.get('/filters/organizations', getDistinctOrganizations);
 
-// PUBLIC_INTERFACE
-// GET /api/users/analytics/summary
+/**
+ * @swagger
+ * /api/users/analytics/summary:
+ *   get:
+ *     summary: Users analytics summary
+ *     description: Returns KPIs: totalActive (last 14 days), newUsersThisWeek (last 7 days), inactive30Days, compliancePct, WAU, MAU. Date math is computed relative to end_date or now, and department/organization_id filters are respected for all metrics.
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: start_date
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO start datetime (inclusive) used to cap windows.
+ *       - in: query
+ *         name: end_date
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO end datetime (inclusive). Defaults to now.
+ *       - in: query
+ *         name: department
+ *         schema: { type: string }
+ *         description: Optional department filter
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *         description: Optional organization filter
+ *     responses:
+ *       200:
+ *         description: Users analytics KPIs
+ */
 router.get('/summary', summary);
 
 module.exports = router;
