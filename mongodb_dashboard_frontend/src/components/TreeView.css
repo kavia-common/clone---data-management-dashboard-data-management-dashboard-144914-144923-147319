@@ -79,7 +79,8 @@
 }
 
 .tv-badge {
-  background: var(--tv-badge-bg);
+  /* Ensure badge has no white/solid fill; allow theme-controlled tint via parent or stay transparent */
+  background-color: transparent;
   color: var(--tv-badge-text);
   font-size: 11px;
   font-weight: 700;
