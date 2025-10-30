@@ -18,7 +18,10 @@ const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
 const countsRoutes = require('./counts.routes');
 
-// Additive: users analytics activity+summary router (namespaced)
+/**
+ * Users analytics router mounted at /api/analytics/users
+ * Ensures no 404 for frontend analyticsUsers client.
+ */
 const usersAnalyticsRouter = require('./analytics.users.activity.routes');
 
 const router = express.Router();
