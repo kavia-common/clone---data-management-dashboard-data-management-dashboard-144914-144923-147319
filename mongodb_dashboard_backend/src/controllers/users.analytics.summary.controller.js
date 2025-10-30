@@ -95,7 +95,7 @@ async function getUsersTenantSummary(req, res) {
       },
       {
         $match: {
-          _tenant_key: { $ne: null, $ne: '' },
+          _tenant_key: { $nin: [null, ''] },
         },
       },
       {

@@ -54,4 +54,13 @@ const { getUsersTenantSummary } = require('../controllers/users.analytics.summar
  */
 router.get('/tenant-summary', asyncHandler(getUsersTenantSummary));
 
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/tenant-summary/health
+ * Simple health endpoint to verify that the users.analytics.summary router is mounted.
+ */
+router.get('/tenant-summary/health', (req, res) => {
+  return res.status(200).json({ ok: true, router: 'users.analytics.summary' });
+});
+
 module.exports = router;
