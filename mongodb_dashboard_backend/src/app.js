@@ -23,8 +23,12 @@ app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Lightweight top-level health endpoint that does not depend on DB being connected
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * GET /health
+ * Purpose: Lightweight health endpoint that does not depend on DB being connected.
+ * Returns: 200 JSON including service name, version, environment, db connection status, and timestamp.
+ */
 app.get('/health', (req, res) => {
   const ready = mongoose.connection?.readyState;
   const dbStatus = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
