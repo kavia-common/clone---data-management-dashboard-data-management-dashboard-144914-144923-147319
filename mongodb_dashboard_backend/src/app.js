@@ -67,9 +67,12 @@ app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.options('*', (req, res) => res.sendStatus(204));
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-// Base router (non-/api) for health and overview
+ // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
+
+// Temporary analytics health check direct mount for verification
+app.get('/api/analytics/health', (req, res) => res.status(200).json({ ok: true, service: 'analytics-usage' }));
 
 /**
  * Simple health with DB status
@@ -174,8 +177,17 @@ const analyticsAgentsRoutes = require('./routes/analyticsAgents');
 app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
 app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 
-// New analytics by agents endpoint
+ // New analytics by agents endpoint
 app.use('/api/analytics/agents', analyticsAgentsRoutes);
+
+// Mount legacy/general analytics router for documented endpoints
+try {
+  const analyticsRouter = require('./routes/analytics');
+  app.use('/api/analytics', analyticsRouter);
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.warn('[startup] analytics router not available or failed to mount:', e?.message || e);
+}
 
 app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 app.use('/api/appDeployments', require('./routes/appDeployments.routes'));

@@ -38,7 +38,7 @@ const getGroupByAgents = asyncHandler(async (req, res) => {
   const params = normalizeQuery(req.query);
   const result = await groupByAgents(params);
   const items = Array.isArray(result?.items) ? result.items : (Array.isArray(result) ? result : []);
-res.json({ success: true, data: items, meta: result?.meta || { count: items.length } });
+  return res.status(200).json({ success: true, data: items, meta: result?.meta || { count: items.length } });
 });
 
 // PUBLIC_INTERFACE
@@ -47,7 +47,7 @@ const getGroupByTeams = asyncHandler(async (req, res) => {
   const params = normalizeQuery(req.query);
   const result = await groupByTeams(params);
   const items = Array.isArray(result?.items) ? result.items : (Array.isArray(result) ? result : []);
-  res.json({ success: true, data: items, meta: result?.meta || { count: items.length } });
+  return res.status(200).json({ success: true, data: items, meta: result?.meta || { count: items.length } });
 });
 
 // PUBLIC_INTERFACE
@@ -73,7 +73,7 @@ const getFeaturesByCredit = asyncHandler(async (req, res) => {
   } else {
     items = Array.isArray(result) ? result : [];
   }
-  res.json({ success: true, data: items, meta: result?.meta || { count: Array.isArray(items) ? items.length : (items.top?.length || 0) + (items.bottom?.length || 0) } });
+  return res.status(200).json({ success: true, data: items, meta: result?.meta || { count: Array.isArray(items) ? items.length : (items.top?.length || 0) + (items.bottom?.length || 0) } });
 });
 
 module.exports = {

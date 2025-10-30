@@ -5,8 +5,11 @@ const router = express.Router();
 const { auditLoggerMiddleware } = require('../middleware/standardHandlers');
 const { getGroupByAgents, getGroupByTeams, getUsageByUser, getFeaturesByCredit } = require('../controllers/analyticsUsage.controller');
 
-// Apply audit logger to these analytics routes
+ // Apply audit logger to these analytics routes
 router.use(auditLoggerMiddleware);
+
+// Preflight support for all paths in this router
+router.options('/*', (req, res) => res.sendStatus(204));
 
 // GET /api/analytics/group-by-agents
 router.get('/group-by-agents', getGroupByAgents);
