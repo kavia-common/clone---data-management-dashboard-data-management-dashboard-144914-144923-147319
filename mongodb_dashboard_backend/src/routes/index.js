@@ -18,9 +18,6 @@ const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
 const countsRoutes = require('./counts.routes');
 
-// New Users Insights (v3) routes module
-const usersInsightsRoutesV3 = require('./users.analytics.routes.v3');
-
 const router = express.Router();
 
 /**
@@ -45,9 +42,6 @@ router.use('/app-deployments', appDeploymentsRoutes);
 
 // Users Analytics (v2) under /api/users/analytics
 router.use('/users/analytics', require('./users.analytics.routes.v2'));
-
-// Users Insights (v3) mounted at top-level to expose /api/users/* insights endpoints
-router.use('/', usersInsightsRoutesV3);
 
 // Dashboard overview routes
 router.use('/dashboard/overview', dashboardRoutes);
