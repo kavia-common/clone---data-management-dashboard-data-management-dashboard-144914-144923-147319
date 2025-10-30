@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { auditLoggerMiddleware } = require('../middleware');
+const { auditLoggerMiddleware } = require('../middleware/standardHandlers');
 const { getGroupByAgents, getGroupByTeams, getUsageByUser, getFeaturesByCredit } = require('../controllers/analyticsUsage.controller');
 
 // Apply audit logger to these analytics routes

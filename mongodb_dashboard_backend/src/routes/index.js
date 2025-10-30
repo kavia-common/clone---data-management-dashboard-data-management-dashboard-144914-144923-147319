@@ -42,6 +42,7 @@ router.use('/session-tracking', sessionTrackingRoutes);
 router.use('/app-deployments', appDeploymentsRoutes);
 
 // New analytics usage endpoints mounted under /api/analytics
+try { console.log('[startup] routes: mounting /analytics (usage)'); } catch {}
 router.use('/analytics', analyticsUsageRoutes);
 
 // Dashboard overview routes

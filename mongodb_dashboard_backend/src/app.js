@@ -62,6 +62,9 @@ const swaggerUiHandler = swaggerUi.setup(null, {
   customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
 });
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
+
+// Handle OPTIONS globally early to satisfy CORS preflights
+app.options('*', (req, res) => res.sendStatus(204));
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
 // Base router (non-/api) for health and overview
