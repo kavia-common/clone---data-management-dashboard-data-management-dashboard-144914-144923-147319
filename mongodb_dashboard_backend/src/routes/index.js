@@ -18,11 +18,9 @@ const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
 const countsRoutes = require('./counts.routes');
 
-/**
- * Users analytics router mounted at /api/analytics/users
- * Ensures no 404 for frontend analyticsUsers client.
- */
-const usersAnalyticsRouter = require('./analytics.users.activity.routes');
+// Users analytics routers (new additive endpoints from users collection)
+const usersAnalyticsActivityRouter = require('./analytics.users.activity.routes');
+const usersAnalyticsSummaryRouter = require('./analytics.users.summary.routes');
 
 const router = express.Router();
 
@@ -34,7 +32,7 @@ const router = express.Router();
 router.get('/', healthController.check.bind(healthController));
 router.get('/healthz', healthController.check.bind(healthController));
 
-// Mount core API routes (analysis routes removed)
+// Mount core API routes
 router.use('/auth', authRoutes);
 router.use('/users', usersRoutes);
 router.use('/tenants', tenantsRoutes);
@@ -53,14 +51,16 @@ router.use('/dashboard/overview', dashboardModulesRoutes);
 // Counts endpoints mounted at top-level /api
 router.use('/', countsRoutes);
 
-/**
- * Canonical analytics users endpoints
- */
-router.use('/analytics/users', usersAnalyticsRouter);
-/**
- * Compatibility alias so both /api/analytics/users/* and /api/users/analytics/* work.
- * This helps avoid frontend path mismatch issues without changing UI components.
- */
-router.use('/users/analytics', usersAnalyticsRouter);
+// Canonical analytics users endpoints under /api/analytics/users
+router.use('/analytics/users', usersAnalyticsActivityRouter);
+router.use('/analytics/users', usersAnalyticsSummaryRouter);
+
+// Compatibility alias so both /api/analytics/users/* and /api/users/analytics/* work.
+router.use('/users/analytics', usersAnalyticsActivityRouter);
+router.use('/users/analytics', usersAnalyticsSummaryRouter);
+
+// Also mount directly under /api/users for convenience as per requirements
+router.use('/users', usersAnalyticsActivityRouter);
+router.use('/users', usersAnalyticsSummaryRouter);
 
 module.exports = router;
