@@ -100,8 +100,12 @@ if (process.env.NODE_ENV === 'test') {
 // Dev utilities
 app.use('/api/dev', require('./routes/dev.routes'));
 
-// Public API routes: mount only core endpoints
+/**
+ * Public API routes
+ * Users CRUD and analytics summary
+ */
 app.use('/api/users', require('./routes/users.routes'));
+app.use('/api/users', require('./routes/users.analytics.summary.routes'));
 
 // Provide both kebab and camelCase aliases for session tracking and deployments
 app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
