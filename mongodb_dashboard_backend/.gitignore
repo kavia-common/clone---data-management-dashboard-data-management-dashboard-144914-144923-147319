@@ -29,3 +29,5 @@ build/
 .npm/
 
 openapi.json
+.knowledge/
+.knowledge/

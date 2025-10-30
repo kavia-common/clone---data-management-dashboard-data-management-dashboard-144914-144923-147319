@@ -1,8 +1,8 @@
 # Backend (Express) - Dashboard API
 
 - Default port: 3001 (configurable via PORT in .env)
-- Docs (Swagger UI): http://localhost:3001/docs
-- OpenAPI JSON: http://localhost:3001/openapi.json
+- Docs (Swagger UI): http://localhost:3001/docs (alias: http://localhost:3001/api-docs)
+- OpenAPI JSON: http://localhost:3001/openapi.json (alias: http://localhost:3001/api-docs.json)
 
 Environment example: see .env.example.
 

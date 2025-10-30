@@ -39,6 +39,7 @@ function toOriginMaybe(urlLike) {
  * - Returns 403 JSON on CORS rejection with a clear message.
  * - Handles OPTIONS preflight with 204 status.
  */
+// PUBLIC_INTERFACE
 function corsMiddleware() {
   const inferredFromApiBase = toOriginMaybe(process.env.REACT_APP_API_BASE_URL);
 
@@ -74,8 +75,7 @@ function corsMiddleware() {
   whitelist.add('https://localhost:3000');
 
   // Preview environment frontend
-
-  whitelist.add('https://vscode-internal-32003-beta.beta01.cloud.kavia.ai:3000');
+  whitelist.add('https://vscode-internal-42121-beta.beta01.cloud.kavia.ai:3000');
 
   const allowCredentials =
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
@@ -139,6 +139,7 @@ function corsMiddleware() {
  * Build a Helmet middleware with relaxed CSP (disabled) to avoid conflicts
  * with Swagger UI and dynamic content, while keeping CORP permissive for cross-origin resources.
  */
+// PUBLIC_INTERFACE
 function helmetMiddleware() {
   return helmet({
     contentSecurityPolicy: false,
@@ -155,6 +156,7 @@ function helmetMiddleware() {
  * - RATE_LIMIT_MAX: Max requests per IP per window (default: 200)
  * - RATE_LIMIT_SKIP_GET: When "true" (default), skip limiting for GET requests to reduce 429s on table interactions.
  */
+// PUBLIC_INTERFACE
 function rateLimiter() {
   const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10);
   const max = parseInt(process.env.RATE_LIMIT_MAX || '200', 10);

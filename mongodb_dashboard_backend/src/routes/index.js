@@ -1,12 +1,13 @@
+'use strict';
+
 const express = require('express');
 const healthController = require('../controllers/health');
 
-// Import route modules
+// Core route modules
 const authRoutes = require('./auth.routes');
 const usersRoutes = require('./users.routes');
 const tenantsRoutes = require('./tenants.routes');
 const dataRoutes = require('./data.routes');
-const analyticsRoutes = require('./analytics.routes');
 const llmCostsRoutes = require('./llmCosts.routes');
 const llmCostsAggregateRoutes = require('./llmCosts.aggregate.routes');
 const costsByAgentRoutes = require('./costs.byAgent.routes');
@@ -20,43 +21,18 @@ const countsRoutes = require('./counts.routes');
 const router = express.Router();
 
 /**
- * @swagger
- * /:
- *   get:
- *     summary: Health endpoint
- *     description: Returns health status of the service.
- *     tags: [Health]
- *     responses:
- *       200:
- *         description: Service health check passed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: ok
- *                 message:
- *                   type: string
- *                   example: Service is healthy
- *                 timestamp:
- *                   type: string
- *                   format: date-time
- *                 environment:
- *                   type: string
- *                   example: development
+ * PUBLIC_INTERFACE
+ * GET /
+ * Health endpoint for base router
  */
 router.get('/', healthController.check.bind(healthController));
-// Readiness/liveness alias commonly used by orchestrators
 router.get('/healthz', healthController.check.bind(healthController));
 
-// Mount API routes
+// Mount core API routes (analysis routes removed)
 router.use('/auth', authRoutes);
 router.use('/users', usersRoutes);
 router.use('/tenants', tenantsRoutes);
 router.use('/data', dataRoutes);
-router.use('/analytics', analyticsRoutes);
 router.use('/llm-costs', llmCostsRoutes);
 router.use('/llm-costs-aggregate', llmCostsAggregateRoutes);
 router.use('/costs', costsByAgentRoutes);

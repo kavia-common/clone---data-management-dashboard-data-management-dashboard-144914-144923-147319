@@ -1,7 +1,13 @@
 import axios from "axios";
 
-
-const RAW_BASE_URL = "https://vscode-internal-21707-beta.beta01.cloud.kavia.ai:3001";
+/**
+ * PUBLIC_INTERFACE
+ * API client configured with base URL and safe path joining that avoids double '/api'.
+ * In this environment, RAW_BASE_URL points at the backend service (port 3001) and API_PREFIX is '/api'.
+ * If deploying elsewhere, set REACT_APP_API_BASE_URL to override RAW_BASE_URL.
+ */
+const ENV_BASE = process.env.REACT_APP_API_BASE_URL || "";
+const RAW_BASE_URL = ENV_BASE || "https://vscode-internal-42121-beta.beta01.cloud.kavia.ai:3001";
 const API_PREFIX = "/api";
 
 // Combine base + prefix safely
@@ -56,62 +62,73 @@ function normalizeListResponse(res) {
   return { items, total, meta: payload.meta || null };
 }
 
-// === PUBLIC INTERFACE ===
+// PUBLIC_INTERFACE
 export function getApiClient() {
   /** Returns the configured Axios instance */
   return api;
 }
 
-// === HEALTH CHECK ===
+// HEALTH CHECK
+// PUBLIC_INTERFACE
 export async function health() {
   /** GET / - backend health check */
-  const res = await axios.get(RAW_BASE_URL);
+  const url = RAW_BASE_URL.endsWith('/') ? RAW_BASE_URL.slice(0, -1) : RAW_BASE_URL;
+  const res = await axios.get(url);
   return res.data;
 }
 
 // === USERS ===
+// PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
   const res = await api.get("/users", { params });
   return normalizeListResponse(res);
 }
 
+// PUBLIC_INTERFACE
 export async function createUser(body) {
   const res = await api.post("/users", body);
   return res.data?.data ?? res.data;
 }
 
+// PUBLIC_INTERFACE
 export async function updateUser(id, body) {
   const res = await api.put(`/users/${id}`, body);
   return res.data?.data ?? res.data;
 }
 
+// PUBLIC_INTERFACE
 export async function deleteUser(id) {
   const res = await api.delete(`/users/${id}`);
   return res.data?.data ?? res.data;
 }
 
 // === SESSION TRACKING ===
+// PUBLIC_INTERFACE
 export async function listSessions(params = {}) {
   const res = await api.get("/session-tracking", { params });
   return normalizeListResponse(res);
 }
 
+// PUBLIC_INTERFACE
 export async function createSession(body) {
   const res = await api.post("/session-tracking", body);
   return res.data?.data ?? res.data;
 }
 
+// PUBLIC_INTERFACE
 export async function updateSession(id, body) {
   const res = await api.put(`/session-tracking/${id}`, body);
   return res.data?.data ?? res.data;
 }
 
+// PUBLIC_INTERFACE
 export async function deleteSession(id) {
   const res = await api.delete(`/session-tracking/${id}`);
   return res.data?.data ?? res.data;
 }
 
 // === APP DEPLOYMENTS ===
+// PUBLIC_INTERFACE
 export async function listDeployments(params = {}) {
   const res = await api.get("/app-deployments", { params });
   return normalizeListResponse(res);
@@ -126,16 +143,15 @@ export async function listLlmCosts(params = {}) {
   return normalizeListResponse(res);
 }
 
-
-
-// === USER COSTS ===
+// === USER COSTS (placeholders using /users list) ===
+// PUBLIC_INTERFACE
 export async function getUserCosts(userId) {
   if (!userId) throw new Error("userId is required");
   const res = await api.get(`/users`);
   return res.data?.data ?? res.data;
 }
 
-// === USER PROJECT COSTS ===
+// PUBLIC_INTERFACE
 export async function getUserProjectsCosts(userId) {
   if (!userId) throw new Error("userId is required");
   const res = await api.get(`/users`);

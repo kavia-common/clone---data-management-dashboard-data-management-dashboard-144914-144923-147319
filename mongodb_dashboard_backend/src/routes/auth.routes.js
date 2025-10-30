@@ -38,7 +38,7 @@ router.get('/health', (req, res) => {
   const tenantSaltWarning = isMissing
     ? 'SECRET_SALT is missing'
     : !looksValid
-      ? 'SECRET_SALT must be URL-safe base64 (no =) 22-24 chars, e.g., g5StFHvCyj0Hf9g8j87nGA'
+      ? 'SECRET_SALT must be URL-safe base64 (no =) 22-24 chars'
       : isPlaceholder
         ? 'SECRET_SALT appears to be a placeholder/weak value'
         : null;

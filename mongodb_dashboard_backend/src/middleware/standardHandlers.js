@@ -90,23 +90,25 @@ function notFoundHandler(req, res) {
 function errorHandler(err, req, res, next) {
   /**
    * Central error handler producing a standardized JSON envelope.
-   * Maps validation errors to 422, cast errors to 400, preserves explicit err.status if present.
+   * Maps validation errors to 422, cast errors to 400, DB connectivity to 503,
+   * and defaults to 500. Logs stack traces in non-production.
    */
+  const env = String(process.env.NODE_ENV || '').toLowerCase();
+
+  // Prefer detailed logging during development/test
   // eslint-disable-next-line no-console
-  console.error('[ERROR]', err);
+  if (env !== 'production') {
+    console.error('[ERROR]', err?.stack || err);
+  } else {
+    console.error('[ERROR]', err?.message || err);
+  }
 
   let status = err.status || 500;
   let code = err.code || 'INTERNAL_ERROR';
   let message = err.message || 'Internal Server Error';
   let details;
 
-  // Map common validation scenarios
-  const msg = String(message || '').toLowerCase();
-  if (status === 400 && (msg.includes('invalid') || msg.includes('bad request'))) {
-    code = 'BAD_REQUEST';
-  }
-
-  // Mongoose cast errors or similar
+  // Mongoose cast errors or similar -> 400
   if (err?.name === 'CastError' || /cast to/i.test(err?.message || '')) {
     status = 400;
     code = 'BAD_REQUEST';
@@ -114,8 +116,21 @@ function errorHandler(err, req, res, next) {
     details = err.message;
   }
 
-  // Validation semantic (when upstream sets)
-  if (status === 422 || /validation/i.test(msg)) {
+  // Connectivity/network issues -> 503
+  const errName = String(err?.name || '');
+  const errMsg = String(err?.message || '');
+  if (
+    errName.includes('MongoNetworkError') ||
+    /ECONNREFUSED/i.test(errMsg) ||
+    /failed to connect/i.test(errMsg)
+  ) {
+    status = 503;
+    code = 'SERVICE_UNAVAILABLE';
+    message = 'Database unavailable';
+  }
+
+  // Validation semantic -> 422
+  if (status === 422 || /validation/i.test(errMsg)) {
     status = 422;
     code = 'UNPROCESSABLE_ENTITY';
   }
