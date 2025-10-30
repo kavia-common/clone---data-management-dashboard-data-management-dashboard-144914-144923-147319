@@ -1001,4 +1001,126 @@ router.get(
 // PUBLIC_INTERFACE
 router.get('/referral-sources', asyncHandler(getReferralSources));
 
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/kpi-summary
+ * Returns summary KPIs for users analytics based on users collection.
+ * Shape:
+ *  { total: number, active: number, newLast30Days: number, admins: number }
+ */
+router.get(
+  '/kpi-summary',
+  asyncHandler(async (req, res) => {
+    const now = new Date();
+    const last30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const [total, active, newLast30Days, admins] = await Promise.all([
+      User.countDocuments({}).catch(() => 0),
+      User.countDocuments({ status: 'active' }).catch(() => 0),
+      User.countDocuments({ created_at: { $gte: last30 } }).catch(() => 0),
+      User.countDocuments({ is_admin: true }).catch(() => 0),
+    ]);
+    return res.status(200).json({ total, active, newLast30Days, admins });
+  })
+);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/by-department
+ * Returns user counts grouped by department field.
+ * Shape: { items: [{ department: string|null, count: number }], totalGroups: number }
+ */
+router.get(
+  '/by-department',
+  asyncHandler(async (req, res) => {
+    const pipeline = [
+      {
+        $group: {
+          _id: { $ifNull: ['$department', null] },
+          count: { $sum: 1 },
+        },
+      },
+      { $project: { _id: 0, department: '$_id', count: 1 } },
+      { $sort: { count: -1, department: 1 } },
+    ];
+    const items = await User.aggregate(pipeline).allowDiskUse(true).catch(() => []);
+    return res.status(200).json({ items, totalGroups: items.length });
+  })
+);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/by-organization
+ * Groups users by organization_id with optional join to tenants for names.
+ * Shape: { items: [{ organization_id: string, tenant_name?: string|null, count: number }], totalGroups: number }
+ */
+router.get(
+  '/by-organization',
+  asyncHandler(async (req, res) => {
+    const pipeline = [
+      {
+        $addFields: {
+          orgKey: {
+            $ifNull: ['$organization_id', { $ifNull: ['$tenant_id', '$tenant.tenant_id'] }],
+          },
+        },
+      },
+      { $match: { orgKey: { $nin: [null, ''] } } },
+      {
+        $group: {
+          _id: '$orgKey',
+          count: { $sum: 1 },
+        },
+      },
+      { $project: { _id: 0, organization_id: '$_id', count: 1 } },
+      {
+        $lookup: {
+          from: Tenant.collection.name,
+          localField: 'organization_id',
+          foreignField: 'tenant_id',
+          as: 'tenant',
+        },
+      },
+      {
+        $addFields: {
+          tenant_name: { $let: { vars: { t: { $arrayElemAt: ['$tenant', 0] } }, in: { $ifNull: ['$$t.tenant_name', null] } } },
+        },
+      },
+      { $project: { tenant: 0 } },
+      { $sort: { count: -1, organization_id: 1 } },
+    ];
+    const items = await User.aggregate(pipeline).allowDiskUse(true).catch(() => []);
+    return res.status(200).json({ items, totalGroups: items.length });
+  })
+);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/compliance
+ * Returns a basic compliance report (missing contact/email, inactive accounts).
+ * Shape: { totals: { users, missingEmail, missingContact, inactive }, samples: { missingEmail: [...], missingContact: [...], inactive: [...] } }
+ */
+router.get(
+  '/compliance',
+  asyncHandler(async (req, res) => {
+    const [users, missingEmail, missingContact, inactive] = await Promise.all([
+      User.countDocuments({}).catch(() => 0),
+      User.countDocuments({ $or: [{ email: { $exists: false } }, { email: { $in: [null, ''] } }] }).catch(() => 0),
+      User.countDocuments({ $or: [{ contact_number: { $exists: false } }, { contact_number: { $in: [null, ''] } }] }).catch(() => 0),
+      User.countDocuments({ status: { $nin: ['active'] } }).catch(() => 0),
+    ]);
+
+    const sampleSelect = { _id: 1, email: 1, contact_number: 1, status: 1, organization_id: 1, department: 1 };
+    const [sMissingEmail, sMissingContact, sInactive] = await Promise.all([
+      User.find({ $or: [{ email: { $exists: false } }, { email: { $in: [null, ''] } }] }, sampleSelect).limit(10).lean().catch(() => []),
+      User.find({ $or: [{ contact_number: { $exists: false } }, { contact_number: { $in: [null, ''] } }] }, sampleSelect).limit(10).lean().catch(() => []),
+      User.find({ status: { $nin: ['active'] } }, sampleSelect).limit(10).lean().catch(() => []),
+    ]);
+
+    return res.status(200).json({
+      totals: { users, missingEmail, missingContact, inactive },
+      samples: { missingEmail: sMissingEmail, missingContact: sMissingContact, inactive: sInactive },
+    });
+  })
+);
+
 module.exports = router;
