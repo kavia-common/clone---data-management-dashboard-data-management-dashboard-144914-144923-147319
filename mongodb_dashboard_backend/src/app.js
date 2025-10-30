@@ -23,6 +23,21 @@ app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Lightweight top-level health endpoint that does not depend on DB being connected
+// PUBLIC_INTERFACE
+app.get('/health', (req, res) => {
+  const ready = mongoose.connection?.readyState;
+  const dbStatus = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+  return res.status(200).json({
+    status: 'ok',
+    service: 'mongodb_dashboard_backend',
+    version: process.env.npm_package_version || '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    db: dbStatus,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 const buildDynamicSpec = (req) => {
   const host = req.get('host');
   let protocol = req.secure ? 'https' : req.protocol;

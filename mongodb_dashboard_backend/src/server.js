@@ -1,19 +1,29 @@
 const app = require('./app');
 const mongoose = require('mongoose');
 
-// Default to 3001 to match container deployment and docs URL
-const PORT = process.env.PORT || 3001;
+// Default to port 3001 to match deployment expectations; allow override via env PORT
+const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
+
+// Explicit pre-start log to aid troubleshooting
+// eslint-disable-next-line no-console
+console.log(`[startup] Attempting to start Express on ${HOST}:${PORT}`);
 
 const server = app
   .listen(PORT, HOST, () => {
+    const nodeEnv = process.env.NODE_ENV || 'development';
     // eslint-disable-next-line no-console
-    console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+    console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${nodeEnv})`);
+    // eslint-disable-next-line no-console
+    console.log(`[startup] Health endpoint available at http://${HOST}:${PORT}/health`);
   })
   .on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
       // eslint-disable-next-line no-console
       console.error(`[startup] Port ${PORT} is already in use. Ensure no other process is running on this port.`);
+    } else if (err && err.code === 'EACCES') {
+      // eslint-disable-next-line no-console
+      console.error(`[startup] Insufficient privileges to bind to port ${PORT}.`);
     } else {
       // eslint-disable-next-line no-console
       console.error('[startup] Server failed to start:', err);

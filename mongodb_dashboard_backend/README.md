@@ -3,6 +3,7 @@
 - Default port: 3001 (configurable via PORT in .env)
 - Docs (Swagger UI): http://localhost:3001/docs (alias: http://localhost:3001/api-docs)
 - OpenAPI JSON: http://localhost:3001/openapi.json (alias: http://localhost:3001/api-docs.json)
+- Health: http://localhost:3001/health (simple JSON, does not require DB connection)
 
 Environment example: see .env.example.
 
