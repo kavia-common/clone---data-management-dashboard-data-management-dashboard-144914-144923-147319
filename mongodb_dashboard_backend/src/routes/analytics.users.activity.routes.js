@@ -1,382 +1,281 @@
 'use strict';
 
-/**
- * Users Analytics - Activity and Summary Routes
- * Mounted under /api/analytics/users
- * Computes DAU/WAU/MAU style metrics based on users collection updated_at or created_at timestamps.
- *
- * Filters via query params supported: start, end, department, organization_id, status, is_admin (via role)
- */
-
 const express = require('express');
 const router = express.Router();
-
-// Lazy import to avoid circular deps in some setups
-const db = require('../config/db');
+const SessionTracking = require('../models/sessionTracking.model');
 const User = require('../models/user.model');
+const { asyncHandler } = require('../utils/http');
 
 /**
- * Utility: parse query params safely with defaults
+ * Coerce statuses param (pipe separated) to {$in: []} or string
  */
-function parseDateOr(defaultDate, value) {
-  const d = value ? new Date(value) : defaultDate;
-  if (isNaN(d.getTime())) return defaultDate;
-  return d;
-}
-
-const VALID_GRANULARITIES = new Set(['daily', 'weekly', 'monthly']);
-const VALID_ROLES = new Set(['all', 'admin', 'user']);
-
-function normGranularity(g) {
-  if (!g) return 'daily';
-  const v = String(g).toLowerCase();
-  return VALID_GRANULARITIES.has(v) ? v : 'daily';
-}
-
-function normRole(r) {
-  if (!r) return 'all';
-  const v = String(r).toLowerCase();
-  return VALID_ROLES.has(v) ? v : 'all';
-}
-
-function getDateTruncParams(granularity) {
-  switch (granularity) {
-    case 'weekly':
-      return { unit: 'week' };
-    case 'monthly':
-      return { unit: 'month' };
-    case 'daily':
-    default:
-      return { unit: 'day' };
+function buildStatusMatch(statusParam) {
+  if (!statusParam) return {};
+  const s = String(statusParam).trim();
+  if (!s) return {};
+  if (s.includes('|')) {
+    const parts = s.split('|').map((x) => x.trim()).filter(Boolean);
+    return parts.length ? { $in: parts } : {};
   }
-}
-
-function addTZ(date) {
-  // Ensure ISO string in UTC without milliseconds for consistency
-  return new Date(date).toISOString();
-}
-
-/**
- * Activity timestamp: prefer updated_at, fallback to created_at
- */
-const ACTIVITY_DATE_EXPR = {
-  $ifNull: ['$updated_at', '$created_at'],
-};
-
-/**
- * Build $match for users collection based on filters.
- * Uses updated_at/created_at range.
- * Optional: department, organization_id (tenant), role (is_admin true/false), status override
- */
-function buildMatch({ start, end, role, department, status, organization_id }) {
-  const match = {
-    $and: [
-      {
-        $expr: {
-          $and: [
-            { $gte: [ACTIVITY_DATE_EXPR, start] },
-            { $lte: [ACTIVITY_DATE_EXPR, end] },
-          ],
-        },
-      },
-    ],
-  };
-
-  // Status handling (default to 'active' as per requirements)
-  if (status) {
-    match.$and.push({ status });
-  } else {
-    match.$and.push({ status: 'active' });
-  }
-
-  if (department) {
-    match.$and.push({ department });
-  }
-
-  if (organization_id) {
-    match.$and.push({ organization_id });
-  }
-
-  if (role === 'admin') {
-    match.$and.push({ is_admin: true });
-  } else if (role === 'user') {
-    match.$and.push({ is_admin: false });
-  }
-
-  return match;
+  return s;
 }
 
 /**
  * PUBLIC_INTERFACE
- * GET /api/analytics/users/activity
+ * GET /api/analytics/users/activity-trend
+ * Returns time-bucketed unique active users trend derived from session_tracking
  * Query:
- *  - granularity: daily|weekly|monthly (default daily)
- *  - start: ISO (default now-30d)
- *  - end: ISO (default now)
- *  - role: admin|user|all (default all)
- *  - department: optional
- *  - status: optional (default 'active')
- *  - organization_id: optional (tenant scope)
- *
- * Response:
- * {
- *   granularity: 'daily',
- *   start, end,
- *   buckets: [
- *     { bucketStart: '2025-01-01T00:00:00Z', total: 42, admin: 7, user: 35 },
- *   ]
- * }
+ * - from?: ISO datetime (default: 30 days ago)
+ * - to?: ISO datetime (default: now)
+ * - granularity?: 'day' | 'week' (default: 'day')
+ * - status?: string pipe separated (default: 'completed|active')
+ * - tenant_id?: string optional scope
+ * - department?: string optional scope (applies via sessions.user_id join is not trivial; ignored by default)
+ * - organization_id?: string optional alias of tenant_id (frontends sometimes send this)
  */
 router.get(
-  '/activity',
-  /**
-   * Users activity time series by granularity.
-   * Buckets users by activity timestamp with $dateTrunc and returns totals + role splits.
-   */
-  async (req, res) => {
-    try {
-      // Ensure DB is connected
-      if (!db.connection || db.connection.readyState !== 1) {
-        // Seed safe sample data fallback when not connected
-        const now = new Date();
-        const b0 = new Date(now);
-        b0.setUTCDate(b0.getUTCDate() - 2);
-        b0.setUTCHours(0, 0, 0, 0);
-        const b1 = new Date(now);
-        b1.setUTCDate(b1.getUTCDate() - 1);
-        b1.setUTCHours(0, 0, 0, 0);
-        const b2 = new Date(now);
-        b2.setUTCHours(0, 0, 0, 0);
-        return res.status(200).json({
-          granularity: 'daily',
-          start: addTZ(b0),
-          end: addTZ(now),
-          buckets: [
-            { bucketStart: b0.toISOString(), total: 2, admin: 1, user: 1 },
-            { bucketStart: b1.toISOString(), total: 3, admin: 1, user: 2 },
-            { bucketStart: b2.toISOString(), total: 4, admin: 2, user: 2 },
-          ],
-        });
-      }
+  '/activity-trend',
+  asyncHandler(async (req, res) => {
+    const now = new Date();
+    const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-      const granularity = normGranularity(req.query.granularity);
-      const role = normRole(req.query.role);
+    const fromStr = req.query.from || defaultFrom.toISOString();
+    const toStr = req.query.to || now.toISOString();
+    const granularity = (req.query.granularity || 'day').toLowerCase() === 'week' ? 'week' : 'day';
+    const statusParam = (req.query.status || 'completed|active').trim();
+    const tenantId = req.query.tenant_id || req.query.organization_id || null;
 
-      const now = new Date();
-      const defaultStart = new Date(now);
-      defaultStart.setDate(now.getDate() - 30);
+    const fromDate = new Date(fromStr);
+    const toDate = new Date(toStr);
+    if (Number.isNaN(fromDate.getTime()))
+      return res.status(400).json({ success: false, message: 'Invalid "from" date' });
+    if (Number.isNaN(toDate.getTime()))
+      return res.status(400).json({ success: false, message: 'Invalid "to" date' });
+    if (toDate <= fromDate)
+      return res.status(400).json({ success: false, message: '"to" must be after "from"' });
 
-      const start = parseDateOr(defaultStart, req.query.start);
-      const end = parseDateOr(now, req.query.end);
+    const match = {};
+    if (tenantId) match.tenant_id = String(tenantId);
+    const statusMatch = buildStatusMatch(statusParam);
+    if (typeof statusMatch === 'object' && statusMatch.$in) match.status = statusMatch;
+    else if (typeof statusMatch === 'string') match.status = statusMatch;
 
-      const department = req.query.department ? String(req.query.department) : undefined;
-      const status = req.query.status ? String(req.query.status) : undefined;
-      const organization_id = req.query.organization_id ? String(req.query.organization_id) : undefined;
+    // Prefer last_updated, fallback to session_start
+    const addFieldsStage = {
+      $addFields: {
+        activity_ts: { $ifNull: ['$last_updated', '$session_start'] },
+      },
+    };
+    const dateMatchStage = {
+      $match: {
+        ...match,
+        activity_ts: { $gte: fromDate, $lte: toDate },
+      },
+    };
 
-      const match = buildMatch({ start, end, role, department, status, organization_id });
-      const { unit } = getDateTruncParams(granularity);
-
-      // Aggregation: group by bucket and compute counts including role splits
-      const pipeline = [
-        { $match: match },
-        {
-          $addFields: {
-            _activity_at: ACTIVITY_DATE_EXPR,
-          },
-        },
-        {
-          $addFields: {
-            bucket: {
-              $dateTrunc: {
-                date: '$_activity_at',
-                unit,
-                timezone: 'UTC',
+    const projectBucketStage =
+      granularity === 'week'
+        ? {
+            $project: {
+              tenant_id: 1,
+              user_id_str: { $toString: '$user_id' },
+              bucket: {
+                $dateToString: {
+                  format: '%G-%V', // ISO week-year-week
+                  date: '$activity_ts',
+                  timezone: 'UTC',
+                },
+              },
+              weekStart: {
+                $dateFromParts: {
+                  isoWeekYear: { $isoWeekYear: '$activity_ts' },
+                  isoWeek: { $isoWeek: '$activity_ts' },
+                  isoDayOfWeek: 1,
+                },
               },
             },
-          },
-        },
-        {
-          $group: {
-            _id: '$bucket',
-            total: { $sum: 1 }, // Number of active user records in bucket
-            admin: {
-              $sum: { $cond: [{ $eq: ['$is_admin', true] }, 1, 0] },
+          }
+        : {
+            $project: {
+              tenant_id: 1,
+              user_id_str: { $toString: '$user_id' },
+              bucket: {
+                $dateToString: { format: '%Y-%m-%d', date: '$activity_ts', timezone: 'UTC' },
+              },
             },
-            user: {
-              $sum: { $cond: [{ $eq: ['$is_admin', false] }, 1, 0] },
-            },
-          },
+          };
+
+    const pipeline = [
+      addFieldsStage,
+      dateMatchStage,
+      projectBucketStage,
+      { $group: { _id: { bucket: '$bucket', user_id: '$user_id_str' } } },
+      {
+        $group: {
+          _id: '$_id.bucket',
+          total: { $sum: 1 },
+          weekStart: granularity === 'week' ? { $first: '$weekStart' } : undefined,
         },
-        { $sort: { _id: 1 } },
-      ];
+      },
+      { $project: { _id: 0, bucket: '$_id', total: 1, weekStart: 1 } },
+      { $sort: { bucket: 1 } },
+    ];
 
-      const raw = await User.aggregate(pipeline).allowDiskUse(true);
-
-      // Fill missing intervals with zeros to ensure smooth charts
-      const buckets = [];
-      // Build an index from aggregation
-      const idx = new Map();
-      raw.forEach((r) => {
-        const iso = new Date(r._id).toISOString();
-        idx.set(iso, {
-          bucketStart: iso,
-          total: r.total || 0,
-          admin: r.admin || 0,
-          user: r.user || 0,
-        });
-      });
-
-      // Walk from start to end by unit
-      const endClip = new Date(end);
-      function inc(d) {
-        if (unit === 'day') d.setUTCDate(d.getUTCDate() + 1);
-        else if (unit === 'week') d.setUTCDate(d.getUTCDate() + 7);
-        else if (unit === 'month') d.setUTCMonth(d.getUTCMonth() + 1);
+    const rows = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+    const items = rows.map((r) => {
+      if (granularity === 'week' && r.weekStart) {
+        const d = new Date(r.weekStart);
+        const yyyy = d.getUTCFullYear();
+        const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(d.getUTCDate()).padStart(2, '0');
+        return { date: `${yyyy}-${mm}-${dd}`, total: r.total || 0 };
       }
-      // Align to bucket boundary via dateTrunc-like behavior
-      function align(d) {
-        const a = new Date(d);
-        if (unit === 'day') {
-          a.setUTCHours(0, 0, 0, 0);
-        } else if (unit === 'week') {
-          // ISO week starting Monday
-          const day = a.getUTCDay(); // 0 Sun ... 6 Sat
-          const diff = (day + 6) % 7; // days since Monday
-          a.setUTCDate(a.getUTCDate() - diff);
-          a.setUTCHours(0, 0, 0, 0);
-        } else if (unit === 'month') {
-          a.setUTCDate(1);
-          a.setUTCHours(0, 0, 0, 0);
-        }
-        return a;
-      }
-      let aligned = align(start);
-      while (aligned <= endClip) {
-        const key = aligned.toISOString();
-        const val = idx.get(key) || {
-          bucketStart: key,
-          total: 0,
-          admin: 0,
-          user: 0,
-        };
-        buckets.push(val);
-        inc(aligned);
-      }
+      return { date: String(r.bucket), total: r.total || 0 };
+    });
 
-      // Seed safe sample data fallback when no records to avoid empty arrays
-      const nonEmptyBuckets =
-        buckets.length > 0 && buckets.some((b) => b.total > 0)
-          ? buckets
-          : (() => {
-              const b0 = new Date(start);
-              const b1 = new Date(start);
-              if (unit === 'day') b1.setUTCDate(b1.getUTCDate() + 1);
-              else if (unit === 'week') b1.setUTCDate(b1.getUTCDate() + 7);
-              else if (unit === 'month') b1.setUTCMonth(b1.getUTCMonth() + 1);
-              return [
-                { bucketStart: b0.toISOString(), total: 1, admin: 0, user: 1 },
-                { bucketStart: b1.toISOString(), total: 2, admin: 1, user: 1 },
-              ];
-            })();
-
-      return res.json({
-        granularity,
-        start: addTZ(start),
-        end: addTZ(end),
-        buckets: nonEmptyBuckets,
-      });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('users.analytics.activity error', err);
-      return res.status(500).json({ error: 'Internal server error' });
-    }
-  }
+    return res.status(200).json({
+      items,
+      meta: { granularity, from: fromDate.toISOString(), to: toDate.toISOString() },
+    });
+  })
 );
 
 /**
  * PUBLIC_INTERFACE
- * GET /api/analytics/users/summary?window=7|30|90
- * Computes DAU/WAU/MAU values and percent change vs previous same window using users.activity timestamp approximations.
- *
+ * GET /api/analytics/users/summary
+ * Returns DAU/WAU/MAU counts using users collection created_at/updated_at for cohort size and
+ * session_tracking for activity (distinct users) in the specified windows.
+ * Query:
+ * - to?: ISO datetime (default now)
+ * - tenant_id?: string optional scope (applied on sessions; users typically not scoped by tenant unless organization_id matches)
+ * - status?: pipe separated session statuses for activity windows (default 'completed|active')
+ * - organization_id?: alias of tenant_id
+ * - is_admin?: boolean to segment by role (users.is_admin)
+ * - department?: string to segment via users.department
  * Response:
  * {
- *   window: 30,
- *   dau: { value: 23, changePct: 12.5 },
- *   wau: { value: 77, changePct: -3.1 },
- *   mau: { value: 301, changePct: 2.0 }
+ *   dau: number, wau: number, mau: number,
+ *   asOf: ISO,
+ *   filters: { tenant_id?, status, is_admin?, department? }
  * }
  */
 router.get(
   '/summary',
-  /**
-   * Users active summary for 1/7/30 days and their deltas versus previous window.
-   */
-  async (req, res) => {
-    try {
-      if (!db.connection || db.connection.readyState !== 1) {
-        // Provide a safe sample summary when DB not connected
+  asyncHandler(async (req, res) => {
+    const to = req.query.to ? new Date(String(req.query.to)) : new Date();
+    if (Number.isNaN(to.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid "to" date' });
+    }
+    const statusParam = (req.query.status || 'completed|active').trim();
+    const tenantId = req.query.tenant_id || req.query.organization_id || null;
+    const isAdmin = typeof req.query.is_admin !== 'undefined' ? String(req.query.is_admin) : null;
+    const department = req.query.department ? String(req.query.department) : null;
+
+    // Helper ranges
+    const startOf = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
+    const endOf = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999));
+
+    const end = to;
+    const startDay = startOf(end);
+    const startWeek = new Date(end); startWeek.setUTCDate(end.getUTCDate() - 6); const weekStart = startOf(startWeek);
+    const startMonth = new Date(end); startMonth.setUTCMonth(end.getUTCMonth() - 1); const monthStart = startOf(startMonth);
+
+    const sessionBaseMatch = {};
+    if (tenantId) sessionBaseMatch.tenant_id = String(tenantId);
+    const statusMatch = buildStatusMatch(statusParam);
+    if (typeof statusMatch === 'object' && statusMatch.$in) sessionBaseMatch.status = statusMatch;
+    else if (typeof statusMatch === 'string') sessionBaseMatch.status = statusMatch;
+
+    const activityTsExpr = { $ifNull: ['$last_updated', '$session_start'] };
+
+    async function distinctActiveUsersBetween(from, toDate) {
+      const m = {
+        ...sessionBaseMatch,
+      };
+      const pipeline = [
+        { $addFields: { activity_ts: activityTsExpr } },
+        { $match: { ...m, activity_ts: { $gte: from, $lte: toDate } } },
+        { $project: { user_id_str: { $toString: '$user_id' } } },
+        { $group: { _id: '$user_id_str' } },
+        { $count: 'n' },
+      ];
+      const out = await SessionTracking.aggregate(pipeline);
+      return out?.[0]?.n || 0;
+    }
+
+    // Optional segmentation using users fields
+    // We attempt to filter sessions by user set when filters like is_admin/department are provided
+    // by fetching matching user IDs and restricting the sessions to those user_ids.
+    let restrictedUserIds = null;
+    if (isAdmin !== null || department) {
+      const userFilter = {};
+      if (isAdmin !== null) {
+        if (['true', '1', 'yes'].includes(isAdmin.toLowerCase())) userFilter.is_admin = true;
+        else if (['false', '0', 'no'].includes(isAdmin.toLowerCase())) userFilter.is_admin = false;
+      }
+      if (department) userFilter.department = department;
+      if (tenantId) {
+        // try to scope users by org if present on users
+        userFilter.$or = [
+          { organization_id: String(tenantId) },
+          { tenant_id: String(tenantId) },
+          { 'tenant.tenant_id': String(tenantId) },
+        ];
+      }
+      const ids = await User.find(userFilter, { _id: 1, user_id: 1 }).lean();
+      if (ids.length) {
+        restrictedUserIds = new Set(ids.map((d) => (d.user_id ? String(d.user_id) : String(d._id))));
+      } else {
+        // If no users match filters, activity is zero
         return res.status(200).json({
-          window: 30,
-          dau: { value: 3, changePct: 50.0 },
-          wau: { value: 12, changePct: 20.0 },
-          mau: { value: 48, changePct: 10.0 },
+          dau: 0, wau: 0, mau: 0,
+          asOf: end.toISOString(),
+          filters: { tenant_id: tenantId || null, status: statusParam, is_admin: isAdmin, department: department || null },
         });
       }
-
-      const windowParam = parseInt(String(req.query.window || '30'), 10);
-      const windowDays = [7, 30, 90].includes(windowParam) ? windowParam : 30;
-
-      const now = new Date();
-
-      async function distinctActiveUsersBetween(a, b) {
-        // Active definition status === 'active'; count distinct _id having activity in range.
-        const pipeline = [
-          {
-            $match: {
-              status: 'active',
-              $expr: {
-                $and: [{ $gte: [ACTIVITY_DATE_EXPR, a] }, { $lte: [ACTIVITY_DATE_EXPR, b] }],
-              },
-            },
-          },
-          { $group: { _id: '$_id' } },
-          { $count: 'count' },
-        ];
-        const r = await User.aggregate(pipeline);
-        return (r && r[0] && r[0].count) || 0;
-      }
-
-      async function valueAndDelta(days) {
-        const endX = new Date(now);
-        const startX = new Date(endX);
-        startX.setUTCDate(startX.getUTCDate() - days);
-
-        const prevEndX = new Date(startX);
-        const prevStartX = new Date(prevEndX);
-        prevStartX.setUTCDate(prevStartX.getUTCDate() - days);
-
-        const [curr, prev] = await Promise.all([
-          distinctActiveUsersBetween(startX, endX),
-          distinctActiveUsersBetween(prevStartX, prevEndX),
-        ]);
-        const changePct = prev === 0 ? (curr > 0 ? 100 : 0) : ((curr - prev) / prev) * 100;
-        return { value: curr, changePct: Math.round(changePct * 10) / 10 };
-      }
-
-      const [dau, wau, mau] = await Promise.all([valueAndDelta(1), valueAndDelta(7), valueAndDelta(30)]);
-
-      return res.json({
-        window: windowDays,
-        dau,
-        wau,
-        mau,
-      });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('users.analytics.summary error', err);
-      return res.status(500).json({ error: 'Internal server error' });
     }
-  }
+
+    // If restrictedUserIds is provided, use it in the aggregation by adding $match on user_id
+    async function distinctActiveUsersBetweenRestricted(from, toDate) {
+      if (!restrictedUserIds) return distinctActiveUsersBetween(from, toDate);
+      const m = {
+        ...sessionBaseMatch,
+      };
+      const pipeline = [
+        { $addFields: { activity_ts: activityTsExpr, user_id_str: { $toString: '$user_id' } } },
+        {
+          $match: {
+            ...m,
+            activity_ts: { $gte: from, $lte: toDate },
+            user_id_str: { $in: Array.from(restrictedUserIds) },
+          },
+        },
+        { $group: { _id: '$user_id_str' } },
+        { $count: 'n' },
+      ];
+      const out = await SessionTracking.aggregate(pipeline);
+      return out?.[0]?.n || 0;
+    }
+
+    const [dau, wau, mau] = await Promise.all([
+      distinctActiveUsersBetweenRestricted(startDay, endOf(end)),
+      distinctActiveUsersBetweenRestricted(weekStart, endOf(end)),
+      distinctActiveUsersBetweenRestricted(monthStart, endOf(end)),
+    ]);
+
+    return res.status(200).json({
+      dau,
+      wau,
+      mau,
+      asOf: end.toISOString(),
+      filters: {
+        tenant_id: tenantId || null,
+        status: statusParam,
+        is_admin: isAdmin,
+        department: department || null,
+      },
+    });
+  })
 );
 
 module.exports = router;

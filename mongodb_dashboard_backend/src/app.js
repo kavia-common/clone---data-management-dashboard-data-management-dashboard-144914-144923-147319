@@ -190,6 +190,14 @@ app.use('/api/dashboard', require('./routes/dashboard.routes'));
 app.use('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
 app.use('/api/auth', require('./routes/auth.routes'));
 
+/* Users analytics canonical mounts */
+try { console.log('[startup] Mounting /api/analytics/users routes...'); } catch {}
+app.use('/api/analytics/users', require('./routes/analytics.users.activity.routes'));
+try { console.log('[startup] Mounting /api/users/analytics routes (alias)...'); } catch {}
+app.use('/api/users/analytics', require('./routes/analytics.users.activity.routes'));
+try { console.log('[startup] Mounting /api/analytics/users (tenant-summary alias)...'); } catch {}
+app.use('/api/analytics/users', require('./routes/analytics.users.summary.routes'));
+
 /* Users analytics routes have been fully removed to avoid dangling references */
 
 // 404 JSON

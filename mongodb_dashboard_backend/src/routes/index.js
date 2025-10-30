@@ -53,7 +53,14 @@ router.use('/dashboard/overview', dashboardModulesRoutes);
 // Counts endpoints mounted at top-level /api
 router.use('/', countsRoutes);
 
-// Mount new analytics users endpoints under namespaced path
+/**
+ * Canonical analytics users endpoints
+ */
 router.use('/analytics/users', usersAnalyticsRouter);
+/**
+ * Compatibility alias so both /api/analytics/users/* and /api/users/analytics/* work.
+ * This helps avoid frontend path mismatch issues without changing UI components.
+ */
+router.use('/users/analytics', usersAnalyticsRouter);
 
 module.exports = router;
