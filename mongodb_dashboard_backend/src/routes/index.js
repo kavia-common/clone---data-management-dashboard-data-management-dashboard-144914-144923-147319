@@ -61,8 +61,11 @@ router.use('/', countsRoutes);
 router.use('/users', usersAnalyticsActivityRouter);
 router.use('/users', usersAnalyticsSummaryRouter);
 
-// Optional single alias group
+// Optional single alias group (ensure no other analytics mounts conflict)
 router.use('/analytics/users', usersAnalyticsActivityRouter);
 router.use('/analytics/users', usersAnalyticsSummaryRouter);
+
+// Remove legacy duplicate mounts if present (safety no-ops)
+// Do not mount /api/users/analytics or /api/analytics routes here to avoid duplication.
 
 module.exports = router;
