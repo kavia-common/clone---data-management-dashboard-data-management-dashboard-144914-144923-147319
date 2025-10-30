@@ -1,22 +1,40 @@
-# Users Tenant Summary
+# Users Analytics Docs
 
-Endpoint
-- GET /api/users/tenant-summary
-- Query params:
-  - from: ISO datetime (inclusive)
-  - to: ISO datetime (inclusive)
-  - status: pipe-delimited values, e.g. active|completed
-  - includeInactive: boolean (default false)
+This readme documents additive users analytics features added under /api/analytics/users. Existing routes and behaviors remain unchanged.
 
-Response
-- 200: Array of items shaped as { tenant: string, count: number }
-  Example:
-  [
-    { "tenant": "Org One", "count": 12 },
-    { "tenant": "Org Two", "count": 7 }
-  ]
+New endpoints:
+- GET /api/analytics/users/activity
+  - Query: 
+    - granularity=daily|weekly|monthly (default daily)
+    - start, end (ISO datetime)
+    - role=all|admin|user (default all)
+    - department (optional)
+    - status (optional; default 'active')
+    - organization_id (optional)
+  - Response:
+    {
+      "granularity": "daily",
+      "start": "2025-01-01T00:00:00.000Z",
+      "end": "2025-01-30T23:59:59.000Z",
+      "buckets": [
+        { "bucketStart": "2025-01-01T00:00:00.000Z", "total": 42, "admin": 7, "user": 35 }
+      ]
+    }
 
-Notes
-- The route is mounted via src/routes/users.analytics.summary.routes.js under app.js with app.use('/api/users', ...).
-- Only one handler responds at GET /api/users/tenant-summary; temporary debug routes have been removed.
+- GET /api/analytics/users/summary
+  - Query: window=7|30|90 (default 30)
+  - Response:
+    {
+      "window": 30,
+      "dau": { "value": 23, "changePct": 12.5 },
+      "wau": { "value": 77, "changePct": -3.1 },
+      "mau": { "value": 301, "changePct": 2.0 }
+    }
 
+Assumptions:
+- Active user definition: status === 'active'
+- Activity approximation: users.updated_at within bucket range
+- Role segmentation: is_admin true => 'admin', false => 'user'
+
+Mount path:
+- Router mounted under /api/analytics/users via src/routes/index.js

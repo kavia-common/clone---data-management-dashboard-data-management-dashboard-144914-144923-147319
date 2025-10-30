@@ -18,6 +18,9 @@ const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
 const countsRoutes = require('./counts.routes');
 
+// Additive: users analytics activity+summary router (namespaced)
+const usersAnalyticsRouter = require('./analytics.users.activity.routes');
+
 const router = express.Router();
 
 /**
@@ -46,5 +49,8 @@ router.use('/dashboard/overview', dashboardModulesRoutes);
 
 // Counts endpoints mounted at top-level /api
 router.use('/', countsRoutes);
+
+// Mount new analytics users endpoints under namespaced path
+router.use('/analytics/users', usersAnalyticsRouter);
 
 module.exports = router;

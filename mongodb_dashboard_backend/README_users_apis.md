@@ -1,33 +1,19 @@
-# Users API quick test guide
+# Users APIs
 
-Base URL: http://localhost:${PORT:-3001}
+This README lists user-related APIs and additive analytics endpoints.
 
-Ensure you have MONGODB_URI configured in .env and the server running: `npm run dev`.
+Core Users:
+- GET /api/users
+- POST /api/users
+- GET /api/users/{id}
+- PUT /api/users/{id}
+- DELETE /api/users/{id}
+- GET /api/users/seed-if-empty
+- GET /api/users/tenant-summary
 
-1) List users
-curl -sS 'http://localhost:3001/api/users' | jq .
+Additive Analytics (new, backward compatible):
+- GET /api/analytics/users/activity
+- GET /api/analytics/users/summary
 
-With pagination envelope:
-curl -sS 'http://localhost:3001/api/users?page=1&limit=10&sort=-created_at' | jq .
-
-With filter:
-curl -sS 'http://localhost:3001/api/users?filter={"email":"user@example.com"}' | jq .
-
-2) Seed demo users if collection empty
-curl -sS 'http://localhost:3001/api/users/seed-if-empty' | jq .
-
-3) Create user
-curl -sS -X POST 'http://localhost:3001/api/users' \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"new.user@example.com","name":"New User","organization_id":"org_demo"}' | jq .
-
-4) Get by id
-curl -sS 'http://localhost:3001/api/users/<_id>' | jq .
-
-5) Update user
-curl -sS -X PUT 'http://localhost:3001/api/users/<_id>' \
-  -H 'Content-Type: application/json' \
-  -d '{"department":"Engineering"}' | jq .
-
-6) Delete user
-curl -sS -X DELETE 'http://localhost:3001/api/users/<_id>' | jq .
+Notes:
+- Analytics endpoints compute DAU/WAU/MAU and role-segmented activity using users.updated_at approximation without modifying existing routes.
