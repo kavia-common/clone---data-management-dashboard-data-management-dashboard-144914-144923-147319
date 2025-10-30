@@ -4,7 +4,6 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../config/db');
 const { aggregateAgentsUsageAndCost } = require('../utils/agentsAggregation');
-const { parseISO, subDays } = require('date-fns');
 
 /**
  * GET /api/analytics/agents
@@ -31,9 +30,10 @@ router.get('/', async (req, res) => {
 
     // Default to last 30 days if not provided
     if (!from && !to) {
-      const defaultFrom = subDays(new Date(), 30);
+      const now = new Date();
+      const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       from = defaultFrom.toISOString();
-      to = new Date().toISOString();
+      to = now.toISOString();
     } else {
       // Best-effort validation/normalization
       if (from) {
@@ -52,7 +52,17 @@ router.get('/', async (req, res) => {
       }
     }
 
-    const db = getDb();
+    // Ensure DB connection; getDb is async and must be awaited
+    let db = null;
+    try {
+      db = await getDb();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[analytics/agents] DB connection error:', e?.message || e);
+      return res.status(e?.status === 503 ? 503 : 500).json({
+        error: e?.status === 503 ? 'Database not connected' : 'Internal server error',
+      });
+    }
     if (!db) {
       return res.status(503).json({ error: 'Database not connected' });
     }
@@ -63,7 +73,7 @@ router.get('/', async (req, res) => {
       from,
       to,
       limit,
-      offset
+      offset,
     });
 
     return res.json(result);
