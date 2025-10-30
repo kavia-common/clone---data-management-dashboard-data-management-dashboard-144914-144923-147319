@@ -2,7 +2,7 @@ import axios from './client';
 
 /**
  * PUBLIC_INTERFACE
- * Fetch users activity time series.
+ * Fetch users activity time series (trend-like).
  */
 export async function fetchUsersActivity(params: {
   granularity?: 'daily' | 'weekly' | 'monthly';

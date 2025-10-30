@@ -65,12 +65,15 @@ const UsersAnalyticsPanel: React.FC = () => {
           organization_id: dOrg || undefined,
         });
         if (!mounted) return;
-        const mapped = (resp.buckets || []).map((b) => ({
-          date: b.bucketStart.slice(0, 10),
-          total: b.total,
-          admin: b.admin,
-          user: b.user,
-        }));
+        const mapped = (resp.buckets || []).map((b) => {
+          const dateStr = (b.bucketStart || '').slice(0, 10);
+          return {
+            date: dateStr,
+            total: typeof b.total === 'number' ? b.total : 0,
+            admin: typeof b.admin === 'number' ? b.admin : 0,
+            user: typeof b.user === 'number' ? b.user : 0,
+          };
+        });
         setSeries(mapped);
       } catch (e: any) {
         setError(e?.message || 'Failed to load activity');
