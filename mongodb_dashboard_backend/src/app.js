@@ -64,7 +64,12 @@ const swaggerUiHandler = swaggerUi.setup(null, {
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-// Base router (non-/api) for health and overview
+/**
+ * Base router (non-/api) for health and overview
+ * NOTE: Canonical analytics namespace:
+ *   - /api/users/* for users analytics
+ *   - Optional alias: /api/analytics/users/* ONLY (no other duplicates)
+ */
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
 
@@ -190,13 +195,10 @@ app.use('/api/dashboard', require('./routes/dashboard.routes'));
 app.use('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
 app.use('/api/auth', require('./routes/auth.routes'));
 
-/* Users analytics canonical mounts */
-try { console.log('[startup] Mounting /api/analytics/users routes...'); } catch {}
-app.use('/api/analytics/users', require('./routes/analytics.users.activity.routes'));
-try { console.log('[startup] Mounting /api/users/analytics routes (alias)...'); } catch {}
-app.use('/api/users/analytics', require('./routes/analytics.users.activity.routes'));
-try { console.log('[startup] Mounting /api/analytics/users (tenant-summary alias)...'); } catch {}
-app.use('/api/analytics/users', require('./routes/analytics.users.summary.routes'));
+/* Users analytics mounts are centralized in src/routes/index.js under:
+   - /api/users/* (canonical)
+   - /api/analytics/users/* (single alias group)
+   Do not mount analytics routers directly here to avoid shadowing/duplicates. */
 
 /* Users analytics routes have been fully removed to avoid dangling references */
 

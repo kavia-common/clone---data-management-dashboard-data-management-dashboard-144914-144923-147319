@@ -34,6 +34,7 @@ router.get('/healthz', healthController.check.bind(healthController));
 
 // Mount core API routes
 router.use('/auth', authRoutes);
+try { console.log('[routes] Mount /api/users base + analytics'); } catch {}
 router.use('/users', usersRoutes);
 router.use('/tenants', tenantsRoutes);
 router.use('/data', dataRoutes);
@@ -51,16 +52,17 @@ router.use('/dashboard/overview', dashboardModulesRoutes);
 // Counts endpoints mounted at top-level /api
 router.use('/', countsRoutes);
 
-// Canonical analytics users endpoints under /api/analytics/users
-router.use('/analytics/users', usersAnalyticsActivityRouter);
-router.use('/analytics/users', usersAnalyticsSummaryRouter);
-
-// Compatibility alias so both /api/analytics/users/* and /api/users/analytics/* work.
-router.use('/users/analytics', usersAnalyticsActivityRouter);
-router.use('/users/analytics', usersAnalyticsSummaryRouter);
-
-// Also mount directly under /api/users for convenience as per requirements
+/**
+ * Users analytics routing
+ * Canonical: /api/users/*
+ * Single optional alias group: /api/analytics/users/*
+ * Remove /api/users/analytics and avoid double-mounting under /users to prevent shadowing.
+ */
 router.use('/users', usersAnalyticsActivityRouter);
 router.use('/users', usersAnalyticsSummaryRouter);
+
+// Optional single alias group
+router.use('/analytics/users', usersAnalyticsActivityRouter);
+router.use('/analytics/users', usersAnalyticsSummaryRouter);
 
 module.exports = router;
