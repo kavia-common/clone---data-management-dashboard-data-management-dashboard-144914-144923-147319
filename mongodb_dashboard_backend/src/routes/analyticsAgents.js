@@ -21,7 +21,8 @@ const { aggregateAgentsUsageAndCost, aggregateCostsByDepartment } = require('../
  */
 router.get('/', async (req, res) => {
   try {
-    const { tenant_id, project_id, grouping } = req.query;
+    const { tenant_id, project_id } = req.query;
+    const grouping = (req.query.grouping || 'agent').toString().toLowerCase();
     const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
     const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
 
@@ -67,8 +68,8 @@ router.get('/', async (req, res) => {
       return res.status(503).json({ error: 'Database not connected' });
     }
 
-    // Support grouping by department
-    if (typeof grouping === 'string' && grouping.toLowerCase() === 'department') {
+    // grouping parameter handling
+    if (grouping === 'department') {
       const result = await aggregateCostsByDepartment(db, {
         tenant_id,
         project_id,
@@ -80,6 +81,7 @@ router.get('/', async (req, res) => {
       return res.json(result);
     }
 
+    // Default path: group by agent
     const result = await aggregateAgentsUsageAndCost(db, {
       tenant_id,
       project_id,

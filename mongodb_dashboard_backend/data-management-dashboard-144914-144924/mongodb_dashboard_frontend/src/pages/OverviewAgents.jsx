@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getDepartmentAggregation } from '../api/analyticsAgents';
+import { getDepartmentAggregation } from './api/analyticsAgents';
 
 export default function OverviewAgents() {
   const [state, setState] = useState({ loading: true, error: null, items: [] });
