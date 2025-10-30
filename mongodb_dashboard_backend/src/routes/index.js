@@ -17,6 +17,7 @@ const appDeploymentsRoutes = require('./appDeployments.routes');
 const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
 const countsRoutes = require('./counts.routes');
+const analyticsUsageRoutes = require('./analytics.usage.routes');
 
 const router = express.Router();
 
@@ -39,6 +40,9 @@ router.use('/costs', costsByAgentRoutes);
 router.use('/session', sessionRoutes);
 router.use('/session-tracking', sessionTrackingRoutes);
 router.use('/app-deployments', appDeploymentsRoutes);
+
+// New analytics usage endpoints mounted under /api/analytics
+router.use('/analytics', analyticsUsageRoutes);
 
 // Dashboard overview routes
 router.use('/dashboard/overview', dashboardRoutes);

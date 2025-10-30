@@ -1,0 +1,240 @@
+openapi: 3.0.0
+info:
+  title: Analytics Usage API
+  version: 1.0.0
+  description: Additional analytics usage endpoints (grouping and feature credits).
+tags:
+  - name: Analytics
+    description: Analytics endpoints for grouping and usage metrics
+paths:
+  /api/analytics/group-by-agents:
+    get:
+      summary: Group by agents
+      description: >
+        Aggregates session_tracking and llm_costs to compute totals by agent name.
+        Agent name is derived from agents[].name, session_data.agent_name, or service_type.
+        Supports optional filters and defaults to last 30 days.
+      tags: [Analytics]
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+          description: ISO start datetime (inclusive). Defaults to 30 days ago.
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+          description: ISO end datetime (inclusive). Defaults to now.
+        - in: query
+          name: tenant_id
+          schema: { type: string }
+        - in: query
+          name: project_id
+          schema: { type: string }
+        - in: query
+          name: user_id
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+          description: Pipe separated list for session status filter (e.g., completed|active)
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        '200':
+          description: Grouped totals by agent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        agent: { type: string }
+                        sessions: { type: integer }
+                        total_calls: { type: integer }
+                        total_tokens: { type: integer }
+                        total_cost: { type: number, format: double }
+                  meta:
+                    type: object
+                    properties:
+                      from: { type: string, format: date-time }
+                      to: { type: string, format: date-time }
+                      count: { type: integer }
+  /api/analytics/group-by-teams:
+    get:
+      summary: Group by teams
+      description: Aggregates sessions and costs by team_id with optional filters and default last 30 days.
+      tags: [Analytics]
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: tenant_id
+          schema: { type: string }
+        - in: query
+          name: project_id
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        '200':
+          description: Grouped totals by team
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        team_id: { type: string }
+                        sessions: { type: integer }
+                        total_calls: { type: integer }
+                        total_tokens: { type: integer }
+                        total_cost: { type: number, format: double }
+                  meta:
+                    type: object
+                    properties:
+                      from: { type: string, format: date-time }
+                      to: { type: string, format: date-time }
+                      count: { type: integer }
+  /api/analytics/usage-by-user:
+    get:
+      summary: Usage by user
+      description: >
+        Returns per-user sessions, calls, tokens, cost; includes user display info.
+        Default window is last 30 days. Supports tenant/project/user/status filters.
+      tags: [Analytics]
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: tenant_id
+          schema: { type: string }
+        - in: query
+          name: project_id
+          schema: { type: string }
+        - in: query
+          name: user_id
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        '200':
+          description: Usage stats by user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id: { type: string }
+                        sessions: { type: integer }
+                        total_calls: { type: integer }
+                        total_tokens: { type: integer }
+                        total_cost: { type: number }
+                        last_activity: { type: string, format: date-time, nullable: true }
+                        user:
+                          type: object
+                          properties:
+                            _id: { type: string }
+                            name: { type: string }
+                            email: { type: string, nullable: true }
+                            display_name: { type: string, nullable: true }
+                  meta:
+                    type: object
+                    properties:
+                      from: { type: string, format: date-time }
+                      to: { type: string, format: date-time }
+                      count: { type: integer }
+  /api/analytics/features-by-credit:
+    get:
+      summary: Features by credit
+      description: >
+        Computes most/least used features by total credits (or cost fallback) based on llm_costs.
+        Feature key derived from service_type, operation, or type. Returns top/bottom lists.
+      tags: [Analytics]
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: tenant_id
+          schema: { type: string }
+        - in: query
+          name: project_id
+          schema: { type: string }
+        - in: query
+          name: top
+          schema: { type: integer, minimum: 1, maximum: 200, default: 5 }
+        - in: query
+          name: bottom
+          schema: { type: integer, minimum: 1, maximum: 200, default: 5 }
+      responses:
+        '200':
+          description: Most/least used features by credit
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: object
+                    properties:
+                      top:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            feature: { type: string }
+                            credits: { type: number }
+                            total_cost: { type: number }
+                            count: { type: integer }
+                      bottom:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            feature: { type: string }
+                            credits: { type: number }
+                            total_cost: { type: number }
+                            count: { type: integer }
+                  meta:
+                    type: object
+                    properties:
+                      from: { type: string, format: date-time }
+                      to: { type: string, format: date-time }
+                      totalFeatures: { type: integer }
