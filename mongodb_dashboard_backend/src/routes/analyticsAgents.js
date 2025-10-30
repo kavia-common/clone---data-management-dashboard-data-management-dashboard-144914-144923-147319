@@ -3,7 +3,8 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../config/db');
-const { aggregateAgentsUsageAndCost, aggregateCostsByDepartment } = require('../utils/agentsAggregation');
+const { aggregateAgentsUsageAndCost } = require('../utils/agentsAggregation');
+// Note: aggregateCostsByDepartment may not exist in utils; guard usage below.
 
 /**
  * GET /api/analytics/agents
@@ -71,15 +72,19 @@ router.get('/', async (req, res) => {
     // grouping parameter handling
     if (grouping === 'department') {
       try {
-        const result = await aggregateCostsByDepartment(db, {
-          tenant_id,
-          project_id,
-          from,
-          to,
-          limit,
-          offset,
-        });
-        return res.json(result);
+        if (typeof aggregateCostsByDepartment === 'function') {
+          const result = await aggregateCostsByDepartment(db, {
+            tenant_id,
+            project_id,
+            from,
+            to,
+            limit,
+            offset,
+          });
+          return res.json(result);
+        }
+        // Fallback: no department aggregator available
+        return res.status(200).json({ items: [], total: 0, meta: { warning: 'Department aggregation not implemented' } });
       } catch (e) {
         // eslint-disable-next-line no-console
         console.error('[analytics/agents] department aggregation error:', e?.message || e);

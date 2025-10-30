@@ -85,9 +85,21 @@ async function aggregateAgentsUsageAndCost(
     { $match: sessionMatch },
     {
       $addFields: {
-        // Handle both object and array structures for costs
+        // Support multiple structures:
+        // - agents: [{ agent_name, total_cost, total_tokens }]
+        // - agent_costs: { "<agent>": "$0.23", ... } or numeric
         agent_costs_array: {
-          $cond: [{ $isArray: '$agents' }, '$agents', { $objectToArray: '$agent_costs' }],
+          $cond: [
+            { $isArray: '$agents' },
+            '$agents',
+            {
+              $cond: [
+                { $gt: [{ $type: '$agent_costs' }, 'missing'] },
+                { $objectToArray: '$agent_costs' },
+                [],
+              ],
+            },
+          ],
         },
       },
     },
@@ -96,17 +108,28 @@ async function aggregateAgentsUsageAndCost(
       $project: {
         session_identifier: { $ifNull: ['$session_id', { $ifNull: ['$_id', '$task_id'] }] },
         agent_name: {
-          $ifNull: ['$agent_costs_array.k', { $ifNull: ['$agent_costs_array.name', '$agent_costs_array.agent_name'] }],
+          $ifNull: [
+            '$agent_costs_array.k',
+            { $ifNull: ['$agent_costs_array.name', '$agent_costs_array.agent_name'] },
+          ],
         },
         raw_cost: {
-          $ifNull: ['$agent_costs_array.v', { $ifNull: ['$agent_costs_array.cost', '$agent_costs_array.total_cost'] }],
+          $ifNull: [
+            '$agent_costs_array.v',
+            { $ifNull: ['$agent_costs_array.cost', '$agent_costs_array.total_cost'] },
+          ],
         },
         // collect any usage counters/tokens from session where available
         usage_tokens: {
           $ifNull: [
             '$usage_tokens',
             {
-              $ifNull: ['$tokens', { $ifNull: ['$usage.total_tokens', 0] }],
+              $ifNull: [
+                '$tokens',
+                {
+                  $ifNull: ['$usage.total_tokens', { $ifNull: ['$agent_costs_array.total_tokens', 0] }],
+                },
+              ],
             },
           ],
         },
@@ -115,15 +138,22 @@ async function aggregateAgentsUsageAndCost(
     {
       $addFields: {
         cost: {
-          $toDouble: {
-            $replaceAll: { input: { $toString: '$raw_cost' }, find: '$', replacement: '' },
-          },
+          $cond: [
+            { $isNumber: '$raw_cost' },
+            '$raw_cost',
+            {
+              $toDouble: {
+                $replaceAll: { input: { $toString: '$raw_cost' }, find: '$', replacement: '' },
+              },
+            },
+          ],
         },
         tokens: {
           $cond: [{ $isNumber: '$usage_tokens' }, '$usage_tokens', 0],
         },
       },
     },
+    { $match: { agent_name: { $ne: null } } },
     {
       $group: {
         _id: '$agent_name',
@@ -143,7 +173,7 @@ async function aggregateAgentsUsageAndCost(
     },
   ];
 
-  // 2) Aggregate llm_costs.agents
+  // 2) Aggregate llm_costs.agents with strict normalization of currency strings and tokens
   const llmCostsPipeline = [
     { $match: sessionMatch },
     { $unwind: { path: '$agents', preserveNullAndEmptyArrays: false } },
@@ -160,7 +190,11 @@ async function aggregateAgentsUsageAndCost(
           $cond: [
             { $isNumber: '$raw_cost' },
             '$raw_cost',
-            { $toDouble: { $replaceAll: { input: { $toString: '$raw_cost' }, find: '$', replacement: '' } } },
+            {
+              $toDouble: {
+                $replaceAll: { input: { $toString: '$raw_cost' }, find: '$', replacement: '' },
+              },
+            },
           ],
         },
         tokens: {
