@@ -18,6 +18,8 @@ const { aggregateAgentsUsageAndCost, aggregateCostsByDepartment } = require('../
  *    total,
  *    meta: { limit, offset, from, to, tenant_id, project_id }
  *  }
+ * Notes:
+ *  - Always responds with 200 and an items array; on errors returns items:[], meta.error for UI resilience.
  */
 router.get('/', async (req, res) => {
   try {
@@ -40,14 +42,14 @@ router.get('/', async (req, res) => {
       if (from) {
         const d = new Date(from);
         if (isNaN(d.getTime())) {
-          return res.status(400).json({ error: 'Invalid from date' });
+          return res.status(200).json({ items: [], total: 0, meta: { error: 'Invalid from date' } });
         }
         from = d.toISOString();
       }
       if (to) {
         const d = new Date(to);
         if (isNaN(d.getTime())) {
-          return res.status(400).json({ error: 'Invalid to date' });
+          return res.status(200).json({ items: [], total: 0, meta: { error: 'Invalid to date' } });
         }
         to = d.toISOString();
       }
@@ -60,17 +62,34 @@ router.get('/', async (req, res) => {
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('[analytics/agents] DB connection error:', e?.message || e);
-      return res.status(e?.status === 503 ? 503 : 500).json({
-        error: e?.status === 503 ? 'Database not connected' : 'Internal server error',
-      });
+      return res.status(200).json({ items: [], total: 0, meta: { error: 'Database not connected' } });
     }
     if (!db) {
-      return res.status(503).json({ error: 'Database not connected' });
+      return res.status(200).json({ items: [], total: 0, meta: { error: 'Database not connected' } });
     }
 
     // grouping parameter handling
     if (grouping === 'department') {
-      const result = await aggregateCostsByDepartment(db, {
+      try {
+        const result = await aggregateCostsByDepartment(db, {
+          tenant_id,
+          project_id,
+          from,
+          to,
+          limit,
+          offset,
+        });
+        return res.json(result);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[analytics/agents] department aggregation error:', e?.message || e);
+        return res.status(200).json({ items: [], total: 0, meta: { error: 'Aggregation error' } });
+      }
+    }
+
+    // Default path: group by agent
+    try {
+      const result = await aggregateAgentsUsageAndCost(db, {
         tenant_id,
         project_id,
         from,
@@ -79,23 +98,15 @@ router.get('/', async (req, res) => {
         offset,
       });
       return res.json(result);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[analytics/agents] agent aggregation error:', e?.message || e);
+      return res.status(200).json({ items: [], total: 0, meta: { error: 'Aggregation error' } });
     }
-
-    // Default path: group by agent
-    const result = await aggregateAgentsUsageAndCost(db, {
-      tenant_id,
-      project_id,
-      from,
-      to,
-      limit,
-      offset,
-    });
-
-    return res.json(result);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('Error in /api/analytics/agents:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(200).json({ items: [], total: 0, meta: { error: 'Internal server error' } });
   }
 });
 
