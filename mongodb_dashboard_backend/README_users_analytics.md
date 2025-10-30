@@ -26,3 +26,32 @@ Indexes recommended:
 MongoDB connection:
 - Uses existing `src/config/db.js` connection and environment configuration.
 - Ensure `.env` provides the MongoDB URI according to project convention (e.g., `MONGODB_URI` or the configured variable used by db.js).
+
+---
+
+## Users Insights Endpoints (v3)
+
+Mounted at top-level under `/api`, these return `{ totals, items, meta }` for visualization.
+
+- GET `/api/users/activity?period=daily|weekly|monthly`  
+  Total active users for period.
+
+- GET `/api/users/trends`  
+  30-day active users trend (daily buckets).
+
+- GET `/api/users/organizations`  
+  Active users grouped by `organization_id`.
+
+- GET `/api/users/departments`  
+  Active users by department (fallback `profile.department` or 'Unknown').
+
+- GET `/api/users/compliance`  
+  Terms acceptance totals and rate; optionally MFA/inactivity if fields exist.
+
+- GET `/api/users/engagement-trend?granularity=day|week|month`  
+  Time series with distinct active users and session counts.
+
+- GET `/api/users/kpis`  
+  KPIs for a window: newUsers, activeUsers, returningUsers, avgSessionsPerUser.
+
+Data source preference: `session_tracking` when present; otherwise fall back to `users.updated_at` / `accepted_terms_at` / `created_at` heuristics.
