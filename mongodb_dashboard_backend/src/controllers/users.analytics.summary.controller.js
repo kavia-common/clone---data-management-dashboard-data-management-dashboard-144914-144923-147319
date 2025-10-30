@@ -20,6 +20,7 @@ const { isValidISODate } = require('../utils/date');
  * 
  * Response:
  *  200: { success: true, items: [ { tenant_id, tenant_name?, user_count } ], total }
+ *  NOTE: Route layer maps this to an array of { tenant, count } for frontend compatibility.
  *  400: on invalid params
  *  500: on unexpected errors (503 if DB disconnected)
  */
