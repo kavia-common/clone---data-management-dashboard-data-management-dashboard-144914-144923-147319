@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../config/db');
-const { aggregateAgentsUsageAndCost } = require('../utils/agentsAggregation');
+const { aggregateAgentsUsageAndCost, aggregateCostsByDepartment } = require('../utils/agentsAggregation');
 
 /**
  * GET /api/analytics/agents
@@ -21,7 +21,7 @@ const { aggregateAgentsUsageAndCost } = require('../utils/agentsAggregation');
  */
 router.get('/', async (req, res) => {
   try {
-    const { tenant_id, project_id } = req.query;
+    const { tenant_id, project_id, grouping } = req.query;
     const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
     const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
 
@@ -65,6 +65,19 @@ router.get('/', async (req, res) => {
     }
     if (!db) {
       return res.status(503).json({ error: 'Database not connected' });
+    }
+
+    // Support grouping by department
+    if (typeof grouping === 'string' && grouping.toLowerCase() === 'department') {
+      const result = await aggregateCostsByDepartment(db, {
+        tenant_id,
+        project_id,
+        from,
+        to,
+        limit,
+        offset,
+      });
+      return res.json(result);
     }
 
     const result = await aggregateAgentsUsageAndCost(db, {

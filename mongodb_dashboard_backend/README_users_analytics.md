@@ -1,22 +1,14 @@
-# Users Tenant Summary
+# Overview Agents (Department Aggregation)
 
-Endpoint
-- GET /api/users/tenant-summary
-- Query params:
-  - from: ISO datetime (inclusive)
-  - to: ISO datetime (inclusive)
-  - status: pipe-delimited values, e.g. active|completed
-  - includeInactive: boolean (default false)
+- Endpoint: GET /api/analytics/agents?grouping=department
+- Filters: tenant_id, project_id, from, to, limit, offset
+- Joins: llm_costs.user_id -> users.user_id; groups by users.department
+- Returns: { items: [ { department, total_cost, user_count } ], total, meta }
 
-Response
-- 200: Array of items shaped as { tenant: string, count: number }
-  Example:
-  [
-    { "tenant": "Org One", "count": 12 },
-    { "tenant": "Org Two", "count": 7 }
-  ]
+Frontend
+- Use getDepartmentAggregation() from src/api/analyticsAgents.js
+- Example:
+  const { items } = await getDepartmentAggregation({ tenant_id: 'org1' });
 
 Notes
-- The route is mounted via src/routes/users.analytics.summary.routes.js under app.js with app.use('/api/users', ...).
-- Only one handler responds at GET /api/users/tenant-summary; temporary debug routes have been removed.
-
+- Ensure REACT_APP_API_BASE_URL points to backend (default provided in client.js).

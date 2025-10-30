@@ -302,6 +302,174 @@ async function aggregateAgentsUsageAndCost(db, {
   };
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Aggregate total user_cost grouped by users.department by joining llm_costs with users on user_id.
+ * Optional filters: tenant_id, project_id, from, to. Supports limit/offset pagination.
+ * Returns: { items: [{ department, total_cost, user_count }], total, meta: {...} }
+ */
+async function aggregateCostsByDepartment(db, {
+  tenant_id,
+  project_id,
+  from,
+  to,
+  limit = 50,
+  offset = 0
+} = {}) {
+  const llmCostsCol = db.collection('llm_costs');
+  const usersColName = 'users';
+
+  // Build permissive match on llm_costs similar to above with date window across common fields
+  const andConditions = [];
+  if (tenant_id) {
+    andConditions.push({
+      $or: [
+        { tenant_id },
+        { organization_id: tenant_id },
+        { org_id: tenant_id },
+        { tenantId: tenant_id }
+      ]
+    });
+  }
+  if (project_id) {
+    andConditions.push({
+      $or: [
+        { project_id },
+        { projectId: project_id },
+        { 'project.id': project_id },
+        { 'metadata.projectId': project_id }
+      ]
+    });
+  }
+  if (from || to) {
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+    const range = {};
+    if (fromDate) range.$gte = fromDate;
+    if (toDate) range.$lte = toDate;
+    andConditions.push({
+      $or: [
+        { timestamp: range },
+        { created_at: range },
+        { updated_at: range },
+        { createdAt: range },
+        { date: range },
+      ]
+    });
+  }
+
+  const matchStage = andConditions.length ? { $match: { $and: andConditions } } : null;
+
+  const pipeline = [];
+  if (matchStage) pipeline.push(matchStage);
+
+  // Normalize user_id => string
+  pipeline.push({
+    $addFields: {
+      user_id_str: { $toString: '$user_id' },
+      total_num: {
+        $ifNull: [
+          {
+            $toDouble: {
+              $ifNull: ['$total_cost', { $ifNull: ['$cost', 0] }]
+            }
+          },
+          0
+        ]
+      }
+    }
+  });
+
+  // Join with users on user_id_str to resolve department
+  pipeline.push({
+    $lookup: {
+      from: usersColName,
+      let: { uid: '$user_id_str' },
+      pipeline: [
+        {
+          $match: {
+            $expr: {
+              $eq: [{ $toString: '$user_id' }, '$$uid']
+            }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            department: 1,
+            organization_id: 1,
+            tenant_id: 1
+          }
+        }
+      ],
+      as: 'user_doc'
+    }
+  });
+
+  // Determine department with fallback to 'unknown'
+  pipeline.push({
+    $addFields: {
+      department: {
+        $let: {
+          vars: { u: { $arrayElemAt: ['$user_doc', 0] } },
+          in: {
+            $cond: [
+              { $in: [{ $type: '$$u.department' }, ['string']] },
+              {
+                $cond: [
+                  { $eq: [{ $trim: { input: '$$u.department' } }, ''] },
+                  'unknown',
+                  { $trim: { input: '$$u.department' } }
+                ]
+              },
+              'unknown'
+            ]
+          }
+        }
+      }
+    }
+  });
+
+  // Group by department: sum cost and count distinct users in that department
+  pipeline.push(
+    {
+      $group: {
+        _id: '$department',
+        total_cost: { $sum: '$total_num' },
+        users: { $addToSet: '$user_id_str' }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        department: '$_id',
+        total_cost: { $round: ['$total_cost', 6] },
+        user_count: { $size: '$users' }
+      }
+    },
+    { $sort: { total_cost: -1, department: 1 } }
+  );
+
+  const all = await llmCostsCol.aggregate(pipeline, { allowDiskUse: true }).toArray();
+  const total = all.length;
+  const items = all.slice(offset, offset + limit);
+
+  return {
+    items,
+    total,
+    meta: {
+      limit,
+      offset,
+      from: from || null,
+      to: to || null,
+      tenant_id: tenant_id || null,
+      project_id: project_id || null,
+      grouping: 'department'
+    }
+  };
+}
+
 module.exports = {
-  aggregateAgentsUsageAndCost
+  aggregateAgentsUsageAndCost,
+  aggregateCostsByDepartment
 };

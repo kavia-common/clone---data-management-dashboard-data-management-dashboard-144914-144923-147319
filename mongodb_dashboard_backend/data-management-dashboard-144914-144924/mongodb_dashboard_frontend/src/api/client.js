@@ -20,6 +20,10 @@ function joinUrl(base, path) {
 
 const API_BASE_URL = joinUrl(RAW_BASE_URL, API_PREFIX);
 
+/**
+ * Always use via getApiClient() rather than importing a default client.
+ * This avoids confusion between named/default exports and ensures interceptors are applied.
+ */
 // ✅ Create configured Axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
