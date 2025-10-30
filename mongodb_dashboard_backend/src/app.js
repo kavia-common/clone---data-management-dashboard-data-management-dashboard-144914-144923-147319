@@ -64,14 +64,8 @@ const swaggerUiHandler = swaggerUi.setup(null, {
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-/**
- * Base router (non-/api) for health and overview
- * NOTE: Canonical analytics namespace:
- *   - /api/users/* for users analytics
- *   - Optional alias: /api/analytics/users/* ONLY (no other duplicates)
- */
+// Routers
 const baseRouter = require('./routes');
-app.use('/', baseRouter);
 
 /**
  * Simple health with DB status
@@ -113,94 +107,11 @@ app.use('/api/dev', require('./routes/dev.routes'));
 
 /**
  * Public API routes
- * Users CRUD and analytics summary
+ * Canonical: mounted once under /api via routes/index.js
+ * This centralization prevents duplicates and shadowing.
  */
-try {
-  // eslint-disable-next-line no-console
-  console.log('[startup] Mounting /api/users routes...');
-} catch {}
-app.use('/api/users', require('./routes/users.routes'));
-
-try {
-  // eslint-disable-next-line no-console
-  console.log('[startup] Mounting /api/users tenant-summary routes...');
-} catch {}
-const usersAnalyticsSummaryRouter = require('./routes/users.analytics.summary.routes');
-if (usersAnalyticsSummaryRouter && usersAnalyticsSummaryRouter.stack) {
-  try {
-    // eslint-disable-next-line no-console
-    console.log('[startup] users.analytics.summary router loaded with', usersAnalyticsSummaryRouter.stack.length, 'layers');
-  } catch {}
-}
-app.use('/api/users', usersAnalyticsSummaryRouter);
-
-// Inline fallback handler for tenant-summary to avoid 404s if router wiring changes.
-// It maps controller output to array [{ tenant, count }] which the frontend expects.
-try {
-  // eslint-disable-next-line no-console
-  console.log('[startup] Registering inline fallback for GET /api/users/tenant-summary');
-} catch {}
-const { getUsersTenantSummary } = require('./controllers/users.analytics.summary.controller');
-app.get('/api/users/tenant-summary', async (req, res) => {
-  try {
-    // Reuse controller but capture its response to map shape
-    const fakeRes = {
-      _status: 200,
-      _sent: false,
-      status(code) { this._status = code; return this; },
-      json(payload) { this._sent = true; this._payload = payload; return this; }
-    };
-    await getUsersTenantSummary(req, fakeRes);
-    if (!fakeRes._sent) {
-      return res.status(500).json({ success: false, message: 'Controller did not respond' });
-    }
-    if (fakeRes._status !== 200) {
-      return res.status(fakeRes._status).json(fakeRes._payload);
-    }
-    const items = Array.isArray(fakeRes._payload?.items) ? fakeRes._payload.items : [];
-    const mapped = items.map((it) => ({
-      tenant: it.tenant_name || it.tenant_id || '',
-      count: typeof it.user_count === 'number' ? it.user_count : 0,
-    }));
-    return res.status(200).json(mapped);
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[tenant-summary.inline] error:', err?.message || err);
-    return res.status(500).json({ success: false, message: 'Internal Server Error' });
-  }
-});
-
-// Provide both kebab and camelCase aliases for session tracking and deployments
-app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
-app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
-
-app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
-app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
-
-// Sample data
-app.use('/api/data', require('./routes/data.routes'));
-
-// Costs aggregate endpoints (non-users analytics)
-app.use('/api/costs', require('./routes/costs.byAgent.routes'));
-
-// LLM costs endpoints
-app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
-app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
-
-// Tenants, Projects, Auth, Session
-app.use('/api/tenants', require('./routes/tenants.routes'));
-app.use('/api/projects', require('./routes/projects.routes'));
-app.use('/api/session', require('./routes/session.routes'));
-app.use('/api/dashboard', require('./routes/dashboard.routes'));
-app.use('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
-app.use('/api/auth', require('./routes/auth.routes'));
-
-/* Users analytics mounts are centralized in src/routes/index.js under:
-   - /api/users/* (canonical)
-   - /api/analytics/users/* (single alias group)
-   Do not mount analytics routers directly here to avoid shadowing/duplicates. */
-
-/* Users analytics routes have been fully removed to avoid dangling references */
+try { console.log('[startup] Mounting canonical routes under /api'); } catch {}
+app.use('/api', baseRouter);
 
 // 404 JSON
 app.use((req, res) => {

@@ -1,47 +1,53 @@
-# Backend Routing Audit and Canonicalization
+# Backend Routing Audit and Fix Summary
 
-This backend has been audited to ensure all modules respond under a single canonical base: `/api`.
+This document summarizes the routing consolidation and analytics endpoint verification work.
 
-Key points:
-- Canonical mounts happen in `src/app.js` via `app.use('/', require('./routes'))`.
-- `src/routes/index.js` mounts all module routers relative to `/api`:
-  - Users CRUD and analytics: `/api/users/*`
-  - Analytics users alias: `/api/analytics/users/*` (single alias group)
-  - Session: `/api/session/*`
-  - Session tracking: `/api/session-tracking/*` and `/api/sessionTracking/*` (alias for compatibility)
-  - App deployments: `/api/app-deployments/*` and `/api/appDeployments/*` (alias)
-  - LLM costs: `/api/llm-costs/*` and `/api/llmCosts/*` (alias)
-  - Tenants: `/api/tenants/*`
-  - Projects: `/api/projects/*`
-  - Dashboard overview: `/api/dashboard/overview/*`
-  - Sample data: `/api/data/*`
-  - Costs by agent: `/api/costs/*`
+Canonical base: /api
 
-Removed/avoided duplicates:
-- No direct mounting of legacy `/api/users/analytics` to prevent shadowing.
-- `/api/analytics/users/*` is the only analytics alias group; do not add additional aliases.
+Mounted exactly once:
+- /api/auth
+- /api/users
+- /api/tenants
+- /api/data
+- /api/llm-costs
+- /api/llm-costs-aggregate
+- /api/costs
+- /api/session
+- /api/session-tracking
+- /api/app-deployments
+- /api/dashboard/overview
+- /api (counts endpoints e.g., /api/dashboard/overview/metrics via modules router)
 
-Users analytics endpoints (backed by users collection fields only unless stated):
-- GET `/api/users/active-trend` -> time-bucketed distinct active users based on session_tracking; schema: `{ items: [{ date, total }], meta }`.
-- GET `/api/users/kpi-summary` -> KPIs: total, active, admin, dau/wau/mau (from timestamps).
-- GET `/api/users/by-department` -> `{ items: [{ department, count }] }`.
-- GET `/api/users/by-organization` -> `{ items: [{ organization_id, count }] }`.
-- GET `/api/users/compliance` -> `{ items: [{ name, count }] }`.
-- GET `/api/users/tenant-summary` -> controller returns `{ success, items, total }`; route maps to array `[{ tenant, count }]` for legacy frontend compatibility.
+Users analytics:
+- Canonical under /api/users:
+  - GET /api/users/active-trend
+  - GET /api/users/kpi-summary
+  - GET /api/users/by-department
+  - GET /api/users/by-organization
+  - GET /api/users/compliance
+- Alias group (single): /api/analytics/users/* mapped to the same handlers.
 
-CORS and base URL:
-- CORS is configured in `src/middleware/security.js`. Whitelist derives from:
-  - `FRONTEND_ORIGIN`, `CORS_ORIGIN`, `CORS_ORIGINS`
-  - `REACT_APP_API_BASE_URL` (origin inferred)
-  - Localhost defaults and the cloud preview origin
-- Credentials allowed when `CORS_CREDENTIALS=true`.
-- See `.env.example` for sample configuration.
+Removed duplicates:
+- Duplicated mounts in app.js (sessionTracking camelCase alias, appDeployments camelCase alias, repeated users mounts) were removed.
+- All public mounts are centralized in src/routes/index.js and are mounted once via `app.use('/api', baseRouter)` in app.js.
 
-Status endpoints and docs:
-- Health: `GET /api/health`
-- OpenAPI: `GET /openapi.json`, `GET /api-docs.json`
-- Swagger UI: `/docs`, `/api-docs`
+CORS and JSON:
+- CORS is enabled via src/middleware/security.js with dynamic whitelist:
+  - Derives origins from REACT_APP_API_BASE_URL, CORS_ORIGIN, CORS_ORIGINS, FRONTEND_ORIGIN.
+  - Defaults allow localhost:3000 and the current preview origin.
+  - Credentials can be enabled via CORS_CREDENTIALS=true.
+- JSON body parsing enabled with `express.json({ limit: '1mb' })`.
 
-Notes:
-- All changes are backend-only and additive for compatibility. The frontend should not need changes.
-- If any module responds empty, verify MongoDB connectivity and that the environment variables are set.
+Non-analytics modules verified behavior:
+- /api/users supports seeding when empty (GET /api/users/seed-if-empty), and list endpoint seeds demo users if collection is entirely empty, ensuring UI shows data.
+- /api/dashboard/overview and /api/dashboard/overview/metrics are served by dashboard routes; counts gracefully return zeros when DB is empty.
+- /api/session-tracking returns arrays or envelopes with normalized numeric fields even when using Decimal128.
+- /api/app-deployments supports standard list/CRUD and project name resolution with in-memory cache.
+
+Testing notes:
+- OpenAPI available at /openapi.json; Swagger UI at /docs.
+- Health: GET /api/health returns DB status.
+
+Environment:
+- Ensure MONGODB_URI is set.
+- If frontend hosted elsewhere, set FRONTEND_ORIGIN or CORS_ORIGINS accordingly.

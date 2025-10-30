@@ -32,9 +32,11 @@ const router = express.Router();
 router.get('/', healthController.check.bind(healthController));
 router.get('/healthz', healthController.check.bind(healthController));
 
-// Mount core API routes
+/**
+ * Canonical mounts under /api
+ * These are mounted exactly once to avoid duplicates/shadowing.
+ */
 router.use('/auth', authRoutes);
-try { console.log('[routes] Mount /api/users base + analytics'); } catch {}
 router.use('/users', usersRoutes);
 router.use('/tenants', tenantsRoutes);
 router.use('/data', dataRoutes);
@@ -45,7 +47,7 @@ router.use('/session', sessionRoutes);
 router.use('/session-tracking', sessionTrackingRoutes);
 router.use('/app-deployments', appDeploymentsRoutes);
 
-// Dashboard overview routes
+// Dashboard overview routes (both overview and modules under /dashboard/overview)
 router.use('/dashboard/overview', dashboardRoutes);
 router.use('/dashboard/overview', dashboardModulesRoutes);
 
@@ -53,19 +55,15 @@ router.use('/dashboard/overview', dashboardModulesRoutes);
 router.use('/', countsRoutes);
 
 /**
- * Users analytics routing
- * Canonical: /api/users/*
- * Single optional alias group: /api/analytics/users/*
- * Remove /api/users/analytics and avoid double-mounting under /users to prevent shadowing.
+ * Users analytics endpoints
+ * Canonical: /api/users/* (extend users with analytics endpoints)
+ * Single alias group supported: /api/analytics/users/*
  */
 router.use('/users', usersAnalyticsActivityRouter);
 router.use('/users', usersAnalyticsSummaryRouter);
 
-// Optional single alias group (ensure no other analytics mounts conflict)
+// Optional single alias group
 router.use('/analytics/users', usersAnalyticsActivityRouter);
 router.use('/analytics/users', usersAnalyticsSummaryRouter);
-
-// Remove legacy duplicate mounts if present (safety no-ops)
-// Do not mount /api/users/analytics or /api/analytics routes here to avoid duplication.
 
 module.exports = router;
