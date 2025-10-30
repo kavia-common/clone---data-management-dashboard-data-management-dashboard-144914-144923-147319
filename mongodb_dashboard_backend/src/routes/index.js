@@ -40,6 +40,9 @@ router.use('/session', sessionRoutes);
 router.use('/session-tracking', sessionTrackingRoutes);
 router.use('/app-deployments', appDeploymentsRoutes);
 
+// Users Analytics (v2) under /api/users/analytics
+router.use('/users/analytics', require('./users.analytics.routes.v2'));
+
 // Dashboard overview routes
 router.use('/dashboard/overview', dashboardRoutes);
 router.use('/dashboard/overview', dashboardModulesRoutes);

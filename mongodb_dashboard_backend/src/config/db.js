@@ -8,6 +8,7 @@ const mongoose = require('mongoose');
  * - Emits useful, non-sensitive logs for verification
  *
  * Returns the active mongoose.connection.
+ * Note: Native Db handle is available via getDb() and collections via getCollection().
  *
  * ENVIRONMENT VARIABLES REQUIRED:
  * - MONGODB_URI: Mongo connection string (e.g. mongodb://user:pass@host:27017/db)
