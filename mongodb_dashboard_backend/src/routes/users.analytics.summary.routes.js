@@ -75,14 +75,7 @@ router.get('/tenant-summary', asyncHandler(async (req, res) => {
   return res.status(200).json(mapped);
 }));
 
-/**
- * PUBLIC_INTERFACE
- * GET /api/users/tenant-summary/health
- * Simple health endpoint to verify that the users.analytics.summary router is mounted.
- */
-router.get('/tenant-summary/health', (req, res) => {
-  return res.status(200).json({ ok: true, router: 'users.analytics.summary' });
-});
+
 
 /** Explicit router export for clarity */
 module.exports = router;

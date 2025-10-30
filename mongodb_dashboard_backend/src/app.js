@@ -129,40 +129,6 @@ if (usersAnalyticsSummaryRouter && usersAnalyticsSummaryRouter.stack) {
 }
 app.use('/api/users', usersAnalyticsSummaryRouter);
 
-/**
- * Inline defensive route for /api/users/tenant-summary
- * Ensures a working endpoint and returns the exact shape expected by the frontend:
- *  Array<{ tenant: string, count: number }>
- * Respects query params: from, to, status (pipe-delimited), includeInactive=false
- * Uses the canonical controller and maps fields.
- */
-try {
-  const { getUsersTenantSummary } = require('./controllers/users.analytics.summary.controller');
-  app.get('/api/users/tenant-summary', async (req, res, next) => {
-    try {
-      const fakeRes = {
-        _status: 200,
-        _sent: false,
-        status(code) { this._status = code; return this; },
-        json(payload) { this._sent = true; this._payload = payload; return this; }
-      };
-      await getUsersTenantSummary(req, fakeRes, next);
-      if (!fakeRes._sent) return next();
-      if (fakeRes._status !== 200 || !fakeRes._payload) {
-        return res.status(fakeRes._status || 500).json(fakeRes._payload || { success: false, message: 'Unexpected error' });
-      }
-      const items = Array.isArray(fakeRes._payload.items) ? fakeRes._payload.items : [];
-      const mapped = items.map(it => ({
-        tenant: it.tenant_name || it.tenant_id || '',
-        count: typeof it.user_count === 'number' ? it.user_count : 0,
-      }));
-      return res.status(200).json(mapped);
-    } catch (err) {
-      return next(err);
-    }
-  });
-} catch {}
-
 // Provide both kebab and camelCase aliases for session tracking and deployments
 app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
 app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));

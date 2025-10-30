@@ -1,18 +1,22 @@
-# Users Analytics Endpoints
+# Users Tenant Summary
 
-Mounted under /api/users/analytics:
+Endpoint
+- GET /api/users/tenant-summary
+- Query params:
+  - from: ISO datetime (inclusive)
+  - to: ISO datetime (inclusive)
+  - status: pipe-delimited values, e.g. active|completed
+  - includeInactive: boolean (default false)
 
-- GET /daily-active?days=30&start_date=&end_date=&department=&organization_id=
-- GET /by-department?windowDays=14&start_date=&end_date=&department=&organization_id=
-- GET /active-vs-inactive?windowDays=14&start_date=&end_date=&department=&organization_id=
-- GET /top-active?limit=10&windowDays=30&start_date=&end_date=&department=&organization_id=
+Response
+- 200: Array of items shaped as { tenant: string, count: number }
+  Example:
+  [
+    { "tenant": "Org One", "count": 12 },
+    { "tenant": "Org Two", "count": 7 }
+  ]
 
-Legacy aliases (kept for backward compatibility) are under /api/users/analytics/legacy:
-- GET /legacy/overview
-- GET /legacy/daily-active
-- GET /legacy/by-department
-- GET /legacy/active-vs-inactive
-- GET /legacy/top-active
-- GET /legacy/growth
+Notes
+- The route is mounted via src/routes/users.analytics.summary.routes.js under app.js with app.use('/api/users', ...).
+- Only one handler responds at GET /api/users/tenant-summary; temporary debug routes have been removed.
 
-All responses are chart-friendly with ISO date formatting where applicable. Uses native MongoDB driver with indexes created at startup.

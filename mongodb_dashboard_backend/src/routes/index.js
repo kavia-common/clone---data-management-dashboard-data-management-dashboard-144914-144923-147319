@@ -30,11 +30,6 @@ router.get('/healthz', healthController.check.bind(healthController));
 
 // Mount core API routes (analysis routes removed)
 router.use('/auth', authRoutes);
-/**
- * PUBLIC_INTERFACE
- * GET /users/tenant-summary/health (when mounted at app-level '/')
- * Note: This router serves as non-/api base, while app.js also mounts /api prefixed routes directly.
- */
 router.use('/users', usersRoutes);
 router.use('/tenants', tenantsRoutes);
 router.use('/data', dataRoutes);
