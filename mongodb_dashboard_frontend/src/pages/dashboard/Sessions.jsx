@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { listSessions } from "../../api/client";
+import { listSessions } from "../../api";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
+import useDebouncedValue from "../../hooks/useDebouncedValue";
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
@@ -180,19 +181,15 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced server-side search on query change
+  // Debounced server-side search on query change (250ms default)
+  const debouncedQuery = useDebouncedValue(query, 250);
   useEffect(() => {
-    const handle = setTimeout(() => {
-      const q = (query || "").trim();
-      const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-      // Reset to first page when searching and preserve sort across dataset
-      load(1, meta.limit || 10, q, key, dir);
-      // Sync charts to the same query
-      loadAggregates(q);
-    }, 300);
-    return () => clearTimeout(handle);
+    const q = (debouncedQuery || "").trim();
+    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    load(1, meta.limit || 10, q, key, dir);
+    loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [debouncedQuery]);
 
   // Toggle global dimming class while modal is open (align with user modal UX)
   useEffect(() => {
@@ -231,10 +228,15 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts row */}
-      <div className="grid sessions-charts" role="region" aria-label="Session insights">
+      {/* Charts stacked vertically */}
+      <div
+        className="sessions-charts"
+        role="region"
+        aria-label="Session insights"
+        style={{ display: "flex", flexDirection: "column", gap: 24 }}
+      >
         <Card
-          className="col-span-6 chart-card"
+          className="chart-card"
           title="Sessions by Organization"
           subtitle="Count of sessions per organization"
         >
@@ -247,7 +249,7 @@ export default function Sessions() {
           </div>
         </Card>
         <Card
-          className="col-span-6 chart-card"
+          className="chart-card"
           title="Sessions by Type"
           subtitle="Count of sessions per type"
         >

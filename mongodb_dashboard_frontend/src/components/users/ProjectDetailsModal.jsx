@@ -1,4 +1,4 @@
-/**
+ /**
  * PUBLIC_INTERFACE
  * ProjectDetailsModal
  * Displays project details for a given project (Project ID, Project Name, Updated At).
@@ -12,7 +12,6 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Modal from "../ui/Modal.jsx";
-import DetailsViewer from "../common/DetailsViewer.jsx";
 import { fetchProjectNameDirect } from "../../api/projectName";
 
 export default function ProjectDetailsModal({ open, onClose, project }) {
@@ -58,7 +57,8 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
 
   const details = useMemo(() => {
     const rows = [];
-    rows.push({ label: "Project ID", value: projectId || "—" });
+    const idValue = projectId ? String(projectId) : "—";
+    rows.push({ label: "Project ID", value: idValue });
     rows.push({ label: "Project Name", value: loading ? "Loading…" : (projectName || "—") });
     rows.push({
       label: "Updated At",
@@ -88,37 +88,66 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
 
 function KeyValueList({ items = [] }) {
   // Ocean Professional: subtle labels, clear values, consistent grid to avoid layout shift.
+  // Values render as plain text consistent across fields.
   return (
     <dl style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: "8px 12px", margin: 0 }}>
-      {items.map((it, idx) => (
-        <React.Fragment key={idx}>
-          <dt
-            style={{
-              color: "var(--text-tertiary)",
-              fontWeight: 600,
-              fontSize: 12,
-              textAlign: "right",
-              whiteSpace: "nowrap",
-            }}
-            title={String(it.label || "")}
-          >
-            {it.label}
-          </dt>
-          <dd
-            style={{
-              margin: 0,
-              color: "var(--text-primary)",
-              fontSize: 14,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={String(it.value ?? "—")}
-          >
-            {String(it.value ?? "—")}
-          </dd>
-        </React.Fragment>
-      ))}
+      {items.map((it, idx) => {
+        const isElement = React.isValidElement(it.value);
+        const titleText = !isElement && it.value != null ? String(it.value) : undefined;
+
+        // Normalize optional props for the value node
+        const valueProps = it.valueProps || {};
+        const normalizedValueProps = {
+          className: valueProps.className || valueProps.valueClassName,
+          style: { ...(valueProps.style || {}), ...(valueProps.valueStyle || {}) },
+        };
+
+        // Build the final value node, cloning element when necessary to merge styles/className
+        let valueNode = null;
+        if (isElement) {
+          const orig = it.value;
+          const mergedClassName =
+            [orig.props?.className, normalizedValueProps.className].filter(Boolean).join(" ") || undefined;
+          const mergedStyle = { ...(orig.props?.style || {}), ...(normalizedValueProps.style || {}) };
+          valueNode = React.cloneElement(orig, { className: mergedClassName, style: mergedStyle });
+        } else {
+          valueNode = (
+            <span className={normalizedValueProps.className} style={normalizedValueProps.style}>
+              {String(it.value ?? "—")}
+            </span>
+          );
+        }
+
+        return (
+          <React.Fragment key={idx}>
+            <dt
+              style={{
+                color: "var(--text-tertiary)",
+                fontWeight: 600,
+                fontSize: 12,
+                textAlign: "right",
+                whiteSpace: "nowrap",
+              }}
+              title={String(it.label || "")}
+            >
+              {it.label}
+            </dt>
+            <dd
+              style={{
+                margin: 0,
+                color: "var(--text-primary)",
+                fontSize: 14,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={titleText}
+            >
+              {valueNode}
+            </dd>
+          </React.Fragment>
+        );
+      })}
     </dl>
   );
 }

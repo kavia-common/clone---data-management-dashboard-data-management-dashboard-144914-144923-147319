@@ -166,14 +166,15 @@ export default function UserProfileModal({ open, onClose, user }) {
           </div>
         </div>
 
-        <Button
-          variant="ghost"
+        <button
+          type="button"
+          className="btn-modal-close compact"
           aria-label="Close"
           onClick={onClose}
           title="Close dialog"
         >
-          ✕
-        </Button>
+          Close
+        </button>
       </div>
 
       {/* Scrollable Body */}

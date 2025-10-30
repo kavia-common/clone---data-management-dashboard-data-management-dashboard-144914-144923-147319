@@ -1,3 +1,5 @@
+@import "./styles/modal.css";
+
 :root {
   /* Ocean Professional — blue primary with amber accents */
   --bg-canvas: #F3F6F9;
@@ -8,7 +10,7 @@
   --text-tertiary: #64748B;
 
   /* Brand: primary orange + secondary blue (per style system) */
-  --brand-primary: #FF6A3D;      /* brand orange */
+  --brand-primary: #FF6600;      /* brand orange (standardized accent) */
   --brand-secondary: #0EA5E9;    /* brand blue */
   --brand-secondary-hover: #0284C7; /* darker blue for hover */
   --brand-secondary-active: #0369A1; /* even darker for active */
@@ -19,8 +21,8 @@
   --link: #2563EB;
 
   /* Badges — pale blue per Ocean Professional */
-  --badge-bg: #E6F2FE;  /* light blue tint */
-  --badge-text: #0B74D0; /* dark blue */
+  --badge-bg: color-mix(in oklab, var(--brand-primary) 12%, white);  /* light accent tint */
+  --badge-text: var(--brand-primary); /* accent text */
 
   --input-bg: #F8FAFC;
   --input-border: #E2E8F0;
@@ -178,7 +180,7 @@
   outline: none;
 }
 .sidebar:focus-visible {
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.28);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--focus-ring-color, #FF6600) 35%, transparent);
 }
 
 /* removed: .sidebar-mobile-close — no sidebar close control in the UI */
@@ -232,7 +234,7 @@
 
 /* Focus-visible ring for keyboard users */
 .nav-link:focus-visible {
-  outline: 3px solid rgba(14, 165, 233, 0.45);
+  outline: 3px solid var(--focus-ring-color, #FF6600);
   outline-offset: 2px;
 }
 
@@ -293,15 +295,20 @@
   .btn { min-height: 36px; }
 }
 .btn:active { transform: translateY(1px); }
-.btn-primary { background: var(--brand-secondary); color: #fff; height: 36px; }
-.btn-primary:hover { background: var(--brand-secondary-hover); }
-.btn-primary:active { background: var(--brand-secondary-active); }
-.btn-primary:focus-visible { outline: 3px solid rgba(14, 165, 233, 0.45); outline-offset: 2px; }
-.btn-primary:disabled, .btn-primary[aria-disabled="true"] { background: #7DD3FC; color: #f8fafc; cursor: not-allowed; opacity: .85; }
+.btn-primary { background: var(--brand-primary); color: #fff; height: 36px; }
+.btn-primary:hover { background: color-mix(in oklab, var(--brand-primary) 85%, black); }
+.btn-primary:active { background: color-mix(in oklab, var(--brand-primary) 75%, black); }
+.btn-primary:focus-visible { outline: 3px solid var(--focus-ring-color, #FF6600); outline-offset: 2px; }
+.btn-primary:disabled, .btn-primary[aria-disabled="true"] {
+  background: color-mix(in oklab, var(--brand-primary) 35%, white);
+  color: #f8fafc;
+  cursor: not-allowed;
+  opacity: .85;
+}
 .btn-secondary { background: #E2E8F0; color: var(--text-primary); }
 .btn-danger { background: var(--danger); color: white; }
 .btn-ghost { background: transparent; color: var(--text-primary); }
-.btn:focus { outline: 2px solid #BFDBFE; outline-offset: 2px; }
+.btn:focus { outline: 2px solid var(--focus-ring-color, #FF6600); outline-offset: 2px; }
 .w-full { width: 100%; }
 
 /* Cards */
@@ -415,6 +422,9 @@
   height: var(--table-row-h, 56px); /* stabilize row heights to prevent lurches */
   overflow: hidden;
   text-overflow: ellipsis;
+
+  /* Smooth hover transitions as per guidance; prefers-reduced-motion rule exists globally in globals.css */
+  transition: background-color var(--motion-duration-fast, 200ms) var(--motion-ease, ease), color var(--motion-duration-fast, 200ms) var(--motion-ease, ease);
 }
 
 /* Sticky header bar that remains visible (grid keeps it at the top) */
@@ -449,17 +459,39 @@
   flex-wrap: wrap;
 }
 .table-pagination .btn-ghost[aria-current="page"] {
-  /* Guard: if any case assigns aria-current on ghost, ensure visibility */
-  background: #EFF6FF;
-  color: var(--brand-secondary);
+  /* Current page highlighted using accent tint */
+  background: color-mix(in oklab, var(--brand-primary) 12%, white);
+  color: var(--brand-primary);
   font-weight: 700;
 }
 .table-pagination .btn.btn-ghost {
   border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  opacity: 1; /* ensure clear visibility when idle */
 }
 .table-pagination .btn.btn-secondary {
   background: #E2E8F0;
   color: var(--text-primary);
+  opacity: 1; /* ensure clear visibility when idle */
+}
+/* Hover/active accents for pagination arrows (orange accent) */
+.table-pagination .btn.btn-secondary:hover:not(:disabled),
+.table-pagination .btn.btn-ghost:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--brand-primary) 12%, white);
+  color: var(--brand-primary);
+}
+/* Disabled state: keep reduced opacity and no pointer only when disabled */
+.table-pagination .btn:disabled,
+.table-pagination .btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: saturate(0.9);
+}
+/* Focus-visible ring for pagination buttons (inherit global focus styles and ensure visibility) */
+.table-pagination .btn:focus-visible {
+  outline: 3px solid var(--focus-ring-color, var(--brand-primary));
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-primary) 35%, transparent);
 }
 
 /* Pagination buttons: consistent sizing and spacing */
@@ -486,7 +518,14 @@
 .td--emphasis-name {
   font-weight: 500;
 }
+/* Light theme default hover (unchanged) */
 .tr:hover .td { background: #F8FAFC; }
+
+/* Dark theme: use surface-appropriate hover color and keep text legible; avoid overriding selected/active states */
+html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selected):not([aria-selected="true"]):hover .td {
+  background: var(--color-hover-bg, #3A3330);
+  color: var(--color-text-primary, #EAEAEA);
+}
 .table-empty { padding: 16px; color: var(--text-tertiary); text-align: center; }
 .td.actions { display: flex; gap: 8px; align-items: center; justify-content: flex-start; flex-wrap: wrap; }
 .td.num { text-align: right; }
@@ -516,12 +555,50 @@
   .table { min-width: 520px; }
   .th, .td { padding: 8px 10px; }
 }
+
+
+/* Wrapped variant for long/multi-line values */
+
+
+
+
+
+
+/* Status badge: prevent overflow and keep layout consistent */
 .status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
   background: var(--badge-bg);
   color: var(--badge-text);
-  font-size: 12px; font-weight: 600;
-  padding: 2px 8px; border-radius: 9999px;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.25;
+  height: auto;             /* allow natural height if wrapping is enabled */
+  max-width: 100%;          /* don't exceed the cell */
+  vertical-align: middle;
+  overflow: hidden;         /* enable ellipsis when nowrap is active */
+  text-overflow: ellipsis;
+  white-space: nowrap;      /* default: single line with ellipsis (tooltip shows full) */
+  overflow-wrap: anywhere;  /* safe fallback if wrapping is enabled */
+  word-break: break-word;   /* break long tokens if wrapping is enabled */
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--badge-text) 12%, transparent) inset;
 }
+
+/* Wider Status column helper; DataTable will also enforce width via colgroup */
+.col-status-wide {
+  min-width: 200px;
+}
+
+/* If you choose to wrap on very narrow screens, uncomment:
+@media (max-width: 767px) {
+  .table .td.col-status-wide { white-space: normal; height: auto; }
+  .table .td.col-status-wide .status-badge { white-space: normal; text-overflow: clip; }
+}
+*/
+
 
 /* Optional utility marker classes to use on th/td when needed */
 .col-priority-1 {}
@@ -531,6 +608,10 @@
 .col-priority-5 {}
 .col-priority-6 {}
 .col-priority-7 {}
+
+
+
+
 
 /* Modal legacy classes neutralized to avoid conflicts with shared Modal overlay */
 .modal-backdrop,
@@ -562,8 +643,8 @@ textarea { height: auto; min-height: 80px; }
   .form-grid { grid-template-columns: 1fr; gap: 10px; }
 }
 input:focus, select:focus, textarea:focus {
-  border-color: var(--brand-secondary);
-  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.28);
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-primary) 35%, transparent);
 }
 .error { background: rgba(239,68,68,0.07); color: #991b1b; padding: 10px 12px; border-radius: 8px; border: 1px solid #fecaca; }
 
@@ -741,6 +822,13 @@ input:focus, select:focus, textarea:focus {
   .chart-wrapper { min-height: 240px; }
 }
 
+/* Organization Summary hover subtle elevation */
+.org-summary-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+
 /* On tablet, keep labels visible and align left; rely on horizontal scroll for overflow */
 @media (max-width: 1023px) {
   .nav-link .nav-label { display: inline !important; }
@@ -760,7 +848,7 @@ input:focus, select:focus, textarea:focus {
   position: fixed;
   inset: 0;
   z-index: 1000; /* above header/sidebar/modal */
-  background: linear-gradient(180deg, rgba(14,165,233,0.06), rgba(255,255,255,0.9));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--brand-primary) 10%, transparent), rgba(255,255,255,0.9));
   display: grid;
   place-items: center;
   padding: 24px;
@@ -806,4 +894,15 @@ input:focus, select:focus, textarea:focus {
   margin-top: 12px;
   font-weight: 700;
   color: var(--text-primary);
+}
+
+/* Desktop-only overlay logo containment: fill the orange box without stretching */
+.device-blocker-icon { overflow: hidden; }
+.device-blocker-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: inherit;
+  display: block;
+  padding: 6px; /* small inner padding to keep logo away from edges */
 }

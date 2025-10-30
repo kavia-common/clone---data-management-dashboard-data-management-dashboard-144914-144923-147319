@@ -11,6 +11,7 @@ import {
   Legend,
 } from "recharts";
 import { getActiveUsersTrend } from "../../api/usersAnalytics";
+import { getChartTheme, withAlpha } from "./chartTheme";
 
 /**
  * PUBLIC_INTERFACE
@@ -80,9 +81,10 @@ export default function ActiveUsersTrendChart({
     [rows]
   );
 
-  const primary = "#2563EB";
-  const primaryDark = "#1E40AF";
-  const gridStroke = "rgba(0,0,0,0.08)";
+  const t = getChartTheme();
+  const primary = t.primary;
+  const primaryDark = t.primaryActive;
+  const gridStroke = t.grid;
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -92,12 +94,12 @@ export default function ActiveUsersTrendChart({
           role="dialog"
           aria-live="polite"
           style={{
-            background: "#fff",
-            border: "1px solid #E2E8F0",
+            background: t.tooltip.bg,
+            border: `1px solid ${t.tooltip.border}`,
             borderRadius: 8,
             padding: "8px 10px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-            color: "#0F172A",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            color: t.tooltip.text,
           }}
         >
           <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
@@ -129,33 +131,36 @@ export default function ActiveUsersTrendChart({
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
               <XAxis
                 dataKey="date"
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: 12, fill: t.axisTick }}
                 tickMargin={8}
                 minTickGap={28}
                 label={{
                   value: granularity === "week" ? "Week start" : "Date",
                   position: "insideBottomRight",
                   offset: -4,
-                  fill: "#6B7280",
+                  fill: t.axisTick,
                   fontSize: 12,
                 }}
               />
               <YAxis
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: 12, fill: t.axisTick }}
                 allowDecimals={false}
                 label={{
                   value: "Active users",
                   angle: -90,
                   position: "insideLeft",
-                  fill: "#6B7280",
+                  fill: t.axisTick,
                   fontSize: 12,
                 }}
               />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip
+                content={<CustomTooltip />}
+                wrapperStyle={{ outline: "none" }}
+              />
               <Legend
                 verticalAlign="top"
                 height={24}
-                wrapperStyle={{ fontSize: 12 }}
+                wrapperStyle={{ fontSize: 12, color: t.legend.text }}
                 payload={[{ id: "Active users", value: "Active users", type: "line", color: primary }]}
               />
               <Line
@@ -164,8 +169,8 @@ export default function ActiveUsersTrendChart({
                 name="Active users"
                 stroke={primary}
                 strokeWidth={2}
-                dot={{ r: 2, stroke: primaryDark, strokeWidth: 1 }}
-                activeDot={{ r: 4 }}
+                dot={{ r: 2, stroke: primaryDark, strokeWidth: 1, fill: withAlpha(primary, 0.1) }}
+                activeDot={{ r: 4, stroke: primaryDark, strokeWidth: 2 }}
               />
             </LineChart>
           </ResponsiveContainer>

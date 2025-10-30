@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
-import { listUsers, listSessions, listDeployments, health } from "../../api/client";
+import Skeleton from "../../components/ui/Skeleton.jsx";
+import { listUsers, listSessions, listDeployments, health } from "../../api";
+
 
 // PUBLIC_INTERFACE
 export default function Overview() {
@@ -69,19 +71,25 @@ export default function Overview() {
       {/* KPI cards row — responsive spans handled by .kpi-card rules in App.css */}
       <Card title="Users" subtitle="Total referral users" className="kpi-card">
         <div className="kpi">
-          <div className="kpi-value">{metrics.users}</div>
+          <div className="kpi-value">
+            {loading ? <Skeleton width={72} height={28} aria-label="Loading users metric" /> : metrics.users}
+          </div>
           <div className="kpi-label">Users</div>
         </div>
       </Card>
       <Card title="Sessions" subtitle="Active and historical sessions" className="kpi-card">
         <div className="kpi">
-          <div className="kpi-value">{metrics.sessions}</div>
+          <div className="kpi-value">
+            {loading ? <Skeleton width={72} height={28} aria-label="Loading sessions metric" /> : metrics.sessions}
+          </div>
           <div className="kpi-label">Sessions</div>
         </div>
       </Card>
       <Card title="Deployments" subtitle="Recent app deployments" className="kpi-card">
         <div className="kpi">
-          <div className="kpi-value">{metrics.deployments}</div>
+          <div className="kpi-value">
+            {loading ? <Skeleton width={72} height={28} aria-label="Loading deployments metric" /> : metrics.deployments}
+          </div>
           <div className="kpi-label">Deployments</div>
         </div>
       </Card>
@@ -91,9 +99,17 @@ export default function Overview() {
       <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
         <Card title="Activity trend" subtitle="Weekly activity overview" className="w-full">
           {error && <div className="error" role="alert">{error}</div>}
-          {loading ? <div>Loading...</div> : <KPIChart data={trend} xKey="label" yKey="value" />}
+          {loading ? (
+            <div style={{ width: "100%", height: 280 }}>
+              <Skeleton width="100%" height="100%" aria-label="Loading activity trend" />
+            </div>
+          ) : (
+            <KPIChart data={trend} xKey="label" yKey="value" />
+          )}
         </Card>
       </div>
+
+
 
     </div>
   );

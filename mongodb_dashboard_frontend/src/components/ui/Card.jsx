@@ -1,24 +1,38 @@
 import React from "react";
 
 /**
+ * PUBLIC_INTERFACE
  * Card surface with optional header, subtitle and actions.
- * Applies Ocean Professional surface styling via CSS classes in App.css.
+ * Applies Ocean Professional surface styling via CSS classes (theme.css/globals.css).
+ * Supports a "brown" variant for dashboard KPI cards.
  */
-// PUBLIC_INTERFACE
-export default function Card({ title, subtitle, actions, children, className = "" }) {
-  /** Surface card with optional header and action slot. */
+export default function Card({
+  title,
+  subtitle,
+  actions,
+  children,
+  className = "",
+  ariaLabel,
+  variant = "brown", // default to brown per requirement
+}) {
+  const base = "card";
+  const variantClass = variant === "brown" ? "card-brown on-brown" : "";
   return (
-    <div className={`card ${className}`}>
+    <section
+      className={`${base} ${variantClass} ${className}`.trim()}
+      aria-label={ariaLabel || (typeof title === "string" ? title : undefined)}
+      role="region"
+    >
       {(title || actions || subtitle) && (
-        <div className="card-header">
+        <header className="card-header">
           <div>
-            {title && <h3 className="card-title">{title}</h3>}
-            {subtitle && <div className="card-subtitle">{subtitle}</div>}
+            {title && <h3 className="card-title title">{title}</h3>}
+            {subtitle && <div className="card-subtitle muted">{subtitle}</div>}
           </div>
           {actions && <div className="card-actions">{actions}</div>}
-        </div>
+        </header>
       )}
       <div className="card-content">{children}</div>
-    </div>
+    </section>
   );
 }

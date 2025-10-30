@@ -12,6 +12,7 @@ import {
   LabelList,
 } from "recharts";
 import { getTenantUsersSummary } from "../../api/usersAnalytics";
+import { getChartTheme } from "./chartTheme";
 
 /**
  * PUBLIC_INTERFACE
@@ -102,10 +103,11 @@ export default function UsersByTenantChart({
     [rows, totalUsers]
   );
 
-  const primary = "#2563EB";
-  const primaryDark = "#1E40AF";
-  const secondary = "#F59E0B";
-  const gridStroke = "rgba(0,0,0,0.08)";
+  const t = getChartTheme();
+  const primary = t.primary;
+  const primaryDark = t.primaryActive;
+  const secondary = t.primaryHover;
+  const gridStroke = t.grid;
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -117,12 +119,12 @@ export default function UsersByTenantChart({
           role="dialog"
           aria-live="polite"
           style={{
-            background: "#fff",
-            border: "1px solid #E2E8F0",
+            background: t.tooltip.bg,
+            border: `1px solid ${t.tooltip.border}`,
             borderRadius: 8,
             padding: "8px 10px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-            color: "#0F172A",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            color: t.tooltip.text,
           }}
         >
           <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
@@ -145,7 +147,7 @@ export default function UsersByTenantChart({
       <text
         x={textX}
         y={textY}
-        fill="#111827"
+        fill="var(--color-text-primary)"
         fontSize={12}
         textAnchor="start"
         aria-hidden="true"
@@ -161,10 +163,9 @@ export default function UsersByTenantChart({
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
         <span
           style={{
-            background:
-              "linear-gradient(90deg, rgba(37,99,235,0.08), rgba(245,158,11,0.08))",
-            border: "1px solid #E5E7EB",
-            color: "#111827",
+            background: "color-mix(in oklab, var(--color-accent) 12%, transparent)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text-primary)",
             fontSize: 12,
             padding: "6px 8px",
             borderRadius: 999,
@@ -202,22 +203,22 @@ export default function UsersByTenantChart({
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
               <XAxis
                 type="number"
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: 12, fill: t.axisTick }}
                 allowDecimals={false}
                 label={{
                   value: "Users",
                   position: "insideBottomRight",
                   offset: -4,
-                  fill: "#6B7280",
+                  fill: t.axisTick,
                   fontSize: 12,
                 }}
               />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={80} />
-              <Tooltip content={<CustomTooltip />} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: t.axisTick }} width={80} />
+              <Tooltip content={<CustomTooltip />} wrapperStyle={{ outline: "none" }} />
               <Legend
                 verticalAlign="top"
                 height={24}
-                wrapperStyle={{ fontSize: 12 }}
+                wrapperStyle={{ fontSize: 12, color: t.legend.text }}
                 payload={[{ id: "Users", value: "Users", type: "square", color: primary }]}
               />
               <Bar

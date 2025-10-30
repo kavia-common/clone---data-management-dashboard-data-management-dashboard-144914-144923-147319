@@ -10,10 +10,32 @@
   --ocean-border: #E5E7EB;
   --ocean-grid: rgba(0,0,0,0.08);
 
+  /* Brown card theme tokens */
+  --card-brown-bg: #8B5E34;
+  --card-brown-text: #EDE0D4;
+  --card-brown-border: #7C4F2A;
+  --card-brown-bg-hover: #7C4F2A;
+  --card-brown-text-hover: #FFF4E6;
+
   --radius-md: 12px;
   --radius-lg: 16px;
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
   --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+/* Map light theme CSS variables used across components to Ocean tokens */
+:root {
+  --bg-canvas: var(--ocean-bg);
+  --bg-surface: var(--ocean-surface);
+  --text-primary: var(--ocean-text);
+  --text-secondary: #374151;
+  --text-tertiary: var(--ocean-muted);
+  --border-subtle: var(--ocean-border);
+  --brand-primary: var(--ocean-primary);
+  --brand-secondary: var(--ocean-secondary);
+  --brand-secondary-hover: #ffab2e;
+  --brand-secondary-active: #dd8a06;
+  --color-accent: var(--ocean-secondary);
 }
 
 body {
@@ -21,11 +43,183 @@ body {
   color: var(--ocean-text);
 }
 
+/* Buttons for light theme */
+.btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1.25;
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease, box-shadow 200ms ease, transform 50ms ease;
+}
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.65;
+  cursor: not-allowed;
+  filter: saturate(0.9);
+}
+.btn-primary {
+  background: var(--ocean-primary);
+  color: #ffffff;
+}
+.btn-primary:hover {
+  background: #1D4ED8;
+  color: #ffffff;
+}
+.btn-primary:active {
+  background: #1E40AF;
+}
+.btn-secondary {
+  background: var(--ocean-secondary);
+  color: #111827;
+  border-color: color-mix(in oklab, var(--ocean-secondary) 35%, #0000);
+  color: #111827;
+}
+.btn-secondary:hover {
+  background: #ffab2e;
+  color: #111827;
+}
+.btn-secondary:active {
+  background: #dd8a06;
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--ocean-border);
+}
+.btn-ghost:hover {
+  background: color-mix(in oklab, var(--ocean-secondary) 8%, transparent);
+  color: var(--text-primary);
+}
+.btn-danger {
+  background: #EF4444;
+  color: #ffffff;
+}
+.btn-danger:hover {
+  background: #DC2626;
+}
+/* Unify focus-visible ring for all buttons (light theme)
+   - Ocean primary tinted outline
+   - Maintain AA contrast and keyboard accessibility */
+.btn:focus-visible {
+  outline: 3px solid color-mix(in oklab, var(--ocean-primary) 35%, transparent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ocean-primary) 20%, transparent);
+}
+
+/* Project ID pill (light theme)
+   - White bold text
+   - Light orange background (theme secondary)
+   - Darker orange border
+   - Rounded full with small padding
+*/
+.project-id-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 9999px;
+  background: var(--ocean-secondary, #F59E0B);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 12px;
+  border: 1px solid #D97706; /* darker orange border */
+  line-height: 1;
+  white-space: nowrap;
+  user-select: text; /* allow copy of project id */
+}
+.project-id-pill:hover {
+  background: color-mix(in oklab, var(--ocean-secondary, #F59E0B) 90%, #000 10%);
+  color: #ffffff;
+  border-color: #D97706;
+}
+.project-id-pill:focus-visible {
+  outline: 3px solid color-mix(in oklab, var(--ocean-secondary, #F59E0B) 35%, transparent);
+  outline-offset: 2px;
+}
+
+/* Tabs styling to improve visibility/readability */
+.tabs {
+  display: inline-flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tab {
+  position: relative;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--text-primary);
+  background: color-mix(in oklab, var(--ocean-secondary) 8%, transparent);
+}
+.tab.active {
+  color: var(--text-primary);
+  font-weight: 800;
+  background: color-mix(in oklab, var(--ocean-secondary) 10%, transparent);
+}
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 3px;
+  background: var(--ocean-secondary);
+  border-radius: 2px 2px 0 0;
+}
+
+/* Cards */
 .card {
-  background: var(--ocean-surface);
+  /* Default surface uses tokens; dark theme overrides in globals.css/html[data-theme="dark"] */
+  background: var(--bg-surface, var(--ocean-surface));
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
-  border: 1px solid var(--ocean-border);
+  border: 1px solid var(--border-subtle, var(--ocean-border));
+}
+
+/* Dark theme card surface override:
+   - Use dark surface/background tokens defined in globals.css (:root[data-theme="dark"])
+   - Ensure readable text and subtle borders/shadows
+   - Keep hover/focus transitions accessible */
+html[data-theme="dark"] .card {
+  background: var(--color-surface, #111827);
+  border: 1px solid var(--color-border, #374151);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elev-1, 0 1px 0 rgba(0,0,0,0.5), 0 6px 12px rgba(0,0,0,0.25));
+  color: var(--color-text-primary, #E5E7EB);
+}
+
+html[data-theme="dark"] .card-title {
+  color: var(--color-text-primary, #F9FAFB);
+}
+
+html[data-theme="dark"] .card-subtitle {
+  color: var(--color-text-secondary, #9CA3AF);
+}
+
+html[data-theme="dark"] .card-header {
+  border-bottom: 1px solid var(--color-border, #374151);
+}
+
+html[data-theme="dark"] .card:hover {
+  /* Slightly lift on hover without harsh contrast */
+  box-shadow: var(--shadow-elev-1, 0 1px 0 rgba(0,0,0,0.5), 0 8px 16px rgba(0,0,0,0.28));
+}
+
+html[data-theme="dark"] .card:focus-within {
+  /* Accessible focus ring using accent */
+  outline: 2px solid var(--focus-ring-color, var(--color-accent, #F59E0B));
+  outline-offset: 2px;
 }
 
 .card-header {
@@ -73,7 +267,16 @@ body {
 }
 
 .hover-row:hover {
-  background: rgba(37, 99, 235, 0.04);
+  background: color-mix(in oklab, var(--color-accent, #FF6600) 8%, transparent);
+}
+
+/* Dark theme override for generic hover rows */
+html[data-theme="dark"] .hover-row {
+  transition: background-color var(--motion-duration-fast, 200ms) var(--motion-ease, ease), color var(--motion-duration-fast, 200ms) var(--motion-ease, ease);
+}
+html[data-theme="dark"] .hover-row:hover {
+  background: var(--color-hover-bg, #3A3330);
+  color: var(--color-text-primary, #EAEAEA);
 }
 
 .clickable {

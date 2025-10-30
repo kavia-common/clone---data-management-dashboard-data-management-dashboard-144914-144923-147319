@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../ui/Modal.jsx';
+import Button from '../ui/Button.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName } from '../../utils/stringFormatters.js';
 import { formatLabel } from '../../utils/formatLabel';
 import { usdToCredits, formatCredits, parseUsdToNumber } from '../../utils/currency.js';
 import { formatCurrencyAmount } from '../../utils/formatCurrency';
 import { getUserBasic } from '../../api/users';
+import './SessionDetailsModal.css';
 
 /**
  * PUBLIC_INTERFACE
@@ -18,11 +20,11 @@ import { getUserBasic } from '../../api/users';
  * - session: object - session data to render
  *
  * Design and UX:
- * - Uses parent Modal overlay; keeps sticky header within card with subtle shadow
+ * - Uses parent Modal overlay; keeps sticky header within card with subtle divider
  * - Two-column responsive grid (minmax 240px, 1fr) stacking to single column <640px
- * - Labels are muted, medium weight; values wrap and avoid horizontal scroll
- * - Full-width red Close button with hover/focus states, rounded-md
- * - No metadata section
+ * - Labels use tertiary/secondary text color; values use primary text color
+ * - Comfortable spacing, 1px borders, soft shadows; zebra striping by row for improved scanability
+ * - AA contrast for text and interactive controls
  */
 function SessionDetailsModal({ open, onClose, session }) {
   const headerId = 'session-details-title';
@@ -328,16 +330,15 @@ function SessionDetailsModal({ open, onClose, session }) {
   }, [session]);
 
   return (
-    <Modal open={open} onClose={onClose} title={title}>
-      {/* Sticky Header with subtle shadow */}
+    <Modal open={open} onClose={onClose} title={title} className="session-details-modal modal--session">
+      {/* Sticky Header with subtle divider and theme token background */}
       <div
         className="sticky-header"
         style={{
           zIndex: 1,
-          background: 'rgba(255,255,255,0.96)',
-          backdropFilter: 'saturate(1) blur(2px)',
-          padding: '16px 24px',
-          boxShadow: '0 1px 0 var(--border-subtle, #E5E7EB)',
+          background: 'var(--bg-surface, #fff)',
+          padding: '12px 20px',
+          boxShadow: '0 1px 0 var(--border-subtle)',
         }}
       >
         <h2
@@ -345,8 +346,8 @@ function SessionDetailsModal({ open, onClose, session }) {
           style={{
             margin: 0,
             fontSize: 18,
-            fontWeight: 600,
-            color: 'var(--text-strong, #0F172A)',
+            fontWeight: 700,
+            color: 'var(--text-primary, #111827)',
           }}
           title={title}
         >
@@ -360,7 +361,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         tabIndex={-1}
         id={`${headerId}-content`}
         style={{
-          padding: '16px 24px',
+          padding: 20,
           gap: 16,
           display: 'flex',
           flexDirection: 'column',
@@ -370,6 +371,7 @@ function SessionDetailsModal({ open, onClose, session }) {
           overflowWrap: 'anywhere',
           flex: 1,
           minHeight: 0,
+          background: 'var(--bg-canvas, #f9fafb)',
         }}
       >
         <section
@@ -377,44 +379,49 @@ function SessionDetailsModal({ open, onClose, session }) {
           className="details-card"
           style={{
             position: 'relative',
-            background: '#fff',
+            background: 'var(--bg-surface, #ffffff)',
             border: '1px solid var(--border-subtle, #E5E7EB)',
             borderRadius: 12,
             padding: 16,
+            boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(16,24,40,0.04))',
           }}
         >
           <div
             role="group"
             aria-label="Label and value pairs"
+            className="details-grid"
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
               columnGap: 32,
-              rowGap: 20,
+              rowGap: 0,
             }}
           >
             {Object.entries(coreDetails).map(([label, value]) => {
-              const isPlaceholder = value === '\u2014' || value === 'Unknown User' || value === 'Not available' || value === 'Loading...';
+              const isPlaceholder =
+                value === '\u2014' || value === 'Unknown User' || value === 'Not available' || value === 'Loading...';
               return (
-                <div key={label} style={{ minWidth: 0 }}>
+                <div key={label} className="detail-item" style={{ minWidth: 0 }}>
                   <div
+                    className="detail-label"
                     style={{
                       fontSize: 12,
                       fontWeight: 600,
-                      color: 'var(--text-muted, #475569)',
-                      letterSpacing: '0.2px',
+                      color: 'var(--text-tertiary, #64748B)', // align with User modal
+                      letterSpacing: '0.02em',
                       marginBottom: 6,
                     }}
                   >
                     {label}
                   </div>
                   <div
+                    className="detail-value"
                     style={{
                       fontSize: 14,
-                      fontWeight: isPlaceholder ? 500 : 700,
+                      fontWeight: isPlaceholder ? 500 : 600, // normalize to 600 to match User Details modal
                       color: isPlaceholder
-                        ? 'var(--text-subtle, #94A3B8)'
-                        : 'var(--text-strong, #0F172A)',
+                        ? 'var(--text-tertiary, #6B7280)'
+                        : 'var(--text-primary, #111827)',
                       lineHeight: '20px',
                       whiteSpace: 'normal',
                       overflowWrap: 'anywhere',
@@ -435,31 +442,14 @@ function SessionDetailsModal({ open, onClose, session }) {
         style={{
           padding: '12px 16px',
           borderTop: '1px solid var(--border-subtle, #E5E7EB)',
-          background: '#ffffff',
+          background: 'var(--bg-surface, #ffffff)',
         }}
       >
         <button
           type="button"
           onClick={onClose}
-          className="btn-close-primary"
-          style={{
-            width: '100%',
-            height: 46,
-            background: '#EF4444',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 12,
-            fontWeight: 700,
-            boxShadow: '0 1px 2px rgba(16,24,40,0.04)',
-            cursor: 'pointer',
-            transition: 'background .15s ease, transform .06s ease',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#DC2626'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = '#EF4444'; }}
-          onMouseDown={(e) => { e.currentTarget.style.transform = 'translateY(1px)'; }}
-          onMouseUp={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
-          onFocus={(e) => { e.currentTarget.style.outline = '3px solid rgba(220,38,38,0.35)'; e.currentTarget.style.outlineOffset = '2px'; }}
-          onBlur={(e) => { e.currentTarget.style.outline = 'none'; }}
+          className="btn-modal-close"
+          style={{ width: '100%', height: 46, borderRadius: 12 }}
           aria-label="Close"
           title="Close"
         >
@@ -468,11 +458,42 @@ function SessionDetailsModal({ open, onClose, session }) {
       </div>
 
       <style>{`
+        /* Responsive: single column on small screens */
         @media (max-width: 639px) {
           .details-card [aria-label="Label and value pairs"] {
             grid-template-columns: 1fr !important;
-            row-gap: 16px !important;
+            row-gap: 0 !important;
           }
+        }
+
+        /* Section dividers and zebra striping for detail items
+           Ensure striping applies by row across two columns: items (1,2), (3,4), ... */
+        .details-grid .detail-item {
+          padding: 10px 0;
+          border-top: 1px solid var(--border-subtle, #E5E7EB);
+        }
+        .details-grid .detail-item:nth-child(1),
+        .details-grid .detail-item:nth-child(2) {
+          border-top: none; /* First row (2 columns) has no top border */
+        }
+        /* Zebra: apply background to pairs (1,2), (5,6), (9,10) ... => 4n+1 and 4n+2 */
+        .details-grid .detail-item:nth-child(4n + 1),
+        .details-grid .detail-item:nth-child(4n + 2) {
+          background: var(
+            --zebra-row-bg,
+            color-mix(in oklab, var(--bg-canvas, #f9fafb) 92%, var(--bg-surface, #ffffff) 8%)
+          );
+        }
+        .details-grid .detail-item:nth-child(4n + 3),
+        .details-grid .detail-item:nth-child(4n + 4) {
+          background: transparent;
+        }
+
+        /* Improve focus-visible for any buttons/interactive nodes inside modal */
+        .details-card .btn:focus-visible,
+        .w-100.btn:focus-visible {
+          outline: 3px solid rgba(37, 99, 235, 0.35) !important; /* Ocean blue */
+          outline-offset: 2px !important;
         }
       `}</style>
     </Modal>

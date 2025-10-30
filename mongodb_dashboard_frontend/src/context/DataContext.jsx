@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { listUsers, listSessions } from "../api/client";
+import { listUsers, listSessions } from "../api";
 
 /**
  * PUBLIC_INTERFACE

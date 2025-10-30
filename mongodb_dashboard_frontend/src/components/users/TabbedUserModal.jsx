@@ -181,7 +181,23 @@ function UserProjectsView({ userId, tenantId, from, to }) {
   if (!enabled) {
     return <div className="text-gray-500">Select a user with a valid tenant to view projects.</div>;
   }
-  if (loading) return <div className="table-empty">Loading projects…</div>;
+  if (loading) return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        background: 'transparent',
+        color: '#ffffff',
+        border: 'none',
+        boxShadow: 'none',
+        textAlign: 'center',
+        padding: 12,
+        borderRadius: 8,
+      }}
+    >
+      Loading projects…
+    </div>
+  );
   if (error) {
     return (
       <div className="error" role="alert" style={{ marginBottom: 12 }}>
@@ -257,17 +273,12 @@ function UserProjectsView({ userId, tenantId, from, to }) {
               Project ID
             </div>
             <div
+              title={String(id)}
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                background: '#F8FAFC',
+                margin: 0,
                 color: 'var(--text-primary, #111827)',
-                border: '1px solid var(--border-subtle, #E6EAF0)',
-                borderRadius: 9999,
-                padding: '6px 10px',
-                fontFamily: 'ui-monospace, monospace',
                 fontWeight: 600,
+                wordBreak: 'break-word',
               }}
             >
               {String(id)}
@@ -319,7 +330,17 @@ function UserProjectsView({ userId, tenantId, from, to }) {
   return (
     <div role="list" aria-label="User projects list" style={{ display: 'grid', gap: 12 }}>
       {list.length === 0 && (
-        <div className="table-empty" style={{ color: 'var(--text-tertiary)' }}>
+        <div
+          style={{
+            background: 'transparent',
+            color: '#ffffff',
+            border: 'none',
+            boxShadow: 'none',
+            textAlign: 'center',
+            padding: 12,
+            borderRadius: 8,
+          }}
+        >
           No projects found for this user.
         </div>
       )}
@@ -401,14 +422,14 @@ export default function TabbedUserModal({
   }
 
   return (
-    <Modal title={title} open={open} onClose={onClose}>
-      <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "#fff" }}>
+    <Modal title={title} open={open} onClose={onClose} className="tabbed-user-modal">
+      <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "var(--bg-surface, #fff)" }}>
         <div style={{ padding: "12px 20px" }}>
           <ThemedTabs activeKey={activeTab} onChange={setActiveTab} />
         </div>
       </div>
 
-      <div role="region" style={{ flex: 1, overflow: "auto", background: "#f9fafb" }}>
+      <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
           {activeTab === 'projects' && (
@@ -417,20 +438,12 @@ export default function TabbedUserModal({
         </div>
       </div>
 
-      <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "#fff" }}>
+      <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "var(--bg-surface, #fff)" }}>
         <button
           type="button"
           onClick={onClose}
-          style={{
-            width: "100%",
-            background: "#EF4444",
-            color: "#fff",
-            border: "none",
-            borderRadius: 10,
-            padding: "10px 14px",
-            fontWeight: 700,
-            cursor: "pointer",
-          }}
+          className="btn-modal-close"
+          style={{ width: "100%", borderRadius: 10 }}
         >
           Close
         </button>

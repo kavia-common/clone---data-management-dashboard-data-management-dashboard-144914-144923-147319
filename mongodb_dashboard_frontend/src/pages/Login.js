@@ -1,16 +1,24 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchUserOrganizationsByEmail, loginWithOrgEmailPassword } from '../api/authClient';
 import { useAuth } from '../context/AuthContext';
-import './Login.css'; // optional, if exists; otherwise ignore
+import Card from '../components/ui/Card.jsx';
+import Input from '../components/ui/Input.jsx';
+import Button from '../components/ui/Button.jsx';
+import './Login.css';
+import appLogo from '../assets/logo/app-logo-2025.png'; // REQ-UI-LOGO-REPLACE: reuse sidebar logo
 
-const DEFAULT_REDIRECT = '/dashboard';
-
+/**
+ * PUBLIC_INTERFACE
+ * Login
+ * Two-step login flow:
+ * 1. Enter email -> fetch organizations for that email
+ * 2. Select organization and enter password -> login
+ * Uses shared UI primitives (Card, Input, Button) and global tokens (accent #FF6600, dark mode variables).
+ */
 export default function Login() {
-  // Basic inputs
   const [email, setEmail] = useState('');
-  // Store the API response exactly as returned: { email, organizations }
-  const [orgResponse, setOrgResponse] = useState(null);
+  const [orgResponse, setOrgResponse] = useState(null); // { email, organizations }
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [password, setPassword] = useState('');
   const [loadingOrgs, setLoadingOrgs] = useState(false);
@@ -22,9 +30,11 @@ export default function Login() {
   const { login } = useAuth();
 
   const canFind = useMemo(() => email && !loadingOrgs, [email, loadingOrgs]);
-  const canLogin = useMemo(() => email && selectedOrgId && password && !loadingLogin, [email, selectedOrgId, password, loadingLogin]);
+  const canLogin = useMemo(
+    () => email && selectedOrgId && password && !loadingLogin,
+    [email, selectedOrgId, password, loadingLogin]
+  );
 
-  // target after successful login
   const SUCCESS_REDIRECT = '/dashboard/overview';
 
   async function handleFindOrgs() {
@@ -36,17 +46,16 @@ export default function Login() {
     setLoadingOrgs(true);
     try {
       const resp = await fetchUserOrganizationsByEmail(email);
-      // resp expected: { email, organizations }
       setOrgResponse(resp);
       const items = Array.isArray(resp?.organizations) ? resp.organizations : [];
       if (items.length === 0) {
         setSelectedOrgId('');
         setError('No organizations found for this email.');
       } else {
-        // auto-select first
         setSelectedOrgId(items[0]?.id || '');
       }
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error(e);
       setError(e.message || 'Failed to fetch organizations. Please try again.');
       setOrgResponse(null);
@@ -69,16 +78,13 @@ export default function Login() {
         organizationId: selectedOrgId,
         email,
         password,
-        // Optional: pass a custom salt if provided in env via REACT_APP_TENANT_ENCRYPTION_SALT
       });
-
-      // Persist and propagate auth state via context provider
+      // Persist session via context provider
       login(token || null);
-
-      // Navigate to dashboard overview or 'from' if provided
       const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
       navigate(from, { replace: true });
     } catch (e) {
+      // eslint-disable-next-line no-console
       console.error('Login error', e);
       const status = e?.status;
       if (status === 401 || status === 403) {
@@ -94,160 +100,93 @@ export default function Login() {
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <h2 style={styles.title}>Sign in</h2>
-
-        {error ? <div style={styles.error}>{error}</div> : null}
-
-        <div style={styles.field}>
-          <label style={styles.label}>Email</label>
-          <input
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={styles.input}
+    <div className="auth-screen">
+      <div className="auth-card">
+        <div className="auth-header">
+          {/* REQ-UI-LOGO-REPLACE: Replace star with shared logo asset, sized for login header */}
+          <img
+            src={appLogo}
+            alt="Company logo"
+            className="auth-logo"
+            style={{ height: 36, width: 'auto' }}
           />
+          <h2 style={{ margin: 0 }}>Sign in</h2>
+          <div className="muted" style={{ marginTop: 4 }}>Access your dashboard</div>
         </div>
 
-        <div style={styles.actionsRow}>
-          <button onClick={handleFindOrgs} disabled={!canFind} style={{ ...styles.button, ...(canFind ? {} : styles.buttonDisabled) }}>
-            {loadingOrgs ? 'Finding...' : 'Find Organizations'}
-          </button>
-        </div>
+        <div className="auth-form">
+          {error ? <div className="error" role="alert">{error}</div> : null}
 
-        {orgResponse?.email ? (
-          <div style={styles.field}>
-            <label style={styles.label}>Email (from server)</label>
-            <div style={{ fontSize: 14, color: '#111827' }}>{orgResponse.email}</div>
+          <label>
+            <span>Email</span>
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              aria-label="Email address"
+            />
+          </label>
+
+          <div className="toolbar" style={{ padding: 0 }}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleFindOrgs}
+              disabled={!canFind}
+              aria-label="Find organizations for this email"
+              className="w-full"
+            >
+              {loadingOrgs ? 'Finding…' : 'Find Organizations'}
+            </Button>
           </div>
-        ) : null}
 
-        <div style={styles.field}>
-          <label style={styles.label}>Organization</label>
-          <select
-            value={selectedOrgId}
-            onChange={(e) => setSelectedOrgId(e.target.value)}
-            style={styles.select}
+          {orgResponse?.email ? (
+            <div className="muted" aria-live="polite">
+              Email (from server): <strong style={{ color: 'inherit' }}>{orgResponse.email}</strong>
+            </div>
+          ) : null}
+
+          <label>
+            <span>Organization</span>
+            <select
+              className="ui-input"
+              value={selectedOrgId}
+              onChange={(e) => setSelectedOrgId(e.target.value)}
+              aria-label="Organization"
+            >
+              <option value="">Select organization...</option>
+              {(orgResponse?.organizations || []).map((o) => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Password</span>
+            <Input
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              aria-label="Password"
+            />
+          </label>
+
+          <Button
+            type="button"
+            onClick={handleLogin}
+            disabled={!canLogin}
+            className="w-full"
           >
-            <option value="">Select organization...</option>
-            {(orgResponse?.organizations || []).map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
+            {loadingLogin ? 'Signing in…' : 'Login'}
+          </Button>
         </div>
 
-        <div style={styles.field}>
-          <label style={styles.label}>Password</label>
-          <input
-            type="password"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={styles.input}
-          />
-        </div>
-
-        <div style={styles.actionsRow}>
-          <button onClick={handleLogin} disabled={!canLogin} style={{ ...styles.buttonPrimary, ...(canLogin ? {} : styles.buttonDisabled) }}>
-            {loadingLogin ? 'Signing in...' : 'Login'}
-          </button>
+        <div className="auth-footer">
+          <div className="muted">By signing in you agree to the Terms and Privacy Policy.</div>
         </div>
       </div>
     </div>
   );
 }
-
-const styles = {
-  container: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: '#f9fafb',
-    padding: '2rem',
-  },
-  card: {
-    width: '100%',
-    maxWidth: 420,
-    background: '#ffffff',
-    borderRadius: 12,
-    boxShadow: '0 10px 25px rgba(0,0,0,0.08)',
-    padding: '1.5rem',
-  },
-  title: {
-    margin: 0,
-    marginBottom: '1rem',
-    fontSize: 22,
-    color: '#111827',
-    fontWeight: 700,
-  },
-  field: {
-    marginBottom: '1rem',
-  },
-  label: {
-    display: 'block',
-    marginBottom: 6,
-    color: '#374151',
-    fontSize: 13,
-    fontWeight: 600,
-  },
-  input: {
-    width: '100%',
-    padding: '10px 12px',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    fontSize: 14,
-    outline: 'none',
-  },
-  select: {
-    width: '100%',
-    padding: '10px 12px',
-    border: '1px solid #e5e7eb',
-    borderRadius: 8,
-    fontSize: 14,
-    outline: 'none',
-    backgroundColor: '#fff',
-  },
-  actionsRow: {
-    display: 'flex',
-    gap: 8,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  button: {
-    padding: '10px 14px',
-    borderRadius: 8,
-    border: '1px solid #d1d5db',
-    background: '#ffffff',
-    color: '#111827',
-    cursor: 'pointer',
-    fontWeight: 600,
-  },
-  buttonPrimary: {
-    padding: '10px 14px',
-    borderRadius: 8,
-    border: '1px solid #2563EB',
-    background: '#2563EB',
-    color: '#ffffff',
-    cursor: 'pointer',
-    fontWeight: 700,
-    width: '100%',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-    cursor: 'not-allowed',
-  },
-  error: {
-    background: '#FEF2F2',
-    color: '#B91C1C',
-    border: '1px solid #FECACA',
-    borderRadius: 8,
-    padding: '8px 10px',
-    marginBottom: '10px',
-    fontSize: 13,
-  },
-};

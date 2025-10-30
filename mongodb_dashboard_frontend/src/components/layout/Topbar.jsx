@@ -1,4 +1,5 @@
 import React from "react";
+import appLogo from "../../assets/logo/app-logo-2025.png";
 
 /**
  * PUBLIC_INTERFACE
@@ -12,7 +13,13 @@ export default function Topbar() {
     <header className="topbar app-headbar" role="banner">
       <div className="topbar-left">
         <div className="brand" aria-label="Tenant Dashboard">
-          <span className="brand-badge" aria-hidden="true">★</span>
+          {/* REQ-UI-LOGO-REPLACE: Reuse the same logo asset as Sidebar, placed before the title */}
+          <img
+            src={appLogo}
+            alt="Company logo"
+            className="brand-logo"
+            style={{ height: 28, width: "auto", marginRight: 8, borderRadius: 8 }}
+          />
           <span className="brand-title">Tenant Dashboard</span>
         </div>
       </div>

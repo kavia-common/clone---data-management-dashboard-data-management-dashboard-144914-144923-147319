@@ -1,4 +1,4 @@
-import { getApiClient } from './client';
+import { getApiClient } from './index';
 // Local helper for building query strings since ./util doesn't export it
 function buildQueryString(params = {}) {
   const usp = new URLSearchParams();

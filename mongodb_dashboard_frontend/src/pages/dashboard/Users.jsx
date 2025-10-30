@@ -76,18 +76,13 @@ export default function Users() {
   const chartToolbar = (
     <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8 }}>
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: "#6B7280" }}>Date range</span>
+        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Date range</span>
         <select
           aria-label="Date range"
           value={rangeDays}
           onChange={(e) => setRangeDays(Number(e.target.value))}
-          style={{
-            padding: "6px 8px",
-            borderRadius: 8,
-            border: "1px solid #d1d5db",
-            background: "white",
-            color: "#111827",
-          }}
+          className="ui-input"
+          style={{ minWidth: 160 }}
         >
           <option value={7}>Last 7 days</option>
           <option value={14}>Last 14 days</option>

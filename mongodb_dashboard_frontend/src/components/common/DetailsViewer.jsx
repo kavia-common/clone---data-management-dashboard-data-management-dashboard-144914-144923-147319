@@ -580,15 +580,16 @@ export default function DetailsViewer({
         .dv-header-left { display: grid; gap: 8px; }
         .dv-title {
           margin: 0;
-          font-size: 16px;
-          font-weight: 700;
-          color: var(--text-primary);
+          font-size: 18px;
+          line-height: 1.35;
+          font-weight: 800;
+          color: var(--text-primary, #111827);
         }
         .dv-actions { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .dv-highlights { display: inline-flex; gap: 8px; flex-wrap: wrap; }
         .dv-chip {
-          background: var(--badge-bg);
-          color: var(--badge-text);
+          background: var(--badge-bg, #f3f4f6);
+          color: var(--badge-text, var(--text-secondary));
           border-radius: 999px;
           padding: 4px 10px;
           font-size: 12px;
@@ -596,26 +597,35 @@ export default function DetailsViewer({
           white-space: nowrap;
         }
         .dv-chip-key { color: var(--text-tertiary); font-weight: 700; margin-right: 4px; }
-        .dv-chip-val { color: var(--text-primary); }
+        .dv-chip-val { color: var(--text-primary, #111827); }
 
         .dv-body {
-          padding: 12px 16px 20px 16px;
+          padding: 14px 18px 22px 18px;
         }
 
         .dv-grid {
           display: grid;
-          grid-template-columns: minmax(140px, 200px) 1fr; /* tighter, consistent label column */
-          gap: 6px 10px; /* reduce horizontal gap between label and value */
+          grid-template-columns: minmax(160px, 240px) 1fr; /* slightly wider label column for readability */
+          gap: 0; /* we will handle padding within cells for better row backgrounds */
           margin: 0;
+          border: 1px solid var(--border-subtle);
+          border-radius: 10px;
+          background: var(--bg-surface, #ffffff);
+          box-shadow: 0 1px 2px rgba(16,24,40,0.04);
         }
         @media (max-width: 640px) {
           .dv-grid { grid-template-columns: 1fr; }
           /* On narrow screens, let labels wrap and align left for readability */
-          .dv-key { margin-top: 8px; text-align: left; white-space: normal; }
+          .dv-key { margin-top: 0; text-align: left; white-space: normal; }
         }
         .dv-row { display: contents; }
+        .dv-key,
+        .dv-valcell {
+          padding: 10px 12px;
+          line-height: 1.55;
+        }
         .dv-key {
-          color: var(--text-tertiary);
+          color: var(--text-tertiary, #6B7280);
           font-weight: 600;
           font-size: 12px;
           align-self: center;
@@ -623,11 +633,28 @@ export default function DetailsViewer({
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+          border-right: 1px solid var(--border-subtle);
+        }
+        @media (max-width: 640px) {
+          .dv-key {
+            border-right: none;
+            border-bottom: 1px dashed var(--border-subtle);
+          }
+        }
+        /* Zebra striping for improved scanability */
+        .dv-grid .dv-row:nth-child(odd) .dv-key,
+        .dv-grid .dv-row:nth-child(odd) .dv-valcell {
+          background: #fcfcfd;
+        }
+        .dv-grid .dv-row + .dv-row .dv-key,
+        .dv-grid .dv-row + .dv-row .dv-valcell {
+          border-top: 1px solid var(--border-subtle);
         }
         .dv-valcell { 
           display: block; 
           min-width: 0; 
           overflow: hidden; 
+          color: var(--text-primary, #111827);
         }
         .dv-val { 
           white-space: normal; 
@@ -641,11 +668,12 @@ export default function DetailsViewer({
         }
         .dv-val.num { text-align: right; font-variant-numeric: tabular-nums; }
         .dv-val.em { font-weight: 600; }
-        .dv-val.pos { color: var(--success); }
+        .dv-val.pos { color: var(--success, #065f46); }
 
         .dv-primitive { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         .dv-collapser { display: grid; gap: 8px; }
+        /* GxP Accessibility: Use surface token instead of hard white to avoid conflicts on canvas backgrounds */
         .dv-toggle {
           height: 32px;
           padding: 0 8px;
@@ -655,10 +683,14 @@ export default function DetailsViewer({
           align-items: center;
           gap: 6px;
           font-weight: 600;
+          background: var(--bg-surface, #fff);
         }
-        .dv-toggle:focus-visible { outline: 3px solid rgba(14, 165, 233, 0.45); outline-offset: 2px; }
+        .dv-toggle:hover { 
+          background: color-mix(in oklab, var(--color-accent, #F59E0B) 8%, transparent);
+        }
+        .dv-toggle:focus-visible { outline: 3px solid rgba(245, 158, 11, 0.55); outline-offset: 2px; }
         .dv-chevron { width: 14px; display: inline-block; text-align: center; }
-        .dv-toggle-label { color: var(--text-primary); }
+        .dv-toggle-label { color: var(--text-primary, #111827); }
         .dv-summary { color: var(--text-tertiary); font-size: 12px; }
 
         .dv-section { 
@@ -713,7 +745,7 @@ export default function DetailsViewer({
           color: #e6edf3;
           border-radius: 0;
           font-size: 12px;
-          line-height: 1.4;
+          line-height: 1.5;
           overflow: auto;
           max-width: 100%;
           box-sizing: border-box;
@@ -741,7 +773,7 @@ export default function DetailsViewer({
         }
         /* Slightly tighten column gap between label and value */
         .dv-compact-left .dv-grid {
-          gap: 6px 8px;
+          gap: 0;
         }
         /* Reduce left indentation for nested sections to avoid large left empty space */
         .dv-compact-left .dv-section {

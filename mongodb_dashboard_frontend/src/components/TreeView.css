@@ -40,12 +40,13 @@
   border-color: var(--tv-border);
 }
 
+/* GxP Accessibility: Avoid hard white; use surface token for readability on canvas background contexts */
 .tv-toggle {
   height: 22px;
   min-width: 22px;
   border-radius: 6px;
   border: 1px solid var(--tv-border);
-  background: #fff;
+  background: var(--bg-surface, #fff);
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -78,7 +79,9 @@
 }
 
 .tv-badge {
-  background: var(--tv-badge-bg);
+  /* Ensure transparent background to avoid white fill while preserving text/border styles */
+  background: transparent !important;
+  background-color: transparent !important;
   color: var(--tv-badge-text);
   font-size: 11px;
   font-weight: 700;

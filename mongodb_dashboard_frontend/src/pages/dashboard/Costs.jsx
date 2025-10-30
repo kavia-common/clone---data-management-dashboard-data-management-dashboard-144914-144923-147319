@@ -3,15 +3,16 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import TreeView from "../../components/TreeView.jsx";
+import CostsOrganizationSummary from "../../components/costs/CostsOrganizationSummary.jsx";
 
 import { renderCreditsWithUsd } from "../../utils/currency";
-import { listLlmCosts } from "../../api/client";
+import { listLlmCosts } from "../../api";
+
 
 /**
  * PUBLIC_INTERFACE
  * Costs page
  * - Keeps compact LLM costs table with inspector for large fields.
- * - Removes deprecated "View All" costs modal and focuses on compact inspector UX.
  */
 export default function Costs() {
   const [allItems, setAllItems] = useState([]);
@@ -333,9 +334,14 @@ export default function Costs() {
 
   return (
     <div>
+      {/* Organization Summary section (standalone, after agent chart removal) */}
+      <CostsOrganizationSummary />
+
+      {/* Table section */}
       <Card
         title="Costs"
         subtitle="LLM usage cost records — compact view with expandable details"
+        className="mt-4"
       >
         <div className="toolbar" aria-label="Costs toolbar" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <input
@@ -370,6 +376,8 @@ export default function Costs() {
         onClose={closeInspector}
         headerOffset={60}
         width="min(96vw, 880px)"
+        /* Costs-context variant to ensure subtle canvas tint on white surface */
+        className="modal--costs"
         footer={
           <button className="btn btn-ghost" onClick={closeInspector} aria-label="Close details">Close</button>
         }
@@ -442,7 +450,9 @@ function CostsTreeInspector({ payload }) {
       <div className="sticky-header" style={{
         top: 0,
         zIndex: 1,
-        background: "var(--bg-surface, #fff)",
+        // GxP: Accessibility/contrast fix for Costs View Details modal (REQ-UI-COSTS-MODAL-BG)
+        // Use application canvas background inside the costs inspector header to avoid light-on-light contrast.
+        background: "var(--bg-canvas, var(--ocean-bg, #f9fafb))",
         borderBottom: "1px solid var(--border-subtle)",
         padding: "12px 16px",
         display: "flex",
@@ -506,7 +516,9 @@ function CostsTreeInspector({ payload }) {
         padding: "12px 16px",
         maxHeight: "60vh",
         overflow: "auto",
-        background: "#f8fafc",
+        // GxP: Accessibility/contrast fix for Costs View Details modal (REQ-UI-COSTS-MODAL-BG)
+        // Enforce application canvas background in modal content area.
+        background: "var(--bg-canvas, var(--ocean-bg, #f9fafb))",
       }}>
         <TreeView
           ref={treeRef}

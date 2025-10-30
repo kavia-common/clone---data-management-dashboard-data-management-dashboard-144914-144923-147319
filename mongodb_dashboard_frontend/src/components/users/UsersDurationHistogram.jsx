@@ -2,13 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PropTypes from 'prop-types';
 import { getDurationHistogram } from '../../api/sessionsAnalytics';
 import '../charts/KPIChart.jsx'; // ensure folder exists in build graph (no import usage)
-// Lightweight inline styles to match Ocean Professional theme
+ // Lightweight inline styles updated to match dark theme tokens (surface, border, accent)
 const styles = {
   container: {
-    background: '#ffffff',
-    borderRadius: 10,
-    boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
-    border: '1px solid #e5e7eb',
+    background: 'var(--color-surface)',
+    borderRadius: 8,
+    boxShadow: 'var(--shadow-elev-1, 0 1px 0 rgba(0,0,0,0.5), 0 6px 12px rgba(0,0,0,0.25))',
+    border: '1px solid var(--color-border)',
     padding: 16,
     marginBottom: 16,
   },
@@ -22,7 +22,7 @@ const styles = {
   title: {
     fontSize: 16,
     fontWeight: 600,
-    color: '#111827',
+    color: 'var(--color-text-primary)',
     marginRight: 'auto',
   },
   controlGroup: {
@@ -34,20 +34,20 @@ const styles = {
   select: {
     padding: '6px 8px',
     borderRadius: 8,
-    border: '1px solid #d1d5db',
-    background: 'white',
-    color: '#111827',
+    border: '1px solid var(--color-border)',
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-primary)',
   },
   toggleGroup: {
     display: 'inline-flex',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--color-border)',
     borderRadius: 8,
     overflow: 'hidden',
   },
   toggleBtn: (active) => ({
     padding: '6px 10px',
-    background: active ? '#2563EB' : 'white',
-    color: active ? 'white' : '#111827',
+    background: active ? 'var(--color-accent)' : 'var(--color-surface)',
+    color: active ? '#ffffff' : 'var(--color-text-primary)',
     border: 'none',
     cursor: 'pointer',
     fontWeight: 600,
@@ -64,23 +64,26 @@ const styles = {
   },
   axisLabel: {
     fontSize: 11,
-    fill: '#6b7280',
+    fill: 'var(--chart-axis)',
   },
   bar: {
-    fill: '#93c5fd', // light blue
+    fill: 'var(--chart-primary)',
+    opacity: 0.3,
   },
   barHover: {
-    fill: '#2563EB', // primary
+    fill: 'var(--chart-primary)',
+    opacity: 1,
   },
   tooltip: {
     position: 'absolute',
     pointerEvents: 'none',
-    background: '#111827',
-    color: 'white',
+    background: 'var(--chart-tooltip-bg)',
+    color: 'var(--color-text-primary)',
     padding: '6px 8px',
     borderRadius: 6,
     fontSize: 12,
-    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+    border: '1px solid var(--chart-tooltip-border)',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
     zIndex: 2,
     transform: 'translate(-50%, -120%)',
     whiteSpace: 'nowrap',
@@ -89,9 +92,9 @@ const styles = {
     display: 'flex',
     gap: 16,
     marginTop: 10,
-    borderTop: '1px solid #f3f4f6',
+    borderTop: '1px solid var(--color-border)',
     paddingTop: 10,
-    color: '#374151',
+    color: 'var(--color-text-secondary)',
     fontSize: 13,
     flexWrap: 'wrap',
   },
@@ -100,32 +103,32 @@ const styles = {
     alignItems: 'center',
     gap: 6,
     padding: '4px 8px',
-    background: '#f9fafb',
+    background: 'color-mix(in oklab, var(--color-accent) 8%, var(--color-surface))',
     borderRadius: 6,
   },
   statBadge: {
     fontSize: 11,
     fontWeight: 700,
-    color: '#2563EB',
-    background: '#dbeafe',
+    color: '#ffffff',
+    background: 'var(--color-accent)',
     padding: '2px 6px',
     borderRadius: 999,
   },
   error: {
-    background: '#FEF2F2',
-    color: '#991B1B',
-    border: '1px solid #FCA5A5',
+    background: '#3b1f1f',
+    color: '#fca5a5',
+    border: '1px solid #f87171',
     borderRadius: 8,
     padding: 12,
     marginTop: 8,
   },
   empty: {
-    color: '#6b7280',
+    color: 'var(--color-text-secondary)',
     fontSize: 13,
     padding: 12,
   },
   loading: {
-    color: '#6b7280',
+    color: 'var(--color-text-secondary)',
     fontSize: 13,
     padding: 12,
   },
@@ -369,16 +372,16 @@ function UsersDurationHistogram({
             <div style={styles.chartWrap} onMouseLeave={handleMouseLeave}>
               <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={styles.svg} role="img" aria-label="Session duration histogram in minutes">
                 {/* X axis line */}
-                <line x1={padding.left} y1={padding.top + chartHeight} x2={padding.left + chartWidth} y2={padding.top + chartHeight} stroke="#d1d5db" />
+                <line x1={padding.left} y1={padding.top + chartHeight} x2={padding.left + chartWidth} y2={padding.top + chartHeight} stroke="var(--chart-grid)" />
                 {/* Y axis line */}
-                <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + chartHeight} stroke="#d1d5db" />
+                <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + chartHeight} stroke="var(--chart-grid)" />
 
                 {/* X ticks */}
                 {xTicks.map((t) => {
                   const x = xScale(t);
                   return (
                     <g key={`xt-${t}`}>
-                      <line x1={x} y1={padding.top + chartHeight} x2={x} y2={padding.top + chartHeight + 4} stroke="#9ca3af" />
+                      <line x1={x} y1={padding.top + chartHeight} x2={x} y2={padding.top + chartHeight + 4} stroke="var(--chart-axis)" />
                       <text x={x} y={padding.top + chartHeight + 16} textAnchor="middle" style={styles.axisLabel}>
                         {t}
                       </text>
@@ -392,7 +395,7 @@ function UsersDurationHistogram({
                   const y = yScale(v);
                   return (
                     <g key={`yt-${i}`}>
-                      <line x1={padding.left - 4} y1={y} x2={padding.left} y2={y} stroke="#9ca3af" />
+                      <line x1={padding.left - 4} y1={y} x2={padding.left} y2={y} stroke="var(--chart-axis)" />
                       <text x={padding.left - 8} y={y + 4} textAnchor="end" style={styles.axisLabel}>
                         {v}
                       </text>
@@ -415,7 +418,8 @@ function UsersDurationHistogram({
                       y={y}
                       width={w}
                       height={Math.max(0, h)}
-                      fill={isHover ? styles.barHover.fill : styles.bar.fill}
+                      fill={styles.bar.fill}
+                      opacity={isHover ? styles.barHover.opacity : styles.bar.opacity}
                       rx="2"
                       onMouseMove={(evt) => handleBarMouse(evt, b)}
                       onFocus={(evt) => handleBarMouse(evt, b)}

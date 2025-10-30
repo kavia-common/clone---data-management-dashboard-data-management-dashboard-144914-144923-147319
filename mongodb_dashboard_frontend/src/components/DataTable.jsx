@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
+import Skeleton from "./ui/Skeleton.jsx";
 
 /**
  * Measure text width using an off-screen canvas for robust auto-width calculation.
@@ -16,6 +17,11 @@ function measureTextWidth(text, font = "14px Helvetica, Arial, sans-serif") {
   }
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * DataTable
+ * Basic table with sticky header and pagination.
+ */
 // PUBLIC_INTERFACE
 export default function DataTable({
   columns,
@@ -303,8 +309,12 @@ export default function DataTable({
         const w = text ? measureTextWidth(text, fontCell) : headerW;
         if (w > maxW) maxW = w;
       });
+      // Add some padding allowance
       maxW += 24 + 16;
-      widths[c.key] = Math.min(Math.max(maxW, minColWidth), maxColWidth);
+      // Respect optional per-column min/max width overrides when provided
+      const colMin = typeof c.minWidth === "number" ? c.minWidth : minColWidth;
+      const colMax = typeof c.maxWidth === "number" ? c.maxWidth : maxColWidth;
+      widths[c.key] = Math.min(Math.max(maxW, colMin), colMax);
     });
 
     if (actionColIncluded) {
@@ -329,21 +339,24 @@ export default function DataTable({
           </colgroup>
           <thead>
             <tr>
-              {columns.map((c) => (
-                <th
-                  key={c.key}
-                  onClick={() => toggleSort(c.key)}
-                  role="button"
-                  className={`th ${c.priority ? `col-priority-${c.priority}` : ""}`.trim()}
-                  scope="col"
-                  aria-sort={sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-                  title="Click to sort"
-                  style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
-                >
-                  {c.label}
-                  {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
-                </th>
-              ))}
+              {columns.map((c) => {
+                const thClass = `th ${c.priority ? `col-priority-${c.priority}` : ""} ${c.className || ""}`.trim();
+                return (
+                  <th
+                    key={c.key}
+                    onClick={() => toggleSort(c.key)}
+                    role="button"
+                    className={thClass}
+                    scope="col"
+                    aria-sort={sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                    title="Click to sort"
+                    style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
+                  >
+                    {c.label}
+                    {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
+                  </th>
+                );
+              })}
               {actionColIncluded ? (
                 <th
                   className="th col-priority-4"
@@ -376,11 +389,19 @@ export default function DataTable({
           </colgroup>
           <tbody>
             {loading && (
-              <tr className="tr">
-                <td colSpan={columns.length + actionColIncluded}>
-                  <div className="table-empty">Loading...</div>
-                </td>
-              </tr>
+              <>
+                {Array.from({ length: Math.min(6, Math.max(3, Math.floor((maxBodyHeight || 320) / 48))) }).map((_, i) => (
+                  <tr className="tr" key={`sk-${i}`}>
+                    <td colSpan={columns.length + actionColIncluded}>
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns.length + actionColIncluded}, 1fr)`, gap: 12 }}>
+                        {Array.from({ length: columns.length + actionColIncluded }).map((__, j) => (
+                          <Skeleton key={j} height={16} />
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </>
             )}
             {!loading && (!sorted || sorted.length === 0) && (
               <tr className="tr">
@@ -410,11 +431,12 @@ export default function DataTable({
                     const content = c.render ? c.render(value, row) : value ?? "";
                     const isNumber = typeof value === "number";
                     const priorityClass = c.priority ? `col-priority-${c.priority}` : "";
+                    const baseStyle = autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined;
                     return (
                       <td
                         key={c.key}
-                        className={`td ${isNumber ? "num" : ""} ${priorityClass} ${c.key === "name" ? "td--emphasis-name" : ""}`.trim()}
-                        style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
+                        className={`td ${isNumber ? "num" : ""} ${priorityClass} ${c.key === "name" ? "td--emphasis-name" : ""} ${c.className || ""}`.trim()}
+                        style={baseStyle}
                         title={typeof content === "string" ? content : undefined}
                       >
                         {content === null || content === undefined || content === "" ? "—" : content}

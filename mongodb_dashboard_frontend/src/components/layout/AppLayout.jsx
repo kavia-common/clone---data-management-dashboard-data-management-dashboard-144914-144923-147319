@@ -1,6 +1,7 @@
 import React from "react";
 import Topbar from "./Topbar";
 import Sidebar from "./Sidebar";
+import PageTransition from "./PageTransition";
 
 /**
  * PUBLIC_INTERFACE
@@ -18,7 +19,7 @@ export default function AppLayout({ children }) {
       <div className="shell-body">
         <Sidebar />
         <main className="content" role="main">
-          {children}
+          <PageTransition>{children}</PageTransition>
         </main>
       </div>
     </div>

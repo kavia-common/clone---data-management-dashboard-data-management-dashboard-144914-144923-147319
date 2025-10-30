@@ -11,6 +11,7 @@ import {
   LabelList,
 } from "recharts";
 import { getReferralSources } from "../../api/usersAnalytics";
+import { getChartTheme } from "../charts/chartTheme";
 
 /**
  * PUBLIC_INTERFACE
@@ -61,9 +62,10 @@ export default function TopReferralSourcesBarChart({
     };
   }, [from, to, top]);
 
-  const primary = "#2563EB";
-  const primaryDark = "#1E40AF";
-  const gridStroke = "rgba(0,0,0,0.08)";
+  const t = getChartTheme();
+  const primary = t.primary;
+  const primaryDark = t.primaryActive;
+  const gridStroke = t.grid;
 
   const data = useMemo(
     () =>
@@ -84,12 +86,12 @@ export default function TopReferralSourcesBarChart({
           role="dialog"
           aria-live="polite"
           style={{
-            background: "#fff",
-            border: "1px solid #E2E8F0",
+            background: t.tooltip.bg,
+            border: `1px solid ${t.tooltip.border}`,
             borderRadius: 8,
             padding: "8px 10px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-            color: "#0F172A",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            color: t.tooltip.text,
           }}
         >
           <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
@@ -133,7 +135,7 @@ export default function TopReferralSourcesBarChart({
           y={0}
           dy={4}
           textAnchor="end"
-          fill="#111827"
+          fill="var(--color-text-primary)"
           fontSize={12}
           title={full}
         >
@@ -172,13 +174,13 @@ export default function TopReferralSourcesBarChart({
               <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
               <XAxis
                 type="number"
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: 12, fill: t.axisTick }}
                 allowDecimals={false}
                 label={{
                   value: "Users",
                   position: "insideBottomRight",
                   offset: -4,
-                  fill: "#6B7280",
+                  fill: t.axisTick,
                   fontSize: 12,
                 }}
               />

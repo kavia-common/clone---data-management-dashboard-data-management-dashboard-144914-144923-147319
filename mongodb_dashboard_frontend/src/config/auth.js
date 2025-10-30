@@ -1,71 +1,49 @@
-/**
- * Auth and API configuration
- * API_BASE_URL must be absolute and point to external FastAPI by default.
- * If REACT_APP_API_BASE_URL is provided, it will override this default.
- */
-// PUBLIC_INTERFACE
+// src/config/auth.js
+// central auth/config for frontend
+
+// API base URL (env or default)
 export const API_BASE_URL =
   (process.env.REACT_APP_API_BASE_URL && String(process.env.REACT_APP_API_BASE_URL).trim()) ||
-  'https://kaviaqa-worktool.cloud.kavia.ai';
+  "https://kaviaqa-worktool.cloud.kavia.ai";
 
-/**
- * PUBLIC_INTERFACE
- * Tenant secret salt for the frontend.
- * IMPORTANT: organization_id in login payload MUST equal this exact value (no encryption/encoding).
- * Single source of truth: REACT_APP_SECRET_SALT (URL-safe, no padding). Example: g5StFHvCyj0Hf9g8j87nGA
- * For local dev, you may set a fallback DEFAULT_SECRET_SALT below if env is missing.
- */
-const ENV_SALT =
-  (typeof process !== 'undefined' &&
-    process.env &&
-    String(process.env.REACT_APP_SECRET_SALT || '').trim()) ||
-  '';
+// Read salt from either common env names (compatibility)
+const RAW_SALT =
+  String(process.env.REACT_APP_AUTH_SECRET_SALT || "").trim();
 
-const DEFAULT_SECRET_SALT = 'g5StFHvCyj0Hf9g8j87nGA'; // safe dev default; override in production via env
+// Expose salt value (frontend will use it in crypto helpers)
+export const VALIDATED_TENANT_SALT = RAW_SALT;
 
-function normalizeBase64Url(s) {
-  return String(s || '')
-    .trim()
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-}
+// Storage helpers used across app
+export const AUTH_STORAGE_KEY = "auth";
 
-export const VALIDATED_TENANT_SALT = normalizeBase64Url(ENV_SALT || DEFAULT_SECRET_SALT);
-
-// Storage keys and helpers for auth/session
-// PUBLIC_INTERFACE
-export const AUTH_STORAGE_KEY = 'auth';
-
-// PUBLIC_INTERFACE
 export function getStoredAuth() {
-  /** Returns the stored auth object from localStorage or null if missing/invalid. */
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
+    return raw ? JSON.parse(raw) : null;
   } catch (e) {
-    console.warn('Invalid auth storage format', e);
+    console.warn("Invalid auth storage format", e);
     return null;
   }
 }
 
-// PUBLIC_INTERFACE
-export function isAuthenticated() {
-  /** Returns true if user is logged in based on localStorage flag. */
-  const auth = getStoredAuth();
-  return !!(auth && auth.loggedIn);
-}
-
-// PUBLIC_INTERFACE
 export function saveAuthSession(token) {
-  /** Saves login session into localStorage. Includes token if provided. */
   const data = token ? { loggedIn: true, token } : { loggedIn: true };
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.warn("Failed to store auth session:", e);
+  }
 }
 
-// PUBLIC_INTERFACE
 export function clearAuthSession() {
-  /** Clears login session from localStorage. */
-  localStorage.removeItem(AUTH_STORAGE_KEY);
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch (e) {
+    console.warn("Failed to clear auth session:", e);
+  }
+}
+
+export function isAuthenticated() {
+  const a = getStoredAuth();
+  return !!(a && a.loggedIn);
 }
