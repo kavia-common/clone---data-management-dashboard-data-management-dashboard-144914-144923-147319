@@ -10,6 +10,12 @@ const { errorHandler } = require('./middleware/standardHandlers');
 
 const app = express();
 
+// TEMP STARTUP LOGS to trace route mounting (will be removed after verification)
+try {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Initializing Express app for Dashboard API');
+} catch {}
+
 app.set('trust proxy', true);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
@@ -104,8 +110,31 @@ app.use('/api/dev', require('./routes/dev.routes'));
  * Public API routes
  * Users CRUD and analytics summary
  */
+try {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Mounting /api/users routes...');
+} catch {}
 app.use('/api/users', require('./routes/users.routes'));
-app.use('/api/users', require('./routes/users.analytics.summary.routes'));
+
+try {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Mounting /api/users tenant-summary routes...');
+} catch {}
+const usersAnalyticsSummaryRouter = require('./routes/users.analytics.summary.routes');
+if (usersAnalyticsSummaryRouter && usersAnalyticsSummaryRouter.stack) {
+  try {
+    // eslint-disable-next-line no-console
+    console.log('[startup] users.analytics.summary router loaded with', usersAnalyticsSummaryRouter.stack.length, 'layers');
+  } catch {}
+}
+app.use('/api/users', usersAnalyticsSummaryRouter);
+
+// TEMP direct registration to rule-out require-time issues (will be removed after verification)
+try {
+  app.get('/api/users/tenant-summary/health-appjs', (req, res) =>
+    res.status(200).json({ ok: true, source: 'app.js direct', hint: 'temporary debug route' })
+  );
+} catch {}
 
 // Provide both kebab and camelCase aliases for session tracking and deployments
 app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));

@@ -253,4 +253,13 @@ router.put('/:id', asyncHandler(controller.update));
 // DELETE /api/users/:id
 router.delete('/:id', asyncHandler(controller.remove));
 
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/health
+ * Lightweight health to confirm /api/users base router is mounted and reachable.
+ */
+router.get('/health', (req, res) => {
+  return res.status(200).json({ ok: true, router: 'users.routes' });
+});
+
 module.exports = router;

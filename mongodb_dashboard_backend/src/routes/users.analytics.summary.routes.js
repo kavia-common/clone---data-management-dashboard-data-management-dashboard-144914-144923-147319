@@ -63,4 +63,6 @@ router.get('/tenant-summary/health', (req, res) => {
   return res.status(200).json({ ok: true, router: 'users.analytics.summary' });
 });
 
+/** Explicit router export for clarity */
 module.exports = router;
+module.exports.router = router;
