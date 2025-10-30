@@ -72,3 +72,53 @@ Notes:
 - The aggregation strips leading '$' and commas from cost values and safely parses them to numbers.
 - The implementation handles malformed or missing values safely and returns [] when no data.
 - See /docs for OpenAPI details.
+
+## Analytics: Group by Agents (usage & costs)
+
+GET /api/analytics/agents
+
+Description:
+Aggregates agent usage and costs across:
+- session_tracking.agent_costs (embedded under session_tracking documents)
+- llm_costs.agents (embedded under llm_costs documents)
+
+It computes per-agent:
+- total_cost
+- total_usage (based on available usage/tokens/calls fields)
+- session_count (distinct sessions from session_tracking)
+- source_breakdown:
+  - session_tracking: { cost, usage }
+  - llm_costs: { cost, usage }
+
+Query params:
+- tenant_id: string (optional)
+- project_id: string (optional)
+- from: ISO date (optional; default last 30 days if neither from/to provided)
+- to: ISO date (optional)
+- limit: integer (default 50, max 200)
+- offset: integer (default 0)
+
+Response:
+```
+{
+  "items": [
+    {
+      "agent_name": "Agent A",
+      "total_cost": 12.345678,
+      "total_usage": 1234,
+      "session_count": 8,
+      "source_breakdown": {
+        "session_tracking": { "cost": 4.5, "usage": 500 },
+        "llm_costs": { "cost": 7.845678, "usage": 734 }
+      }
+    }
+  ],
+  "total": 1,
+  "meta": { "limit": 50, "offset": 0, "from": "...", "to": "...", "tenant_id": null, "project_id": null }
+}
+```
+
+Notes:
+- Date filters are applied defensively against multiple possible timestamp fields (last_updated, updatedAt, createdAt, session_start, timestamp, date).
+- Costs parsed from strings with `$` prefix when necessary.
+- Results sorted by total_cost desc before pagination.
