@@ -129,6 +129,42 @@ if (usersAnalyticsSummaryRouter && usersAnalyticsSummaryRouter.stack) {
 }
 app.use('/api/users', usersAnalyticsSummaryRouter);
 
+// Inline fallback handler for tenant-summary to avoid 404s if router wiring changes.
+// It maps controller output to array [{ tenant, count }] which the frontend expects.
+try {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Registering inline fallback for GET /api/users/tenant-summary');
+} catch {}
+const { getUsersTenantSummary } = require('./controllers/users.analytics.summary.controller');
+app.get('/api/users/tenant-summary', async (req, res) => {
+  try {
+    // Reuse controller but capture its response to map shape
+    const fakeRes = {
+      _status: 200,
+      _sent: false,
+      status(code) { this._status = code; return this; },
+      json(payload) { this._sent = true; this._payload = payload; return this; }
+    };
+    await getUsersTenantSummary(req, fakeRes);
+    if (!fakeRes._sent) {
+      return res.status(500).json({ success: false, message: 'Controller did not respond' });
+    }
+    if (fakeRes._status !== 200) {
+      return res.status(fakeRes._status).json(fakeRes._payload);
+    }
+    const items = Array.isArray(fakeRes._payload?.items) ? fakeRes._payload.items : [];
+    const mapped = items.map((it) => ({
+      tenant: it.tenant_name || it.tenant_id || '',
+      count: typeof it.user_count === 'number' ? it.user_count : 0,
+    }));
+    return res.status(200).json(mapped);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[tenant-summary.inline] error:', err?.message || err);
+    return res.status(500).json({ success: false, message: 'Internal Server Error' });
+  }
+});
+
 // Provide both kebab and camelCase aliases for session tracking and deployments
 app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
 app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
