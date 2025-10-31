@@ -134,7 +134,7 @@ export default function Users() {
               <div className="card-subtitle">Count of users per department</div>
             </div>
           </div>
-          <div className="card-content">
+          <div className="card-content" aria-label="Departments section">
             <UsersDepartmentChart variant="bar" height={340} />
           </div>
         </div>
