@@ -24,6 +24,35 @@ const GRID = THEME.colors.border; // subtle grid on light surface
 const TEXT = THEME.colors.text; // #111827
 const SUBTLE = THEME.colors.muted; // #6B7280
 
+// helper: convert a hex or rgba color to rgba with custom alpha
+const withAlphaColor = (color, alpha = 0.6) => {
+  try {
+    const c = String(color || '').trim();
+    if (!c) return `rgba(0,0,0,${alpha})`;
+    if (c.startsWith('rgba')) {
+      // replace alpha
+      const parts = c.replace('rgba(', '').replace(')', '').split(',').map((s) => s.trim());
+      const [r, g, b] = parts;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+    if (c.startsWith('#')) {
+      const raw = c.slice(1);
+      const hx = raw.length === 3 ? raw.split('').map((ch) => ch + ch).join('') : raw;
+      const n = parseInt(hx, 16);
+      /* eslint-disable no-bitwise */
+      const r = (n >> 16) & 255;
+      const g = (n >> 8) & 255;
+      const b = n & 255;
+      /* eslint-enable no-bitwise */
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+    // fallback assume named color; let browser handle opacity via overlay
+    return c;
+  } catch {
+    return `rgba(0,0,0,${alpha})`;
+  }
+};
+
 // Fixed Ocean Professional categorical palette (10 colors)
 const OCEAN_PALETTE = [
   '#2563EB', // blue-600 (primary)
@@ -85,7 +114,13 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
    */
   const { users, loading, error } = useUsers({ limit: 200 }); // fetch up to 200 by default
 
-  const data = React.useMemo(() => aggregateUsersByDepartment(users), [users]);
+  // Aggregate and pre-filter invalid departments (aggregate already excludes invalid/Unknown, guard again)
+  const data = React.useMemo(() => {
+    const agg = aggregateUsersByDepartment(users);
+    return agg.filter(
+      (d) => d?.department && String(d.department).trim() && String(d.department).trim().toLowerCase() !== 'unknown'
+    );
+  }, [users]);
 
   // filter and cap for bar variant
   const topData = React.useMemo(
@@ -104,7 +139,9 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
 
   // Early states
   if (loading) {
-    return (
+  
+
+  return (
       <Card ariaLabel="Users by Department loading state" className="screen-center">
         <div className="skeleton" style={{ width: '60%', height: 14 }} aria-hidden="true" />
       </Card>
@@ -192,11 +229,21 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
                 cy="50%"
                 outerRadius="80%"
                 paddingAngle={2}
-                stroke="none"
+                // explicit stroke props to avoid default black outline
+                strokeOpacity={0.9}
               >
-                {topData.map((entry, idx) => (
-                  <Cell key={`cell-${entry.department}`} fill={getDeptColor(entry.department, idx)} />
-                ))}
+                {topData.map((entry, idx) => {
+                  const c = getDeptColor(entry.department, idx);
+                  return (
+                    <Cell
+                      key={`cell-${entry.department}`}
+                      fill={c}
+                      stroke={c}
+                      strokeOpacity={0.9}
+                      strokeWidth={1.5}
+                    />
+                  );
+                })}
               </Pie>
             </PieChart>
           ) : (
@@ -204,7 +251,7 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
               data={topData}
               margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(17,24,39,0.1)" />
+              <CartesianGrid strokeDasharray="3 3" stroke={withAlphaColor(GRID, 0.5)} />
               <XAxis
                 dataKey="department"
                 tick={{ fill: SUBTLE, fontSize: 12 }}
@@ -223,7 +270,7 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
               />
               <Tooltip
                 contentStyle={tooltipStyle}
-                cursor={{ fill: 'rgba(37, 99, 235, 0.06)' }}
+                cursor={{ fill: withAlphaColor(THEME.colors.primary || '#2563EB', 0.08) }}
                 formatter={(value, name, props) => {
                   const dept = props?.payload?.department ?? name;
                   const color = getDeptColor(dept);
@@ -236,12 +283,44 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
                 wrapperStyle={{ color: SUBTLE, fontSize: 12, paddingBottom: 6 }}
                 payload={legendPayload}
               />
-              <Bar dataKey="count" name="Users" radius={[6, 6, 0, 0]} stroke="none">
-                {topData.map((entry, idx) => (
-                  <motion.g key={entry.department}>
-                    <Cell fill={getDeptColor(entry.department, idx)} />
-                  </motion.g>
-                ))}
+              <Bar
+                dataKey="count"
+                name="Users"
+                radius={[6, 6, 0, 0]}
+                // define active state with thicker stroke and same color
+                activeBar={(props) => {
+                  const color = getDeptColor(props?.payload?.department);
+                  return (
+                    <g>
+                      <rect
+                        x={props.x}
+                        y={props.y}
+                        width={props.width}
+                        height={props.height}
+                        fill={color}
+                        stroke={color}
+                        strokeOpacity={0.95}
+                        strokeWidth={2.5}
+                        rx={6}
+                        ry={6}
+                      />
+                    </g>
+                  );
+                }}
+              >
+                {topData.map((entry, idx) => {
+                  const color = getDeptColor(entry.department, idx);
+                  return (
+                    <motion.g key={entry.department}>
+                      <Cell
+                        fill={color}
+                        stroke={color}
+                        strokeOpacity={0.9}
+                        strokeWidth={1.5}
+                      />
+                    </motion.g>
+                  );
+                })}
               </Bar>
             </BarChart>
           )}
