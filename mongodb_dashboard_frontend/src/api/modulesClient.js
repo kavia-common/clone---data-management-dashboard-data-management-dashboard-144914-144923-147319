@@ -3,10 +3,7 @@ import { getApiBase } from './utilBase';
 
 /**
  * Resolve a reliable API base URL.
- * Priority:
- * - REACT_APP_API_BASE_URL via util.getApiBaseUrl()
- * - Heuristic base via utilBase.getApiBase()
- * - Fallback from window to http://localhost:3001
+ * Overridden to always use the static backend.
  */
 function resolveBase() {
   const envBase = (typeof getApiBaseUrl === 'function' && getApiBaseUrl()) || '';
@@ -30,7 +27,9 @@ async function fetchJson(url, { credentials = 'include' } = {}) {
   const isJson = ct.includes('application/json');
   const payload = isJson ? await res.json().catch(() => ({})) : await res.text().catch(() => '');
   if (!res.ok) {
-    const msg = (payload && payload.message) || (typeof payload === 'string' ? payload : `Request failed (${res.status})`);
+    const msg =
+      (payload && payload.message) ||
+      (typeof payload === 'string' ? payload : `Request failed (${res.status})`);
     const err = new Error(msg);
     err.status = res.status;
     err.payload = payload;
@@ -39,9 +38,6 @@ async function fetchJson(url, { credentials = 'include' } = {}) {
   return payload;
 }
 
-/**
- * Normalize various shapes to array: [items] from raw | {data}|{items}.
- */
 function toArray(data) {
   if (Array.isArray(data)) return data;
   if (data && Array.isArray(data.data)) return data.data;
@@ -51,20 +47,11 @@ function toArray(data) {
 
 // PUBLIC_INTERFACE
 export async function getModules() {
-  /**
-   * Fetches a modules overview for the dashboard.
-   * Attempts dedicated endpoints; if unavailable, derives a minimal overview
-   * from deployments, users summary, and LLM costs.
-   *
-   * Returns an array of module summaries:
-   * [{ key, title, description, ... }].
-   */
   const base = resolveBase();
 
-  // Try overview endpoints if available
   const tryEndpoints = [
-    `${base}/api/dashboard/overview`, // optional
-    `${base}/api/modules`,            // optional
+    `${base}/dashboard/overview`,
+    `${base}/modules`,
   ];
   for (const url of tryEndpoints) {
     try {
@@ -77,12 +64,10 @@ export async function getModules() {
     }
   }
 
-  // Derive minimal modules snapshot
   const derived = [];
 
-  // Deployments
   try {
-    const dep = await fetchJson(`${base}/api/app-deployments`);
+    const dep = await fetchJson(`${base}/app-deployments`);
     const items = toArray(dep);
     if (items.length) {
       derived.push({
@@ -93,11 +78,10 @@ export async function getModules() {
         sample: items[0],
       });
     }
-  } catch { /* ignore */ }
+  } catch {}
 
-  // Users summary
   try {
-    const us = await fetchJson(`${base}/api/users/tenant-summary`);
+    const us = await fetchJson(`${base}/users/tenant-summary`);
     const items = Array.isArray(us?.items) ? us.items : toArray(us);
     if (items.length) {
       const totalUsers = items.reduce((acc, it) => acc + Number(it.user_count || 0), 0);
@@ -110,11 +94,10 @@ export async function getModules() {
         sample: items[0],
       });
     }
-  } catch { /* ignore */ }
+  } catch {}
 
-  // LLM Costs
   try {
-    const costs = await fetchJson(`${base}/api/llm-costs?limit=5`);
+    const costs = await fetchJson(`${base}/llm-costs?limit=5`);
     const items = toArray(costs);
     if (items.length) {
       derived.push({
@@ -125,19 +108,14 @@ export async function getModules() {
         sample: items[0],
       });
     }
-  } catch { /* ignore */ }
+  } catch {}
 
   return derived;
 }
 
-// PUBLIC_INTERFACE
 export async function getOverviewMetrics() {
-  /**
-   * Fetch consolidated totals for the Overview screen.
-   * Returns { totalUsers, totalDeployedApps } with numeric values.
-   */
   const base = resolveBase();
-  const url = `${base}/api/dashboard/overview/metrics`;
+  const url = `${base}/dashboard/overview/metrics`;
   const data = await fetchJson(url);
   return {
     totalUsers: Number(data?.totalUsers ?? 0),
