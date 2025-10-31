@@ -267,25 +267,21 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
                 wrapperStyle={{ color: SUBTLE, fontSize: 12, paddingBottom: 6 }}
                 payload={legendPayload}
               />
-              <Bar
-                dataKey="count"
-                name="Users"
-                radius={[6, 6, 0, 0]}
-              >
+              <Bar dataKey="count" name="Users" radius={[6, 6, 0, 0]}>
                 {topData.map((entry) => {
                   const color = OCEAN_DEPT_COLOR(entry.department);
                   return (
-                    <motion.g key={entry.department}>
-                      <Cell
-                        fill={color}
-                        stroke={color}
-                        strokeOpacity={0.9}
-                        strokeWidth={1.5}
-                      />
-                    </motion.g>
+                    <Cell
+                      key={`cell-${entry.department}`}
+                      fill={color}
+                      stroke={color}
+                      strokeOpacity={0.9}
+                      strokeWidth={1.5}
+                    />
                   );
                 })}
               </Bar>
+
             </BarChart>
           )}
         </ResponsiveContainer>
