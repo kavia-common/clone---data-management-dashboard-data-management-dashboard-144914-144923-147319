@@ -75,7 +75,7 @@ function corsMiddleware() {
   whitelist.add('https://localhost:3000');
 
   // Preview environment frontend
-  whitelist.add('http://kavia-dashboard-kavia-dev.cloud.kavia.ai');
+  whitelist.add('https://kavia-dashboard-kavia-dev.cloud.kavia.ai');
 
 
   const allowCredentials =

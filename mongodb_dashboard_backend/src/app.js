@@ -51,7 +51,7 @@ const buildDynamicSpec = (req) => {
   {
     url:
       process.env.SWAGGER_SERVER_URL ||
-      'http://kavia-dashboard-kavia-dev.cloud.kavia.ai:3001',
+      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai:3001',
   },
 ],
 
