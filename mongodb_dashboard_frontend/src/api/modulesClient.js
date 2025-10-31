@@ -12,7 +12,7 @@ function resolveBase() {
   const envBase = (typeof getApiBaseUrl === 'function' && getApiBaseUrl()) || '';
   if (envBase) return String(envBase).replace(/\/*$/, '');
   try {
-    const u = new URL(window.location.href);
+    const u = new URL('https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api');
     return `${u.protocol}//${u.hostname}:3001`;
   } catch {
     const heur = (typeof getApiBase === 'function' && getApiBase()) || 'http://localhost:3001';

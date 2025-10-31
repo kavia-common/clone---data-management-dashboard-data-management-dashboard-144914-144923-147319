@@ -26,7 +26,7 @@ export function getApiBaseUrl() {
     return env.replace(/\/+$/, "");
   }
   try {
-    const url = new URL(window.location.href);
+    const url = new URL('https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api');
     return `${url.protocol}//${url.hostname}:3001/api`;
   } catch {
     // Fallback for non-browser contexts
