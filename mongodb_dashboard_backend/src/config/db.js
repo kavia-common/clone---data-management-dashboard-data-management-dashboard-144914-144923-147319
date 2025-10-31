@@ -46,7 +46,7 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = process.env.MONGODB_DB; // Optional; if not set, Mongo will use the URI/path default
+  const dbName = 'develop_kaviaroot'; // Optional; if not set, Mongo will use the URI/path default
 
   const options = {
     autoIndex,
@@ -54,7 +54,7 @@ async function connectDB() {
     serverSelectionTimeoutMS: isTest ? 250 : 5000,
     socketTimeoutMS: isTest ? 500 : 45000,
     family: 4,
-    ...(dbName ? { dbName } : {}),
+    dbName,
   };
 
   // Prepare a safe, masked log for the cluster host (never log credentials)
