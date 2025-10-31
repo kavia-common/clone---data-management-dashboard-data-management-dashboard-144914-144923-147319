@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
+import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -120,6 +121,21 @@ export default function Users() {
                 console.debug("Tenant bar clicked:", item);
               }}
             />
+          </div>
+        </div>
+      </div>
+
+      {/* Users by Department distribution chart */}
+      <div style={{ marginBottom: 12 }}>
+        <div className="card">
+          <div className="card-header" style={{ paddingBottom: 0 }}>
+            <div>
+              <h3 className="card-title">Users by Department</h3>
+              <div className="card-subtitle">Count of users per department</div>
+            </div>
+          </div>
+          <div className="card-content">
+            <UsersDepartmentChart variant="bar" height={340} />
           </div>
         </div>
       </div>
