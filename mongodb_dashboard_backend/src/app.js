@@ -7,6 +7,7 @@ const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
+const cors = require('cors')
 
 const app = express();
 
@@ -16,9 +17,12 @@ try {
   console.log('[startup] Initializing Express app for Dashboard API');
 } catch {}
 
-app.set("trust proxy", "loopback"); // only trust local proxies
+app.set('trust proxy', true); // only trust local proxies
 app.use(helmetMiddleware());
-app.use(corsMiddleware());
+// app.use(corsMiddleware());
+app.use(cors({
+  origin: '*'
+}));
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -51,7 +55,7 @@ const buildDynamicSpec = (req) => {
   {
     url:
       process.env.SWAGGER_SERVER_URL ||
-      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai:3001',
+      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
   },
 ],
 

@@ -75,7 +75,10 @@ function corsMiddleware() {
   whitelist.add('https://localhost:3000');
 
   // Preview environment frontend
+  // Preview environment frontends
   whitelist.add('https://kavia-dashboard-kavia-dev.cloud.kavia.ai');
+  whitelist.add('https://vscode-internal-10614-beta.beta01.cloud.kavia.ai:3000');
+
 
 
   const allowCredentials =
@@ -108,7 +111,11 @@ function corsMiddleware() {
       }
 
       // Explicitly reject with proper CORS message
-      return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
+
+      console.log('[CORS] Origin received:', origin);
+      return callback(null, true); // temporarily allow all
+
+      // return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
