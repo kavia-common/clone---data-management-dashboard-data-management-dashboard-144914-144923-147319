@@ -16,7 +16,7 @@ try {
   console.log('[startup] Initializing Express app for Dashboard API');
 } catch {}
 
-app.set('trust proxy', true);
+app.set("trust proxy", "loopback"); // only trust local proxies
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use(rateLimiter());

@@ -7,7 +7,7 @@ import axios from "axios";
  * If deploying elsewhere, set REACT_APP_API_BASE_URL to override RAW_BASE_URL.
  */
 const ENV_BASE = process.env.REACT_APP_API_BASE_URL || "";
-const RAW_BASE_URL = ENV_BASE || "https://vscode-internal-20157-beta.beta01.cloud.kavia.ai:3001";
+const RAW_BASE_URL = ENV_BASE || "https://vscode-internal-19376s-beta.beta01.cloud.kavia.ai:3001";
 const API_PREFIX = "/api";
 
 // Combine base + prefix safely
