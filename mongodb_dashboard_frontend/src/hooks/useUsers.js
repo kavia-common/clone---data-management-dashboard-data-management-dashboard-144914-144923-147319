@@ -83,25 +83,32 @@ export function aggregateUsersByDepartment(users) {
    * Returns:
    *  - array of { department: string, count: number }
    * Notes:
-   *  - Users missing department are grouped under 'Unknown'
+   *  - Users missing a valid department are excluded (skip undefined, null, empty, or 'Unknown')
    */
   const counts = new Map();
+
+  const isInvalidDept = (val) => {
+    if (val == null) return true;
+    const s = String(val).trim();
+    if (!s) return true;
+    return s.toLowerCase() === 'unknown';
+  };
+
   for (const u of users || []) {
-    // Normalize department
-    let dept = u?.department;
-    if (dept == null || (typeof dept === 'string' && dept.trim() === '')) {
-      dept = 'Unknown';
-    }
-    // Some schemas may nest department info; attempt a few common paths
-    if (dept === 'Unknown') {
-      const nested = u?.profile?.department || u?.metadata?.department;
-      if (nested && String(nested).trim()) {
-        dept = String(nested).trim();
-      }
-    }
-    const key = String(dept);
+    // Try direct and common nested locations
+    let dept =
+      u?.department ??
+      u?.profile?.department ??
+      u?.metadata?.department ??
+      u?.details?.department;
+
+    // Skip invalid department values
+    if (isInvalidDept(dept)) continue;
+
+    const key = String(dept).trim();
     counts.set(key, (counts.get(key) || 0) + 1);
   }
+
   // Convert to array sorted descending by count
   return Array.from(counts.entries())
     .map(([department, count]) => ({ department, count }))

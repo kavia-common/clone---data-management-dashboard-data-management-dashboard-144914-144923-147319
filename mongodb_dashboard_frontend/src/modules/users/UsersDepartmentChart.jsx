@@ -16,31 +16,40 @@ import { aggregateUsersByDepartment, useUsers } from '../../hooks/useUsers';
 import Card from '../../components/ui/Card';
 import '../../styles/theme.css';
 import { motion } from 'framer-motion';
-import { getOceanTheme, getCategoricalPalette } from '../../theme/oceanTheme';
+import { getOceanTheme } from '../../theme/oceanTheme';
 
 // Ocean Professional theme tokens
 const THEME = getOceanTheme();
-const PRIMARY = THEME.colors.primary; // #2563EB
-const SECONDARY = THEME.colors.secondary; // #F59E0B
 const GRID = THEME.colors.border; // subtle grid on light surface
 const TEXT = THEME.colors.text; // #111827
 const SUBTLE = THEME.colors.muted; // #6B7280
 
-// Build a categorical palette derived from primary/secondary + tints
-function getPalette(n) {
-  // Prefer ordered palette ensuring accessible contrast on light backgrounds
-  const base = [
-    '#2563EB', // primary
-    '#1D4ED8',
-    '#60A5FA',
-    '#93C5FD',
-    '#F59E0B', // secondary
-    '#D97706',
-    '#FBBF24',
-  ];
-  if (n <= base.length) return base.slice(0, n);
-  const extra = getCategoricalPalette(n - base.length);
-  return base.concat(extra).slice(0, n);
+// Fixed Ocean Professional categorical palette
+const OCEAN_PALETTE = [
+  '#2563EB', // blue-600 (primary)
+  '#F59E0B', // amber-500 (secondary)
+  '#10B981', // emerald-500
+  '#6366F1', // indigo-500
+  '#06B6D4', // cyan-500
+  '#F97316', // orange-500
+  '#EF4444', // red-500
+  '#14B8A6', // teal-500
+];
+
+// Deterministic color per department name
+function getDeptColorMap(departments) {
+  const map = {};
+  departments.forEach((name) => {
+    // simple hash to pick stable color index
+    let hash = 0;
+    const s = String(name);
+    for (let i = 0; i < s.length; i += 1) {
+      hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+    }
+    const idx = hash % OCEAN_PALETTE.length;
+    map[name] = OCEAN_PALETTE[idx];
+  });
+  return map;
 }
 
 /**
@@ -60,6 +69,8 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
   const { users, loading, error } = useUsers({ limit: 200 }); // fetch up to 200 by default
 
   const data = React.useMemo(() => aggregateUsersByDepartment(users), [users]);
+
+  // After aggregation, if nothing valid remains, show empty state later
   const topData = React.useMemo(
     () => (variant === 'bar' ? data.slice(0, maxBars) : data),
     [data, maxBars, variant]
@@ -112,13 +123,9 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
     );
   }
 
-  // Build color map by department to keep legend stable
-  const departments = topData.map(d => d.department);
-  const palette = getPalette(departments.length);
-  const colorByDept = departments.reduce((acc, name, i) => {
-    acc[name] = palette[i % palette.length];
-    return acc;
-  }, {});
+  // Build deterministic color map by department to keep legend and tooltips consistent
+  const departments = topData.map((d) => d.department);
+  const colorByDept = getDeptColorMap(departments);
 
   // Themed tooltip/legend styling
   const tooltipStyle = {
@@ -143,12 +150,21 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
             <PieChart>
               <Tooltip
                 contentStyle={tooltipStyle}
-                formatter={(value/*, name*/ ) => [value, 'Users']}
+                formatter={(value, name, props) => {
+                  const dept = props?.payload?.department ?? name;
+                  const color = colorByDept[dept] || '#2563EB';
+                  // return [value, label, extra] with style
+                  return [value, 'Users', { color }];
+                }}
               />
               <Legend
                 verticalAlign="bottom"
                 height={28}
                 wrapperStyle={{ color: SUBTLE, fontSize: 12 }}
+                formatter={(value) => {
+                  const color = colorByDept[value] || '#2563EB';
+                  return <span style={{ color }}>{value}</span>;
+                }}
               />
               <Pie
                 data={topData}
@@ -189,12 +205,20 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
               <Tooltip
                 contentStyle={tooltipStyle}
                 cursor={{ fill: 'rgba(37, 99, 235, 0.06)' }}
-                formatter={(value/*, name*/) => [value, 'Users']}
+                formatter={(value, name, props) => {
+                  const dept = props?.payload?.department ?? name;
+                  const color = colorByDept[dept] || '#2563EB';
+                  return [value, 'Users', { color }];
+                }}
               />
               <Legend
                 verticalAlign="top"
                 align="right"
                 wrapperStyle={{ color: SUBTLE, fontSize: 12, paddingBottom: 6 }}
+                formatter={(value) => {
+                  const color = colorByDept[value] || '#2563EB';
+                  return <span style={{ color }}>{value}</span>;
+                }}
               />
               <Bar dataKey="count" name="Users" radius={[6, 6, 0, 0]}>
                 {topData.map((entry) => (
