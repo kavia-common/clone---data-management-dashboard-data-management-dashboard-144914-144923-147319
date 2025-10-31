@@ -67,35 +67,22 @@ const OCEAN_PALETTE = [
   '#A855F7', // purple-500
 ];
 
-// Memoized deterministic color mapping across renders
-const useDeptColor = () => {
-  const colorMapRef = React.useRef(new Map());
-  const nextIndexRef = React.useRef(0);
-
-  // PUBLIC_INTERFACE
-  const getDeptColor = React.useCallback((name, indexHint) => {
-    /** This is a public function.
-     * Deterministically returns a color for a department.
-     * - Stable for a given department name across renders.
-     * - Assigns colors in order of first appearance using the palette cyclically.
-     */
-    const key = String(name ?? '').trim();
-    if (!key) {
-      // Default to first palette color, never black fallback
-      return OCEAN_PALETTE[0];
-    }
-    if (colorMapRef.current.has(key)) {
-      return colorMapRef.current.get(key);
-    }
-    // Prefer indexHint when provided to keep initial order stable; fallback to sequence counter
-    let idx = typeof indexHint === 'number' ? indexHint % OCEAN_PALETTE.length : (nextIndexRef.current % OCEAN_PALETTE.length);
-    const color = OCEAN_PALETTE[idx];
-    colorMapRef.current.set(key, color);
-    nextIndexRef.current += 1;
-    return color;
-  }, []);
-
-  return getDeptColor;
+// PUBLIC_INTERFACE
+export const OCEAN_DEPT_COLOR = (name, idxHint = 0) => {
+  /** This is a public function.
+   * Deterministic mapping for department -> Ocean color.
+   * - Stable across renders and independent of user interaction.
+   */
+  const key = String(name ?? '').trim();
+  if (!key) return OCEAN_PALETTE[0];
+  // Use a simple stable hash seeded mapping so same dept always gets the same color
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0; // unsigned int
+  }
+  const base = hash % OCEAN_PALETTE.length;
+  const idx = (base + (Number.isFinite(idxHint) ? idxHint : 0)) % OCEAN_PALETTE.length;
+  return OCEAN_PALETTE[idx];
 };
 
 /**
@@ -114,11 +101,14 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
    */
   const { users, loading, error } = useUsers({ limit: 200 }); // fetch up to 200 by default
 
-  // Aggregate and pre-filter invalid departments (aggregate already excludes invalid/Unknown, guard again)
+  // Aggregate and filter invalid/Unknown/empty departments
   const data = React.useMemo(() => {
     const agg = aggregateUsersByDepartment(users);
     return agg.filter(
-      (d) => d?.department && String(d.department).trim() && String(d.department).trim().toLowerCase() !== 'unknown'
+      (d) =>
+        d?.department &&
+        String(d.department).trim() &&
+        String(d.department).trim().toLowerCase() !== 'unknown'
     );
   }, [users]);
 
@@ -133,9 +123,6 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
     variant === 'pie'
       ? 'Users by Department pie chart'
       : 'Users by Department bar chart';
-
-  // Deterministic getter - must be called before any early return to satisfy hooks rules
-  const getDeptColor = useDeptColor();
 
   // Early states
   if (loading) {
@@ -187,12 +174,12 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
     boxShadow: 'var(--shadow-md)',
   };
 
-  // Build Legend payload to ensure colored markers that match bars
-  const legendPayload = topData.map((d, idx) => ({
+  // Legend payload aligned with deterministic colors
+  const legendPayload = topData.map((d) => ({
     id: d.department,
     type: 'square',
     value: d.department,
-    color: getDeptColor(d.department, idx),
+    color: OCEAN_DEPT_COLOR(d.department, 0),
   }));
 
   return (
@@ -209,7 +196,7 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
                 contentStyle={tooltipStyle}
                 formatter={(value, name, props) => {
                   const dept = props?.payload?.department ?? name;
-                  const color = getDeptColor(dept);
+                  const color = OCEAN_DEPT_COLOR(dept);
                   return [value, 'Users', { color }];
                 }}
               />
@@ -227,11 +214,10 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
                 cy="50%"
                 outerRadius="80%"
                 paddingAngle={2}
-                // explicit stroke props to avoid default black outline
                 strokeOpacity={0.9}
               >
-                {topData.map((entry, idx) => {
-                  const c = getDeptColor(entry.department, idx);
+                {topData.map((entry) => {
+                  const c = OCEAN_DEPT_COLOR(entry.department);
                   return (
                     <Cell
                       key={`cell-${entry.department}`}
@@ -271,7 +257,7 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
                 cursor={{ fill: withAlphaColor(THEME.colors.primary || '#2563EB', 0.08) }}
                 formatter={(value, name, props) => {
                   const dept = props?.payload?.department ?? name;
-                  const color = getDeptColor(dept);
+                  const color = OCEAN_DEPT_COLOR(dept);
                   return [value, 'Users', { color }];
                 }}
               />
@@ -286,8 +272,8 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
                 name="Users"
                 radius={[6, 6, 0, 0]}
               >
-                {topData.map((entry, idx) => {
-                  const color = getDeptColor(entry.department, idx);
+                {topData.map((entry) => {
+                  const color = OCEAN_DEPT_COLOR(entry.department);
                   return (
                     <motion.g key={entry.department}>
                       <Cell
