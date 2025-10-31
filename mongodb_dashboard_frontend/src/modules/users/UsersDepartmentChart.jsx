@@ -139,9 +139,7 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
 
   // Early states
   if (loading) {
-  
-
-  return (
+    return (
       <Card ariaLabel="Users by Department loading state" className="screen-center">
         <div className="skeleton" style={{ width: '60%', height: 14 }} aria-hidden="true" />
       </Card>
@@ -287,26 +285,6 @@ const UsersDepartmentChart = ({ variant = 'bar', height = 320, maxBars = 12 }) =
                 dataKey="count"
                 name="Users"
                 radius={[6, 6, 0, 0]}
-                // define active state with thicker stroke and same color
-                activeBar={(props) => {
-                  const color = getDeptColor(props?.payload?.department);
-                  return (
-                    <g>
-                      <rect
-                        x={props.x}
-                        y={props.y}
-                        width={props.width}
-                        height={props.height}
-                        fill={color}
-                        stroke={color}
-                        strokeOpacity={0.95}
-                        strokeWidth={2.5}
-                        rx={6}
-                        ry={6}
-                      />
-                    </g>
-                  );
-                }}
               >
                 {topData.map((entry, idx) => {
                   const color = getDeptColor(entry.department, idx);
