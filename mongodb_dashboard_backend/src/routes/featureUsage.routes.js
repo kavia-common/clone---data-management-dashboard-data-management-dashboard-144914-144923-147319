@@ -20,7 +20,7 @@ const { standardHandler } = require('../middleware/standardHandlers');
  *   - interval (day|week, default=day)
  */
 router.get(
-  '/analytics/feature-usage',
+  '/feature-usage',
   parseTenantContextIfAny,
   // wrap the controller in the standardHandler for consistent error handling/logging
   (req, res) => standardHandler(req, res, () => getFeatureUsage(req, res))

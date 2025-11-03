@@ -45,7 +45,10 @@ router.use('/app-deployments', appDeploymentsRoutes);
 router.use('/dashboard/overview', dashboardRoutes);
 router.use('/dashboard/overview', dashboardModulesRoutes);
 
-/* Analytics - Feature usage */
+/* Analytics - Feature usage
+   Mounts:
+   - GET /api/analytics/feature-usage
+*/
 router.use('/analytics', featureUsageRoutes);
 
 // Counts endpoints mounted at top-level /api
