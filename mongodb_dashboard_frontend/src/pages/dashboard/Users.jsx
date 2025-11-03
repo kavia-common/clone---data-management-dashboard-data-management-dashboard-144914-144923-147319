@@ -3,6 +3,8 @@ import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
+import DateRangeFilter from "../../components/common/DateRangeFilter";
+import useDateRangeQuery from "../../hooks/useDateRangeQuery";
 
 /**
  * PUBLIC_INTERFACE
@@ -16,6 +18,11 @@ export default function Users() {
   const [defaultTab, setDefaultTab] = useState("details"); // 'details' | 'projects'
 
   const [rangeDays, setRangeDays] = useState(30);
+
+  // New: URL-synced date range for charts and lists
+  const { startDate, endDate, setDates, clearDates, withDateParams } = useDateRangeQuery();
+  const dateParams = useMemo(() => withDateParams({ status: "completed|active" }), [withDateParams]);
+
   const selectedTenantId = useMemo(() => {
     const u = selectedUser || {};
     return (
@@ -75,9 +82,9 @@ export default function Users() {
   }, [open]);
 
   const chartToolbar = (
-    <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8 }}>
+    <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8, gap: 8, display: 'flex', alignItems: 'center' }}>
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Date range</span>
+        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Quick range</span>
         <select
           aria-label="Date range"
           value={rangeDays}
@@ -91,6 +98,12 @@ export default function Users() {
           <option value={90}>Last 90 days</option>
         </select>
       </label>
+      <DateRangeFilter
+        startDate={startDate}
+        endDate={endDate}
+        onChange={setDates}
+        onClear={clearDates}
+      />
       <div className="spacer" />
     </div>
   );
@@ -111,8 +124,9 @@ export default function Users() {
           </div>
           <div className="card-content">
             <UsersByTenantChart
-              from={fromIso}
-              to={toIso}
+              {...dateParams}
+              from={startDate ? undefined : fromIso}
+              to={endDate ? undefined : toIso}
               status={"completed|active"}
               includeInactive={false}
               maxBars={12}

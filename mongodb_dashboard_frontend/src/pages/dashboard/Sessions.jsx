@@ -6,6 +6,8 @@ import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
+import DateRangeFilter from "../../components/common/DateRangeFilter";
+import useDateRangeQuery from "../../hooks/useDateRangeQuery";
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
@@ -16,6 +18,10 @@ export default function Sessions() {
    * - Minimal loading and error states shown within the table and above toolbar.
    */
   const [items, setItems] = useState([]);
+
+  // Date range state (persisted via query params)
+  const { startDate, endDate, setDates, clearDates, withDateParams } = useDateRangeQuery();
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -81,7 +87,7 @@ export default function Sessions() {
       let page = 1;
       const all = [];
       while (page <= maxPages) {
-        const res = await listSessions({ page, limit, q: qStr });
+        const res = await listSessions(withDateParams({ page, limit, q: qStr }));
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
         if (arr.length < limit) break;
@@ -145,7 +151,8 @@ export default function Sessions() {
         organization_name: "organization_name",
         service_type: "service_type",
       };
-      const params = { page, limit, q: qStr };
+      // include optional date range as both from/to and start/end
+      const params = withDateParams({ page, limit, q: qStr });
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
@@ -179,7 +186,7 @@ export default function Sessions() {
     load(1, meta.limit || 10, "", key, dir);
     loadAggregates("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // initial mount only
 
   // Debounced server-side search on query change (250ms default)
   const debouncedQuery = useDebouncedValue(query, 250);
@@ -190,6 +197,15 @@ export default function Sessions() {
     loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
+
+  // Re-fetch when date filters change
+  useEffect(() => {
+    const q = (debouncedQuery || "").trim();
+    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    load(1, meta.limit || 10, q, key, dir);
+    loadAggregates(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate, endDate]);
 
   // Toggle global dimming class while modal is open (align with user modal UX)
   useEffect(() => {
@@ -272,6 +288,12 @@ export default function Sessions() {
             aria-label="Search sessions"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+          />
+          <DateRangeFilter
+            startDate={startDate}
+            endDate={endDate}
+            onChange={setDates}
+            onClear={clearDates}
           />
           <div className="spacer" />
         </div>

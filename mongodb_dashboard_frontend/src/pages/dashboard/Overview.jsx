@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
+import DateRangeFilter from "../../components/common/DateRangeFilter";
+import useDateRangeQuery from "../../hooks/useDateRangeQuery";
 
 
 // PUBLIC_INTERFACE
@@ -14,15 +16,18 @@ export default function Overview() {
   const [error, setError] = useState("");
   const [apiStatus, setApiStatus] = useState("checking");
 
+  const { startDate, endDate, setDates, clearDates, withDateParams } = useDateRangeQuery();
+  const dateParams = useMemo(() => withDateParams({}), [withDateParams]);
+
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
       setError("");
       try {
         const [users, sessions, deployments] = await Promise.all([
-          listUsers({ limit: 5 }),
-          listSessions({ limit: 5 }),
-          listDeployments({ limit: 5 }),
+          listUsers({ limit: 5, ...dateParams }),
+          listSessions({ limit: 5, ...dateParams }),
+          listDeployments({ limit: 5, ...dateParams }),
         ]);
         setMetrics({
           users: (users?.total || users?.length || 0),
@@ -46,7 +51,7 @@ export default function Overview() {
       }
     }
     fetchData();
-  }, []);
+  }, [dateParams]);
 
   useEffect(() => {
     let mounted = true;
@@ -68,6 +73,11 @@ export default function Overview() {
 
   return (
     <div className="grid">
+      <div className="block-full" style={{ marginBottom: 8 }}>
+        <Card title="Filters">
+          <DateRangeFilter startDate={startDate} endDate={endDate} onChange={setDates} onClear={clearDates} />
+        </Card>
+      </div>
       {/* KPI cards row — responsive spans handled by .kpi-card rules in App.css */}
       <Card title="Users" subtitle="Total referral users" className="kpi-card">
         <div className="kpi">
