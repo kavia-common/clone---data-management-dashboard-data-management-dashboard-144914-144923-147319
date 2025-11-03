@@ -172,17 +172,18 @@ textarea:active {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+/* Fix: Prevent white flash during skeleton load/re-render */
 .skeleton {
-  --sk-bg: var(--color-surface, #2B2723);
-  --sk-shimmer: var(--color-border, #3C3532);
-  background: linear-gradient(90deg,
-    var(--sk-bg) 25%,
-    var(--sk-shimmer) 37%,
-    var(--sk-bg) 63%
-  );
+  background-color: #2B2723 !important; /* fallback solid surface tone */
+  background-image: linear-gradient(
+    90deg,
+    #2B2723 25%,
+    #3C3532 37%,
+    #2B2723 63%
+  ) !important;
   background-size: 400% 100%;
-  border-radius: 8px;
 }
+
 @media (prefers-reduced-motion: no-preference) {
   .skeleton {
     animation: skeleton-shimmer 1200ms var(--motion-ease) infinite;

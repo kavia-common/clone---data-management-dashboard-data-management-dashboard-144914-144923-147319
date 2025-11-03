@@ -27,6 +27,10 @@ export default function Sessions() {
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
+  // New UI filters
+  const [filterUserName, setFilterUserName] = useState("");
+  const [filterTenantId, setFilterTenantId] = useState("");
+
   // Details modal state (session details; unrelated to deprecated "View All" costs modal)
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -37,8 +41,9 @@ export default function Sessions() {
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
   // Allowed and ordered fields (column visibility)
+  // Replace Task Id column with User name per requirements
   const allowedOrdered = useMemo(
-    () => ["task_id", "tenant_id", "organization_name", "service_type"],
+    () => ["User_name", "tenant_id", "organization_name", "service_type"],
     []
   );
 
@@ -57,10 +62,30 @@ export default function Sessions() {
     (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
 
     return allowedOrdered.map((k) => {
+      // Special case: display-friendly label for the capitalized schema alias
+      const label =
+        k === "User_name" ? "User name" : toLabel(k);
+
+      // Render function that can resolve alias to underlying values if API returns different casing
+      const render = (v, row) => {
+        if (k === "User_name") {
+          // Prefer explicit field if present; fall back to user_name or reasonable user references
+          const val =
+            row?.User_name ??
+            row?.user_name ??
+            row?.user?.name ??
+            row?.username ??
+            row?.email ??
+            v;
+          return val == null || val === "" ? "—" : String(val);
+        }
+        return v == null || v === "" ? "—" : String(v);
+      };
+
       return {
         key: k,
-        label: toLabel(k),
-        render: (v) => (v == null || v === "" ? "—" : String(v)),
+        label,
+        render,
         priority: 2,
       };
     });
@@ -146,13 +171,31 @@ export default function Sessions() {
     setError("");
     try {
       const sortFieldMap = {
-        task_id: "task_id",
+        // Map UI column keys to backend fields
+        User_name: "user_name", // prefer lowercase field in DB
         tenant_id: "tenant_id",
         organization_name: "organization_name",
         service_type: "service_type",
+        task_id: "task_id", // legacy, not used in current allowedOrdered
       };
       // include optional date range as both from/to and start/end
       const params = withDateParams({ page, limit, q: qStr });
+
+      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
+      const filter = {};
+      if (filterTenantId && filterTenantId.trim()) {
+        filter.tenant_id = filterTenantId.trim();
+      }
+      if (filterUserName && filterUserName.trim()) {
+        // Server supports both user_name and alias User_name in q search.
+        // Prefer passing structured filter to narrow results; some backends may only support q, but our backend supports filter + q.
+        // We pass user_name to hint exact field, while q will also search across fields if provided.
+        filter.user_name = filterUserName.trim();
+      }
+      if (Object.keys(filter).length > 0) {
+        params.filter = filter;
+      }
+
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
@@ -196,7 +239,7 @@ export default function Sessions() {
     load(1, meta.limit || 10, q, key, dir);
     loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
+  }, [debouncedQuery, filterUserName, filterTenantId]);
 
   // Re-fetch when date filters change
   useEffect(() => {
@@ -288,6 +331,22 @@ export default function Sessions() {
             aria-label="Search sessions"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+          />
+          <input
+            className="input-filter"
+            placeholder="Filter by User name"
+            aria-label="Filter by User name"
+            value={filterUserName}
+            onChange={(e) => setFilterUserName(e.target.value)}
+            style={{ marginLeft: 8 }}
+          />
+          <input
+            className="input-filter"
+            placeholder="Filter by Tenant ID"
+            aria-label="Filter by Tenant ID"
+            value={filterTenantId}
+            onChange={(e) => setFilterTenantId(e.target.value)}
+            style={{ marginLeft: 8 }}
           />
           <DateRangeFilter
             startDate={startDate}
