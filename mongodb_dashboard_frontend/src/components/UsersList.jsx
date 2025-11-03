@@ -3,40 +3,34 @@ import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
 import { listUsers } from "../api";
+import DateRangeFilter from "./common/DateRangeFilter.jsx"; // ✅ import date range picker
 
 /**
  * PUBLIC_INTERFACE
  * UsersList
- * A reusable users list component configured to show ONLY these columns:
- * - Name
- * - Tenant Id
- * - Mail
- * - Department
- *
- * Notes:
- * - Tenant Id column resolves in priority: tenant_id -> organization_name -> organization -> organization_id.
- * - All other fields are hidden from the UI.
- * - Search covers these fields only to stay aligned with visible columns.
- *
- * Enhancement:
- * - Changes filter control to Organization (replacing Department). Includes a "Reset" button to clear filters.
- *
- * @param {{ title?: string, subtitle?: string, showActions?: boolean, onUserSelect?: (user:any)=>void, onUserRowClick?: (user:any)=>void }} props
+ * Displays users with filters: search, tenant, and date range.
+ * Fetches data from API with optional ?startDate=&endDate= query params.
  */
-export default function UsersList({ title = "Users", subtitle = "All users", showActions = false, onUserSelect, onUserRowClick }) {
+export default function UsersList({
+  title = "Users",
+  subtitle = "All users",
+  showActions = false,
+  onUserSelect,
+  onUserRowClick,
+}) {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(null); // kept for parity; actions disabled by default
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const [query, setQuery] = useState("");
-
-  // New: Tenant filter (instant)
   const [organizationFilter, setOrganizationFilter] = useState("");
-
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Limit searchable fields to the visible columns (and their most likely underlying keys).
+  // ✅ New: date range state
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
+
   const allowedFields = useMemo(
     () => [
       "name",
@@ -50,23 +44,13 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     []
   );
 
-  // Unique tenant options derived from the loaded data (kept stable via useMemo)
-  const organizationOptions = useMemo(() => {
-    const set = new Set();
-    (allItems || []).forEach((u) => {
-      const orgVal = u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id;
-      if (orgVal !== undefined && orgVal !== null) {
-        const s = String(orgVal).trim();
-        if (s) set.add(s);
-      }
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [allItems]);
-
-  // Fixed 4-column configuration, Ocean Professional compliant.
   const columns = useMemo(() => {
     const renderTenant = (v, row) =>
-      row?.tenant_id || row?.organization_name || row?.organization || row?.organization_id || "—";
+      row?.tenant_id ||
+      row?.organization_name ||
+      row?.organization ||
+      row?.organization_id ||
+      "—";
     return [
       { key: "name", label: "Name", priority: 1 },
       { key: "__tenant", label: "Tenant Id", render: renderTenant, priority: 2 },
@@ -75,16 +59,26 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     ];
   }, []);
 
-  // Load ALL users once (no server pagination) so filters are applied globally before pagination.
+  /**
+   * ✅ Load users from backend (supports optional startDate & endDate filters)
+   */
   async function load() {
     setLoading(true);
     setError("");
     try {
-      const res = await listUsers({});
+      const params = {};
+      if (startDate) params.startDate = new Date(startDate).toISOString();
+      if (endDate) params.endDate = new Date(endDate).toISOString();
+
+      const res = await listUsers(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
-      setMeta((prev) => ({ page: 1, limit: prev.limit || 10, total: arr.length }));
+      setMeta((prev) => ({
+        page: 1,
+        limit: prev.limit || 10,
+        total: arr.length,
+      }));
     } catch (e) {
       setAllItems([]);
       setItems([]);
@@ -95,12 +89,14 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     }
   }
 
+  // ✅ Reload whenever date range changes
   useEffect(() => {
     load();
-  }, []);
+  }, [startDate, endDate]);
 
-  // Client-side filter across only the fields that correspond to visible columns.
-  // Applies both text search and organization filter instantly, then updates total to reflect filtered count.
+  /**
+   * ✅ Local filtering by query & organization
+   */
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     let filtered = allItems || [];
@@ -117,7 +113,8 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
 
     if (organizationFilter) {
       filtered = filtered.filter((u) => {
-        const org = u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id;
+        const org =
+          u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id;
         return String(org ?? "").trim() === organizationFilter;
       });
     }
@@ -126,46 +123,48 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setMeta((m) => ({ ...m, total: filtered.length, page: 1 }));
   }, [query, allItems, allowedFields, organizationFilter]);
 
-  // Optional: delete action stub; no actions shown by default.
-  function onDelete(row) {
-    setConfirmDelete(row);
-  }
-
-  function closeDelete() {
-    setConfirmDelete(null);
-  }
-
-  // Reset all filters to show full user list instantly
+  /**
+   * ✅ Reset all filters
+   */
   function resetFilters() {
     setQuery("");
     setOrganizationFilter("");
+    setStartDate(null);
+    setEndDate(null);
     setItems(allItems);
     setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
+    load();
   }
 
-  // Row click: delegate to parent only (stateless regarding profile modal)
+  /**
+   * ✅ Handle table row click
+   */
   function handleRowClick(user) {
     try {
-      if (typeof onUserRowClick === "function") {
-        onUserRowClick(user);
-        return;
-      }
+      if (typeof onUserRowClick === "function") return onUserRowClick(user);
       if (typeof onUserSelect === "function") onUserSelect(user);
     } catch {
-      // ignore external callback errors
+      // ignore callback errors
     }
   }
 
-  // Force DataTable to reset pagination to page 1 whenever filters or search change
   const tableKey = useMemo(
-    () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${items.length}`,
-    [query, organizationFilter, items.length]
+    () =>
+      `${(query || "").trim().toLowerCase()}|${organizationFilter}|${items.length}|${
+        startDate || ""
+      }|${endDate || ""}`,
+    [query, organizationFilter, items.length, startDate, endDate]
   );
 
   return (
     <div>
       <Card title={title} subtitle={subtitle}>
-        <div className="toolbar" aria-label="Users toolbar">
+        <div
+          className="toolbar"
+          aria-label="Users toolbar"
+          style={{ flexWrap: "wrap", gap: 8, display: "flex", alignItems: "center" }}
+        >
+          {/* 🔍 Search */}
           <input
             className="input-search"
             placeholder="Search users..."
@@ -174,22 +173,48 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
             onChange={(e) => setQuery(e.target.value)}
           />
 
-          {/* Tenant filter + Reset button (immediately to the right) */}
+          {/* 🏢 Tenant Filter */}
           <select
             aria-label="Filter by tenant"
             title="Filter by tenant"
             value={organizationFilter}
             onChange={(e) => setOrganizationFilter(e.target.value)}
-            style={{ width: 220 }}
+            style={{ width: 200 }}
           >
             <option value="">All Tenant</option>
-            {organizationOptions.map((org) => (
-              <option key={org} value={org}>
-                {org}
-              </option>
-            ))}
+            {[...new Set(
+              allItems.map(
+                (u) =>
+                  u?.tenant_id ??
+                  u?.organization_name ??
+                  u?.organization ??
+                  u?.organization_id
+              )
+            )]
+              .filter(Boolean)
+              .sort()
+              .map((org) => (
+                <option key={org} value={org}>
+                  {org}
+                </option>
+              ))}
           </select>
 
+          {/* 📅 Date Range Filter */}
+          <DateRangeFilter
+            startDate={startDate}
+            endDate={endDate}
+            onChange={({ startDate, endDate }) => {
+              setStartDate(startDate);
+              setEndDate(endDate);
+            }}
+            onClear={() => {
+              setStartDate(null);
+              setEndDate(null);
+            }}
+          />
+
+          {/* 🔁 Reset Button */}
           <Button
             variant="secondary"
             onClick={resetFilters}
@@ -198,21 +223,22 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
           >
             Reset
           </Button>
-
-          <div className="spacer" />
-          {/* No Add button */}
         </div>
+
+        {/* ⚠️ Error Message */}
         {error && (
           <div className="error" role="alert" style={{ marginBottom: 12 }}>
             {error}
           </div>
         )}
+
+        {/* 📋 Data Table */}
         <DataTable
           key={tableKey}
           columns={columns}
           data={items}
           loading={loading}
-          onDelete={showActions ? onDelete : undefined}
+          onDelete={showActions ? (row) => setConfirmDelete(row) : undefined}
           onRowClick={handleRowClick}
           pageSize={meta.limit || 10}
           initialPage={1}
@@ -220,27 +246,23 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
         />
       </Card>
 
+      {/* 🗑️ Delete Modal */}
       {confirmDelete && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete user">
           <div className="modal-card">
             <div className="modal-header">
               <h3>Delete user</h3>
-              <Button variant="ghost" aria-label="Close" onClick={closeDelete}>
+              <Button variant="ghost" aria-label="Close" onClick={() => setConfirmDelete(null)}>
                 ✕
               </Button>
             </div>
             <div className="modal-body">
-              <p>
-                This is a preview-only delete dialog for the shared UsersList component.
-                Implement actual deletion in the parent page if required.
-              </p>
+              <p>This is a placeholder delete dialog. Actual deletion logic goes in the parent page.</p>
             </div>
             <div className="modal-footer">
-              <div className="modal-actions">
-                <Button variant="ghost" onClick={closeDelete}>
-                  Close
-                </Button>
-              </div>
+              <Button variant="ghost" onClick={() => setConfirmDelete(null)}>
+                Close
+              </Button>
             </div>
           </div>
         </div>
