@@ -361,13 +361,25 @@ router.get(
  *         schema:
  *           type: string
  *           format: date-time
- *         description: Preferred ISO start datetime (inclusive, UTC day-bound) applied to created_at/updated_at. Alias: startDate.
+ *         description: ISO start datetime (inclusive, UTC day-bound) applied to created_at/updated_at. Aliases: startDate.
  *       - in: query
  *         name: end
  *         schema:
  *           type: string
  *           format: date-time
- *         description: Preferred ISO end datetime (inclusive, UTC day-bound) applied to created_at/updated_at. Alias: endDate.
+ *         description: ISO end datetime (inclusive, UTC day-bound) applied to created_at/updated_at. Aliases: endDate.
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Legacy alias for start (same behavior).
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Legacy alias for end (same behavior).
  *     responses:
  *       200:
  *         description: List of users (array or envelope based on pagination params)
