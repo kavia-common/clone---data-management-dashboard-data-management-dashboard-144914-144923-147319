@@ -8,6 +8,8 @@ import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
 import DateRangeFilter from "../../components/common/DateRangeFilter";
 import useDateRangeQuery from "../../hooks/useDateRangeQuery";
+import FeaturesUsageCharts from "../../components/sessions/FeaturesUsageCharts.jsx";
+import { fetchFeaturesUsage } from "../../api/featuresUsage";
 
 // Simple helper to get distinct, sorted, non-empty values
 function distinctSorted(arr) {
@@ -133,6 +135,11 @@ export default function Sessions() {
   const [aggError, setAggError] = useState("");
   const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
+
+  // Features usage charts state
+  const [featuresLoading, setFeaturesLoading] = useState(false);
+  const [mostUsedFeatures, setMostUsedFeatures] = useState([]);
+  const [leastUsedFeatures, setLeastUsedFeatures] = useState([]);
 
   async function loadAggregates(qStr = "") {
     /**
@@ -328,6 +335,36 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
+  // Load Most/Least Used Features when date or dropdown filters change
+  useEffect(() => {
+    let alive = true;
+    async function loadFeatures() {
+      setFeaturesLoading(true);
+      try {
+        const { mostUsed, leastUsed } = await fetchFeaturesUsage({
+          from: startDate || undefined,
+          to: endDate || undefined,
+          tenant_id: (filterTenantId || "").trim() || undefined,
+          user_id: (filterUserName || "").trim() || undefined,
+          limit: 8,
+        });
+        if (!alive) return;
+        setMostUsedFeatures(mostUsed);
+        setLeastUsedFeatures(leastUsed);
+      } catch (e) {
+        if (!alive) return;
+        setMostUsedFeatures([]);
+        setLeastUsedFeatures([]);
+      } finally {
+        if (alive) setFeaturesLoading(false);
+      }
+    }
+    loadFeatures();
+    return () => {
+      alive = false;
+    };
+  }, [startDate, endDate, filterTenantId, filterUserName]);
+
   // Toggle global dimming class while modal is open (align with user modal UX)
   useEffect(() => {
     if (detailsOpen) {
@@ -364,6 +401,15 @@ export default function Sessions() {
         }}
         session={selectedSession}
       />
+
+      {/* Features Usage Charts (Most/Least) */}
+      <div style={{ marginBottom: 24 }}>
+        <FeaturesUsageCharts
+          loading={featuresLoading}
+          mostUsed={mostUsedFeatures}
+          leastUsed={leastUsedFeatures}
+        />
+      </div>
 
       {/* Charts stacked vertically */}
       <div
