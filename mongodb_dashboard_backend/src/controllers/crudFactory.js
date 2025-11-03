@@ -1,4 +1,5 @@
 const { parsePagination, success, failure } = require('../utils/http');
+const { buildDateRangeFilter } = require('../utils/dateRange');
 
 /**
  * Lightweight micro-cache for list endpoints to coalesce identical rapid requests.
@@ -85,6 +86,34 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       }
 
       const sort = req.query.sort || listDefaultSort;
+
+      // Try to infer a sensible date field set for the model for date range filtering
+      // Common fields across our datasets:
+      // - created_at, updated_at
+      // - timestamp
+      // - session_start, last_updated (for sessions)
+      // - createdAt, updatedAt (camelCase)
+      const commonDateFields = [
+        'timestamp',
+        'created_at',
+        'updated_at',
+        'createdAt',
+        'updatedAt',
+        'session_start',
+        'last_updated',
+      ];
+
+      // Apply date range only if at least one of startDate/endDate provided
+      try {
+        const rangeFilter = buildDateRangeFilter(req.query || {}, commonDateFields);
+        if (rangeFilter) {
+          // Merge into any existing filter
+          filter = Object.keys(filter).length ? { $and: [filter, rangeFilter] } : rangeFilter;
+        }
+      } catch (e) {
+        const status = e.status || 400;
+        return failure(res, e.message || 'Invalid date range', status);
+      }
 
       try {
         // Micro-cache only explicit (paginated) GET list responses

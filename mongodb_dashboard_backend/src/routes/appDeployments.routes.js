@@ -85,6 +85,14 @@ function extractNormalizedProjectId(payload) {
  *         name: filter
  *         schema: { type: string }
  *         description: JSON filter (e.g., {"project_id":"p1","status":"success"})
+ *       - in: query
+ *         name: startDate
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO start datetime (inclusive) applied to created_at/updated_at
+ *       - in: query
+ *         name: endDate
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO end datetime (inclusive) applied to created_at/updated_at
  *     responses:
  *       200:
  *         description: OK (array or envelope based on pagination params)

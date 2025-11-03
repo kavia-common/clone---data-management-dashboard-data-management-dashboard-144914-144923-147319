@@ -114,6 +114,14 @@ function normalizeSessionDoc(doc) {
  *           Case-insensitive text search applied across multiple fields:
  *           task_id, tenant_id, organization_name, user_name, project_id, container_id,
  *           service_type, status, and session_data fields (session_name, description, llm_model).
+ *       - in: query
+ *         name: startDate
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO start datetime (inclusive) applied to session_start/last_updated
+ *       - in: query
+ *         name: endDate
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO end datetime (inclusive) applied to session_start/last_updated
  *     responses:
  *       200:
  *         description: Successful response (array or envelope based on pagination params)
@@ -189,9 +197,33 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
+    // Apply date range: startDate/endDate on session_start/last_updated (inclusive)
+    const startStr = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : '';
+    const endStr = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : '';
+    let dateFilter = null;
+    if (startStr || endStr) {
+      const start = startStr ? new Date(startStr) : null;
+      const end = endStr ? new Date(endStr) : null;
+      if (startStr && Number.isNaN(start?.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid startDate' });
+      }
+      if (endStr && Number.isNaN(end?.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid endDate' });
+      }
+      const r = {};
+      if (start) r.$gte = start;
+      if (end) r.$lte = end;
+      dateFilter = { $or: [{ session_start: r }, { last_updated: r }] };
+    }
+
     // Combine filters
-    const finalFilter =
+    let finalFilter =
       q && qFilter.$or && qFilter.$or.length > 0 ? { $and: [filter, qFilter] } : filter;
+    if (dateFilter) {
+      finalFilter = finalFilter && Object.keys(finalFilter).length
+        ? { $and: [finalFilter, dateFilter] }
+        : dateFilter;
+    }
 
     try {
       if (explicit) {

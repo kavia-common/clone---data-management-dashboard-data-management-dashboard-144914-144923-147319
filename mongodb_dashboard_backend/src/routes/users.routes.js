@@ -356,6 +356,18 @@ router.get(
  *         schema:
  *           type: string
  *         description: JSON string filter (e.g., {"referral_code":"ABC"})
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Optional ISO start datetime (inclusive) applied to created_at/updated_at
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Optional ISO end datetime (inclusive) applied to created_at/updated_at
  *     responses:
  *       200:
  *         description: List of users (array or envelope based on pagination params)
@@ -410,6 +422,25 @@ router.get(
       filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
     } catch {
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+    }
+
+    // Apply startDate/endDate across created_at/updated_at if provided
+    const startStr = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : '';
+    const endStr = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : '';
+    if (startStr || endStr) {
+      const start = startStr ? new Date(startStr) : null;
+      const end = endStr ? new Date(endStr) : null;
+      if (startStr && Number.isNaN(start?.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid startDate' });
+      }
+      if (endStr && Number.isNaN(end?.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid endDate' });
+      }
+      const range = {};
+      if (start) range.$gte = start;
+      if (end) range.$lte = end;
+      const dateFilter = { $or: [{ created_at: range }, { updated_at: range }] };
+      filter = Object.keys(filter).length ? { $and: [filter, dateFilter] } : dateFilter;
     }
 
     // First pass: check data presence without sending a response

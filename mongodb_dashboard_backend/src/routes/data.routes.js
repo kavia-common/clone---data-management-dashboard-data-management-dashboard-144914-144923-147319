@@ -39,6 +39,14 @@ const controller = buildCrudController(Sample, '-created_at');
  *         name: filter
  *         schema: { type: string }
  *         description: JSON string filter (e.g., {"name":"demo"})
+ *       - in: query
+ *         name: startDate
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO start datetime (inclusive) applied to timestamp/created_at/updated_at
+ *       - in: query
+ *         name: endDate
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO end datetime (inclusive) applied to timestamp/created_at/updated_at
  *     responses:
  *       200:
  *         description: List of sample documents (array or envelope based on pagination params)
