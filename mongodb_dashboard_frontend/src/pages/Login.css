@@ -1,6 +1,0 @@
-/* Basic styles for the Login page; keep minimal to avoid overriding global theme */
-.login-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
