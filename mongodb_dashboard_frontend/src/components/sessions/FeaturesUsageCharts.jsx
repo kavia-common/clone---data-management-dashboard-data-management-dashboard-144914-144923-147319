@@ -19,15 +19,14 @@ import './FeaturesUsageCharts.css';
  * Renders two bar charts side-by-side (or stacked on mobile) for Most and Least Used Features.
  * Props:
  * - loading: boolean - whether data is loading (shows skeletons)
- * - mostUsed: Array<{ feature: string, count: number }>
- * - leastUsed: Array<{ feature: string, count: number }>
+ * - mostUsed: Array<{ name?: string, feature?: string, count: number }>
+ * - leastUsed: Array<{ name?: string, feature?: string, count: number }>
  * - className?: string - optional extra class
  */
 export default function FeaturesUsageCharts({ loading, mostUsed, leastUsed, className = '' }) {
-  // Always call hook in the same order to satisfy rules-of-hooks
   const theme = useTheme();
   const colors = theme.colors || {
-    primary: '#2563EB', // Ocean Professional primary
+    primary: '#2563EB',
     secondary: '#F59E0B',
     text: '#111827',
     grid: '#e5e7eb',
@@ -35,8 +34,19 @@ export default function FeaturesUsageCharts({ loading, mostUsed, leastUsed, clas
     background: '#f9fafb',
   };
 
-  const emptyMost = !loading && (!mostUsed || mostUsed.length === 0);
-  const emptyLeast = !loading && (!leastUsed || leastUsed.length === 0);
+  // ✅ Normalize field name so chart always uses "feature"
+  const normalizedMost = (mostUsed || []).map((item) => ({
+    feature: item.feature || item.name || item._id || 'Unknown',
+    count: item.count ?? 0,
+  }));
+
+  const normalizedLeast = (leastUsed || []).map((item) => ({
+    feature: item.feature || item.name || item._id || 'Unknown',
+    count: item.count ?? 0,
+  }));
+
+  const emptyMost = !loading && normalizedMost.length === 0;
+  const emptyLeast = !loading && normalizedLeast.length === 0;
 
   const chartCard = (title, data, empty) => (
     <Card className="features-usage-card" title={title}>
@@ -53,10 +63,7 @@ export default function FeaturesUsageCharts({ loading, mostUsed, leastUsed, clas
       ) : (
         <div className="features-usage-chart-wrap">
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart
-              data={data}
-              margin={{ top: 10, right: 10, bottom: 24, left: 0 }}
-            >
+            <BarChart data={data} margin={{ top: 10, right: 10, bottom: 24, left: 0 }}>
               <CartesianGrid stroke={colors.grid} strokeDasharray="3 3" />
               <XAxis
                 dataKey="feature"
@@ -76,7 +83,11 @@ export default function FeaturesUsageCharts({ loading, mostUsed, leastUsed, clas
               />
               <Tooltip
                 cursor={{ fill: 'transparent' }}
-                contentStyle={{ backgroundColor: colors.surface, border: '1px solid #e5e7eb', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
+                contentStyle={{
+                  backgroundColor: colors.surface,
+                  border: '1px solid #e5e7eb',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                }}
                 wrapperStyle={{ outline: 'none' }}
                 formatter={(value) => [value, 'Count']}
                 labelFormatter={(label) => `Feature: ${label}`}
@@ -103,8 +114,8 @@ export default function FeaturesUsageCharts({ loading, mostUsed, leastUsed, clas
 
   return (
     <div className={`features-usage-grid ${className}`}>
-      {chartCard('Most Used Features', mostUsed, emptyMost)}
-      {chartCard('Least Used Features', leastUsed, emptyLeast)}
+      {chartCard('Most Used Features', normalizedMost, emptyMost)}
+      {chartCard('Least Used Features', normalizedLeast, emptyLeast)}
     </div>
   );
 }
