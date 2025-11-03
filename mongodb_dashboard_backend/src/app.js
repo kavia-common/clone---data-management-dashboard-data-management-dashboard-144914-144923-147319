@@ -183,8 +183,9 @@ const analyticsAgentsRoutes = require('./routes/analyticsAgents');
 app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
 app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 
-// New analytics by agents endpoint
+/* Analytics endpoints */
 app.use('/api/analytics/agents', analyticsAgentsRoutes);
+app.use('/api/analytics', require('./routes/featureUsage.routes'));
 
 app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
