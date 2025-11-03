@@ -820,4 +820,211 @@ router.get(
   })
 );
 
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/session-tracking/features-usage
+ * Aggregates feature usage counts from session_tracking using service_type as the primary feature dimension,
+ * with a tolerant mapping that can enrich/derive feature names from llm_model or session_data.session_name if available.
+ *
+ * Query parameters:
+ * - startDate/endDate: ISO date (inclusive), applied to created_at/last_updated (indexed) for early $match
+ * - user_name: case-insensitive exact match using user_name_lower (indexed); alternatively filter.user_name or filter.User_name in JSON
+ * - tenant_id: exact match
+ * - status: optional exact match
+ * - limit: number of top/bottom entries to return (default 5, max 50)
+ * - minCount: minimum count threshold to include in results (default 1) to reduce noise
+ *
+ * Response 200:
+ * {
+ *   success: true,
+ *   mostUsed: [{ feature: string, count: number }],
+ *   leastUsed: [{ feature: string, count: number }],
+ *   meta: { totalDistinct: number, applied: { startDate, endDate, tenant_id, user_name, status, limit, minCount } }
+ * }
+ */
+router.get(
+  '/features-usage',
+  asyncHandler(async (req, res) => {
+    // Parse and validate params
+    const limitRaw = parseInt(req.query.limit, 10);
+    const minCountRaw = parseInt(req.query.minCount, 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 50) : 5;
+    const minCount = Number.isFinite(minCountRaw) ? Math.max(minCountRaw, 1) : 1;
+
+    // Filters
+    const filterRaw = req.query.filter ? req.query.filter : '{}';
+    let filter = {};
+    try {
+      filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+    }
+
+    // Normalize user_name to user_name_lower exact match (indexed)
+    let userName = req.query.user_name || req.query.User_name || filter.user_name || filter.User_name || null;
+    if (typeof userName === 'string') {
+      userName = userName.trim();
+      if (userName === '') userName = null;
+    }
+    if (filter.user_name) delete filter.user_name;
+    if (filter.User_name) delete filter.User_name;
+
+    const tenantId = req.query.tenant_id || filter.tenant_id || null;
+    const status = req.query.status || filter.status || null;
+
+    // Build early $match using indexable fields only
+    const match = {};
+    if (tenantId) match.tenant_id = String(tenantId);
+    if (status) match.status = String(status);
+
+    // Case-insensitive exact for user_name via stored user_name_lower
+    if (userName) match.user_name_lower = String(userName).toLowerCase();
+
+    // Date range on created_at OR last_updated for better index selectivity
+    const startStr = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : '';
+    const endStr = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : '';
+    if (startStr || endStr) {
+      const start = startStr ? new Date(startStr) : null;
+      const end = endStr ? new Date(endStr) : null;
+      if (startStr && Number.isNaN(start?.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid startDate' });
+      }
+      if (endStr && Number.isNaN(end?.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid endDate' });
+      }
+      const r = {};
+      if (start) r.$gte = start;
+      if (end) r.$lte = end;
+      match.$or = [{ created_at: r }, { last_updated: r }];
+    }
+
+    // Utility for tolerant feature mapping on server
+    function deriveFeature(doc) {
+      // Prefer explicit service_type if present
+      let feature = (doc.service_type || '').toString().trim().toLowerCase();
+      if (!feature) {
+        // Heuristics: try llm_model or session_name or description
+        const model = (((doc.session_data || {}).llm_model) || '').toString().toLowerCase();
+        const sname = (((doc.session_data || {}).session_name) || '').toString().toLowerCase();
+        const desc = (((doc.session_data || {}).description) || '').toString().toLowerCase();
+
+        if (model.includes('gpt') || model.includes('claude') || model.includes('llama')) {
+          feature = 'chat';
+        } else if (sname.includes('eval') || desc.includes('eval')) {
+          feature = 'evaluation';
+        } else if (sname.includes('config') || desc.includes('config')) {
+          feature = 'interactive configuration';
+        } else {
+          feature = 'unknown';
+        }
+      }
+
+      // Normalize to canonical labels
+      const map = {
+        'code generation': 'code-generation',
+        'code query': 'code-query',
+        'deep query': 'deep-query',
+        'interactive configuration': 'interactive-configuration',
+        'auto configuration': 'auto-configuration',
+        'code maintenance': 'code-maintenance',
+        'chat': 'chat',
+        'evaluation': 'evaluation',
+        'unknown': 'unknown',
+      };
+      const normalized = map[feature] || feature;
+      return normalized;
+    }
+
+    // Build pipeline
+    const pipeline = [
+      { $match: match }, // EARLY MATCH: indexed fields only
+      {
+        $project: {
+          service_type: 1,
+          created_at: 1,
+          last_updated: 1,
+          'session_data.session_name': 1,
+          'session_data.description': 1,
+          'session_data.llm_model': 1,
+        },
+      },
+      // Map feature using server-side expression approximations; server JS mapping will be applied after aggregation fallback.
+      {
+        $addFields: {
+          feature_raw: {
+            $toLower: {
+              $ifNull: ['$service_type', ''],
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: '$feature_raw',
+          count: { $sum: 1 },
+          sample: { $first: '$$ROOT' }, // for deriving when raw empty
+        },
+      },
+      // We'll post-process groups with empty _id using deriveFeature on sample
+    ];
+
+    let groups = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+
+    // Post-process for entries with empty feature: derive from sample, then re-group in Node to apply minCount and canonicalization
+    const accum = new Map();
+    for (const g of groups) {
+      let key = (g._id || '').toString().trim();
+      if (!key) {
+        key = deriveFeature(g.sample);
+      } else {
+        // Normalize canonical map
+        const translate = {
+          'code generation': 'code-generation',
+          'code query': 'code-query',
+          'deep query': 'deep-query',
+          'interactive configuration': 'interactive-configuration',
+          'auto configuration': 'auto-configuration',
+          'code maintenance': 'code-maintenance',
+        };
+        key = translate[key] || key;
+      }
+      const prev = accum.get(key) || 0;
+      accum.set(key, prev + (g.count || 0));
+    }
+
+    // Build array and apply threshold
+    let arr = Array.from(accum.entries())
+      .map(([feature, count]) => ({ feature, count }))
+      .filter((it) => it.count >= minCount);
+
+    // Remove empty/placeholder labels for clarity
+    arr = arr.filter((it) => (it.feature || '').trim() !== '');
+
+    // Sort descending for mostUsed and ascending for leastUsed
+    const mostUsed = arr.slice().sort((a, b) => b.count - a.count).slice(0, limit);
+    const leastUsed = arr
+      .slice()
+      .sort((a, b) => a.count - b.count || a.feature.localeCompare(b.feature))
+      .slice(0, limit);
+
+    return res.status(200).json({
+      success: true,
+      mostUsed,
+      leastUsed,
+      meta: {
+        totalDistinct: arr.length,
+        applied: {
+          startDate: startStr || null,
+          endDate: endStr || null,
+          tenant_id: tenantId || null,
+          user_name: userName || null,
+          status: status || null,
+          limit,
+          minCount,
+        },
+      },
+    });
+  })
+);
+
 module.exports = router;
