@@ -29,7 +29,7 @@ const router = express.Router();
 router.get('/', healthController.check.bind(healthController));
 router.get('/healthz', healthController.check.bind(healthController));
 
-// Mount core API routes (analysis routes removed)
+/* Mount core API routes */
 router.use('/auth', authRoutes);
 router.use('/users', usersRoutes);
 router.use('/tenants', tenantsRoutes);
@@ -45,10 +45,12 @@ router.use('/app-deployments', appDeploymentsRoutes);
 router.use('/dashboard/overview', dashboardRoutes);
 router.use('/dashboard/overview', dashboardModulesRoutes);
 
-/* Analytics - Feature usage
+/* Analytics
    Mounts:
    - GET /api/analytics/feature-usage
+   - GET /api/analytics/sessions-by-type
 */
+router.use('/analytics', require('./analytics.routes'));
 router.use('/analytics', featureUsageRoutes);
 
 // Counts endpoints mounted at top-level /api

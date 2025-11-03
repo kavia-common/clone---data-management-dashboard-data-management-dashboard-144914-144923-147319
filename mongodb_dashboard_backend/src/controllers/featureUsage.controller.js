@@ -211,14 +211,14 @@ async function getFeatureUsage(req, res) {
     // Debug logs for visibility when empty
     if (!rows || rows.length === 0) {
       // Keep logs minimal to avoid leaking data; include params and pipeline tips
-      console.info("[feature-usage] No rows from aggregation", {
+      console.info('[feature-usage] No rows from aggregation', {
         serviceType: serviceType || null,
         interval,
         from: from.toISOString(),
         to: to.toISOString(),
-        collection: "session_tracking",
-        featureFieldsTried: ["session_data.feature", "feature_name", "action"],
-        timeFieldsTried: ["last_updated", "session_start"]
+        collection: 'session_tracking',
+        featureFieldsTried: ['session_data.feature', 'feature_name', 'action'],
+        timeFieldsTried: ['last_updated', 'session_start']
       });
     }
 
