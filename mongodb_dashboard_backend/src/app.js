@@ -186,6 +186,7 @@ app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 /* Analytics endpoints */
 app.use('/api/analytics/agents', analyticsAgentsRoutes);
 app.use('/api/analytics', require('./routes/featureUsage.routes'));
+app.use('/api/analytics', require('./routes/analytics.sessionsPerDay.routes'));
 
 app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 app.use('/api/appDeployments', require('./routes/appDeployments.routes'));

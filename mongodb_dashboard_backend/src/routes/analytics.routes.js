@@ -12,4 +12,13 @@ const router = express.Router();
 const sessionsByTypeRoutes = require('../controllers/analytics.sessionsByType.controller');
 router.use(sessionsByTypeRoutes);
 
+// Also expose sessions-per-day route here for consistency when mounted via routes/index.js
+try {
+  const sessionsPerDayRouter = require('./analytics.sessionsPerDay.routes');
+  router.use(sessionsPerDayRouter);
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.warn('[analytics.routes] sessions-per-day router not loaded:', e?.message || e);
+}
+
 module.exports = router;
