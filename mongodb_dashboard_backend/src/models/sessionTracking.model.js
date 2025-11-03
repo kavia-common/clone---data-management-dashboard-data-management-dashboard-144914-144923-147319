@@ -35,6 +35,8 @@ const SessionTrackingSchema = new mongoose.Schema(
     organization_name: { type: String },
     user_id: { type: mongoose.Schema.Types.Mixed, index: true }, // could be string or ObjectId
     user_name: { type: String, alias: 'User_name' },
+    // Store a lowercase version for fast case-insensitive exact matching
+    user_name_lower: { type: String, default: null, index: true },
     project_id: { type: String, index: true },
     container_id: { type: String },
     service_type: {
@@ -56,23 +58,39 @@ const SessionTrackingSchema = new mongoose.Schema(
     cost_history: [CostHistorySchema],
     last_updated: { type: Date, index: true },
     session_data: { type: SessionDataSchema },
-    created_at: { type: Date, default: Date.now },
+    created_at: { type: Date, default: Date.now, index: true },
   },
   { timestamps: false, collection: 'session_tracking' }
 );
 
-// Suggested compound indexes
+// Keep user_name_lower in sync when setting user_name
+SessionTrackingSchema.pre('save', function updateLowerName(next) {
+  if (typeof this.user_name === 'string' && this.user_name.trim() !== '') {
+    this.user_name_lower = this.user_name.toLowerCase();
+  } else if (typeof this.User_name === 'string' && this.User_name.trim() !== '') {
+    this.user_name_lower = this.User_name.toLowerCase();
+  }
+  next();
+});
+
+// Suggested compound indexes for common access patterns
 SessionTrackingSchema.index({ tenant_id: 1, status: 1, session_start: -1 });
 SessionTrackingSchema.index({ user_id: 1, session_start: -1 });
 SessionTrackingSchema.index({ project_id: 1, service_type: 1 });
 SessionTrackingSchema.index({ task_id: 1 });
 SessionTrackingSchema.index({ last_updated: -1 });
-// Added index to support user projects aggregation by tenant_id + user_id with recency
+SessionTrackingSchema.index({ created_at: -1 });
+// Support user projects aggregation by tenant_id + user_id with recency
 SessionTrackingSchema.index({ tenant_id: 1, user_id: 1, last_updated: -1 });
-// For active users trend queries filtering by status and time, ensure a compound index exists
+// For active users trend queries filtering by status and time
 SessionTrackingSchema.index({ tenant_id: 1, status: 1, last_updated: -1, session_start: -1 });
+// Recommended compound when tenant and time are used together
+SessionTrackingSchema.index({ tenant_id: 1, created_at: -1 });
 
 // Ensure fast project-level aggregations; if already declared above, Mongoose de-duplicates identical specs.
 SessionTrackingSchema.index({ project_id: 1 });
+
+// Ensure index creation on startup (can be overridden by env MONGOOSE_AUTO_INDEX)
+SessionTrackingSchema.set('autoIndex', true);
 
 module.exports = mongoose.model('SessionTracking', SessionTrackingSchema);

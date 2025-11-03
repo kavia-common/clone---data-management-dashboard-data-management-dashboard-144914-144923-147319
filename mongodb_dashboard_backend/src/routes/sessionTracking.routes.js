@@ -7,6 +7,22 @@ const { buildCrudController } = require('../controllers/crudFactory');
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
 
+// In-memory TTL cache for distinct endpoints
+const DISTINCT_TTL_MS = 60 * 1000; // 60s short-lived cache
+const distinctCache = new Map();
+function dcGet(key) {
+  const v = distinctCache.get(key);
+  if (!v) return null;
+  if (Date.now() > v.expiresAt) {
+    distinctCache.delete(key);
+    return null;
+  }
+  return v.value;
+}
+function dcSet(key, value) {
+  distinctCache.set(key, { value, expiresAt: Date.now() + DISTINCT_TTL_MS });
+}
+
 /**
  * @swagger
  * tags:
@@ -161,7 +177,21 @@ router.get(
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
-    const sort = req.query.sort || '-session_start';
+    let sort = req.query.sort || '-session_start';
+    // Validate sort to avoid injection of complex expressions
+    if (typeof sort !== 'string') sort = '-session_start';
+    // Whitelist sortable fields
+    const allowedSort = new Set([
+      'session_start','-session_start',
+      'last_updated','-last_updated',
+      'created_at','-created_at',
+      'tenant_id','-tenant_id',
+      'status','-status',
+      'user_name','-user_name',
+      'project_id','-project_id',
+      'total_cost','-total_cost'
+    ]);
+    if (!allowedSort.has(sort)) sort = '-session_start';
 
     // Optional text query
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
@@ -251,6 +281,24 @@ router.get(
     }
 
     try {
+      // Optimize projection to only the fields needed for charts/table
+      const projection = {
+        _id: 1,
+        tenant_id: 1,
+        organization_name: 1,
+        user_id: 1,
+        user_name: 1,
+        User_name: 1,
+        service_type: 1,
+        project_id: 1,
+        status: 1,
+        total_cost: 1,
+        session_start: 1,
+        last_updated: 1,
+        'session_data.session_name': 1,
+        'session_data.llm_model': 1,
+      };
+
       if (explicit) {
         // Micro-cache explicit list result by params
         const cacheKey = `sessions-list:${JSON.stringify({
@@ -264,18 +312,17 @@ router.get(
         if (cached) return res.status(200).json(cached);
 
         const [docs, total] = await Promise.all([
-          // Use model documents (no lean) so Mongoose applies basic casting; still normalize to be safe
-          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
+          SessionTracking.find(finalFilter, projection).sort(sort).skip(skip).limit(limit).lean(),
           SessionTracking.countDocuments(finalFilter),
         ]);
-        const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
+        const items = docs.map((d) => normalizeSessionDoc(d));
         const payload = { success: true, data: items, meta: { page, limit, total } };
         slSet(cacheKey, payload);
         return res.status(200).json(payload);
       }
 
-      const docs = await SessionTracking.find(finalFilter).sort(sort);
-      const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
+      const docs = await SessionTracking.find(finalFilter, projection).sort(sort).lean();
+      const items = docs.map((d) => normalizeSessionDoc(d));
       return res.status(200).json(items);
     } catch (err) {
       // Map common cast errors to 400 to avoid 500
@@ -707,28 +754,64 @@ router.get(
     const distinctFields = field === 'User_name' ? ['User_name', 'user_name'] : [field];
 
     try {
+      // Cache key
+      const cacheKey = `distinct:${field}:${JSON.stringify(finalFilter || {})}:${startStr || ''}:${endStr || ''}`;
+      const cached = dcGet(cacheKey);
+      if (cached) {
+        return res.status(200).json({ items: cached, total: cached.length, success: true, cached: true });
+      }
+
       // Use aggregation to get distinct values across possible casing/alias fields
+      const matchStage = { $match: finalFilter || {} };
+      const projectStage =
+        field === 'User_name'
+          ? {
+              $project: {
+                // Prefer stored user_name, then alias; guard against null/undefined
+                value: {
+                  $let: {
+                    vars: { u: { $ifNull: ['$user_name', '$User_name'] } },
+                    in: {
+                      $cond: [
+                        { $and: [{ $ne: ['$$u', null] }, { $ne: ['$$u', ''] }] },
+                        { $toString: '$$u' },
+                        ''
+                      ]
+                    }
+                  }
+                },
+              },
+            }
+          : {
+              $project: {
+                value: {
+                  $let: {
+                    vars: { v: { $ifNull: [`$${field}`, ''] } },
+                    in: {
+                      $cond: [
+                        { $and: [{ $ne: ['$$v', null] }, { $ne: ['$$v', ''] }] },
+                        { $toString: '$$v' },
+                        ''
+                      ]
+                    }
+                  }
+                }
+              },
+            };
+
       const pipeline = [
-        { $match: finalFilter || {} },
-        {
-          $project: {
-            value: {
-              $ifNull: [
-                ...(distinctFields.length > 1
-                  ? [{ $ifNull: ['$User_name', '$user_name'] }]
-                  : [ `$${distinctFields[0]}` ]),
-              ],
-            },
-          },
-        },
+        matchStage,
+        projectStage,
         { $match: { value: { $type: 'string', $ne: '' } } },
-        { $group: { _id: { $toString: '$value' } } },
+        { $group: { _id: '$value' } },
         { $replaceRoot: { newRoot: { value: '$_id' } } },
         { $sort: { value: 1 } },
+        { $limit: 1000 },
       ];
 
       const docs = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
       const items = docs.map((d) => d.value);
+      dcSet(cacheKey, items);
       return res.status(200).json({ items, total: items.length, success: true });
     } catch (err) {
       const message = err?.message || 'Failed to compute distinct values';

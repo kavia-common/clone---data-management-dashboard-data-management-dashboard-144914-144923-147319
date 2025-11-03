@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { listSessions, listSessionDistinct } from "../../api";
+import { listSessions } from "../../api/baseClient";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
@@ -9,12 +9,24 @@ import useDebouncedValue from "../../hooks/useDebouncedValue";
 import DateRangeFilter from "../../components/common/DateRangeFilter";
 import useDateRangeQuery from "../../hooks/useDateRangeQuery";
 
+// Simple helper to get distinct, sorted, non-empty values
+function distinctSorted(arr) {
+  const set = new Set();
+  (arr || []).forEach((v) => {
+    const s = String(v ?? "").trim();
+    if (s) set.add(s);
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
-   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
-   * - Keeps existing pagination using server-provided meta.total and page/limit.
+   * - Debounced search (250ms) via backend query param `q` (text only).
+   * - Dropdowns trigger immediate fetch (no debounce).
+   * - Charts and table are fetched in parallel on initial load and whenever text/date changes.
+   * - Avoids duplicate requests by memoizing current params.
    */
   const [items, setItems] = useState([]);
 
@@ -26,11 +38,11 @@ export default function Sessions() {
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // UI filters
+  // New UI filters
   const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
 
-  // Dropdown options populated from backend distinct endpoints (scoped by date range)
+  // Dropdown options populated from fetched session data (distinct lists)
   const [userNameOptions, setUserNameOptions] = useState([]);
   const [tenantIdOptions, setTenantIdOptions] = useState([]);
 
@@ -59,23 +71,31 @@ export default function Sessions() {
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  // Locks
+  // Lock to prevent race conditions when multiple loads are inflight
   const activeRequestRef = useRef(0);
+  // Remember the last known sort
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
-  // Allowed columns
+  // Allowed and ordered fields (column visibility)
   const allowedOrdered = useMemo(
     () => ["User_name", "tenant_id", "organization_name", "service_type"],
     []
   );
 
+  // PUBLIC_INTERFACE
   function toLabel(key) {
+    /** Convert snake_case to Title Case label. */
     return String(key || "")
       .replace(/_/g, " ")
       .replace(/\b\w/g, (m) => m.toUpperCase());
   }
 
+  // PUBLIC_INTERFACE
   function buildRestrictedColumns(rows = []) {
+    /** Build DataTable columns strictly from the allowed list, preserving order. */
+    const presentKeys = new Set();
+    (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
+
     return allowedOrdered.map((k) => {
       const label = k === "User_name" ? "User name" : toLabel(k);
       const render = (v, row) => {
@@ -91,7 +111,13 @@ export default function Sessions() {
         }
         return v == null || v === "" ? "—" : String(v);
       };
-      return { key: k, label, render, priority: 2 };
+
+      return {
+        key: k,
+        label,
+        render,
+        priority: 2,
+      };
     });
   }
 
@@ -100,10 +126,14 @@ export default function Sessions() {
   // Aggregates for charts
   const [aggLoading, setAggLoading] = useState(false);
   const [aggError, setAggError] = useState("");
-  const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
+  const [byOrg, setByOrg] = useState([]); // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
 
   async function loadAggregates(qStr = "") {
+    /**
+     * Fetch capped pages and build client-side aggregates for charts:
+     * by organization_name and by session_type.
+     */
     setAggLoading(true);
     setAggError("");
     try {
@@ -119,10 +149,14 @@ export default function Sessions() {
         page += 1;
       }
 
-      // Aggregate by organization name
+      // Aggregate by organization
       const orgCounts = new Map();
       all.forEach((it) => {
-        let org = it?.organization_name || it?.organization?.name || it?.tenant_id || "";
+        let org =
+          it?.organization_name ||
+          it?.organization?.name ||
+          it?.tenant_id ||
+          "";
         org = String(org || "").trim();
         if (!org) org = "Unknown";
         orgCounts.set(org, (orgCounts.get(org) || 0) + 1);
@@ -145,6 +179,34 @@ export default function Sessions() {
 
       setByOrg(orgArr);
       setByType(typeArr);
+
+      // Build distinct options
+      const userPairs = all
+        .map((it) => ({
+          id: it?.user_id,
+          name:
+            it?.User_name ??
+            it?.user_name ??
+            it?.user?.name ??
+            it?.username ??
+            it?.email ??
+            "",
+        }))
+        .filter((u) => u.id && u.name);
+
+      const uniqueUsers = [];
+      const seen = new Set();
+      userPairs.forEach((u) => {
+        if (!seen.has(u.id)) {
+          seen.add(u.id);
+          uniqueUsers.push(u);
+        }
+      });
+
+      const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
+
+      setUserNameOptions(uniqueUsers);
+      setTenantIdOptions(tenantIds);
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -156,6 +218,12 @@ export default function Sessions() {
 
   // PUBLIC_INTERFACE
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
+    /**
+     * Load sessions from server with pagination, optional query string, and server-driven sorting.
+     * When sortKey is provided, pass `sort` using:
+     *  - asc: field
+     *  - desc: -field
+     */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
@@ -169,13 +237,16 @@ export default function Sessions() {
       };
       const params = withDateParams({ page, limit, q: qStr });
 
+      // Build filter: exact matches
       const filter = {};
       if (filterTenantId && filterTenantId.trim()) {
         filter.tenant_id = filterTenantId.trim();
       }
       if (filterUserName && filterUserName.trim()) {
-        filter.user_name = filterUserName.trim();
+        // Backend expects user_id for dropdown selection (pairs use id)
+        filter.user_id = filterUserName.trim();
       }
+
       if (Object.keys(filter).length > 0) {
         params.filter = filter;
       }
@@ -205,46 +276,40 @@ export default function Sessions() {
     }
   }
 
-  // Load distinct options from backend
-  async function loadDistinctOptions() {
-    try {
-      const params = withDateParams({});
-      const [users, tenants] = await Promise.all([
-        listSessionDistinct("User_name", params),
-        listSessionDistinct("tenant_id", params),
-      ]);
-      setUserNameOptions(Array.isArray(users) ? users : []);
-      setTenantIdOptions(Array.isArray(tenants) ? tenants : []);
-    } catch (e) {
-      setUserNameOptions([]);
-      setTenantIdOptions([]);
-      if (process.env.NODE_ENV !== "production") {
-        // eslint-disable-next-line no-console
-        console.warn("Failed to load distinct options:", e);
-      }
-    }
-  }
+  // Memo key for current params to avoid duplicate requests
+  const paramsKey = useMemo(() => {
+    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    return JSON.stringify({
+      q: (query || "").trim(),
+      user: filterUserName || "",
+      tenant: filterTenantId || "",
+      startDate: startDate || "",
+      endDate: endDate || "",
+      sortKey: key,
+      sortDir: dir,
+      pageSize: meta.limit || 10,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, filterUserName, filterTenantId, startDate, endDate, meta.limit]);
 
-  // Initial load
+  // Initial load and whenever params key changes due to date/search
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, "", key, dir);
-    loadAggregates("");
-    loadDistinctOptions();
+    const q = (query || "").trim();
+    Promise.all([
+      load(1, meta.limit || 10, q, key, dir),
+      loadAggregates(q),
+    ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // initial mount only
+  }, [paramsKey]);
 
-  // Debounced search
+  // Debounced server-side search on query change (250ms default)
   const debouncedQuery = useDebouncedValue(query, 250);
   useEffect(() => {
-    const q = (debouncedQuery || "").trim();
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    loadAggregates(q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // paramsKey effect drives combined reloads
   }, [debouncedQuery]);
 
-  // Immediate refetch when dropdown filters change
+  // Immediate refetch when dropdown filters change (no debounce), only table
   useEffect(() => {
     const q = (query || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
@@ -252,30 +317,41 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterUserName, filterTenantId]);
 
-  // Re-fetch when date filters change (also refresh options)
+  // Toggle global dimming class while modal is open
   useEffect(() => {
-    const q = (debouncedQuery || "").trim();
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    loadAggregates(q);
-    loadDistinctOptions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate]);
-
-  // Toggle body class while modal is open
-  useEffect(() => {
-    if (detailsOpen) document.body.classList.add("modal-open");
-    else document.body.classList.remove("modal-open");
+    if (detailsOpen) {
+      document.body.classList.add("modal-open");
+    } else {
+      document.body.classList.remove("modal-open");
+    }
     return () => document.body.classList.remove("modal-open");
   }, [detailsOpen]);
 
+  // Row click -> open modal
   const handleRowClick = (row) => {
+    if (process.env.NODE_ENV !== "production") {
+      try {
+        const keys = Object.keys(row || {});
+        // eslint-disable-next-line no-console
+        console.debug("[Sessions] Row clicked -> opening details modal with keys:", keys);
+      } catch {
+        // ignore
+      }
+    }
     setSelectedSession(row);
     setDetailsOpen(true);
   };
 
   return (
     <div>
+      {/* Keyframes for lightweight skeleton shimmer */}
+      <style>{`
+        @keyframes pulse {
+          0% { background-position: 0% 0%; }
+          100% { background-position: -135% 0%; }
+        }
+      `}</style>
+
       {/* Details Modal */}
       <SessionDetailsModal
         open={detailsOpen}
@@ -286,7 +362,7 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts */}
+      {/* Charts stacked vertically */}
       <div
         className="sessions-charts"
         role="region"
@@ -299,11 +375,24 @@ export default function Sessions() {
           subtitle="Count of sessions per organization"
         >
           <div className="chart-wrapper" style={{ height: 320 }}>
-            <SessionsByOrganization
-              data={byOrg}
-              loading={aggLoading}
-              error={aggError}
-            />
+            {aggLoading ? (
+              <div
+                role="status"
+                aria-label="Loading chart"
+                style={{
+                  height: "100%",
+                  background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 37%,#f3f4f6 63%)",
+                  backgroundSize: "400% 100%",
+                  animation: "pulse 1.2s ease-in-out infinite"
+                }}
+              />
+            ) : (
+              <SessionsByOrganization
+                data={byOrg}
+                loading={aggLoading}
+                error={aggError}
+              />
+            )}
           </div>
         </Card>
         <Card
@@ -312,16 +401,29 @@ export default function Sessions() {
           subtitle="Count of sessions per type"
         >
           <div className="chart-wrapper" style={{ height: 320 }}>
-            <SessionsByType
-              data={byType}
-              loading={aggLoading}
-              error={aggError}
-            />
+            {aggLoading ? (
+              <div
+                role="status"
+                aria-label="Loading chart"
+                style={{
+                  height: "100%",
+                  background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 37%,#f3f4f6 63%)",
+                  backgroundSize: "400% 100%",
+                  animation: "pulse 1.2s ease-in-out infinite"
+                }}
+              />
+            ) : (
+              <SessionsByType
+                data={byType}
+                loading={aggLoading}
+                error={aggError}
+              />
+            )}
           </div>
         </Card>
       </div>
 
-      {/* Table */}
+      {/* Existing table card remains below charts */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
@@ -335,14 +437,14 @@ export default function Sessions() {
           <select
             id="filter-user"
             className="input-filter"
-            aria-label="Filter by User name"
+            aria-label="Filter by User"
             value={filterUserName}
             onChange={(e) => setFilterUserName(e.target.value)}
             style={{ marginLeft: 8, minWidth: 220 }}
           >
             <option value="">All users</option>
             {userNameOptions.map((u) => (
-              <option key={u} value={u}>{u}</option>
+              <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>
 
@@ -360,7 +462,6 @@ export default function Sessions() {
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
-
           <DateRangeFilter
             startDate={startDate}
             endDate={endDate}
@@ -369,13 +470,11 @@ export default function Sessions() {
           />
           <div className="spacer" />
         </div>
-
         {error && (
           <div className="error" role="alert" style={{ marginBottom: 8 }}>
             {error}
           </div>
         )}
-
         <DataTable
           columns={columns}
           data={items}
@@ -384,6 +483,7 @@ export default function Sessions() {
           initialPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
+            // Remember current sort so external triggers (search) keep ordering consistent
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
             } else if (!lastSortRef.current) {
