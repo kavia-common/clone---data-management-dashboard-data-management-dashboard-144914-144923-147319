@@ -1011,6 +1011,7 @@ router.get(
       success: true,
       mostUsed,
       leastUsed,
+      items: { most: mostUsed, least: leastUsed },
       meta: {
         totalDistinct: arr.length,
         applied: {
