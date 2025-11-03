@@ -34,21 +34,50 @@ export async function fetchFeaturesUsage({ from, to, tenant_id, user_id, limit =
   // Fallback: derive from /api/session-tracking list (client-side aggregate).
   try {
     const res = await api.get(`/api/sessions-analytics/features-usage?${params.toString()}`);
-    if (res?.items) {
-      return {
-        mostUsed: res.items?.most || [],
-        leastUsed: res.items?.least || [],
-      };
-    }
-    // Alternate schema
-    if (res?.mostUsed || res?.leastUsed) {
-      return {
-        mostUsed: res.mostUsed || [],
-        leastUsed: res.leastUsed || [],
-      };
+    if (res) {
+      // Support multiple backend shapes
+      if (Array.isArray(res.items)) {
+        return {
+          mostUsed: Array.isArray(res.items?.most) ? res.items.most : [],
+          leastUsed: Array.isArray(res.items?.least) ? res.items.least : [],
+        };
+      }
+      if (Array.isArray(res.mostUsed) || Array.isArray(res.leastUsed)) {
+        return {
+          mostUsed: Array.isArray(res.mostUsed) ? res.mostUsed : [],
+          leastUsed: Array.isArray(res.leastUsed) ? res.leastUsed : [],
+        };
+      }
+      if (Array.isArray(res.most) || Array.isArray(res.least)) {
+        return {
+          mostUsed: Array.isArray(res.most) ? res.most : [],
+          leastUsed: Array.isArray(res.least) ? res.least : [],
+        };
+      }
     }
   } catch (e) {
-    // ignore and try fallback
+    // ignore and try next endpoint
+  }
+
+  // Try backend session-tracking aggregation endpoint if available
+  try {
+    const res2 = await api.get(`/api/session-tracking/features-usage?${params.toString()}`);
+    if (res2) {
+      if (Array.isArray(res2.mostUsed) || Array.isArray(res2.leastUsed)) {
+        return {
+          mostUsed: Array.isArray(res2.mostUsed) ? res2.mostUsed : [],
+          leastUsed: Array.isArray(res2.leastUsed) ? res2.leastUsed : [],
+        };
+      }
+      if (Array.isArray(res2.items?.most) || Array.isArray(res2.items?.least)) {
+        return {
+          mostUsed: Array.isArray(res2.items?.most) ? res2.items.most : [],
+          leastUsed: Array.isArray(res2.items?.least) ? res2.items.least : [],
+        };
+      }
+    }
+  } catch (e) {
+    // ignore and fallback to client-side aggregation
   }
 
   // Fallback: aggregate from session-tracking (client-side)

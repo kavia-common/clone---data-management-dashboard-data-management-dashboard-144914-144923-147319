@@ -24,7 +24,8 @@ import './FeaturesUsageCharts.css';
  * - className?: string - optional extra class
  */
 export default function FeaturesUsageCharts({ loading, mostUsed, leastUsed, className = '' }) {
-  const theme = (typeof useTheme === 'function' ? useTheme() : {}) || {};
+  // Always call hook in the same order to satisfy rules-of-hooks
+  const theme = useTheme();
   const colors = theme.colors || {
     primary: '#2563EB', // Ocean Professional primary
     secondary: '#F59E0B',
@@ -75,7 +76,7 @@ export default function FeaturesUsageCharts({ loading, mostUsed, leastUsed, clas
               />
               <Tooltip
                 cursor={{ fill: 'transparent' }}
-                contentStyle={{ background: 'rgba(255,255,255,0.0)', border: 'none', boxShadow: 'none' }}
+                contentStyle={{ backgroundColor: colors.surface, border: '1px solid #e5e7eb', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
                 wrapperStyle={{ outline: 'none' }}
                 formatter={(value) => [value, 'Count']}
                 labelFormatter={(label) => `Feature: ${label}`}
@@ -84,7 +85,8 @@ export default function FeaturesUsageCharts({ loading, mostUsed, leastUsed, clas
                 dataKey="count"
                 name="Count"
                 radius={[6, 6, 0, 0]}
-                fill={`url(#gradPrimary)`}
+                fill="url(#gradPrimary)"
+                isAnimationActive={false}
               />
               <defs>
                 <linearGradient id="gradPrimary" x1="0" y1="0" x2="0" y2="1">
