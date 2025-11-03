@@ -454,3 +454,18 @@ html[data-theme="dark"] .project-id-pill:focus-visible {
   background: transparent !important;
   background-color: transparent !important;
 }
+
+/* Filler rows: enforce transparent background across all states and themes without affecting other table cells */
+:where(.tr--filler) :where(.td),
+:where(.tr--filler):hover :where(.td),
+:where(.tr--filler):active :where(.td),
+:where(.tr--filler):focus :where(.td),
+:where(.tr--filler) :where(.td):hover,
+:where(.tr--filler) :where(.td):active,
+:where(.tr--filler) :where(.td):focus {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: inherit; /* preserve readable text color if any text appears */
+  /* Keep subtle borders readable but unobtrusive */
+  border-bottom-color: color-mix(in oklab, currentColor 12%, transparent);
+}
