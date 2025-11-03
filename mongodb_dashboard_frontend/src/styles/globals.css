@@ -446,6 +446,30 @@ html[data-theme="dark"] .project-id-pill:focus-visible {
   background-color: transparent !important;
 }
 
+/* Recharts: eliminate default grey hover backgrounds for cursor/tooltip wrappers */
+.recharts-tooltip-wrapper,
+.recharts-tooltip-wrapper:focus,
+.recharts-tooltip-wrapper:active,
+.recharts-tooltip-wrapper:hover {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Transparent hover rectangle drawn by Recharts 'cursor' */
+.recharts-tooltip-cursor,
+.recharts-tooltip-cursor:hover {
+  fill: transparent !important;
+  stroke: transparent !important;
+}
+
+/* Prevent bar hover state from dimming to grey by ensuring same opacity */
+.recharts-bar-rectangle path {
+  opacity: 1 !important;
+}
+
 /* Ensure table empty states never pick up a white background from resets or component overrides */
 .table-empty,
 .table-empty:hover,

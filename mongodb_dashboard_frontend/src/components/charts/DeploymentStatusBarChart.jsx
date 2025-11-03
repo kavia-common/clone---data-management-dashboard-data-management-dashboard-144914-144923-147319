@@ -170,7 +170,16 @@ export default function DeploymentStatusBarChart({
                 tick={{ fontSize: 12, fill: axisTick }}
                 allowDecimals={false}
               />
-              <Tooltip content={<CustomTooltip />} wrapperStyle={{ outline: "none" }} />
+              <Tooltip
+                content={<CustomTooltip />}
+                wrapperStyle={{ outline: "none" }}
+                contentStyle={{
+                  background: "transparent",
+                  border: "none",
+                  boxShadow: "none",
+                }}
+                cursor={{ fill: "transparent" }}
+              />
               <Legend
                 verticalAlign="top"
                 height={24}

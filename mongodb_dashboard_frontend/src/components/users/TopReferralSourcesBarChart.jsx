@@ -190,7 +190,15 @@ export default function TopReferralSourcesBarChart({
                 width={100}
                 tick={<TruncatedTick />}
               />
-              <Tooltip content={<CustomTooltip />} />
+              <Tooltip
+                content={<CustomTooltip />}
+                contentStyle={{
+                  background: "transparent",
+                  border: "none",
+                  boxShadow: "none",
+                }}
+                cursor={{ fill: "transparent" }}
+              />
               <Bar
                 dataKey="count"
                 name="Users"

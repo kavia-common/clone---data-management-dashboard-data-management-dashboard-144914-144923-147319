@@ -193,12 +193,12 @@ export default function CostsGroupedBarChart({
               formatter={(v, name) => [`$${Number(v).toFixed(4)}`, name]}
               labelFormatter={(label) => `Agent: ${label}`}
               contentStyle={{
-                borderRadius: 10,
-                border: `1px solid ${theme.colors.border}`,
-                background: theme.colors.surface,
+                background: "transparent",
+                border: "none",
+                boxShadow: "none",
                 color: theme.colors.text,
-                boxShadow: theme.elevation.md,
               }}
+              cursor={{ fill: "transparent" }}
             />
             <Legend wrapperStyle={{ fontSize: 12, color: theme.colors.muted }} />
             {shaped.categories.map((cat) => (
