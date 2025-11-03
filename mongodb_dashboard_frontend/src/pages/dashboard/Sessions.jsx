@@ -9,6 +9,16 @@ import useDebouncedValue from "../../hooks/useDebouncedValue";
 import DateRangeFilter from "../../components/common/DateRangeFilter";
 import useDateRangeQuery from "../../hooks/useDateRangeQuery";
 
+// Simple helper to get distinct, sorted, non-empty values
+function distinctSorted(arr) {
+  const set = new Set();
+  (arr || []).forEach((v) => {
+    const s = String(v ?? "").trim();
+    if (s) set.add(s);
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
@@ -30,6 +40,31 @@ export default function Sessions() {
   // New UI filters
   const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
+
+  // Dropdown options populated from fetched session data (distinct lists)
+  const [userNameOptions, setUserNameOptions] = useState([]);
+  const [tenantIdOptions, setTenantIdOptions] = useState([]);
+
+  // Keep URL query params in sync for dropdowns (so back/forward works)
+  useEffect(() => {
+    const usp = new URLSearchParams(window.location.search);
+    if (filterUserName) usp.set("user_name", filterUserName);
+    else usp.delete("user_name");
+    if (filterTenantId) usp.set("tenant_id", filterTenantId);
+    else usp.delete("tenant_id");
+    const next = `${window.location.pathname}?${usp.toString()}`;
+    window.history.replaceState({}, "", next);
+  }, [filterUserName, filterTenantId]);
+
+  // Initialize dropdown selections from URL on first mount
+  useEffect(() => {
+    const usp = new URLSearchParams(window.location.search);
+    const initialUser = usp.get("user_name") || "";
+    const initialTenant = usp.get("tenant_id") || "";
+    if (initialUser) setFilterUserName(initialUser);
+    if (initialTenant) setFilterTenantId(initialTenant);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Details modal state (session details; unrelated to deprecated "View All" costs modal)
   const [selectedSession, setSelectedSession] = useState(null);
@@ -149,6 +184,14 @@ export default function Sessions() {
 
       setByOrg(orgArr);
       setByType(typeArr);
+
+      // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+      const userNames = distinctSorted(
+        all.map((it) => it?.User_name ?? it?.user_name ?? it?.user?.name ?? it?.username ?? it?.email ?? "")
+      );
+      const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
+      setUserNameOptions(userNames);
+      setTenantIdOptions(tenantIds);
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -233,13 +276,23 @@ export default function Sessions() {
 
   // Debounced server-side search on query change (250ms default)
   const debouncedQuery = useDebouncedValue(query, 250);
+  // Debounced text search only
   useEffect(() => {
     const q = (debouncedQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, q, key, dir);
     loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, filterUserName, filterTenantId]);
+  }, [debouncedQuery]);
+
+  // Immediate refetch when dropdown filters change (no debounce)
+  useEffect(() => {
+    const q = (query || "").trim();
+    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    load(1, meta.limit || 10, q, key, dir);
+    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterUserName, filterTenantId]);
 
   // Re-fetch when date filters change
   useEffect(() => {
@@ -323,7 +376,7 @@ export default function Sessions() {
       </div>
 
       {/* Existing table card remains below charts */}
-      <Card title="Session Tracking" subtitle="Search across the full dataset">
+      <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
             className="input-search"
@@ -332,22 +385,35 @@ export default function Sessions() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <input
+          <label htmlFor="filter-user" className="sr-only">Filter by User name</label>
+          <select
+            id="filter-user"
             className="input-filter"
-            placeholder="Filter by User name"
             aria-label="Filter by User name"
             value={filterUserName}
             onChange={(e) => setFilterUserName(e.target.value)}
-            style={{ marginLeft: 8 }}
-          />
-          <input
+            style={{ marginLeft: 8, minWidth: 220 }}
+          >
+            <option value="">All users</option>
+            {userNameOptions.map((u) => (
+              <option key={u} value={u}>{u}</option>
+            ))}
+          </select>
+
+          <label htmlFor="filter-tenant" className="sr-only">Filter by Tenant ID</label>
+          <select
+            id="filter-tenant"
             className="input-filter"
-            placeholder="Filter by Tenant ID"
             aria-label="Filter by Tenant ID"
             value={filterTenantId}
             onChange={(e) => setFilterTenantId(e.target.value)}
-            style={{ marginLeft: 8 }}
-          />
+            style={{ marginLeft: 8, minWidth: 180 }}
+          >
+            <option value="">All tenants</option>
+            {tenantIdOptions.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
           <DateRangeFilter
             startDate={startDate}
             endDate={endDate}
