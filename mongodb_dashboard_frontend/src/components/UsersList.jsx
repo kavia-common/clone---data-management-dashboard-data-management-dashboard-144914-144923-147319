@@ -66,9 +66,10 @@ export default function UsersList({
     setLoading(true);
     setError("");
     try {
+      // Normalize to full-day UTC boundaries to ensure inclusive filtering and avoid TZ off-by-one
       const params = {};
-      if (startDate) params.startDate = new Date(startDate).toISOString();
-      if (endDate) params.endDate = new Date(endDate).toISOString();
+      if (startDate) params.startDate = new Date(`${startDate}T00:00:00.000Z`).toISOString();
+      if (endDate) params.endDate = new Date(`${endDate}T23:59:59.999Z`).toISOString();
 
       const res = await listUsers(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);

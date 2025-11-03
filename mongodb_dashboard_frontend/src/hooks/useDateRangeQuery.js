@@ -37,7 +37,9 @@ export default function useDateRangeQuery() {
     else next.delete('endDate');
 
     const nextSearch = next.toString();
-    if (nextSearch !== location.search.replace(/^\?/, '')) {
+    const currentSearch = location.search.replace(/^\?/, '');
+    if (nextSearch !== currentSearch) {
+      // Use replace to avoid adding history entries and prevent any default navigation reloads
       navigate({ pathname: location.pathname, search: `?${nextSearch}` }, { replace: true });
     }
   }, [startDate, endDate, location.pathname, location.search, navigate]);

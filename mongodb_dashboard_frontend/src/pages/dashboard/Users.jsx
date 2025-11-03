@@ -14,22 +14,10 @@ export default function Users() {
 
   const { startDate, endDate, setDates, clearDates, withDateParams } = useDateRangeQuery();
 
-  // ✅ Always convert startDate/endDate to ISO safely (only if they are real Dates)
+  // ✅ Build date params consistently using the hook (includes proper day-boundary ISO normalization)
   const dateParams = useMemo(() => {
-    const params = withDateParams({ status: "completed|active" });
-    const safeParams = {};
-    if (params.startDate instanceof Date)
-      safeParams.startDate = params.startDate.toISOString();
-    else if (typeof params.startDate === "string")
-      safeParams.startDate = params.startDate;
-
-    if (params.endDate instanceof Date)
-      safeParams.endDate = params.endDate.toISOString();
-    else if (typeof params.endDate === "string")
-      safeParams.endDate = params.endDate;
-
-    return safeParams;
-  }, [withDateParams]);
+    return withDateParams({ status: "completed|active" });
+  }, [startDate, endDate, withDateParams]);
 
   // ✅ Compute fallback quick range for charts
   const { fromIso, toIso } = useMemo(() => {

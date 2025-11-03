@@ -17,7 +17,10 @@ export default function Overview() {
   const [apiStatus, setApiStatus] = useState("checking");
 
   const { startDate, endDate, setDates, clearDates, withDateParams } = useDateRangeQuery();
-  const dateParams = useMemo(() => withDateParams({}), [withDateParams]);
+  // Build stable date params whenever the primitive dates change, not when the function identity changes
+  const dateParams = useMemo(() => {
+    return withDateParams({});
+  }, [startDate, endDate, withDateParams]);
 
   useEffect(() => {
     async function fetchData() {
