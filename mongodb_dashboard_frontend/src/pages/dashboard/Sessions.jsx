@@ -97,14 +97,11 @@ export default function Sessions() {
     (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
 
     return allowedOrdered.map((k) => {
-      // Special case: display-friendly label for the capitalized schema alias
-      const label =
-        k === "User_name" ? "User name" : toLabel(k);
+      const label = k === "User_name" ? "User name" : toLabel(k);
 
-      // Render function that can resolve alias to underlying values if API returns different casing
+      // Render function that resolves alias and capitalizes user name
       const render = (v, row) => {
         if (k === "User_name") {
-          // Prefer explicit field if present; fall back to user_name or reasonable user references
           const val =
             row?.User_name ??
             row?.user_name ??
@@ -112,7 +109,9 @@ export default function Sessions() {
             row?.username ??
             row?.email ??
             v;
-          return val == null || val === "" ? "—" : String(val);
+          if (!val || val === "") return "—";
+          const str = String(val).trim();
+          return str.replace(/\b\w/g, (m) => m.toUpperCase());
         }
         return v == null || v === "" ? "—" : String(v);
       };
@@ -125,6 +124,7 @@ export default function Sessions() {
       };
     });
   }
+
 
   const [columns, setColumns] = useState(buildRestrictedColumns([]));
 
