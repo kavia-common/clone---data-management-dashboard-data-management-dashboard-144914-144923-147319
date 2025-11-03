@@ -445,3 +445,12 @@ html[data-theme="dark"] .project-id-pill:focus-visible {
   background: transparent !important;
   background-color: transparent !important;
 }
+
+/* Ensure table empty states never pick up a white background from resets or component overrides */
+.table-empty,
+.table-empty:hover,
+.table-empty:focus,
+.table-empty:active {
+  background: transparent !important;
+  background-color: transparent !important;
+}

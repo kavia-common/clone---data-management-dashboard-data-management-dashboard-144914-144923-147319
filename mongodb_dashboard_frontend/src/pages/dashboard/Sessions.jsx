@@ -186,12 +186,39 @@ export default function Sessions() {
       setByType(typeArr);
 
       // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
-      const userNames = distinctSorted(
-        all.map((it) => it?.User_name ?? it?.user_name ?? it?.user?.name ?? it?.username ?? it?.email ?? "")
-      );
+      // Keep pairs of { id, name } for filtering
+      // ✅ Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+
+      // Build unique user list with IDs and names
+      const userPairs = all
+        .map((it) => ({
+          id: it?.user_id,
+          name:
+            it?.User_name ??
+            it?.user_name ??
+            it?.user?.name ??
+            it?.username ??
+            it?.email ??
+            "",
+        }))
+        .filter((u) => u.id && u.name);
+
+      const uniqueUsers = [];
+      const seen = new Set();
+      userPairs.forEach((u) => {
+        if (!seen.has(u.id)) {
+          seen.add(u.id);
+          uniqueUsers.push(u);
+        }
+      });
+
+      // Build distinct tenant IDs
       const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
-      setUserNameOptions(userNames);
+
+      // Update dropdown options
+      setUserNameOptions(uniqueUsers);
       setTenantIdOptions(tenantIds);
+
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -230,11 +257,9 @@ export default function Sessions() {
         filter.tenant_id = filterTenantId.trim();
       }
       if (filterUserName && filterUserName.trim()) {
-        // Server supports both user_name and alias User_name in q search.
-        // Prefer passing structured filter to narrow results; some backends may only support q, but our backend supports filter + q.
-        // We pass user_name to hint exact field, while q will also search across fields if provided.
-        filter.user_name = filterUserName.trim();
+        filter.user_id = filterUserName.trim();
       }
+
       if (Object.keys(filter).length > 0) {
         params.filter = filter;
       }
@@ -389,16 +414,17 @@ export default function Sessions() {
           <select
             id="filter-user"
             className="input-filter"
-            aria-label="Filter by User name"
+            aria-label="Filter by User"
             value={filterUserName}
             onChange={(e) => setFilterUserName(e.target.value)}
             style={{ marginLeft: 8, minWidth: 220 }}
           >
             <option value="">All users</option>
             {userNameOptions.map((u) => (
-              <option key={u} value={u}>{u}</option>
+              <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>
+
 
           <label htmlFor="filter-tenant" className="sr-only">Filter by Tenant ID</label>
           <select

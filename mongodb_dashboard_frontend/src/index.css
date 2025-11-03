@@ -123,7 +123,8 @@ body.modal-open--dim-header .topbar {
 /* Small utility classes used by components */
 .table-empty {
   color: var(--text-subtle);
-  background: var(--brand-50);
+  background: transparent !important; /* ensure no white fill; inherit theme */
+  background-color: transparent !important;
   border: 1px dashed var(--border-subtle);
   padding: 12px;
   border-radius: 8px;
