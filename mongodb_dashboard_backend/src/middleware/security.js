@@ -77,7 +77,7 @@ function corsMiddleware() {
   // Preview environment frontend
   // Preview environment frontends
   whitelist.add('https://kavia-dashboard-kavia-dev.cloud.kavia.ai');
-  // whitelist.add('https://vscode-internal-10614-beta.beta01.cloud.kavia.ai:3000');
+  
 
 
 
