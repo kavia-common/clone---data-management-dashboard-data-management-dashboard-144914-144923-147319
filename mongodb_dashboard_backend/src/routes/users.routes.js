@@ -357,17 +357,17 @@ router.get(
  *           type: string
  *         description: JSON string filter (e.g., {"referral_code":"ABC"})
  *       - in: query
- *         name: startDate
+ *         name: start
  *         schema:
  *           type: string
  *           format: date-time
- *         description: Optional ISO start datetime (inclusive) applied to created_at/updated_at
+ *         description: Preferred ISO start datetime (inclusive, UTC day-bound) applied to created_at/updated_at. Alias: startDate.
  *       - in: query
- *         name: endDate
+ *         name: end
  *         schema:
  *           type: string
  *           format: date-time
- *         description: Optional ISO end datetime (inclusive) applied to created_at/updated_at
+ *         description: Preferred ISO end datetime (inclusive, UTC day-bound) applied to created_at/updated_at. Alias: endDate.
  *     responses:
  *       200:
  *         description: List of users (array or envelope based on pagination params)
@@ -424,23 +424,16 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
-    // Apply startDate/endDate across created_at/updated_at if provided
-    const startStr = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : '';
-    const endStr = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : '';
-    if (startStr || endStr) {
-      const start = startStr ? new Date(startStr) : null;
-      const end = endStr ? new Date(endStr) : null;
-      if (startStr && Number.isNaN(start?.getTime())) {
-        return res.status(400).json({ success: false, message: 'Invalid startDate' });
+    // Apply start/end (preferred) or startDate/endDate (legacy) to created_at/updated_at, inclusive UTC day bounds
+    const { buildDateRangeFilter } = require('../utils/dateRange');
+    try {
+      const dateFilter = buildDateRangeFilter(req.query || {}, ['created_at', 'updated_at']);
+      if (dateFilter) {
+        filter = Object.keys(filter).length ? { $and: [filter, dateFilter] } : dateFilter;
       }
-      if (endStr && Number.isNaN(end?.getTime())) {
-        return res.status(400).json({ success: false, message: 'Invalid endDate' });
-      }
-      const range = {};
-      if (start) range.$gte = start;
-      if (end) range.$lte = end;
-      const dateFilter = { $or: [{ created_at: range }, { updated_at: range }] };
-      filter = Object.keys(filter).length ? { $and: [filter, dateFilter] } : dateFilter;
+    } catch (e) {
+      const msg = e?.message || 'Invalid date range';
+      return res.status(e?.status || 400).json({ success: false, message: msg });
     }
 
     // First pass: check data presence without sending a response
