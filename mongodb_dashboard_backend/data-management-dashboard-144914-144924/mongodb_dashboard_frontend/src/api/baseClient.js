@@ -42,11 +42,18 @@ function toQuery(params = {}) {
     if (v === undefined || v === null || v === "") return;
     if (Array.isArray(v)) {
       v.forEach((val) => usp.append(k, String(val)));
-    } else if (typeof v === "object") {
-      usp.append(k, JSON.stringify(v));
-    } else {
-      usp.append(k, String(v));
-    }
+    }} else if (typeof v === "object" && v !== null) {
+  // ✅ Flatten filters like { filter: { tenant_id, user_name } } into top-level params
+  if (k === "filter") {
+    Object.entries(v).forEach(([subKey, subVal]) => {
+      if (subVal !== undefined && subVal !== null && subVal !== "") {
+        usp.append(subKey, String(subVal));
+      }
+    });
+  } else {
+    usp.append(k, JSON.stringify(v));
+  }
+
   });
   const qs = usp.toString();
   return qs ? `?${qs}` : "";
