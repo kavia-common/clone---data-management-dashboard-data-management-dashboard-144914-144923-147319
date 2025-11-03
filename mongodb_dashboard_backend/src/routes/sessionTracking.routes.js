@@ -197,6 +197,31 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
+    // Apply specific filters: user_name (case-insensitive exact) and tenant_id (exact)
+    // Accept alias "User_name" as well; normalize into Mongo filter operators.
+    if (filter && typeof filter === 'object') {
+      const userNameVal = filter.user_name ?? filter.User_name;
+      if (typeof userNameVal === 'string' && userNameVal.trim() !== '') {
+        const exactCI = new RegExp(`^${userNameVal.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        // Match either underlying field user_name or alias
+        // Mongoose alias means storing in user_name; use $or to be safe for legacy docs
+        filter = {
+          ...filter,
+          $and: [
+            ...(filter.$and || []),
+            { $or: [{ user_name: exactCI }, { User_name: exactCI }] },
+          ],
+        };
+        delete filter.user_name;
+        delete filter.User_name;
+      }
+      const tenantIdVal = filter.tenant_id;
+      if (typeof tenantIdVal === 'string' && tenantIdVal.trim() !== '') {
+        // exact match, already normalized by leaving as-is
+        // nothing to change
+      }
+    }
+
     // Apply date range: startDate/endDate on session_start/last_updated (inclusive)
     const startStr = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : '';
     const endStr = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : '';
@@ -598,6 +623,117 @@ router.get(
 
     setCache(cacheKey, response);
     return res.status(200).json(response);
+  })
+);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/session-tracking/distinct
+ * Returns distinct values of a specified field from session_tracking.
+ * Query params:
+ *  - field: required; one of "User_name" or "tenant_id"
+ *  - start/end or startDate/endDate: optional date range (applied to session_start/last_updated)
+ *  - filter: optional JSON for scoping (supports user_name/User_name and tenant_id like list endpoint)
+ *
+ * Returns: { items: string[], total: number }
+ */
+router.get(
+  '/distinct',
+  asyncHandler(async (req, res) => {
+    const field = String(req.query.field || '').trim();
+    if (!field) {
+      return res.status(400).json({ success: false, message: 'field query param is required' });
+    }
+
+    // Only allow known fields
+    const allowed = new Set(['User_name', 'tenant_id']);
+    if (!allowed.has(field)) {
+      return res.status(400).json({ success: false, message: 'Unsupported field. Use User_name or tenant_id' });
+    }
+
+    // Build base filter (reuse same logic as list)
+    const filterRaw = req.query.filter ? req.query.filter : '{}';
+    let filter = {};
+    try {
+      filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+    }
+
+    // Normalize user_name alias and exact CI matching if provided in filter
+    if (filter && typeof filter === 'object') {
+      const userNameVal = filter.user_name ?? filter.User_name;
+      if (typeof userNameVal === 'string' && userNameVal.trim() !== '') {
+        const exactCI = new RegExp(`^${userNameVal.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+        filter = {
+          ...filter,
+          $and: [
+            ...(filter.$and || []),
+            { $or: [{ user_name: exactCI }, { User_name: exactCI }] },
+          ],
+        };
+        delete filter.user_name;
+        delete filter.User_name;
+      }
+    }
+
+    // Date range on session_start/last_updated
+    const startStr = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : (typeof req.query.start === 'string' ? req.query.start.trim() : '');
+    const endStr = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : (typeof req.query.end === 'string' ? req.query.end.trim() : '');
+    let dateFilter = null;
+    if (startStr || endStr) {
+      const start = startStr ? new Date(startStr) : null;
+      const end = endStr ? new Date(endStr) : null;
+      if (startStr && Number.isNaN(start?.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid start/startDate' });
+      }
+      if (endStr && Number.isNaN(end?.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid end/endDate' });
+      }
+      const r = {};
+      if (start) r.$gte = start;
+      if (end) r.$lte = end;
+      dateFilter = { $or: [{ session_start: r }, { last_updated: r }] };
+    }
+
+    let finalFilter = filter;
+    if (dateFilter) {
+      finalFilter = finalFilter && Object.keys(finalFilter).length
+        ? { $and: [finalFilter, dateFilter] }
+        : dateFilter;
+    }
+
+    // Field mapping: allow "User_name" alias but query the correct stored field as well
+    const distinctFields = field === 'User_name' ? ['User_name', 'user_name'] : [field];
+
+    try {
+      // Use aggregation to get distinct values across possible casing/alias fields
+      const pipeline = [
+        { $match: finalFilter || {} },
+        {
+          $project: {
+            value: {
+              $ifNull: [
+                ...(distinctFields.length > 1
+                  ? [{ $ifNull: ['$User_name', '$user_name'] }]
+                  : [ `$${distinctFields[0]}` ]),
+              ],
+            },
+          },
+        },
+        { $match: { value: { $type: 'string', $ne: '' } } },
+        { $group: { _id: { $toString: '$value' } } },
+        { $replaceRoot: { newRoot: { value: '$_id' } } },
+        { $sort: { value: 1 } },
+      ];
+
+      const docs = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+      const items = docs.map((d) => d.value);
+      return res.status(200).json({ items, total: items.length, success: true });
+    } catch (err) {
+      const message = err?.message || 'Failed to compute distinct values';
+      return res.status(400).json({ success: false, message, details: message });
+    }
   })
 );
 
