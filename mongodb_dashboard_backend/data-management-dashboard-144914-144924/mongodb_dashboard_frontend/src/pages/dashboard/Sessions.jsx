@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { listSessions } from "../../api/baseClient";
+import { listSessions } from "../../api";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
-import FeaturesUsageCard from "../../components/sessions/FeaturesUsageCard.jsx";
-import { getFeaturesUsage } from "../../api/sessionFeatures";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
 import DateRangeFilter from "../../components/common/DateRangeFilter";
 import useDateRangeQuery from "../../hooks/useDateRangeQuery";
+import FeaturesUsageCharts from "../../components/sessions/FeaturesUsageCharts.jsx";
+import { fetchFeaturesUsage } from "../../api/featuresUsage";
 
 // Simple helper to get distinct, sorted, non-empty values
 function distinctSorted(arr) {
@@ -25,10 +25,9 @@ function distinctSorted(arr) {
 export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
-   * - Debounced search (250ms) via backend query param `q` (text only).
-   * - Dropdowns trigger immediate fetch (no debounce).
-   * - Charts and table are fetched in parallel on initial load and whenever text/date changes.
-   * - Avoids duplicate requests by memoizing current params.
+   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
+   * - Keeps existing pagination using server-provided meta.total and page/limit.
+   * - Minimal loading and error states shown within the table and above toolbar.
    */
   const [items, setItems] = useState([]);
 
@@ -69,16 +68,17 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Details modal state
+  // Details modal state (session details; unrelated to deprecated "View All" costs modal)
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  // Lock to prevent race conditions when multiple loads are inflight
+  // Lock to prevent race conditions when multiple loads are inflight (e.g., debounce vs pagination)
   const activeRequestRef = useRef(0);
-  // Remember the last known sort
+  // Remember the last known sort so search/debounced reloads preserve sort order across pages
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
   // Allowed and ordered fields (column visibility)
+  // Replace Task Id column with User name per requirements
   const allowedOrdered = useMemo(
     () => ["User_name", "tenant_id", "organization_name", "service_type"],
     []
@@ -100,6 +100,8 @@ export default function Sessions() {
 
     return allowedOrdered.map((k) => {
       const label = k === "User_name" ? "User name" : toLabel(k);
+
+      // Render function that resolves alias and capitalizes user name
       const render = (v, row) => {
         if (k === "User_name") {
           const val =
@@ -109,7 +111,9 @@ export default function Sessions() {
             row?.username ??
             row?.email ??
             v;
-          return val == null || val === "" ? "—" : String(val);
+          if (!val || val === "") return "—";
+          const str = String(val).trim();
+          return str.replace(/\b\w/g, (m) => m.toUpperCase());
         }
         return v == null || v === "" ? "—" : String(v);
       };
@@ -128,18 +132,18 @@ export default function Sessions() {
   // Aggregates for charts
   const [aggLoading, setAggLoading] = useState(false);
   const [aggError, setAggError] = useState("");
-  const [byOrg, setByOrg] = useState([]); // [{ organization_name, session_count }]
+  const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
 
-  // Features usage analytics
+  // Features usage charts state
   const [featuresLoading, setFeaturesLoading] = useState(false);
-  const [mostUsed, setMostUsed] = useState([]);
-  const [leastUsed, setLeastUsed] = useState([]);
+  const [mostUsedFeatures, setMostUsedFeatures] = useState([]);
+  const [leastUsedFeatures, setLeastUsedFeatures] = useState([]);
 
   async function loadAggregates(qStr = "") {
     /**
-     * Fetch capped pages and build client-side aggregates for charts:
-     * by organization_name and by session_type.
+     * Fetch sessions data across multiple pages (capped) and build client-side aggregates
+     * for charts: by organization_name and by session_type.
      */
     setAggLoading(true);
     setAggError("");
@@ -187,7 +191,11 @@ export default function Sessions() {
       setByOrg(orgArr);
       setByType(typeArr);
 
-      // Build distinct options
+      // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+      // Keep pairs of { id, name } for filtering
+      // ✅ Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+
+      // Build unique user list with IDs and names
       const userPairs = all
         .map((it) => ({
           id: it?.user_id,
@@ -210,10 +218,13 @@ export default function Sessions() {
         }
       });
 
+      // Build distinct tenant IDs
       const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
 
+      // Update dropdown options
       setUserNameOptions(uniqueUsers);
       setTenantIdOptions(tenantIds);
+
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -236,21 +247,22 @@ export default function Sessions() {
     setError("");
     try {
       const sortFieldMap = {
-        User_name: "user_name",
+        // Map UI column keys to backend fields
+        User_name: "user_name", // prefer lowercase field in DB
         tenant_id: "tenant_id",
         organization_name: "organization_name",
         service_type: "service_type",
-        task_id: "task_id",
+        task_id: "task_id", // legacy, not used in current allowedOrdered
       };
+      // include optional date range as both from/to and start/end
       const params = withDateParams({ page, limit, q: qStr });
 
-      // Build filter: exact matches
+      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
       const filter = {};
       if (filterTenantId && filterTenantId.trim()) {
         filter.tenant_id = filterTenantId.trim();
       }
       if (filterUserName && filterUserName.trim()) {
-        // Backend expects user_id for dropdown selection (pairs use id)
         filter.user_id = filterUserName.trim();
       }
 
@@ -264,6 +276,7 @@ export default function Sessions() {
       }
       const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
+      // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
 
       setItems(arr);
@@ -272,6 +285,7 @@ export default function Sessions() {
         limit: res?.meta?.limit || limit,
         total: res?.meta?.total ?? (Array.isArray(arr) ? arr.length : 0),
       });
+      // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
@@ -283,70 +297,75 @@ export default function Sessions() {
     }
   }
 
-  // Memo key for current params to avoid duplicate requests
-  const paramsKey = useMemo(() => {
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    return JSON.stringify({
-      q: (query || "").trim(),
-      user: filterUserName || "",
-      tenant: filterTenantId || "",
-      startDate: startDate || "",
-      endDate: endDate || "",
-      sortKey: key,
-      sortDir: dir,
-      pageSize: meta.limit || 10,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, filterUserName, filterTenantId, startDate, endDate, meta.limit]);
-
-  // Initial load and whenever params key changes due to date/search
-  async function loadFeaturesUsage() {
-    setFeaturesLoading(true);
-    try {
-      const params = {};
-      if (startDate) params.startDate = startDate;
-      if (endDate) params.endDate = endDate;
-      if (filterTenantId) params.tenant_id = filterTenantId;
-      if (filterUserName) params.user_name = filterUserName;
-      params.limit = 5;
-      params.minCount = 1;
-      const resp = await getFeaturesUsage(params);
-      setMostUsed(Array.isArray(resp?.mostUsed) ? resp.mostUsed : []);
-      setLeastUsed(Array.isArray(resp?.leastUsed) ? resp.leastUsed : []);
-    } catch (e) {
-      setMostUsed([]);
-      setLeastUsed([]);
-    } finally {
-      setFeaturesLoading(false);
-    }
-  }
-
+  // Initial load
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    const q = (query || "").trim();
-    Promise.all([
-      load(1, meta.limit || 10, q, key, dir),
-      loadAggregates(q),
-      loadFeaturesUsage(),
-    ]);
+    load(1, meta.limit || 10, "", key, dir);
+    loadAggregates("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramsKey]);
+  }, []); // initial mount only
 
   // Debounced server-side search on query change (250ms default)
   const debouncedQuery = useDebouncedValue(query, 250);
+  // Debounced text search only
   useEffect(() => {
-    // paramsKey effect drives combined reloads
+    const q = (debouncedQuery || "").trim();
+    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    load(1, meta.limit || 10, q, key, dir);
+    loadAggregates(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
-  // Immediate refetch when dropdown filters change (no debounce), only table
+  // Immediate refetch when dropdown filters change (no debounce)
   useEffect(() => {
     const q = (query || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, q, key, dir);
+    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterUserName, filterTenantId]);
 
-  // Toggle global dimming class while modal is open
+  // Re-fetch when date filters change
+  useEffect(() => {
+    const q = (debouncedQuery || "").trim();
+    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    load(1, meta.limit || 10, q, key, dir);
+    loadAggregates(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate, endDate]);
+
+  // Load Most/Least Used Features when date or dropdown filters change
+  useEffect(() => {
+    let alive = true;
+    async function loadFeatures() {
+      setFeaturesLoading(true);
+      try {
+        const { mostUsed, leastUsed } = await fetchFeaturesUsage({
+          from: startDate || undefined,
+          to: endDate || undefined,
+          tenant_id: (filterTenantId || "").trim() || undefined,
+          // The dropdown stores user_id in filterUserName for now (value is user.id); also allow user_name if needed
+          user_id: (filterUserName || "").trim() || undefined,
+          limit: 8,
+        });
+        if (!alive) return;
+        setMostUsedFeatures(Array.isArray(mostUsed) ? mostUsed : []);
+        setLeastUsedFeatures(Array.isArray(leastUsed) ? leastUsed : []);
+      } catch (e) {
+        if (!alive) return;
+        setMostUsedFeatures([]);
+        setLeastUsedFeatures([]);
+      } finally {
+        if (alive) setFeaturesLoading(false);
+      }
+    }
+    loadFeatures();
+    return () => {
+      alive = false;
+    };
+  }, [startDate, endDate, filterTenantId, filterUserName]);
+
+  // Toggle global dimming class while modal is open (align with user modal UX)
   useEffect(() => {
     if (detailsOpen) {
       document.body.classList.add("modal-open");
@@ -364,7 +383,7 @@ export default function Sessions() {
         // eslint-disable-next-line no-console
         console.debug("[Sessions] Row clicked -> opening details modal with keys:", keys);
       } catch {
-        // ignore
+        // ignore logging errors
       }
     }
     setSelectedSession(row);
@@ -373,14 +392,6 @@ export default function Sessions() {
 
   return (
     <div>
-      {/* Keyframes for lightweight skeleton shimmer */}
-      <style>{`
-        @keyframes pulse {
-          0% { background-position: 0% 0%; }
-          100% { background-position: -135% 0%; }
-        }
-      `}</style>
-
       {/* Details Modal */}
       <SessionDetailsModal
         open={detailsOpen}
@@ -390,6 +401,15 @@ export default function Sessions() {
         }}
         session={selectedSession}
       />
+
+      {/* Features Usage Charts (Most/Least) */}
+      <div style={{ marginBottom: 24 }}>
+        <FeaturesUsageCharts
+          loading={featuresLoading}
+          mostUsed={mostUsedFeatures}
+          leastUsed={leastUsedFeatures}
+        />
+      </div>
 
       {/* Charts stacked vertically */}
       <div
@@ -404,24 +424,11 @@ export default function Sessions() {
           subtitle="Count of sessions per organization"
         >
           <div className="chart-wrapper" style={{ height: 320 }}>
-            {aggLoading ? (
-              <div
-                role="status"
-                aria-label="Loading chart"
-                style={{
-                  height: "100%",
-                  background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 37%,#f3f4f6 63%)",
-                  backgroundSize: "400% 100%",
-                  animation: "pulse 1.2s ease-in-out infinite"
-                }}
-              />
-            ) : (
-              <SessionsByOrganization
-                data={byOrg}
-                loading={aggLoading}
-                error={aggError}
-              />
-            )}
+            <SessionsByOrganization
+              data={byOrg}
+              loading={aggLoading}
+              error={aggError}
+            />
           </div>
         </Card>
         <Card
@@ -430,42 +437,13 @@ export default function Sessions() {
           subtitle="Count of sessions per type"
         >
           <div className="chart-wrapper" style={{ height: 320 }}>
-            {aggLoading ? (
-              <div
-                role="status"
-                aria-label="Loading chart"
-                style={{
-                  height: "100%",
-                  background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 37%,#f3f4f6 63%)",
-                  backgroundSize: "400% 100%",
-                  animation: "pulse 1.2s ease-in-out infinite"
-                }}
-              />
-            ) : (
-              <SessionsByType
-                data={byType}
-                loading={aggLoading}
-                error={aggError}
-              />
-            )}
+            <SessionsByType
+              data={byType}
+              loading={aggLoading}
+              error={aggError}
+            />
           </div>
         </Card>
-      </div>
-
-      {/* Features usage cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 16, marginTop: 24, marginBottom: 8 }}>
-        <FeaturesUsageCard
-          title="Most Used Features"
-          items={mostUsed}
-          loading={featuresLoading}
-          emptyHint="No frequently used features in this range."
-        />
-        <FeaturesUsageCard
-          title="Least Used Features"
-          items={leastUsed}
-          loading={featuresLoading}
-          emptyHint="No rarely used features in this range."
-        />
       </div>
 
       {/* Existing table card remains below charts */}
@@ -524,6 +502,7 @@ export default function Sessions() {
           columns={columns}
           data={items}
           loading={loading}
+
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
@@ -538,6 +517,7 @@ export default function Sessions() {
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
+
         />
       </Card>
     </div>
