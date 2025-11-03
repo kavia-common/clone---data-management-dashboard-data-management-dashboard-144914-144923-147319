@@ -4,3 +4,4 @@ export * from './baseClient';
 export * from './modulesClient';
 export * from './util';
 export * from './utilDateParams';
+export * as sessionsPerDay from './sessionsPerDay';

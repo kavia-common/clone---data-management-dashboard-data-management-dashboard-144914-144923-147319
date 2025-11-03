@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
- // REQ-UI-LOGO-REPLACE: logo removed from sidebar; asset import no longer needed
+// REQ-UI-LOGO-REPLACE: logo removed from sidebar; asset import no longer needed
 
 /**
  * PUBLIC_INTERFACE
@@ -95,6 +95,9 @@ export default function Sidebar() {
           </NavLink>
           <NavLink to="/dashboard/sessions" className="nav-link">
             <span className="nav-label">Session Tracking</span>
+          </NavLink>
+          <NavLink to="/dashboard/sessions-analytics" className="nav-link">
+            <span className="nav-label">Sessions Analytics</span>
           </NavLink>
           <NavLink to="/dashboard/deployments" className="nav-link">
             <span className="nav-label">App Deployments</span>
