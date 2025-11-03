@@ -1,3 +1,5 @@
+'use strict';
+
 const { parsePagination, success, failure } = require('../utils/http');
 const { buildDateRangeFilter } = require('../utils/dateRange');
 
@@ -42,15 +44,9 @@ function buildListKey(req, filter, sort, page, limit, skip, explicit) {
 /**
  * Build a REST controller for a Mongoose model.
  * Supports list with basic filtering, get by id, create, update, delete.
- * This implementation adds robust error handling to avoid runtime 500s for:
- * - CastError (e.g., invalid _id, invalid filter value types)
- * - ValidationError (create/update schema validations)
- *
- * Response format change:
- * - If pagination is NOT explicitly requested (no page/limit query), return RAW MongoDB data:
- *   - list: returns an array of documents directly (no {success,data,meta})
- *   - getById/create/update/remove: return the document or result object directly
- * - If pagination IS explicitly requested, keep envelope { success, data, meta } for backward compatibility.
+ * Adds robust error handling to avoid 500s for:
+ * - CastError (invalid _id or filter type)
+ * - ValidationError (schema issues)
  */
 function buildCrudController(Model, listDefaultSort = '-_id') {
   // Map known Mongoose errors to user-friendly responses
@@ -79,6 +75,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       const { page, limit, skip, explicit } = parsePagination(req.query);
       const filterRaw = req.query.filter ? req.query.filter : '{}';
       let filter = {};
+
       try {
         filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
       } catch (err) {
@@ -87,33 +84,22 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
       const sort = req.query.sort || listDefaultSort;
 
-      // Try to infer a sensible date field set for the model for date range filtering
-      // Common fields across our datasets:
-      // - created_at, updated_at
-      // - timestamp
-      // - session_start, last_updated (for sessions)
-      // - createdAt, updatedAt (camelCase)
-      const commonDateFields = [
-        'timestamp',
-        'created_at',
-        'updated_at',
-        'createdAt',
-        'updatedAt',
-        'session_start',
-        'last_updated',
-      ];
-
-      // Apply date range only if at least one of startDate/endDate provided
+      /**
+       * Apply date range filtering.
+       * We know our models (like users) use `created_at` and `updated_at`.
+       * So we pass these directly for accurate filtering.
+       */
       try {
-        const rangeFilter = buildDateRangeFilter(req.query || {}, commonDateFields);
+        const rangeFilter = buildDateRangeFilter(req.query || {}, ['created_at', 'updated_at']);
         if (rangeFilter) {
-          // Merge into any existing filter
+          // Merge existing filters with date range
           filter = Object.keys(filter).length ? { $and: [filter, rangeFilter] } : rangeFilter;
         }
       } catch (e) {
         const status = e.status || 400;
         return failure(res, e.message || 'Invalid date range', status);
       }
+
 
       try {
         // Micro-cache only explicit (paginated) GET list responses
@@ -128,12 +114,13 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
             Model.find(filter).sort(sort).skip(skip).limit(limit).lean(),
             Model.countDocuments(filter),
           ]);
+
           const payload = { success: true, data: items, meta: { page, limit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
         }
 
-        // No explicit pagination: return the raw array of documents (no envelope)
+        // Non-paginated list: return plain array (no envelope)
         const items = await Model.find(filter).sort(sort).lean();
         return res.status(200).json(items);
       } catch (err) {
@@ -143,12 +130,10 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
     // PUBLIC_INTERFACE
     async getById(req, res) {
-      /** Get a single document by Mongo _id */
       const { id } = req.params;
       try {
         const doc = await Model.findById(id).lean();
         if (!doc) return failure(res, 'Not found', 404);
-        // Return raw doc
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'getById');
@@ -157,11 +142,9 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
     // PUBLIC_INTERFACE
     async create(req, res) {
-      /** Create a new document */
       const data = req.body;
       try {
         const doc = await Model.create(data);
-        // Return raw created doc
         return res.status(201).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'create');
@@ -170,13 +153,11 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
     // PUBLIC_INTERFACE
     async update(req, res) {
-      /** Update a document by _id with provided data */
       const { id } = req.params;
       const data = req.body;
       try {
         const doc = await Model.findByIdAndUpdate(id, data, { new: true }).lean();
         if (!doc) return failure(res, 'Not found', 404);
-        // Return raw updated doc
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'update');
@@ -185,12 +166,10 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
     // PUBLIC_INTERFACE
     async remove(req, res) {
-      /** Delete a document by _id */
       const { id } = req.params;
       try {
         const doc = await Model.findByIdAndDelete(id).lean();
         if (!doc) return failure(res, 'Not found', 404);
-        // Return minimal raw response indicating deleted id
         return res.status(200).json({ _id: id });
       } catch (err) {
         return mapAndReplyError(res, err, 'remove');

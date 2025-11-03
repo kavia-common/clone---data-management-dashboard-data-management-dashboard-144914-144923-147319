@@ -3,46 +3,58 @@
 /**
  * PUBLIC_INTERFACE
  * buildDateRangeFilter
- * Build a MongoDB date-range filter object for a given field (or list of fields) based on req.query.startDate and req.query.endDate.
- * - Accepts ISO 8601 strings.
- * - If both present -> {$gte: start, $lte: end}
- * - If only one bound present -> applies only that bound
- * - If neither present -> returns null (no filtering)
- * - If multiple fields are provided, returns an $or across those fields each with the same range.
+ * Build a MongoDB date-range filter object for given field(s)
+ * based on req.query.startDate and req.query.endDate.
+ * 
+ * Supports ISO 8601 and YYYY-MM-DD inputs.
+ * 
+ * If both provided → {$gte: start, $lte: end}
+ * If only one → applies that bound
+ * If none → returns null (no filter)
+ * 
+ * If multiple fields provided → builds an $or across all.
  *
  * @param {object} q - Typically req.query
- * @param {string|string[]} fields - Date field(s) to apply the range on (e.g., "created_at" or ["timestamp","created_at","updated_at"])
- * @returns {object|null} A MongoDB query object or null when no valid dates supplied.
+ * @param {string|string[]} fields - Date field(s) (e.g., "created_at" or ["created_at", "updated_at"])
+ * @returns {object|null} MongoDB query filter or null
  */
 function buildDateRangeFilter(q, fields) {
-  const startStr = typeof q.startDate === 'string' ? q.startDate.trim() : '';
-  const endStr = typeof q.endDate === 'string' ? q.endDate.trim() : '';
+  const startStr = q?.startDate ? String(q.startDate).trim() : '';
+  const endStr = q?.endDate ? String(q.endDate).trim() : '';
+
+  // No date range provided → no filtering
   if (!startStr && !endStr) return null;
 
+  // Parse dates safely (force ISO parse)
   const start = startStr ? new Date(startStr) : null;
   const end = endStr ? new Date(endStr) : null;
 
-  if (startStr && Number.isNaN(start?.getTime())) {
-    throw Object.assign(new Error('Invalid startDate'), { status: 400 });
+  if (start && isNaN(start.getTime())) {
+    throw Object.assign(new Error(`Invalid startDate: ${startStr}`), { status: 400 });
   }
-  if (endStr && Number.isNaN(end?.getTime())) {
-    throw Object.assign(new Error('Invalid endDate'), { status: 400 });
+  if (end && isNaN(end.getTime())) {
+    throw Object.assign(new Error(`Invalid endDate: ${endStr}`), { status: 400 });
   }
+
+  // Normalize start to beginning of the day (UTC)
+  if (start) start.setUTCHours(0, 0, 0, 0);
+  // Normalize end to end of the day (UTC)
+  if (end) end.setUTCHours(23, 59, 59, 999);
 
   const range = {};
   if (start) range.$gte = start;
   if (end) range.$lte = end;
 
   const fieldsArr = Array.isArray(fields) ? fields : [fields];
-  if (fieldsArr.length === 1) {
-    return { [fieldsArr[0]]: range };
+  if (!fieldsArr.length) return null;
+
+  // Build $or condition across multiple date fields
+  if (fieldsArr.length > 1) {
+    return { $or: fieldsArr.map((field) => ({ [field]: range })) };
   }
-  // Multiple fields -> any of them within range
-  return {
-    $or: fieldsArr.map((f) => ({ [f]: range })),
-  };
+
+  // Single-field filter
+  return { [fieldsArr[0]]: range };
 }
 
-module.exports = {
-  buildDateRangeFilter,
-};
+module.exports = { buildDateRangeFilter };
