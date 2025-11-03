@@ -95,6 +95,28 @@ a, button, .btn, input, select, textarea, .nav-link, .card {
               border-color var(--motion-duration-250) var(--motion-ease),
               box-shadow var(--motion-duration-250) var(--motion-ease),
               transform 50ms ease; /* small tap/press affordance */
+  -webkit-tap-highlight-color: transparent; /* prevent white tap flash */
+}
+
+/* Do not force white background on :active states globally */
+button:active,
+.btn:active,
+a:active,
+.nav-link:active,
+[role="button"]:active,
+input:active,
+select:active,
+textarea:active {
+  background-color: transparent;
+}
+
+/* Accessible focus ring without background fill (keyboard only) */
+:where(a, button, .btn, input, select, textarea, .nav-link):focus:not(:focus-visible) {
+  outline: none;
+}
+:where(a, button, .btn, input, select, textarea, .nav-link):focus-visible {
+  outline: 2px solid var(--focus-ring-color, var(--color-accent, #2563EB));
+  outline-offset: 2px;
 }
 
 /* Brown card helpers (applies to any element using these classes) */

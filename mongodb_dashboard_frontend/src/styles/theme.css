@@ -186,6 +186,10 @@ body {
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-subtle, var(--ocean-border));
 }
+.card:active {
+  /* Avoid white flash on press; keep surface/color consistent and rely on transform if any */
+  background: inherit;
+}
 
 /* Dark theme card surface override:
    - Use dark surface/background tokens defined in globals.css (:root[data-theme="dark"])
