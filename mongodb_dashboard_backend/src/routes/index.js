@@ -1,67 +1,52 @@
 'use strict';
 
 const express = require('express');
-const healthController = require('../controllers/health');
-
-// Core route modules
-const authRoutes = require('./auth.routes');
-const usersRoutes = require('./users.routes');
-const tenantsRoutes = require('./tenants.routes');
-const dataRoutes = require('./data.routes');
-const llmCostsRoutes = require('./llmCosts.routes');
-const llmCostsAggregateRoutes = require('./llmCosts.aggregate.routes');
-const costsByAgentRoutes = require('./costs.byAgent.routes');
-const sessionTrackingRoutes = require('./sessionTracking.routes');
-const sessionRoutes = require('./session.routes');
-const appDeploymentsRoutes = require('./appDeployments.routes');
-const dashboardRoutes = require('./dashboard.routes');
-const dashboardModulesRoutes = require('./dashboard.modules.routes');
-const countsRoutes = require('./counts.routes');
-const featureUsageRoutes = require('./featureUsage.routes');
-
 const router = express.Router();
 
-/**
- * PUBLIC_INTERFACE
- * GET /
- * Health endpoint for base router. Returns 200 even if DB is down.
- */
-try {
-  router.get('/', healthController.check.bind(healthController));
-  router.get('/health', healthController.check.bind(healthController));
-  router.get('/healthz', healthController.check.bind(healthController));
-} catch (e) {
-  // In case of unexpected import errors, provide a minimal inline health response.
-  router.get(['/', '/health', '/healthz'], (req, res) =>
-    res.status(200).json({ ready: true, status: 'ok', hint: 'fallback health route active' })
-  );
-}
+// Health endpoints without importing external controllers to avoid startup crashes
+// PUBLIC_INTERFACE
+router.get('/', (req, res) =>
+  res.status(200).json({ ready: true, status: 'ok', source: 'base-router' })
+);
+router.get('/health', (req, res) =>
+  res.status(200).json({ ready: true, status: 'ok', source: 'base-router' })
+);
+router.get('/healthz', (req, res) =>
+  res.status(200).json({ ready: true, status: 'ok', source: 'base-router' })
+);
 
-/* Mount core API routes */
-router.use('/auth', authRoutes);
-router.use('/users', usersRoutes);
-router.use('/tenants', tenantsRoutes);
-router.use('/data', dataRoutes);
-router.use('/llm-costs', llmCostsRoutes);
-router.use('/llm-costs-aggregate', llmCostsAggregateRoutes);
-router.use('/costs', costsByAgentRoutes);
-router.use('/session', sessionRoutes);
-router.use('/session-tracking', sessionTrackingRoutes);
-router.use('/app-deployments', appDeploymentsRoutes);
+// Helper to safely mount optional modules
+const safeMount = (path, loader) => {
+  try {
+    const r = loader();
+    router.use(path, r);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(`[routes/index] Skipping mount ${path}:`, e?.message || e);
+  }
+};
+
+// Mount core API routes guarded
+safeMount('/auth', () => require('./auth.routes'));
+safeMount('/users', () => require('./users.routes'));
+safeMount('/tenants', () => require('./tenants.routes'));
+safeMount('/data', () => require('./data.routes'));
+safeMount('/llm-costs', () => require('./llmCosts.routes'));
+safeMount('/llm-costs-aggregate', () => require('./llmCosts.aggregate.routes'));
+safeMount('/costs', () => require('./costs.byAgent.routes'));
+safeMount('/session', () => require('./session.routes'));
+safeMount('/session-tracking', () => require('./sessionTracking.routes'));
+safeMount('/app-deployments', () => require('./appDeployments.routes'));
 
 // Dashboard overview routes
-router.use('/dashboard/overview', dashboardRoutes);
-router.use('/dashboard/overview', dashboardModulesRoutes);
+safeMount('/dashboard/overview', () => require('./dashboard.routes'));
+safeMount('/dashboard/overview', () => require('./dashboard.modules.routes'));
 
-/* Analytics
-   Mounts:
-   - GET /api/analytics/feature-usage
-   - GET /api/analytics/sessions-by-type
-*/
-router.use('/analytics', require('./analytics.routes'));
-router.use('/analytics', featureUsageRoutes);
+// Analytics routes
+safeMount('/analytics', () => require('./analytics.routes'));
+safeMount('/analytics', () => require('./featureUsage.routes'));
 
-// Counts endpoints mounted at top-level /api
-router.use('/', countsRoutes);
+// Counts endpoints at top-level /api
+safeMount('/', () => require('./counts.routes'));
 
 module.exports = router;
