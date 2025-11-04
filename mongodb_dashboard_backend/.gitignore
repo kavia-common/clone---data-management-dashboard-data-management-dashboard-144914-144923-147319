@@ -28,7 +28,7 @@ build/
 # Optional npm cache directory
 .npm/
 
-openapi.json
+#openapi.json
 .knowledge/
 .knowledge/
 .knowledge/
