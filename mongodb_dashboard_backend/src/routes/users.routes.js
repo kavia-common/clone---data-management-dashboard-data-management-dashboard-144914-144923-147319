@@ -639,7 +639,7 @@ router.delete('/:id', asyncHandler(controller.remove));
  *         description: Session status filter. Default "completed|active".
  *       - in: query
  *         name: tenant_id
- * required: false
+ *         required: false
  *         schema: { type: string }
  *         description: Optional tenant filter to scope the trend.
  *     responses:
