@@ -3,7 +3,7 @@
   "info": {
     "title": "Dashboard API",
     "version": "1.0.0",
-    "description": "REST API for Data Management Dashboard with MongoDB and Express build with kavia"
+    "description": "REST API for Data Management Dashboard with MongoDB and Express"
   },
   "components": {
     "schemas": {
@@ -112,7 +112,24 @@
             },
             "description": "Bucket granularity"
           },
-
+          {
+            "in": "query",
+            "name": "start",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "ISO start datetime (inclusive)"
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "ISO end datetime (inclusive)"
+          }
         ],
         "responses": {
           "200": {
@@ -160,8 +177,7 @@
               "type": "string"
             },
             "description": "JSON filter (e.g., {\"project_id\":\"p1\",\"status\":\"success\"})"
-          },
-
+          }
         ],
         "responses": {
           "200": {
@@ -627,8 +643,7 @@
               "type": "string"
             },
             "description": "JSON string filter (e.g., {\"name\":\"demo\"})"
-          },
-
+          }
         ],
         "responses": {
           "200": {
@@ -727,24 +742,6 @@
               "type": "string"
             },
             "description": "JSON filter (e.g., {\"tenant_id\":\"org1\",\"llm_model\":\"gpt-4o\"})"
-          },
-          {
-            "in": "query",
-            "name": "startDate",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "description": "Optional ISO start datetime (inclusive) applied to timestamp/created_at/updated_at"
-          },
-          {
-            "in": "query",
-            "name": "endDate",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "description": "Optional ISO end datetime (inclusive) applied to timestamp/created_at/updated_at"
           }
         ]
       },
@@ -1083,8 +1080,7 @@
               "type": "string"
             },
             "description": "Case-insensitive text search applied across multiple fields: task_id, tenant_id, organization_name, user_name, project_id, container_id, service_type, status, and session_data fields (session_name, description, llm_model).\n"
-          },
-
+          }
         ],
         "responses": {
           "200": {
@@ -1448,7 +1444,6 @@
             },
             "description": "Sort string (e.g., -created_at or email)"
           },
-
           {
             "in": "query",
             "name": "filter",
