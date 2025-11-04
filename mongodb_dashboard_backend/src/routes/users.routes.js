@@ -413,48 +413,99 @@ router.get(
  *                 sample:
  *                   $ref: '#/components/schemas/GenericDocument'
  */
-router.get(
-  '/',
-  asyncHandler(async (req, res) => {
-    // Determine pagination intent and parse filter/sort similar to controller logic
-    const explicit =
-      Object.prototype.hasOwnProperty.call(req.query, 'page') ||
-      Object.prototype.hasOwnProperty.call(req.query, 'limit');
+// PUBLIC_INTERFACE
+async function listUsersHandler(req, res) {
+  /**
+   * PUBLIC_INTERFACE
+   * List users with optional filter/sort and optional pagination.
+   * If page or limit are present, returns an envelope: { success, data, meta }.
+   * Otherwise returns a raw array of user documents.
+   */
+  // Determine pagination intent and parse filter/sort similar to controller logic
+  const explicit =
+    Object.prototype.hasOwnProperty.call(req.query, 'page') ||
+    Object.prototype.hasOwnProperty.call(req.query, 'limit');
 
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
-    const skip = (page - 1) * limit;
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
+  const skip = (page - 1) * limit;
 
-    const sort = req.query.sort || '-created_at';
+  const sort = req.query.sort || '-created_at';
 
-    // Parse filter safely
-    const filterRaw = req.query.filter ? req.query.filter : '{}';
-    let filter = {};
-    try {
-      filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
-    } catch {
-      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+  // Parse filter safely
+  const filterRaw = req.query.filter ? req.query.filter : '{}';
+  let filter = {};
+  try {
+    filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
+  } catch {
+    return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+  }
+
+  // Apply start/end (preferred) or startDate/endDate (legacy) to created_at/updated_at, inclusive UTC day bounds
+  const { buildDateRangeFilter } = require('../utils/dateRange');
+  try {
+    const dateFilter = buildDateRangeFilter(req.query || {}, ['created_at', 'updated_at']);
+    if (dateFilter) {
+      filter = Object.keys(filter).length ? { $and: [filter, dateFilter] } : dateFilter;
     }
+  } catch (e) {
+    const msg = e?.message || 'Invalid date range';
+    return res.status(e?.status || 400).json({ success: false, message: msg });
+  }
 
-    // Apply start/end (preferred) or startDate/endDate (legacy) to created_at/updated_at, inclusive UTC day bounds
-    const { buildDateRangeFilter } = require('../utils/dateRange');
+  // First pass: check data presence without sending a response
+  let items = [];
+  let total = 0;
+
+  try {
+    if (explicit) {
+      // For pagination, we still need to detect emptiness using the paginated query
+      [items, total] = await Promise.all([
+        User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+        User.countDocuments(filter),
+      ]);
+    } else {
+      items = await User.find(filter).sort(sort).lean();
+      total = items.length;
+    }
+  } catch (err) {
+    // Map common cast errors to 400 to avoid 500
+    const message = err?.message || 'Request failed';
+    if (err?.name === 'CastError' || /Cast to/.test(message)) {
+      return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
+    }
+    return res.status(400).json({ success: false, message: 'Request failed', details: message });
+  }
+
+  // If empty and no documents exist at all, seed and re-run once
+  if (total === 0) {
     try {
-      const dateFilter = buildDateRangeFilter(req.query || {}, ['created_at', 'updated_at']);
-      if (dateFilter) {
-        filter = Object.keys(filter).length ? { $and: [filter, dateFilter] } : dateFilter;
+      const before = await User.countDocuments({});
+      if (before === 0) {
+        const now = new Date();
+        const demoUsers = [
+          {
+            referral_code: 'REF-ALPHA',
+            referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
+            referral_history: [
+              { user_id: 'u-101', user_email: 'alpha1@example.com', user_name: 'Alpha One', referred_at: now, status: 'verified' },
+              { user_id: 'u-102', user_email: 'alpha2@example.com', user_name: 'Alpha Two', referred_at: now, status: 'pending' },
+            ],
+            created_at: now,
+            updated_at: now,
+          },
+          {
+            referral_code: 'REF-BETA',
+            referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
+            referral_history: [],
+            created_at: now,
+            updated_at: now,
+          },
+        ];
+        await User.insertMany(demoUsers);
       }
-    } catch (e) {
-      const msg = e?.message || 'Invalid date range';
-      return res.status(e?.status || 400).json({ success: false, message: msg });
-    }
-
-    // First pass: check data presence without sending a response
-    let items = [];
-    let total = 0;
-
-    try {
+      // Re-run list after seeding
       if (explicit) {
-        // For pagination, we still need to detect emptiness using the paginated query
         [items, total] = await Promise.all([
           User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
           User.countDocuments(filter),
@@ -464,70 +515,25 @@ router.get(
         total = items.length;
       }
     } catch (err) {
-      // Map common cast errors to 400 to avoid 500
-      const message = err?.message || 'Request failed';
-      if (err?.name === 'CastError' || /Cast to/.test(message)) {
-        return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
-      }
-      return res.status(400).json({ success: false, message: 'Request failed', details: message });
+      // Seeding failure should not 500; return an empty array/envelope gracefully
+      // and log for diagnostics
+      // eslint-disable-next-line no-console
+      console.error('Auto-seed on empty /api/users failed:', err?.message || err);
     }
+  }
 
-    // If empty and no documents exist at all, seed and re-run once
-    if (total === 0) {
-      try {
-        const before = await User.countDocuments({});
-        if (before === 0) {
-          const now = new Date();
-          const demoUsers = [
-            {
-              referral_code: 'REF-ALPHA',
-              referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
-              referral_history: [
-                { user_id: 'u-101', user_email: 'alpha1@example.com', user_name: 'Alpha One', referred_at: now, status: 'verified' },
-                { user_id: 'u-102', user_email: 'alpha2@example.com', user_name: 'Alpha Two', referred_at: now, status: 'pending' },
-              ],
-              created_at: now,
-              updated_at: now,
-            },
-            {
-              referral_code: 'REF-BETA',
-              referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
-              referral_history: [],
-              created_at: now,
-              updated_at: now,
-            },
-          ];
-          await User.insertMany(demoUsers);
-        }
-        // Re-run list after seeding
-        if (explicit) {
-          [items, total] = await Promise.all([
-            User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-            User.countDocuments(filter),
-          ]);
-        } else {
-          items = await User.find(filter).sort(sort).lean();
-          total = items.length;
-        }
-      } catch (err) {
-        // Seeding failure should not 500; return an empty array/envelope gracefully
-        // and log for diagnostics
-        // eslint-disable-next-line no-console
-        console.error('Auto-seed on empty /api/users failed:', err?.message || err);
-      }
-    }
-
-    // Final response (single send): match controller behavior and Swagger
-    if (explicit) {
-      return res.status(200).json({
-        success: true,
-        data: items,
-        meta: { page, limit, total },
-      });
-    }
-    return res.status(200).json(items);
-  })
-);
+  // Final response (single send): match controller behavior and Swagger
+  if (explicit) {
+    return res.status(200).json({
+      success: true,
+      data: items,
+      meta: { page, limit, total },
+    });
+  }
+  return res.status(200).json(items);
+}
+// PUBLIC_INTERFACE
+router.get('/', asyncHandler(listUsersHandler));
 
 /**
  * @swagger
