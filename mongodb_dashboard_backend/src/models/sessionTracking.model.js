@@ -82,16 +82,10 @@ SessionTrackingSchema.index({ last_updated: -1 });
 SessionTrackingSchema.index({ created_at: -1 });
 // Support user projects aggregation by tenant_id + user_id with recency
 SessionTrackingSchema.index({ tenant_id: 1, user_id: 1, last_updated: -1 });
- // For active users trend queries filtering by status and time
+// For active users trend queries filtering by status and time
 SessionTrackingSchema.index({ tenant_id: 1, status: 1, last_updated: -1, session_start: -1 });
 // Recommended compound when tenant and time are used together
 SessionTrackingSchema.index({ tenant_id: 1, created_at: -1 });
-// Additional index to support features-usage early $match and grouping
-SessionTrackingSchema.index({ created_at: -1, tenant_id: 1, user_id: 1, service_type: 1 });
-SessionTrackingSchema.index({ last_updated: -1, tenant_id: 1, user_id: 1, service_type: 1 });
-
-// Ensure fast user lookups with case-insensitive exact name
-SessionTrackingSchema.index({ user_name_lower: 1, tenant_id: 1 });
 
 // Ensure fast project-level aggregations; if already declared above, Mongoose de-duplicates identical specs.
 SessionTrackingSchema.index({ project_id: 1 });

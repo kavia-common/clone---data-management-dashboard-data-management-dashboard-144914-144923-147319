@@ -9,8 +9,6 @@ const mongoose = require('mongoose');
  *
  * Returns the active mongoose.connection.
  *
- * NOTE: This module never throws on import. Errors can be thrown only when calling connectDB().
- *
  * ENVIRONMENT VARIABLES REQUIRED:
  * - MONGODB_URI: Mongo connection string (e.g. mongodb://user:pass@host:27017/db)
  * - MONGODB_DB (optional): Database name override
@@ -48,9 +46,7 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  // Allow URI to define database by default; can override via env MONGODB_DB if desired
-  const dbNameEnv = (process.env.MONGODB_DB || '').trim();
-  const dbName = dbNameEnv || undefined;
+  const dbName = 'develop_kaviaroot'; // Optional; if not set, Mongo will use the URI/path default
 
   const options = {
     autoIndex,
@@ -58,7 +54,7 @@ async function connectDB() {
     serverSelectionTimeoutMS: isTest ? 250 : 5000,
     socketTimeoutMS: isTest ? 500 : 45000,
     family: 4,
-    ...(dbName ? { dbName } : {}),
+    dbName,
   };
 
   // Prepare a safe, masked log for the cluster host (never log credentials)

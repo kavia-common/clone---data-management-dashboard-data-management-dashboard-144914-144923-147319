@@ -1,21 +1,14 @@
-# Sessions by Type time-series
+# Overview Agents (Department Aggregation)
 
-GET /api/analytics/sessions-by-type
+- Endpoint: GET /api/analytics/agents?grouping=department
+- Filters: tenant_id, project_id, from, to, limit, offset
+- Joins: llm_costs.user_id -> users.user_id; groups by users.department
+- Returns: { items: [ { department, total_cost, user_count } ], total, meta }
 
-- Query: from, to (ISO), granularity=day|week|month, tenant_id
-- Defaults: last 30 days, granularity=day
-- Uses session_tracking collection
-- Timestamp field: last_updated if present, otherwise session_start
-- Type derived from: service_type -> type -> session_data.serviceType
+Frontend
+- Use getDepartmentAggregation() from src/api/analyticsAgents.js
+- Example:
+  const { items } = await getDepartmentAggregation({ tenant_id: 'org1' });
 
-Response:
-{
-  "success": true,
-  "items": [
-    { "date": "2025-10-01", "series": { "chat": 10, "agent": 2 }, "total": 12 }
-  ],
-  "meta": { "from": "...", "to": "...", "granularity": "day", "types": ["agent","chat"], "bucketCount": 30 }
-}
-
-Logging:
-- Warns when no types found for range to aid diagnosing "No data" UI states.
+Notes
+- Ensure REACT_APP_API_BASE_URL points to backend (default provided in client.js).

@@ -5,8 +5,6 @@ import { listSessions } from "../../api/baseClient";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
-import FeaturesUsageCard from "../../components/sessions/FeaturesUsageCard.jsx";
-import { getFeaturesUsage } from "../../api/sessionFeatures";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
 import DateRangeFilter from "../../components/common/DateRangeFilter";
 import useDateRangeQuery from "../../hooks/useDateRangeQuery";
@@ -130,11 +128,6 @@ export default function Sessions() {
   const [aggError, setAggError] = useState("");
   const [byOrg, setByOrg] = useState([]); // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
-
-  // Features usage analytics
-  const [featuresLoading, setFeaturesLoading] = useState(false);
-  const [mostUsed, setMostUsed] = useState([]);
-  const [leastUsed, setLeastUsed] = useState([]);
 
   async function loadAggregates(qStr = "") {
     /**
@@ -300,34 +293,12 @@ export default function Sessions() {
   }, [query, filterUserName, filterTenantId, startDate, endDate, meta.limit]);
 
   // Initial load and whenever params key changes due to date/search
-  async function loadFeaturesUsage() {
-    setFeaturesLoading(true);
-    try {
-      const params = {};
-      if (startDate) params.startDate = startDate;
-      if (endDate) params.endDate = endDate;
-      if (filterTenantId) params.tenant_id = filterTenantId;
-      if (filterUserName) params.user_name = filterUserName;
-      params.limit = 5;
-      params.minCount = 1;
-      const resp = await getFeaturesUsage(params);
-      setMostUsed(Array.isArray(resp?.mostUsed) ? resp.mostUsed : []);
-      setLeastUsed(Array.isArray(resp?.leastUsed) ? resp.leastUsed : []);
-    } catch (e) {
-      setMostUsed([]);
-      setLeastUsed([]);
-    } finally {
-      setFeaturesLoading(false);
-    }
-  }
-
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     const q = (query || "").trim();
     Promise.all([
       load(1, meta.limit || 10, q, key, dir),
       loadAggregates(q),
-      loadFeaturesUsage(),
     ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramsKey]);
@@ -450,22 +421,6 @@ export default function Sessions() {
             )}
           </div>
         </Card>
-      </div>
-
-      {/* Features usage cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 16, marginTop: 24, marginBottom: 8 }}>
-        <FeaturesUsageCard
-          title="Most Used Features"
-          items={mostUsed}
-          loading={featuresLoading}
-          emptyHint="No frequently used features in this range."
-        />
-        <FeaturesUsageCard
-          title="Least Used Features"
-          items={leastUsed}
-          loading={featuresLoading}
-          emptyHint="No rarely used features in this range."
-        />
       </div>
 
       {/* Existing table card remains below charts */}

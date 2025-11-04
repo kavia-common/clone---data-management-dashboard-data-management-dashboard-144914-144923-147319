@@ -4,21 +4,18 @@
   "description": "Minimal Express app with scalable structure",
   "main": "src/server.js",
   "scripts": {
-    "start": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} node -r dotenv/config src/server.js",
-    "dev": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} nodemon -r dotenv/config src/server.js",
-    "health": "node -e \"require('http').get('http://127.0.0.1:'+(process.env.PORT||3001)+'/health',r=>{console.log('health status',r.statusCode);process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))\"",
+    "start": "node -r dotenv/config src/server.js",
+    "dev": "nodemon -r dotenv/config src/server.js",
     "test": "jest",
     "lint": "eslint .",
     "gen:openapi": "node generate_openapi.js"
   },
   "dependencies": {
     "cors": "2.8.5",
-    "dayjs": "^1.11.19",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
-    "luxon": "^3.5.0",
     "mongoose": "^7.8.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"
