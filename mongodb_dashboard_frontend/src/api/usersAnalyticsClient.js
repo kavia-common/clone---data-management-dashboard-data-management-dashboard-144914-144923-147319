@@ -1,16 +1,15 @@
 import { getApiClient } from './index';
 import { buildQueryString } from './util';
-import { withDateParams } from './utilDateParams';
+
 
 /**
  * PUBLIC_INTERFACE
  * fetchUsersByTenant
  * Standardized wrapper returning the backend response for /api/users/tenant-summary
  */
-export async function fetchUsersByTenant({ startDate, endDate, from, to, status, includeInactive } = {}) {
+export async function fetchUsersByTenant({ status, includeInactive } = {}) {
   const base = { status, includeInactive };
-  const params = withDateParams(base, { startDate, endDate, from, to });
-  const qs = buildQueryString(params);
+  const qs = buildQueryString(base);
   const res = await getApiClient().get(`/api/users/tenant-summary${qs}`);
   return res.data ?? res;
 }
@@ -20,10 +19,9 @@ export async function fetchUsersByTenant({ startDate, endDate, from, to, status,
  * fetchReferralSources
  * Wrapper for /api/users/referral-sources
  */
-export async function fetchReferralSources({ limit = 10, startDate, endDate, from, to } = {}) {
+export async function fetchReferralSources({ limit = 10 } = {}) {
   const base = { limit };
-  const params = withDateParams(base, { startDate, endDate, from, to });
-  const qs = buildQueryString(params);
+  const qs = buildQueryString(base);
   const res = await getApiClient().get(`/api/users/referral-sources${qs}`);
   return res.data ?? res;
 }

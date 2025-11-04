@@ -6,8 +6,8 @@ import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
-import DateRangeFilter from "../../components/common/DateRangeFilter";
-import useDateRangeQuery from "../../hooks/useDateRangeQuery";
+
+
 
 // Simple helper to get distinct, sorted, non-empty values
 function distinctSorted(arr) {
@@ -29,8 +29,7 @@ export default function Sessions() {
    */
   const [items, setItems] = useState([]);
 
-  // Date range state (persisted via query params)
-  const { startDate, endDate, setDates, clearDates, withDateParams } = useDateRangeQuery();
+
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -147,7 +146,7 @@ export default function Sessions() {
       let page = 1;
       const all = [];
       while (page <= maxPages) {
-        const res = await listSessions(withDateParams({ page, limit, q: qStr }));
+        const res = await listSessions({ page, limit, q: qStr });
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
         if (arr.length < limit) break;
@@ -249,7 +248,7 @@ export default function Sessions() {
         task_id: "task_id", // legacy, not used in current allowedOrdered
       };
       // include optional date range as both from/to and start/end
-      const params = withDateParams({ page, limit, q: qStr });
+      const params = { page, limit, q: qStr };
 
       // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
       const filter = {};
@@ -319,14 +318,7 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterUserName, filterTenantId]);
 
-  // Re-fetch when date filters change
-  useEffect(() => {
-    const q = (debouncedQuery || "").trim();
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    loadAggregates(q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate]);
+
 
   // Toggle global dimming class while modal is open (align with user modal UX)
   useEffect(() => {
@@ -440,12 +432,7 @@ export default function Sessions() {
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
-          <DateRangeFilter
-            startDate={startDate}
-            endDate={endDate}
-            onChange={setDates}
-            onClear={clearDates}
-          />
+
           <div className="spacer" />
         </div>
         {error && (

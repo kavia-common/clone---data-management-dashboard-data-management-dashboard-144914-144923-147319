@@ -5,8 +5,8 @@ import { listDeployments } from "../../api";
 import DeploymentsOverTime from "../../components/charts/DeploymentsOverTime.jsx";
 import DeploymentStatusBarChart from "../../components/charts/DeploymentStatusBarChart.jsx";
 import useDeploymentStatusCounts from "../../hooks/useDeploymentStatusCounts";
-import DateRangeFilter from "../../components/common/DateRangeFilter";
-import useDateRangeQuery from "../../hooks/useDateRangeQuery";
+
+
 
 /**
  * PUBLIC_INTERFACE
@@ -90,8 +90,7 @@ export default function Deployments() {
   const [columns, setColumns] = useState(buildColumns([]));
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
-  // Date filter synced with URL
-  const { startDate, endDate, setDates, clearDates, withDateParams } = useDateRangeQuery();
+
 
   // PUBLIC_INTERFACE
   async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
@@ -108,7 +107,7 @@ export default function Deployments() {
         created_at: "created_at",
         updated_at: "updated_at",
       };
-      const params = withDateParams({ page, limit });
+      const params = { page, limit };
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
@@ -144,11 +143,7 @@ export default function Deployments() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    // re-fetch on date change
-    load(1, meta.limit || 10, lastSortRef.current.key, lastSortRef.current.dir);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate]);
+
 
   // Hook to show status counts in a bar chart (unchanged)
   const { data: statusData, loading: statusLoading, error: statusError } = useDeploymentStatusCounts({
@@ -180,9 +175,7 @@ export default function Deployments() {
       {/* Table card */}
       <div className="block-full">
         <Card title="App Deployments" subtitle="Deployments list">
-          <div className="toolbar" aria-label="Deployments toolbar" style={{ marginBottom: 8 }}>
-            <DateRangeFilter startDate={startDate} endDate={endDate} onChange={setDates} onClear={clearDates} />
-          </div>
+
           {error && <div className="error" role="alert">{error}</div>}
           <DataTable
             columns={columns}

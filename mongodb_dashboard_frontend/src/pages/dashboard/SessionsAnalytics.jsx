@@ -16,16 +16,12 @@ export default function SessionsAnalytics() {
   const [tenant, setTenant] = useState('');
   const [project, setProject] = useState('');
   const [status, setStatus] = useState('');
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
   const [applied, setApplied] = useState({});
 
   const filters = useMemo(() => ({
     tenant_id: applied.tenant || undefined,
     project_id: applied.project || undefined,
     status: applied.status || undefined,
-    start: applied.start || undefined,
-    end: applied.end || undefined,
   }), [applied]);
 
   return (
@@ -45,17 +41,9 @@ export default function SessionsAnalytics() {
             <label>Status</label>
             <Input value={status} onChange={(e) => setStatus(e.target.value)} placeholder="completed|active" />
           </div>
-          <div className="filter-item">
-            <label>Start (ISO)</label>
-            <Input value={start} onChange={(e) => setStart(e.target.value)} placeholder="YYYY-MM-DD" />
-          </div>
-          <div className="filter-item">
-            <label>End (ISO)</label>
-            <Input value={end} onChange={(e) => setEnd(e.target.value)} placeholder="YYYY-MM-DD" />
-          </div>
           <div className="filter-actions">
-            <Button onClick={() => setApplied({ tenant, project, status, start, end })}>Apply</Button>
-            <Button variant="secondary" onClick={() => { setTenant(''); setProject(''); setStatus(''); setStart(''); setEnd(''); setApplied({}); }}>Reset</Button>
+            <Button onClick={() => setApplied({ tenant, project, status })}>Apply</Button>
+            <Button variant="secondary" onClick={() => { setTenant(''); setProject(''); setStatus(''); setApplied({}); }}>Reset</Button>
           </div>
         </div>
       </Card>
