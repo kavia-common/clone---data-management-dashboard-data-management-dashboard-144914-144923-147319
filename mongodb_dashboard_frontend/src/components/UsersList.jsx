@@ -3,13 +3,12 @@ import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
 import { listUsers } from "../api";
-import DateRangeFilter from "./common/DateRangeFilter.jsx"; // ✅ import date range picker
 
 /**
  * PUBLIC_INTERFACE
  * UsersList
- * Displays users with filters: search, tenant, and date range.
- * Fetches data from API with optional ?startDate=&endDate= query params.
+ * Displays users with filters: search and tenant.
+ * Fetches data from API without date range filters.
  */
 export default function UsersList({
   title = "Users",
@@ -26,10 +25,6 @@ export default function UsersList({
   const [query, setQuery] = useState("");
   const [organizationFilter, setOrganizationFilter] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
-
-  // ✅ New: date range state
-  const [startDate, setStartDate] = useState(null);
-  const [endDate, setEndDate] = useState(null);
 
   const allowedFields = useMemo(
     () => [
@@ -59,19 +54,12 @@ export default function UsersList({
     ];
   }, []);
 
-  /**
-   * ✅ Load users from backend (supports optional startDate & endDate filters)
-   */
+  // PUBLIC_INTERFACE
   async function load() {
     setLoading(true);
     setError("");
     try {
-      // Normalize to full-day UTC boundaries to ensure inclusive filtering and avoid TZ off-by-one
-      const params = {};
-      if (startDate) params.startDate = new Date(`${startDate}T00:00:00.000Z`).toISOString();
-      if (endDate) params.endDate = new Date(`${endDate}T23:59:59.999Z`).toISOString();
-
-      const res = await listUsers(params);
+      const res = await listUsers({});
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
@@ -90,14 +78,11 @@ export default function UsersList({
     }
   }
 
-  // ✅ Reload whenever date range changes
   useEffect(() => {
     load();
-  }, [startDate, endDate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  /**
-   * ✅ Local filtering by query & organization
-   */
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     let filtered = allItems || [];
@@ -124,22 +109,14 @@ export default function UsersList({
     setMeta((m) => ({ ...m, total: filtered.length, page: 1 }));
   }, [query, allItems, allowedFields, organizationFilter]);
 
-  /**
-   * ✅ Reset all filters
-   */
   function resetFilters() {
     setQuery("");
     setOrganizationFilter("");
-    setStartDate(null);
-    setEndDate(null);
     setItems(allItems);
     setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
     load();
   }
 
-  /**
-   * ✅ Handle table row click
-   */
   function handleRowClick(user) {
     try {
       if (typeof onUserRowClick === "function") return onUserRowClick(user);
@@ -150,11 +127,8 @@ export default function UsersList({
   }
 
   const tableKey = useMemo(
-    () =>
-      `${(query || "").trim().toLowerCase()}|${organizationFilter}|${items.length}|${
-        startDate || ""
-      }|${endDate || ""}`,
-    [query, organizationFilter, items.length, startDate, endDate]
+    () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${items.length}`,
+    [query, organizationFilter, items.length]
   );
 
   return (
@@ -165,7 +139,7 @@ export default function UsersList({
           aria-label="Users toolbar"
           style={{ flexWrap: "wrap", gap: 8, display: "flex", alignItems: "center" }}
         >
-          {/* 🔍 Search */}
+          {/* 🔎 Search */}
           <input
             className="input-search"
             placeholder="Search users..."
@@ -200,20 +174,6 @@ export default function UsersList({
                 </option>
               ))}
           </select>
-
-          {/* 📅 Date Range Filter */}
-          <DateRangeFilter
-            startDate={startDate}
-            endDate={endDate}
-            onChange={({ startDate, endDate }) => {
-              setStartDate(startDate);
-              setEndDate(endDate);
-            }}
-            onClear={() => {
-              setStartDate(null);
-              setEndDate(null);
-            }}
-          />
 
           {/* 🔁 Reset Button */}
           <Button

@@ -15,8 +15,6 @@ import TimeBucketFilter from "../common/TimeBucketFilter.jsx";
  * - Caches last successful result per selected bucket to avoid flicker during toggles.
  */
 export default function ActiveUsersChart({
-  from,
-  to,
   status = "completed|active",
   tenant_id,
   defaultBucket = "daily",
@@ -58,7 +56,7 @@ export default function ActiveUsersChart({
   useEffect(() => {
     setLoading(false);
     setError("");
-  }, [apiGranularity, from, to, status, tenant_id]);
+  }, [apiGranularity, status, tenant_id]);
 
   return (
     <div className="card">
@@ -80,8 +78,6 @@ export default function ActiveUsersChart({
       )}
       <div className="card-content">
         <ActiveUsersTrendChart
-          from={from}
-          to={to}
           granularity={apiGranularity}
           status={status}
           tenant_id={tenant_id}
@@ -92,8 +88,6 @@ export default function ActiveUsersChart({
 }
 
 ActiveUsersChart.propTypes = {
-  from: PropTypes.string,
-  to: PropTypes.string,
   status: PropTypes.string,
   tenant_id: PropTypes.string,
   defaultBucket: PropTypes.oneOf(["daily", "weekly", "monthly"]),

@@ -25,8 +25,6 @@ import { getChartTheme } from "../charts/chartTheme";
  * - height?: number (chart area height; default 260)
  */
 export default function TopReferralSourcesBarChart({
-  from,
-  to,
   top = 10,
   height = 260,
 }) {
@@ -40,7 +38,7 @@ export default function TopReferralSourcesBarChart({
       setLoading(true);
       setErr("");
       try {
-        const res = await getReferralSources({ from, to, top });
+        const res = await getReferralSources({ limit: top });
         if (!mounted) return;
         const items = Array.isArray(res?.items) ? res.items : [];
         // Sort desc by count
@@ -60,7 +58,7 @@ export default function TopReferralSourcesBarChart({
     return () => {
       mounted = false;
     };
-  }, [from, to, top]);
+  }, [top]);
 
   const t = getChartTheme();
   const primary = t.primary;
@@ -217,8 +215,6 @@ export default function TopReferralSourcesBarChart({
 }
 
 TopReferralSourcesBarChart.propTypes = {
-  from: PropTypes.string,
-  to: PropTypes.string,
   top: PropTypes.number,
   height: PropTypes.number,
 };

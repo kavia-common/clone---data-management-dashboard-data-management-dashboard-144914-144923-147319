@@ -3,8 +3,7 @@ import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
-import DateRangeFilter from "../../components/common/DateRangeFilter";
-import useDateRangeQuery from "../../hooks/useDateRangeQuery";
+
 
 export default function Users() {
   const [open, setOpen] = useState(false);
@@ -12,14 +11,7 @@ export default function Users() {
   const [defaultTab, setDefaultTab] = useState("details");
   const [rangeDays, setRangeDays] = useState(30);
 
-  const { startDate, endDate, setDates, clearDates, withDateParams } = useDateRangeQuery();
-
-  // ✅ Build date params consistently using the hook (includes proper day-boundary ISO normalization)
-  const dateParams = useMemo(() => {
-    return withDateParams({ status: "completed|active" });
-  }, [startDate, endDate, withDateParams]);
-
-  // ✅ Compute fallback quick range for charts
+  // Compute quick range for charts (no URL dates)
   const { fromIso, toIso } = useMemo(() => {
     const now = new Date();
     const from = new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000);
@@ -96,9 +88,8 @@ export default function Users() {
           </div>
           <div className="card-content">
             <UsersByTenantChart
-              {...dateParams}
-              from={startDate ? undefined : fromIso}
-              to={endDate ? undefined : toIso}
+              from={fromIso}
+              to={toIso}
               status={"completed|active"}
               includeInactive={false}
               maxBars={12}
@@ -126,10 +117,6 @@ export default function Users() {
         subtitle="All users"
         showActions={false}
         onUserSelect={handleUserSelect}
-        startDate={startDate}
-        endDate={endDate}
-        onDateChange={setDates}
-        onClearDate={clearDates}
       />
 
       <TabbedUserModal
