@@ -27,6 +27,7 @@ const router = express.Router();
  * Health endpoint for base router
  */
 router.get('/', healthController.check.bind(healthController));
+router.get('/health', healthController.check.bind(healthController));
 router.get('/healthz', healthController.check.bind(healthController));
 
 /* Mount core API routes */

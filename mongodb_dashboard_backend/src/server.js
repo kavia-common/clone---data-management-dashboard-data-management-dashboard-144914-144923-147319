@@ -8,6 +8,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 // Extra startup logs to aid CI/container readiness checks
 // eslint-disable-next-line no-console
 console.log(`[startup] Attempting to bind Express server on ${HOST}:${PORT}`);
+console.log('[startup] Health endpoints available at / and /health');
 
 const server = app
   .listen(PORT, HOST, () => {

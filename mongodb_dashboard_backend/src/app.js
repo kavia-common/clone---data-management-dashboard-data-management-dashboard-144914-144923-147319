@@ -15,6 +15,8 @@ const app = express();
 try {
   // eslint-disable-next-line no-console
   console.log('[startup] Initializing Express app for Dashboard API');
+  console.log(`[startup] Process PID=${process.pid} NODE_ENV=${process.env.NODE_ENV || 'development'}`);
+  console.log(`[startup] Intended bind HOST=${process.env.HOST || '0.0.0.0'} PORT=${Number(process.env.PORT) || 3001}`);
 } catch {}
 
 app.set('trust proxy', true); // only trust local proxies
