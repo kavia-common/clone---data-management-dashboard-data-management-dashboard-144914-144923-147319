@@ -10,6 +10,10 @@ if (!fs.existsSync(outputDir)) {
 }
 
 const spec = getBaseOpenApiSpec();
+// Force regeneration path by clearing any prior cache if module retained it (dev runs)
+if (spec && typeof spec === 'object') {
+  // no-op, spec already retrieved; run write below
+}
 
 // Persist generated spec to file
 fs.writeFileSync(outputPath, JSON.stringify(spec, null, 2));

@@ -389,6 +389,52 @@ router.get(
  *                 sample:
  *                   $ref: '#/components/schemas/GenericDocument'
  */
+/**
+ * @swagger
+ * /api/users:
+ *   get:
+ *     summary: List users
+ *     description: Retrieve a paginated list of users with optional JSON filtering and sorting.
+ *     tags:
+ *       - Users
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         description: Page number (default 1)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 200
+ *         description: Page size (default 20, max 200)
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *         description: Sort string (e.g., -created_at)
+ *       - in: query
+ *         name: filter
+ *         schema:
+ *           type: string
+ *         description: JSON string filter (e.g., {"referral_code":"ABC"})
+ *     responses:
+ *       200:
+ *         description: List of users (array or envelope based on pagination params)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               oneOf:
+ *                 - type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/GenericDocument'
+ *                 - $ref: '#/components/schemas/ListEnvelope'
+ *       400:
+ *         description: Invalid filter
+ */
 router.get(
   '/',
   asyncHandler(async (req, res) => {

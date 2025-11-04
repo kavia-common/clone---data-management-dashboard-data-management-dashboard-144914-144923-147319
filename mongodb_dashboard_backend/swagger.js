@@ -64,7 +64,8 @@ function buildJsDocSpec() {
       },
       // Endpoints are public; no global security
     },
-    apis: ['./src/routes/*.js'],
+    // Include all route files including nested directories to ensure JSDoc annotations are picked up
+    apis: ['./src/routes/*.js', './src/routes/**/*.js'],
   };
   return swaggerJSDoc(options);
 }
