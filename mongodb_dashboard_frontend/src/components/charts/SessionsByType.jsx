@@ -160,8 +160,16 @@ export default function SessionsByType({
     <div
       role="region"
       aria-label="Sessions by type chart and summaries"
-      style={{ width: "100%" }}
+      // Block-level container with vertical spacing and bottom padding to separate from following content
+      className="sessions-by-type-container"
+      style={{
+        width: "100%",
+        display: "block",
+        marginBottom: 24, // acts like mb-6
+        paddingBottom: 8, // pb-2
+      }}
     >
+      {/* Chart section */}
       <div
         style={{ width: "100%", height: 320 }}
         role="img"
@@ -222,11 +230,14 @@ export default function SessionsByType({
       <div
         role="group"
         aria-label="Service usage summaries"
+        // Responsive wrap: stack on small screens, two-column feel on md+, with gaps
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "stretch",
           gap: 12,
-          marginTop: 12,
+          marginTop: 16, // like space-y-4
+          flexWrap: "wrap",
         }}
       >
         <div
@@ -237,6 +248,7 @@ export default function SessionsByType({
             boxShadow: "var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.05))",
             border: "1px solid var(--border-subtle, #E5E7EB)",
             background: "var(--bg-surface, #fff)",
+            overflow: "visible", // ensure internal content/legend won't clip
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -247,7 +259,10 @@ export default function SessionsByType({
               Top {Math.max(0, Number(maxItems) || 5)}
             </span>
           </div>
-          <div style={{ display: "grid", gap: 8 }}>
+          <div
+            // Use grid for list items with consistent spacing
+            style={{ display: "grid", gap: 8 }}
+          >
             {loading ? (
               <div className="skeleton" style={{ height: 20 }} />
             ) : error ? (
@@ -268,6 +283,7 @@ export default function SessionsByType({
             boxShadow: "var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.05))",
             border: "1px solid var(--border-subtle, #E5E7EB)",
             background: "var(--bg-surface, #fff)",
+            overflow: "visible",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>

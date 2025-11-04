@@ -22,6 +22,7 @@ export default function Card({
       className={`${base} ${variantClass} ${className}`.trim()}
       aria-label={ariaLabel || (typeof title === "string" ? title : undefined)}
       role="region"
+      style={{ display: "block", position: "relative", overflow: "visible" }}
     >
       {(title || actions || subtitle) && (
         <header className="card-header">

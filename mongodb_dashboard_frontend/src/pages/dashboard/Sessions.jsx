@@ -357,12 +357,17 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts stacked vertically */}
+      {/* Charts stacked vertically (normal flow, with spacing below so table doesn't overlap) */}
       <div
         className="sessions-charts"
         role="region"
         aria-label="Session insights"
-        style={{ display: "flex", flexDirection: "column", gap: 24 }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 24,
+          marginBottom: 32, // ensure spacing before the table card
+        }}
       >
         <Card
           className="chart-card"
@@ -377,12 +382,14 @@ export default function Sessions() {
             />
           </div>
         </Card>
+
         <Card
           className="chart-card"
           title="Sessions by Type"
           subtitle="Count of sessions per type"
         >
-          <div className="chart-wrapper" style={{ height: 320 }}>
+          {/* Wrapper participates in normal flow; no absolute positioning */}
+          <div className="chart-wrapper" style={{ minHeight: 320 }}>
             <SessionsByType
               data={byType}
               loading={aggLoading}
