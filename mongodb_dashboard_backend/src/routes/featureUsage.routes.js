@@ -3,7 +3,8 @@
 const express = require('express');
 const router = express.Router();
 const { getFeatureUsage } = require('../controllers/featureUsage.controller');
-const { parseTenantContextIfAny } = require('../middleware/tenantContext'); // consistent with other routes
+// Use the actual exported optional tenant middleware
+const { tenantOptional } = require('../middleware/tenantContext');
 const { standardHandler } = require('../middleware/standardHandlers');
 
 /**
@@ -21,8 +22,9 @@ const { standardHandler } = require('../middleware/standardHandlers');
  */
 router.get(
   '/feature-usage',
-  parseTenantContextIfAny,
-  // wrap the controller in the standardHandler for consistent error handling/logging
+  // Attach tenant context if present; do not enforce
+  ...tenantOptional(),
+  // Wrap controller in standard handler for consistent error handling/logging
   (req, res) => standardHandler(req, res, () => getFeatureUsage(req, res))
 );
 
