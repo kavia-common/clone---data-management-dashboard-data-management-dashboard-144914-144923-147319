@@ -330,7 +330,7 @@ router.get(
  * /api/users:
  *   get:
  *     summary: List users
- *     description: Retrieve a paginated list of users with optional JSON filtering and sorting.
+ *     description: Retrieve a paginated list of users with optional JSON filtering and sorting. To fetch a specific user, use a filter query instead of a path parameter, for example: filter={"_id":"<id>"} or {"email":"user@example.com"}.
  *     tags: [Users]
  *     parameters:
  *       - in: query
@@ -531,9 +531,7 @@ router.get(
 
 /**
  * @swagger
- * /api/users/{id}:
- *   get:
- *     summary: Get user by ID
+ * NOTE: /api/users/{id} GET has been removed. Use /api/users with filter instead.
  *     tags: [Users]
  *     parameters:
  *       - in: path
@@ -550,102 +548,9 @@ router.get(
  *         description: Invalid id
  */
 /**
- * PUBLIC_INTERFACE
- * GET /api/users/:id
- * Returns a minimal user payload with just { id, name }.
- * - 400 for invalid ObjectId
- * - 404 when not found
- * - 200 with { id, name } when found (name may be null if not available)
+ * NOTE: GET /api/users/:id has been removed. Use /api/users with a filter query instead:
+ * Example: GET /api/users?filter={"_id":"<id>"} or GET /api/users?filter={"email":"user@example.com"}.
  */
-router.get(
-  '/:id',
-  asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const idStr = String(id);
-
-    // Helper: resolve a user document by flexible id (ObjectId or denormalized fields)
-    async function findUserByFlexibleId(candidate) {
-      // Try ObjectId lookup first when valid
-      if (mongoose.Types.ObjectId.isValid(candidate)) {
-        const byId = await User.findById(candidate).lean();
-        if (byId) return byId;
-      }
-
-      // Fallback: common id fields found in heterogeneous datasets
-      const orFields = [
-        { id: candidate },
-        { user_id: candidate },
-        { username: candidate },
-        { email: candidate },
-        { 'profile.id': candidate },
-        { 'profile.user_id': candidate },
-        { 'referral_history.user_id': candidate }, // direct match when stored as string
-      ];
-
-      const direct = await User.findOne({ $or: orFields }).lean();
-      if (direct) return direct;
-
-      // Final fallback: match referral_history.user_id after string coercion (covers ObjectId/number)
-      const agg = await User.aggregate([
-        {
-          $match: {
-            referral_history: { $exists: true, $type: 'array', $ne: [] },
-          },
-        },
-        {
-          $addFields: {
-            _rh_ids: {
-              $map: {
-                input: '$referral_history',
-                as: 'rh',
-                in: { $toString: '$$rh.user_id' },
-              },
-            },
-          },
-        },
-        { $match: { _rh_ids: { $in: [String(candidate)] } } },
-        { $limit: 1 },
-      ]);
-      if (agg && agg[0]) return agg[0];
-
-      return null;
-    }
-
-    const doc = await findUserByFlexibleId(idStr);
-    if (!doc) {
-      // Align with existing behavior for not-found
-      return res.status(404).json({ success: false, message: 'Not found' });
-    }
-
-    // Try to resolve a friendly name from common fields or fallback structures
-    const nameCandidates = [
-      doc.name,
-      doc.displayName,
-      doc.display_name,
-      doc.full_name,
-      doc.fullName,
-      doc.username,
-      doc.email,
-      doc.user_name,
-      doc?.profile?.name,
-      doc?.profile?.fullName,
-    ].filter((v) => typeof v === 'string' && v.trim().length > 0);
-
-    let name = nameCandidates.length > 0 ? nameCandidates[0] : null;
-
-    // Fallback: look into referral_history if present
-    if (!name && Array.isArray(doc?.referral_history)) {
-      const rh = doc.referral_history.find(
-        (it) => typeof it?.user_name === 'string' && it.user_name.trim()
-      );
-      if (rh) {
-        name = rh.user_name.trim();
-      }
-    }
-
-    return res.status(200).json({ id: String(doc._id), name: name || null });
-  })
-);
 
 /**
  * @swagger
