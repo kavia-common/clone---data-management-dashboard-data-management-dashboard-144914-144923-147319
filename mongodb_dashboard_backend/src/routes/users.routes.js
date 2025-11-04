@@ -93,7 +93,8 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
     const demoUsers = [
       {
         referral_code: 'REF-ALPHA',
-        referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
+        referral_stats: { total_referrals: 1, verified_referrals: 0, last_referral_date: now },
+
         referral_history: [
           { user_id: 'u-101', user_email: 'alpha1@example.com', user_name: 'Alpha One', referred_at: now, status: 'verified' },
           { user_id: 'u-102', user_email: 'alpha2@example.com', user_name: 'Alpha Two', referred_at: now, status: 'pending' },
@@ -535,28 +536,7 @@ async function listUsersHandler(req, res) {
 // PUBLIC_INTERFACE
 router.get('/', asyncHandler(listUsersHandler));
 
-/**
- * @swagger
- * NOTE: /api/users/{id} GET has been removed. Use /api/users with filter instead.
- *     tags: [Users]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *         description: MongoDB document _id
- *     responses:
- *       200:
- *         description: User document
- *       404:
- *         description: Not found
- *       400:
- *         description: Invalid id
- */
-/**
- * NOTE: GET /api/users/:id has been removed. Use /api/users with a filter query instead:
- * Example: GET /api/users?filter={"_id":"<id>"} or GET /api/users?filter={"email":"user@example.com"}.
- */
+
 
 /**
  * @swagger
@@ -659,6 +639,7 @@ router.delete('/:id', asyncHandler(controller.remove));
  *         description: Session status filter. Default "completed|active".
  *       - in: query
  *         name: tenant_id
+ * required: false
  *         schema: { type: string }
  *         description: Optional tenant filter to scope the trend.
  *     responses:
@@ -748,34 +729,34 @@ router.get(
     // Bucket expression
     const projectBucketStage = granularity === 'week'
       ? {
-          $project: {
-            tenant_id: 1,
-            user_id_str: { $toString: '$user_id' },
-            bucket: {
-              $dateToString: {
-                format: '%G-%V', // ISO week-year-week
-                date: '$activity_ts',
-                timezone: 'UTC',
-              },
-            },
-            weekStart: {
-              $dateFromParts: {
-                isoWeekYear: { $isoWeekYear: '$activity_ts' },
-                isoWeek: { $isoWeek: '$activity_ts' },
-                isoDayOfWeek: 1,
-              },
+        $project: {
+          tenant_id: 1,
+          user_id_str: { $toString: '$user_id' },
+          bucket: {
+            $dateToString: {
+              format: '%G-%V', // ISO week-year-week
+              date: '$activity_ts',
+              timezone: 'UTC',
             },
           },
-        }
+          weekStart: {
+            $dateFromParts: {
+              isoWeekYear: { $isoWeekYear: '$activity_ts' },
+              isoWeek: { $isoWeek: '$activity_ts' },
+              isoDayOfWeek: 1,
+            },
+          },
+        },
+      }
       : {
-          $project: {
-            tenant_id: 1,
-            user_id_str: { $toString: '$user_id' },
-            bucket: {
-              $dateToString: { format: '%Y-%m-%d', date: '$activity_ts', timezone: 'UTC' },
-            },
+        $project: {
+          tenant_id: 1,
+          user_id_str: { $toString: '$user_id' },
+          bucket: {
+            $dateToString: { format: '%Y-%m-%d', date: '$activity_ts', timezone: 'UTC' },
           },
-        };
+        },
+      };
 
     // Distinct users per bucket (and tenant in match if given)
     const pipeline = [
