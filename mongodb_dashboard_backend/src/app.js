@@ -50,14 +50,13 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    // servers: [{ url: `${protocol}://${fullHost}` }],
     servers: [
-  {
-    url:
-      process.env.SWAGGER_SERVER_URL ||
-      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-  },
-],
+      {
+        url:
+          process.env.SWAGGER_SERVER_URL ||
+          `${protocol}://${fullHost}`,
+      },
+    ],
 
   };
 };
@@ -76,19 +75,43 @@ const swaggerUiHandler = swaggerUi.setup(null, {
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-// Base router (non-/api) for health and overview
+ // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
 
 /**
  * Simple health with DB status
+ * PUBLIC_INTERFACE
+ * GET /health
+ */
+app.get('/health', (req, res) => {
+  const ready = mongoose.connection.readyState;
+  const db =
+    ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+  const payload = {
+    status: 'ok',
+    db,
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  };
+  if (db !== 'connected') {
+    payload.hint =
+      'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
+  }
+  return res.status(200).json(payload);
+});
+
+/**
+ * Simple health with DB status (namespaced)
  */
 app.get('/api/health', (req, res) => {
   const ready = mongoose.connection.readyState;
-  const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+  const db =
+    ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
   const payload = { status: 'ok', db };
   if (db !== 'connected') {
-    payload.hint = 'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
+    payload.hint =
+      'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
   }
   return res.status(200).json(payload);
 });
