@@ -330,71 +330,10 @@ router.get(
  * /api/users:
  *   get:
  *     summary: List users
- *     description: Retrieve a paginated list of users with optional JSON filtering and sorting.
- *     tags: [Users]
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *         description: Page number (default 1)
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 200
- *         description: Page size (default 20, max 200)
- *       - in: query
- *         name: sort
- *         schema:
- *           type: string
- *         description: Sort string (e.g., -created_at)
- *       - in: query
- *         name: filter
- *         schema:
- *           type: string
- *         description: JSON string filter (e.g., {"referral_code":"ABC"})
- *     responses:
- *       200:
- *         description: List of users (array or envelope based on pagination params)
- *         content:
- *           application/json:
- *             schema:
- *               oneOf:
- *                 - type: array
- *                   items: { $ref: '#/components/schemas/GenericDocument' }
- *                 - $ref: '#/components/schemas/ListEnvelope'
- *       400:
- *         description: Invalid filter
- *
- * /api/users/seed-if-empty:
- *   get:
- *     summary: Seed demo users if collection is empty
- *     description: Inserts a small set of demo users only when the collection is empty, then returns counts and one sample document.
- *     tags: [Users]
- *     responses:
- *       200:
- *         description: Seeding summary and a sample document
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean, example: true }
- *                 before: { type: integer, example: 0 }
- *                 inserted: { type: integer, example: 2 }
- *                 after: { type: integer, example: 2 }
- *                 sample:
- *                   $ref: '#/components/schemas/GenericDocument'
- */
-/**
- * @swagger
- * /api/users:
- *   get:
- *     summary: List users
- *     description: Retrieve a paginated list of users with optional JSON filtering and sorting.
+ *     description: |
+ *       Returns a list of users from the users collection. Supports optional text search, sorting, and pagination.
+ *       - If pagination parameters (page and/or limit) are provided, the response is wrapped in an envelope with meta.
+ *       - Without pagination, a raw array of user documents is returned.
  *     tags:
  *       - Users
  *     parameters:
@@ -403,38 +342,98 @@ router.get(
  *         schema:
  *           type: integer
  *           minimum: 1
- *         description: Page number (default 1)
+ *         description: Page number to enable envelope response
  *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
  *           minimum: 1
  *           maximum: 200
- *         description: Page size (default 20, max 200)
+ *         description: Page size to enable envelope response
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Case-insensitive text search on common user fields (e.g., name, email)
  *       - in: query
  *         name: sort
  *         schema:
  *           type: string
- *         description: Sort string (e.g., -created_at)
+ *         description: Sort string (e.g., -created_at or email)
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Optional ISO start datetime (inclusive) applied to created_at/updated_at
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Optional ISO end datetime (inclusive) applied to created_at/updated_at
  *       - in: query
  *         name: filter
  *         schema:
  *           type: string
- *         description: JSON string filter (e.g., {"referral_code":"ABC"})
+ *         description: JSON string filter applied server-side (e.g., {"referral_code":"ABC"})
  *     responses:
- *       200:
- *         description: List of users (array or envelope based on pagination params)
+ *       '200':
+ *         description: Successful response containing users
  *         content:
  *           application/json:
  *             schema:
  *               oneOf:
+ *                 - $ref: '#/components/schemas/ListEnvelope'
  *                 - type: array
  *                   items:
  *                     $ref: '#/components/schemas/GenericDocument'
- *                 - $ref: '#/components/schemas/ListEnvelope'
- *       400:
- *         description: Invalid filter
+ *             examples:
+ *               envelope:
+ *                 summary: Envelope example
+ *                 value:
+ *                   success: true
+ *                   data:
+ *                     - _id: "64f1c2ab1234567890abcd01"
+ *                       email: "jane.doe@example.com"
+ *                       name: "Jane Doe"
+ *                       created_at: "2024-09-18T10:23:45.000Z"
+ *                     - _id: "64f1c2ab1234567890abcd02"
+ *                       email: "john.smith@example.com"
+ *                       name: "John Smith"
+ *                       created_at: "2024-10-01T08:10:12.000Z"
+ *                   meta:
+ *                     page: 1
+ *                     limit: 20
+ *                     total: 42
+ *               array:
+ *                 summary: Raw array example (no pagination)
+ *                 value:
+ *                   - _id: "64f1c2ab1234567890abcd01"
+ *                     email: "jane.doe@example.com"
+ *                     name: "Jane Doe"
+ *                   - _id: "64f1c2ab1234567890abcd02"
+ *                     email: "john.smith@example.com"
+ *                     name: "John Smith"
+ *       '400':
+ *         description: Invalid query parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Invalid filter JSON"
+ *       '401':
+ *         description: Unauthorized (missing or invalid credentials)
+ *       '500':
+ *         description: Internal server error
  */
+// PUBLIC_INTERFACE
 router.get(
   '/',
   asyncHandler(async (req, res) => {
