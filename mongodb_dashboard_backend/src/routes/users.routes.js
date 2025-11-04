@@ -93,8 +93,7 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
     const demoUsers = [
       {
         referral_code: 'REF-ALPHA',
-        referral_stats: { total_referrals: 1, verified_referrals: 0, last_referral_date: now },
-
+        referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
         referral_history: [
           { user_id: 'u-101', user_email: 'alpha1@example.com', user_name: 'Alpha One', referred_at: now, status: 'verified' },
           { user_id: 'u-102', user_email: 'alpha2@example.com', user_name: 'Alpha Two', referred_at: now, status: 'pending' },
@@ -331,7 +330,7 @@ router.get(
  * /api/users:
  *   get:
  *     summary: List users
- *     description: Retrieve a paginated list of users with optional JSON filtering and sorting. To fetch a specific user, use a filter query instead of a path parameter, for example: filter={"_id":"<id>"} or {"email":"user@example.com"}.
+ *     description: Retrieve a paginated list of users with optional JSON filtering and sorting.
  *     tags: [Users]
  *     parameters:
  *       - in: query
@@ -357,30 +356,6 @@ router.get(
  *         schema:
  *           type: string
  *         description: JSON string filter (e.g., {"referral_code":"ABC"})
- *       - in: query
- *         name: start
- *         schema:
- *           type: string
- *           format: date-time
- *         description: ISO start datetime (inclusive, UTC day-bound) applied to created_at/updated_at. Aliases: startDate.
- *       - in: query
- *         name: end
- *         schema:
- *           type: string
- *           format: date-time
- *         description: ISO end datetime (inclusive, UTC day-bound) applied to created_at/updated_at. Aliases: endDate.
- *       - in: query
- *         name: startDate
- *         schema:
- *           type: string
- *           format: date-time
- *         description: Legacy alias for start (same behavior).
- *       - in: query
- *         name: endDate
- *         schema:
- *           type: string
- *           format: date-time
- *         description: Legacy alias for end (same behavior).
  *     responses:
  *       200:
  *         description: List of users (array or envelope based on pagination params)
@@ -414,99 +389,36 @@ router.get(
  *                 sample:
  *                   $ref: '#/components/schemas/GenericDocument'
  */
-// PUBLIC_INTERFACE
-async function listUsersHandler(req, res) {
-  /**
-   * PUBLIC_INTERFACE
-   * List users with optional filter/sort and optional pagination.
-   * If page or limit are present, returns an envelope: { success, data, meta }.
-   * Otherwise returns a raw array of user documents.
-   */
-  // Determine pagination intent and parse filter/sort similar to controller logic
-  const explicit =
-    Object.prototype.hasOwnProperty.call(req.query, 'page') ||
-    Object.prototype.hasOwnProperty.call(req.query, 'limit');
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    // Determine pagination intent and parse filter/sort similar to controller logic
+    const explicit =
+      Object.prototype.hasOwnProperty.call(req.query, 'page') ||
+      Object.prototype.hasOwnProperty.call(req.query, 'limit');
 
-  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
-  const skip = (page - 1) * limit;
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
+    const skip = (page - 1) * limit;
 
-  const sort = req.query.sort || '-created_at';
+    const sort = req.query.sort || '-created_at';
 
-  // Parse filter safely
-  const filterRaw = req.query.filter ? req.query.filter : '{}';
-  let filter = {};
-  try {
-    filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
-  } catch {
-    return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
-  }
-
-  // Apply start/end (preferred) or startDate/endDate (legacy) to created_at/updated_at, inclusive UTC day bounds
-  const { buildDateRangeFilter } = require('../utils/dateRange');
-  try {
-    const dateFilter = buildDateRangeFilter(req.query || {}, ['created_at', 'updated_at']);
-    if (dateFilter) {
-      filter = Object.keys(filter).length ? { $and: [filter, dateFilter] } : dateFilter;
-    }
-  } catch (e) {
-    const msg = e?.message || 'Invalid date range';
-    return res.status(e?.status || 400).json({ success: false, message: msg });
-  }
-
-  // First pass: check data presence without sending a response
-  let items = [];
-  let total = 0;
-
-  try {
-    if (explicit) {
-      // For pagination, we still need to detect emptiness using the paginated query
-      [items, total] = await Promise.all([
-        User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-        User.countDocuments(filter),
-      ]);
-    } else {
-      items = await User.find(filter).sort(sort).lean();
-      total = items.length;
-    }
-  } catch (err) {
-    // Map common cast errors to 400 to avoid 500
-    const message = err?.message || 'Request failed';
-    if (err?.name === 'CastError' || /Cast to/.test(message)) {
-      return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
-    }
-    return res.status(400).json({ success: false, message: 'Request failed', details: message });
-  }
-
-  // If empty and no documents exist at all, seed and re-run once
-  if (total === 0) {
+    // Parse filter safely
+    const filterRaw = req.query.filter ? req.query.filter : '{}';
+    let filter = {};
     try {
-      const before = await User.countDocuments({});
-      if (before === 0) {
-        const now = new Date();
-        const demoUsers = [
-          {
-            referral_code: 'REF-ALPHA',
-            referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
-            referral_history: [
-              { user_id: 'u-101', user_email: 'alpha1@example.com', user_name: 'Alpha One', referred_at: now, status: 'verified' },
-              { user_id: 'u-102', user_email: 'alpha2@example.com', user_name: 'Alpha Two', referred_at: now, status: 'pending' },
-            ],
-            created_at: now,
-            updated_at: now,
-          },
-          {
-            referral_code: 'REF-BETA',
-            referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
-            referral_history: [],
-            created_at: now,
-            updated_at: now,
-          },
-        ];
-        await User.insertMany(demoUsers);
-      }
-      // Re-run list after seeding
+      filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+    }
+
+    // First pass: check data presence without sending a response
+    let items = [];
+    let total = 0;
+
+    try {
       if (explicit) {
+        // For pagination, we still need to detect emptiness using the paginated query
         [items, total] = await Promise.all([
           User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
           User.countDocuments(filter),
@@ -516,27 +428,223 @@ async function listUsersHandler(req, res) {
         total = items.length;
       }
     } catch (err) {
-      // Seeding failure should not 500; return an empty array/envelope gracefully
-      // and log for diagnostics
-      // eslint-disable-next-line no-console
-      console.error('Auto-seed on empty /api/users failed:', err?.message || err);
+      // Map common cast errors to 400 to avoid 500
+      const message = err?.message || 'Request failed';
+      if (err?.name === 'CastError' || /Cast to/.test(message)) {
+        return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
+      }
+      return res.status(400).json({ success: false, message: 'Request failed', details: message });
     }
-  }
 
-  // Final response (single send): match controller behavior and Swagger
-  if (explicit) {
-    return res.status(200).json({
-      success: true,
-      data: items,
-      meta: { page, limit, total },
-    });
-  }
-  return res.status(200).json(items);
-}
-// PUBLIC_INTERFACE
-router.get('/', asyncHandler(listUsersHandler));
+    // If empty and no documents exist at all, seed and re-run once
+    if (total === 0) {
+      try {
+        const before = await User.countDocuments({});
+        if (before === 0) {
+          const now = new Date();
+          const demoUsers = [
+            {
+              referral_code: 'REF-ALPHA',
+              referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
+              referral_history: [
+                { user_id: 'u-101', user_email: 'alpha1@example.com', user_name: 'Alpha One', referred_at: now, status: 'verified' },
+                { user_id: 'u-102', user_email: 'alpha2@example.com', user_name: 'Alpha Two', referred_at: now, status: 'pending' },
+              ],
+              created_at: now,
+              updated_at: now,
+            },
+            {
+              referral_code: 'REF-BETA',
+              referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
+              referral_history: [],
+              created_at: now,
+              updated_at: now,
+            },
+          ];
+          await User.insertMany(demoUsers);
+        }
+        // Re-run list after seeding
+        if (explicit) {
+          [items, total] = await Promise.all([
+            User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+            User.countDocuments(filter),
+          ]);
+        } else {
+          items = await User.find(filter).sort(sort).lean();
+          total = items.length;
+        }
+      } catch (err) {
+        // Seeding failure should not 500; return an empty array/envelope gracefully
+        // and log for diagnostics
+        // eslint-disable-next-line no-console
+        console.error('Auto-seed on empty /api/users failed:', err?.message || err);
+      }
+    }
 
+    // Final response (single send): match controller behavior and Swagger
+    if (explicit) {
+      return res.status(200).json({
+        success: true,
+        data: items,
+        meta: { page, limit, total },
+      });
+    }
+    return res.status(200).json(items);
+  })
+);
 
+/**
+ * @swagger
+ * /api/users/{id}:
+ *   get:
+ *     summary: Get user by ID
+ *     tags: [Users]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: MongoDB document _id
+ *     responses:
+ *       200:
+ *         description: User document
+ *       404:
+ *         description: Not found
+ *       400:
+ *         description: Invalid id
+ *
+ * /api/user:
+ *   get:
+ *     summary: Get user by id (alias)
+ *     description: >
+ *       Returns a minimal user payload with just { id, name }.
+ *       This is a documentation alias for the existing runtime route GET /api/users/{id}.
+ *       Provide the user id via the required `id` query parameter.
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User identifier (MongoDB _id or supported alternate identifiers as strings)
+ *     responses:
+ *       200:
+ *         description: Minimal user payload
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                   description: Normalized user id
+ *                 name:
+ *                   type: string
+ *                   nullable: true
+ *                   description: Resolved display name if available
+ *       400:
+ *         description: Invalid id
+ *       404:
+ *         description: Not found
+ */
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/:id
+ * Returns a minimal user payload with just { id, name }.
+ * - 400 for invalid ObjectId
+ * - 404 when not found
+ * - 200 with { id, name } when found (name may be null if not available)
+ */
+router.get(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const idStr = String(id);
+
+    // Helper: resolve a user document by flexible id (ObjectId or denormalized fields)
+    async function findUserByFlexibleId(candidate) {
+      // Try ObjectId lookup first when valid
+      if (mongoose.Types.ObjectId.isValid(candidate)) {
+        const byId = await User.findById(candidate).lean();
+        if (byId) return byId;
+      }
+
+      // Fallback: common id fields found in heterogeneous datasets
+      const orFields = [
+        { id: candidate },
+        { user_id: candidate },
+        { username: candidate },
+        { email: candidate },
+        { 'profile.id': candidate },
+        { 'profile.user_id': candidate },
+        { 'referral_history.user_id': candidate }, // direct match when stored as string
+      ];
+
+      const direct = await User.findOne({ $or: orFields }).lean();
+      if (direct) return direct;
+
+      // Final fallback: match referral_history.user_id after string coercion (covers ObjectId/number)
+      const agg = await User.aggregate([
+        {
+          $match: {
+            referral_history: { $exists: true, $type: 'array', $ne: [] },
+          },
+        },
+        {
+          $addFields: {
+            _rh_ids: {
+              $map: {
+                input: '$referral_history',
+                as: 'rh',
+                in: { $toString: '$$rh.user_id' },
+              },
+            },
+          },
+        },
+        { $match: { _rh_ids: { $in: [String(candidate)] } } },
+        { $limit: 1 },
+      ]);
+      if (agg && agg[0]) return agg[0];
+
+      return null;
+    }
+
+    const doc = await findUserByFlexibleId(idStr);
+    if (!doc) {
+      // Align with existing behavior for not-found
+      return res.status(404).json({ success: false, message: 'Not found' });
+    }
+
+    // Try to resolve a friendly name from common fields or fallback structures
+    const nameCandidates = [
+      doc.name,
+      doc.displayName,
+      doc.display_name,
+      doc.full_name,
+      doc.fullName,
+      doc.username,
+      doc.email,
+      doc.user_name,
+      doc?.profile?.name,
+      doc?.profile?.fullName,
+    ].filter((v) => typeof v === 'string' && v.trim().length > 0);
+
+    let name = nameCandidates.length > 0 ? nameCandidates[0] : null;
+
+    // Fallback: look into referral_history if present
+    if (!name && Array.isArray(doc?.referral_history)) {
+      const rh = doc.referral_history.find(
+        (it) => typeof it?.user_name === 'string' && it.user_name.trim()
+      );
+      if (rh) {
+        name = rh.user_name.trim();
+      }
+    }
+
+    return res.status(200).json({ id: String(doc._id), name: name || null });
+  })
+);
 
 /**
  * @swagger
@@ -639,7 +747,6 @@ router.delete('/:id', asyncHandler(controller.remove));
  *         description: Session status filter. Default "completed|active".
  *       - in: query
  *         name: tenant_id
- *         required: false
  *         schema: { type: string }
  *         description: Optional tenant filter to scope the trend.
  *     responses:
@@ -729,34 +836,34 @@ router.get(
     // Bucket expression
     const projectBucketStage = granularity === 'week'
       ? {
-        $project: {
-          tenant_id: 1,
-          user_id_str: { $toString: '$user_id' },
-          bucket: {
-            $dateToString: {
-              format: '%G-%V', // ISO week-year-week
-              date: '$activity_ts',
-              timezone: 'UTC',
+          $project: {
+            tenant_id: 1,
+            user_id_str: { $toString: '$user_id' },
+            bucket: {
+              $dateToString: {
+                format: '%G-%V', // ISO week-year-week
+                date: '$activity_ts',
+                timezone: 'UTC',
+              },
+            },
+            weekStart: {
+              $dateFromParts: {
+                isoWeekYear: { $isoWeekYear: '$activity_ts' },
+                isoWeek: { $isoWeek: '$activity_ts' },
+                isoDayOfWeek: 1,
+              },
             },
           },
-          weekStart: {
-            $dateFromParts: {
-              isoWeekYear: { $isoWeekYear: '$activity_ts' },
-              isoWeek: { $isoWeek: '$activity_ts' },
-              isoDayOfWeek: 1,
-            },
-          },
-        },
-      }
+        }
       : {
-        $project: {
-          tenant_id: 1,
-          user_id_str: { $toString: '$user_id' },
-          bucket: {
-            $dateToString: { format: '%Y-%m-%d', date: '$activity_ts', timezone: 'UTC' },
+          $project: {
+            tenant_id: 1,
+            user_id_str: { $toString: '$user_id' },
+            bucket: {
+              $dateToString: { format: '%Y-%m-%d', date: '$activity_ts', timezone: 'UTC' },
+            },
           },
-        },
-      };
+        };
 
     // Distinct users per bucket (and tenant in match if given)
     const pipeline = [
