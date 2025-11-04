@@ -1,7 +1,8 @@
 'use strict';
 
 const express = require('express');
-const { mountSwagger } = require('../swagger');
+const swaggerUi = require('swagger-ui-express');
+const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
@@ -26,14 +27,54 @@ app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-try {
-  if (typeof mountSwagger === 'function') {
-    mountSwagger(app);
-  }
-} catch (e) {
-  // eslint-disable-next-line no-console
-  console.warn('[swagger] mount failed:', e?.message || e);
-}
+const buildDynamicSpec = (req) => {
+  const host = req.get('host');
+  let protocol = req.secure ? 'https' : req.protocol;
+  const actualPort = req.socket?.localPort;
+  const hasPort = host.includes(':');
+  const needsPort =
+    !hasPort &&
+    ((protocol === 'http' && actualPort !== 80) ||
+      (protocol === 'https' && actualPort !== 443));
+  const fullHost = needsPort ? `${host}:${actualPort}` : host;
+
+  const baseSpec = getBaseOpenApiSpec();
+  return {
+    ...baseSpec,
+    info: {
+      ...baseSpec.info,
+      title: process.env.SWAGGER_TITLE || baseSpec.info?.title || 'Dashboard API',
+      version: process.env.SWAGGER_VERSION || baseSpec.info?.version || '1.0.0',
+      description:
+        process.env.SWAGGER_DESCRIPTION ||
+        baseSpec.info?.description ||
+        'REST API for Data Management Dashboard with MongoDB and Express',
+    },
+    // servers: [{ url: `${protocol}://${fullHost}` }],
+    servers: [
+  {
+    url:
+      process.env.SWAGGER_SERVER_URL ||
+      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+  },
+],
+
+  };
+};
+
+app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
+app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
+
+const swaggerUiHandler = swaggerUi.setup(null, {
+  swaggerOptions: {
+    url: '/openapi.json',
+    displayRequestDuration: true,
+    docExpansion: 'none',
+  },
+  customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
+});
+app.use('/docs', swaggerUi.serve, swaggerUiHandler);
+app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
 // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');
