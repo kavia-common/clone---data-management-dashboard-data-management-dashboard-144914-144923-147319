@@ -130,14 +130,7 @@ function normalizeSessionDoc(doc) {
  *           Case-insensitive text search applied across multiple fields:
  *           task_id, tenant_id, organization_name, user_name, project_id, container_id,
  *           service_type, status, and session_data fields (session_name, description, llm_model).
- *       - in: query
- *         name: startDate
- *         schema: { type: string, format: date-time }
- *         description: Optional ISO start datetime (inclusive) applied to session_start/last_updated
- *       - in: query
- *         name: endDate
- *         schema: { type: string, format: date-time }
- *         description: Optional ISO end datetime (inclusive) applied to session_start/last_updated
+
  *     responses:
  *       200:
  *         description: Successful response (array or envelope based on pagination params)
@@ -252,33 +245,9 @@ router.get(
       }
     }
 
-    // Apply date range: startDate/endDate on session_start/last_updated (inclusive)
-    const startStr = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : '';
-    const endStr = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : '';
-    let dateFilter = null;
-    if (startStr || endStr) {
-      const start = startStr ? new Date(startStr) : null;
-      const end = endStr ? new Date(endStr) : null;
-      if (startStr && Number.isNaN(start?.getTime())) {
-        return res.status(400).json({ success: false, message: 'Invalid startDate' });
-      }
-      if (endStr && Number.isNaN(end?.getTime())) {
-        return res.status(400).json({ success: false, message: 'Invalid endDate' });
-      }
-      const r = {};
-      if (start) r.$gte = start;
-      if (end) r.$lte = end;
-      dateFilter = { $or: [{ session_start: r }, { last_updated: r }] };
-    }
-
-    // Combine filters
+    // Combine filters (date range removed)
     let finalFilter =
       q && qFilter.$or && qFilter.$or.length > 0 ? { $and: [filter, qFilter] } : filter;
-    if (dateFilter) {
-      finalFilter = finalFilter && Object.keys(finalFilter).length
-        ? { $and: [finalFilter, dateFilter] }
-        : dateFilter;
-    }
 
     try {
       // Optimize projection to only the fields needed for charts/table
@@ -443,8 +412,7 @@ function buildCacheKey(params) {
     scope: params.scope || 'all',
     userId: params.userId || null,
     tenantId: params.tenantId || null,
-    startDate: params.startDate || null,
-    endDate: params.endDate || null,
+    // removed date range from cache key per requirements
     binSizeMinutes: Number.isFinite(+params.binSizeMinutes) ? +params.binSizeMinutes : 10,
     status: params.status || 'completed',
   };
@@ -491,36 +459,20 @@ function parseHistogramParams(q) {
   const binSize = parseInt(q.binSizeMinutes, 10);
   const binSizeMinutes = Number.isFinite(binSize) && binSize > 0 ? binSize : 10;
 
-  const startDate = q.startDate ? new Date(q.startDate) : null;
-  const endDate = q.endDate ? new Date(q.endDate) : null;
-
-  if (q.startDate && isNaN(startDate)) {
-    throw Object.assign(new Error('Invalid startDate'), { status: 400 });
-  }
-  if (q.endDate && isNaN(endDate)) {
-    throw Object.assign(new Error('Invalid endDate'), { status: 400 });
-  }
   if (scope === 'user' && !userId) {
     throw Object.assign(new Error('userId is required when scope=user'), { status: 400 });
   }
-  return { scope, userId, tenantId, status, startDate, endDate, binSizeMinutes };
+  return { scope, userId, tenantId, status, binSizeMinutes };
 }
 
 /**
  * Construct Mongo match filter based on params.
  */
-function buildMatchFilter({ scope, userId, tenantId, status, startDate, endDate }) {
+function buildMatchFilter({ scope, userId, tenantId, status }) {
   const match = {};
   if (status) match.status = status;
   if (tenantId) match.tenant_id = tenantId;
   if (scope === 'user' && userId) match.user_id = userId;
-
-  // Date filter on session_start
-  if (startDate || endDate) {
-    match.session_start = {};
-    if (startDate) match.session_start.$gte = startDate;
-    if (endDate) match.session_start.$lte = endDate;
-  }
   return match;
 }
 
@@ -565,7 +517,7 @@ router.get(
       return res.status(200).json(cached);
     }
 
-    const { scope, userId, tenantId, status, startDate, endDate, binSizeMinutes } = params;
+    const { scope, userId, tenantId, status, binSizeMinutes } = params;
 
     // Build $match filter
     const match = buildMatchFilter(params);
@@ -604,10 +556,6 @@ router.get(
         scope,
         userId: userId || null,
         tenantId: tenantId || null,
-        dateRange: {
-          start: startDate ? new Date(startDate).toISOString() : null,
-          end: endDate ? new Date(endDate).toISOString() : null,
-        },
         binSizeMinutes,
         bins: [],
         summary: { count: 0, min: null, max: null, median: null, p90: null, p95: null },
@@ -659,10 +607,6 @@ router.get(
       scope,
       userId: userId || null,
       tenantId: tenantId || null,
-      dateRange: {
-        start: startDate ? new Date(startDate).toISOString() : null,
-        end: endDate ? new Date(endDate).toISOString() : null,
-      },
       binSizeMinutes,
       bins,
       summary,
@@ -724,31 +668,8 @@ router.get(
       }
     }
 
-    // Date range on session_start/last_updated
-    const startStr = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : (typeof req.query.start === 'string' ? req.query.start.trim() : '');
-    const endStr = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : (typeof req.query.end === 'string' ? req.query.end.trim() : '');
-    let dateFilter = null;
-    if (startStr || endStr) {
-      const start = startStr ? new Date(startStr) : null;
-      const end = endStr ? new Date(endStr) : null;
-      if (startStr && Number.isNaN(start?.getTime())) {
-        return res.status(400).json({ success: false, message: 'Invalid start/startDate' });
-      }
-      if (endStr && Number.isNaN(end?.getTime())) {
-        return res.status(400).json({ success: false, message: 'Invalid end/endDate' });
-      }
-      const r = {};
-      if (start) r.$gte = start;
-      if (end) r.$lte = end;
-      dateFilter = { $or: [{ session_start: r }, { last_updated: r }] };
-    }
-
+    // Date range removed; use filter as-is
     let finalFilter = filter;
-    if (dateFilter) {
-      finalFilter = finalFilter && Object.keys(finalFilter).length
-        ? { $and: [finalFilter, dateFilter] }
-        : dateFilter;
-    }
 
     // Field mapping: allow "User_name" alias but query the correct stored field as well
     const distinctFields = field === 'User_name' ? ['User_name', 'user_name'] : [field];

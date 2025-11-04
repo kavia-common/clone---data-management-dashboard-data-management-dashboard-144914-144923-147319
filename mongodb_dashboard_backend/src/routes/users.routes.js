@@ -360,18 +360,7 @@ router.get(
  *         schema:
  *           type: string
  *         description: Sort string (e.g., -created_at or email)
- *       - in: query
- *         name: startDate
- *         schema:
- *           type: string
- *           format: date-time
- *         description: Optional ISO start datetime (inclusive) applied to created_at/updated_at
- *       - in: query
- *         name: endDate
- *         schema:
- *           type: string
- *           format: date-time
- *         description: Optional ISO end datetime (inclusive) applied to created_at/updated_at
+
  *       - in: query
  *         name: filter
  *         schema:

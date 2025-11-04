@@ -1,7 +1,6 @@
 'use strict';
 
 const { parsePagination, success, failure } = require('../utils/http');
-const { buildDateRangeFilter } = require('../utils/dateRange');
 
 /**
  * Lightweight micro-cache for list endpoints to coalesce identical rapid requests.
@@ -84,21 +83,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
       const sort = req.query.sort || listDefaultSort;
 
-      /**
-       * Apply date range filtering.
-       * We know our models (like users) use `created_at` and `updated_at`.
-       * So we pass these directly for accurate filtering.
-       */
-      try {
-        const rangeFilter = buildDateRangeFilter(req.query || {}, ['created_at', 'updated_at']);
-        if (rangeFilter) {
-          // Merge existing filters with date range
-          filter = Object.keys(filter).length ? { $and: [filter, rangeFilter] } : rangeFilter;
-        }
-      } catch (e) {
-        const status = e.status || 400;
-        return failure(res, e.message || 'Invalid date range', status);
-      }
+      // Date range filtering removed per requirements: ignore start/end date query fields
 
 
       try {

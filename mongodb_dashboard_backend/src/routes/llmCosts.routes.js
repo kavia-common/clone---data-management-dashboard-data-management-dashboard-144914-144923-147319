@@ -41,14 +41,7 @@ const controller = buildCrudController(LLMCost, '-timestamp');
  *         name: filter
  *         schema: { type: string }
  *         description: JSON filter (e.g., {"tenant_id":"org1","llm_model":"gpt-4o"})
- *       - in: query
- *         name: startDate
- *         schema: { type: string, format: date-time }
- *         description: Optional ISO start datetime (inclusive) applied to timestamp/created_at/updated_at
- *       - in: query
- *         name: endDate
- *         schema: { type: string, format: date-time }
- *         description: Optional ISO end datetime (inclusive) applied to timestamp/created_at/updated_at
+
  *     responses:
  *       200:
  *         description: Successful response (array or envelope based on pagination params)
