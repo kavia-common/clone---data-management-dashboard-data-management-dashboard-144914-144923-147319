@@ -9,6 +9,8 @@ const mongoose = require('mongoose');
  *
  * Returns the active mongoose.connection.
  *
+ * NOTE: This module never throws on import. Errors can be thrown only when calling connectDB().
+ *
  * ENVIRONMENT VARIABLES REQUIRED:
  * - MONGODB_URI: Mongo connection string (e.g. mongodb://user:pass@host:27017/db)
  * - MONGODB_DB (optional): Database name override

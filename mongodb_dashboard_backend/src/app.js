@@ -87,35 +87,43 @@ app.use('/', baseRouter);
  * GET /health
  */
 app.get('/health', (req, res) => {
-  const ready = mongoose.connection.readyState;
-  const db =
-    ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
-  const payload = {
-    status: 'ok',
-    db,
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  };
-  if (db !== 'connected') {
-    payload.hint =
-      'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
+  try {
+    const ready = (mongoose && mongoose.connection && mongoose.connection.readyState) || 0;
+    const db =
+      ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+    const payload = {
+      status: 'ok',
+      db,
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    };
+    if (db !== 'connected') {
+      payload.hint =
+        'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
+    }
+    return res.status(200).json(payload);
+  } catch (e) {
+    return res.status(200).json({ status: 'ok', db: 'unknown', hint: 'Health degraded but server running' });
   }
-  return res.status(200).json(payload);
 });
 
 /**
  * Simple health with DB status (namespaced)
  */
 app.get('/api/health', (req, res) => {
-  const ready = mongoose.connection.readyState;
-  const db =
-    ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
-  const payload = { status: 'ok', db };
-  if (db !== 'connected') {
-    payload.hint =
-      'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
+  try {
+    const ready = (mongoose && mongoose.connection && mongoose.connection.readyState) || 0;
+    const db =
+      ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+    const payload = { status: 'ok', db };
+    if (db !== 'connected') {
+      payload.hint =
+        'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
+    }
+    return res.status(200).json(payload);
+  } catch {
+    return res.status(200).json({ status: 'ok', db: 'unknown', hint: 'Health degraded but server running' });
   }
-  return res.status(200).json(payload);
 });
 
 if (process.env.NODE_ENV === 'test') {
