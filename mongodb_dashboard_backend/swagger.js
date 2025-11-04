@@ -1,9 +1,15 @@
 const path = require('path');
 const fs = require('fs');
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * mountSwagger
+ * Express middleware to mount Swagger UI at /docs and serve OpenAPI spec at /openapi.json.
+ * - GET /openapi.json serves the JSON OpenAPI 3 document
+ * - GET /docs serves Swagger UI
+ * @param {import('express').Application} app Express application instance
+ */
 function mountSwagger(app) {
-  /** Express middleware to mount Swagger UI at /docs and serve OpenAPI spec at /openapi.json. */
   const swaggerUi = require('swagger-ui-express');
 
   // Load static OpenAPI file

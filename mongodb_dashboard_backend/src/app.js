@@ -1,7 +1,6 @@
 'use strict';
 
 const express = require('express');
-const swaggerUi = require('swagger-ui-express');
 const { mountSwagger } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { connectDB } = require('./config/db');
