@@ -387,6 +387,7 @@ export default function Sessions() {
               data={byType}
               loading={aggLoading}
               error={aggError}
+              maxItems={5}
             />
           </div>
         </Card>
