@@ -7,7 +7,7 @@ const healthController = require('../controllers/health');
 const authRoutes = require('./auth.routes');
 const usersRoutes = require('./users.routes');
 const tenantsRoutes = require('./tenants.routes');
-const dataRoutes = require('./data.routes');
+
 const llmCostsRoutes = require('./llmCosts.routes');
 const llmCostsAggregateRoutes = require('./llmCosts.aggregate.routes');
 const costsByAgentRoutes = require('./costs.byAgent.routes');
@@ -33,7 +33,7 @@ router.get('/healthz', healthController.check.bind(healthController));
 router.use('/auth', authRoutes);
 router.use('/users', usersRoutes);
 router.use('/tenants', tenantsRoutes);
-router.use('/data', dataRoutes);
+
 router.use('/llm-costs', llmCostsRoutes);
 router.use('/llm-costs-aggregate', llmCostsAggregateRoutes);
 router.use('/costs', costsByAgentRoutes);

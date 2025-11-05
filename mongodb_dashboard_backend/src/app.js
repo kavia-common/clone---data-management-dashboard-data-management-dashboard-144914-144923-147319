@@ -206,8 +206,10 @@ app.use('/api/analytics', require('./routes/analytics.overview.routes'));
 app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
 app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
 
-// Sample data
-app.use('/api/data', require('./routes/data.routes'));
+/**
+ * Sample data route removed. The application now only exposes real MongoDB-backed APIs.
+ * If needed in the future, reintroduce at /api/data with an actual collection.
+ */
 
 // Costs aggregate endpoints (non-users analytics)
 app.use('/api/costs', require('./routes/costs.byAgent.routes'));
