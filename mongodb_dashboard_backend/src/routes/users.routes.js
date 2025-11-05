@@ -19,6 +19,10 @@ const TENANT_SUMMARY_TTL_MS = 5 * 60 * 1000;
 const ACTIVE_TREND_CACHE = new Map();
 const ACTIVE_TREND_TTL_MS = 5 * 60 * 1000;
 
+// Simple in-memory cache for most-active (5 minutes TTL)
+const MOST_ACTIVE_CACHE = new Map();
+const MOST_ACTIVE_TTL_MS = 5 * 60 * 1000;
+
 function buildTenantSummaryCacheKey(q) {
   // Normalize known params
   const key = {
@@ -54,6 +58,29 @@ function getActiveTrendCache(key) {
 }
 function setActiveTrendCache(key, value) {
   ACTIVE_TREND_CACHE.set(key, { value, expiresAt: Date.now() + ACTIVE_TREND_TTL_MS });
+}
+
+/** Helpers for Most Active cache */
+function buildMostActiveCacheKey(q) {
+  const key = {
+    range: q.range || '30d',
+    granularity: q.granularity || 'daily',
+    topN: Number.isFinite(q.topN) ? q.topN : 5,
+    tenant_id: q.tenant_id || null,
+  };
+  return `most-active:${JSON.stringify(key)}`;
+}
+function getMostActiveCache(key) {
+  const hit = MOST_ACTIVE_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    MOST_ACTIVE_CACHE.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+function setMostActiveCache(key, value) {
+  MOST_ACTIVE_CACHE.set(key, { value, expiresAt: Date.now() + MOST_ACTIVE_TTL_MS });
 }
 
 function getCache(key) {
@@ -806,6 +833,8 @@ router.delete('/:id', asyncHandler(controller.remove));
  *                     to: { type: string, format: date-time }
  */
 // PUBLIC_INTERFACE
+const { requireTenant } = require('../middleware/tenantContext');
+
 router.get(
   '/active-trend',
   asyncHandler(async (req, res) => {
@@ -944,6 +973,260 @@ router.get(
       },
     };
     setActiveTrendCache(cacheKey, response);
+    return res.status(200).json(response);
+  })
+);
+
+/**
+ * @swagger
+ * /api/users/most-active:
+ *   get:
+ *     summary: Most active users over time
+ *     description: >
+ *       Aggregates activity events by user and time bucket (daily|weekly) for the authenticated tenant,
+ *       returning date buckets and series per top N users by total activity within the selected range.
+ *       Data source is session_tracking; falls back to users.updated_at/created_at counts if no activity data is present.
+ *     tags: [Users]
+ *     parameters:
+ *       - in: query
+ *         name: range
+ *         schema: { type: string, enum: [ "7d", "30d", "90d" ], default: "30d" }
+ *         description: Date range to include ending at now (UTC).
+ *       - in: query
+ *         name: granularity
+ *         schema: { type: string, enum: [ "daily", "weekly" ], default: "daily" }
+ *         description: Bucket size.
+ *       - in: query
+ *         name: topN
+ *         schema: { type: integer, minimum: 1, maximum: 20, default: 5 }
+ *         description: Number of top users to return.
+ *     responses:
+ *       200:
+ *         description: Series data with date buckets and per-user series
+ */
+ // PUBLIC_INTERFACE
+router.get(
+  '/most-active',
+  requireTenant(),
+  asyncHandler(async (req, res) => {
+    // Determine tenant from middleware
+    const tenantId = req.tenant?.id || req.user?.tenant_id || null;
+    if (!tenantId) {
+      // Safety; requireTenant should have enforced this already
+      return res.status(409).json({ success: false, message: 'Tenant selection required' });
+    }
+
+    // Parse params
+    const rangeParam = typeof req.query.range === 'string' ? req.query.range : '30d';
+    const granularityParam = typeof req.query.granularity === 'string' ? req.query.granularity : 'daily';
+    const topN = Math.min(Math.max(parseInt(req.query.topN, 10) || 5, 1), 20);
+
+    const now = new Date();
+    const rangeDays = rangeParam === '7d' ? 7 : rangeParam === '90d' ? 90 : 30;
+    const fromDate = new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000);
+    const granularity = granularityParam.toLowerCase() === 'weekly' ? 'weekly' : 'daily';
+
+    // Cache
+    const cacheKey = buildMostActiveCacheKey({
+      range: rangeParam,
+      granularity,
+      topN,
+      tenant_id: tenantId,
+    });
+    const cached = getMostActiveCache(cacheKey);
+    if (cached) return res.status(200).json(cached);
+
+    // Build pipeline for session_tracking
+    // activity_ts coalesce(last_updated, session_start, timestamp, created_at)
+    const addFieldsStage = {
+      $addFields: {
+        activity_ts: {
+          $ifNull: [
+            '$last_updated',
+            { $ifNull: ['$session_start', { $ifNull: ['$timestamp', '$created_at'] }] },
+          ],
+        },
+        user_id_str: { $toString: '$user_id' },
+      },
+    };
+
+    const matchStage = {
+      $match: {
+        tenant_id: tenantId,
+        activity_ts: { $gte: fromDate, $lte: now },
+      },
+    };
+
+    const projectBucketStage =
+      granularity === 'weekly'
+        ? {
+            $project: {
+              user_id_str: 1,
+              bucket: {
+                $dateToString: { format: '%G-%V', date: '$activity_ts', timezone: 'UTC' }, // ISO week
+              },
+              weekStart: {
+                $dateFromParts: {
+                  isoWeekYear: { $isoWeekYear: '$activity_ts' },
+                  isoWeek: { $isoWeek: '$activity_ts' },
+                  isoDayOfWeek: 1,
+                },
+              },
+            },
+          }
+        : {
+            $project: {
+              user_id_str: 1,
+              bucket: {
+                $dateToString: { format: '%Y-%m-%d', date: '$activity_ts', timezone: 'UTC' },
+              },
+            },
+          };
+
+    // First, distinct user-day/week events
+    const basePipeline = [
+      addFieldsStage,
+      matchStage,
+      projectBucketStage,
+      { $group: { _id: { user_id: '$user_id_str', bucket: '$bucket' } } },
+    ];
+
+    // Next, count per user and bucket -> then compute totals per user to pick topN
+    const pipeline = [
+      ...basePipeline,
+      { $group: { _id: '$_id.user_id', byBucket: { $push: '$_id.bucket' }, total: { $sum: 1 } } },
+      { $sort: { total: -1 } },
+      { $limit: topN },
+    ];
+
+    let topUsers;
+    try {
+      topUsers = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+    } catch (err) {
+      // Fall back when session_tracking missing or query fails: try to approximate using users timestamps
+      topUsers = [];
+    }
+
+    // If no top users found, fallback to users activity by created_at/updated_at if available
+    let series = [];
+    let buckets = [];
+    if (!topUsers || topUsers.length === 0) {
+      // Build buckets list
+      if (granularity === 'weekly') {
+        // Build week starts between fromDate and now
+        const tmp = new Date(Date.UTC(fromDate.getUTCFullYear(), fromDate.getUTCMonth(), fromDate.getUTCDate()));
+        buckets = [];
+        while (tmp <= now) {
+          const y = tmp.getUTCFullYear();
+          const m = String(tmp.getUTCMonth() + 1).padStart(2, '0');
+          const d = String(tmp.getUTCDate()).padStart(2, '0');
+          buckets.push(`${y}-${m}-${d}`);
+          tmp.setUTCDate(tmp.getUTCDate() + 7);
+        }
+      } else {
+        const tmp = new Date(Date.UTC(fromDate.getUTCFullYear(), fromDate.getUTCMonth(), fromDate.getUTCDate()));
+        buckets = [];
+        while (tmp <= now) {
+          const y = tmp.getUTCFullYear();
+          const m = String(tmp.getUTCMonth() + 1).padStart(2, '0');
+          const d = String(tmp.getUTCDate()).padStart(2, '0');
+          buckets.push(`${y}-${m}-${d}`);
+          tmp.setUTCDate(tmp.getUTCDate() + 1);
+        }
+      }
+
+      // With no session data, we cannot attribute by user reliably; return empty series for safety.
+      const response = {
+        success: true,
+        range: rangeParam,
+        granularity,
+        buckets,
+        series: [],
+        meta: { tenant_id: tenantId, topN },
+      };
+      setMostActiveCache(cacheKey, response);
+      return res.status(200).json(response);
+    }
+
+    // We have top users list: need per-user per-bucket counts for only those users
+    const topUserIds = topUsers.map((u) => u._id);
+    const byUserPipeline = [
+      addFieldsStage,
+      matchStage,
+      projectBucketStage,
+      { $match: { user_id_str: { $in: topUserIds } } },
+      { $group: { _id: { user_id: '$user_id_str', bucket: '$bucket' }, count: { $sum: 1 } } },
+      { $group: { _id: '$_id.user_id', buckets: { $push: { k: '$_id.bucket', v: '$count' } } } },
+    ];
+    const perUser = await SessionTracking.aggregate(byUserPipeline).allowDiskUse(true);
+
+    // Build complete bucket list from results
+    const bucketSet = new Set();
+    for (const u of perUser) {
+      for (const b of u.buckets) bucketSet.add(b.k);
+    }
+    // Ensure continuous buckets in range, even for missing days/weeks
+    if (granularity === 'weekly') {
+      const tmp = new Date(Date.UTC(fromDate.getUTCFullYear(), fromDate.getUTCMonth(), fromDate.getUTCDate()));
+      while (tmp <= now) {
+        const y = tmp.getUTCFullYear();
+        const m = String(tmp.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(tmp.getUTCDate()).padStart(2, '0');
+        bucketSet.add(`${y}-${m}-${d}`);
+        tmp.setUTCDate(tmp.getUTCDate() + 7);
+      }
+    } else {
+      const tmp = new Date(Date.UTC(fromDate.getUTCFullYear(), fromDate.getUTCMonth(), fromDate.getUTCDate()));
+      while (tmp <= now) {
+        const y = tmp.getUTCFullYear();
+        const m = String(tmp.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(tmp.getUTCDate()).padStart(2, '0');
+        bucketSet.add(`${y}-${m}-${d}`);
+        tmp.setUTCDate(tmp.getUTCDate() + 1);
+      }
+    }
+    buckets = Array.from(bucketSet.values()).sort();
+
+    // Resolve display labels for users from session_tracking or fallback to id
+    // Query distinct mapping for selected users
+    let nameMap = {};
+    try {
+      const nameDocs = await SessionTracking.aggregate([
+        { $match: { tenant_id: tenantId, user_id: { $exists: true, $ne: null } } },
+        { $addFields: { user_id_str: { $toString: '$user_id' } } },
+        { $match: { user_id_str: { $in: topUserIds } } },
+        {
+          $group: {
+            _id: '$user_id_str',
+            name: { $first: '$user_name' },
+          },
+        },
+      ]);
+      nameMap = nameDocs.reduce((acc, d) => {
+        acc[d._id] = d.name || d._id;
+        return acc;
+      }, {});
+    } catch {
+      nameMap = {};
+    }
+
+    // Build series array
+    series = perUser.map((u) => {
+      const label = nameMap[u._id] || u._id;
+      const by = new Map(u.buckets.map((b) => [b.k, b.v]));
+      const data = buckets.map((b) => by.get(b) || 0);
+      return { user: u._id, label, data };
+    });
+
+    const response = {
+      success: true,
+      range: rangeParam,
+      granularity,
+      buckets,
+      series,
+      meta: { tenant_id: tenantId, topN, users: series.length },
+    };
+    setMostActiveCache(cacheKey, response);
     return res.status(200).json(response);
   })
 );
