@@ -3,10 +3,7 @@ import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
-import ActiveUsersList from "../../components/users/ActiveUsersList.jsx";
-import ActiveUsersTrendChart from "../../components/charts/ActiveUsersTrendChart.jsx";
-import useActiveUsersTrend from "../../hooks/useActiveUsersTrend";
-import MostActiveUsersBarChart from "../../components/charts/MostActiveUsersBarChart.jsx";
+
 
 export default function Users() {
   const [open, setOpen] = useState(false);
@@ -77,14 +74,6 @@ export default function Users() {
     </div>
   );
 
-  // Active Users Trend hook state (separate from UsersByTenant range control)
-  const {
-    loading: trendLoading,
-    error: trendError,
-    items: trendItems,
-    controls: trendControls,
-  } = useActiveUsersTrend({ days: 30, granularity: "day" });
-
   return (
     <div>
       {/* Users by Tenant Chart */}
@@ -109,21 +98,6 @@ export default function Users() {
         </div>
       </div>
 
-      {/* Active Users Trend Chart */}
-      <div style={{ marginBottom: 12 }}>
-        <ActiveUsersTrendChart
-          data={trendItems}
-          loading={trendLoading}
-          error={trendError}
-          controls={trendControls}
-        />
-      </div>
-
-      {/* Most Active Users Bar Chart */}
-      <div style={{ marginBottom: 12 }}>
-        <MostActiveUsersBarChart initialWindow={30} initialTopN={10} />
-      </div>
-
       {/* Users by Department Chart */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
@@ -135,16 +109,6 @@ export default function Users() {
             <UsersDepartmentChart variant="bar" height={340} />
           </div>
         </div>
-      </div>
-
-      {/* Active Users List */}
-      <div style={{ marginBottom: 12 }}>
-        <ActiveUsersList
-          page={1}
-          limit={20}
-          sort="-created_at"
-          onRowClick={handleUserSelect}
-        />
       </div>
 
       {/* Users List */}

@@ -1,15 +1,15 @@
+const apiBase =
+  
+  `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
+
 /**
  * PUBLIC_INTERFACE
  * getApiBase
- * Returns the base URL for backend API requests.
- * - If REACT_APP_API_BASE_URL is set, uses it.
- * - Otherwise defaults to "/api" so CRA dev proxy can handle it and production can serve same-origin "/api".
+ * Returns the base URL for backend API requests, preferring REACT_APP_API_BASE_URL
+ * and falling back to current host with port 3001.
  */
 export function getApiBase() {
-  const envBase = process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_BASE;
-  if (envBase) return String(envBase).replace(/\/+$/, "") + "/api";
-  // Default to relative /api for proxy/same-origin
-  return "/api";
+  return apiBase;
 }
 
 export default { getApiBase };
