@@ -83,6 +83,7 @@ app.use('/', baseRouter);
 /**
  * Simple health with DB status
  */
+try { console.log('[startup] Registering GET /api/health'); } catch {}
 app.get('/api/health', (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
