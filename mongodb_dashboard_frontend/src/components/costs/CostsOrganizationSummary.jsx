@@ -4,50 +4,53 @@ import Skeleton from "../ui/Skeleton.jsx";
 import ErrorState from "../common/ErrorState.jsx";
 import Button from "../ui/Button.jsx";
 import { formatCurrencyAmount } from "../../utils/formatCurrency.js";
+import api from "../../utils/api";
 
 /**
  * PUBLIC_INTERFACE
  * CostsOrganizationSummary
- * Displays an organization summary with:
- *  - Organization ID
- *  - Organization
- *  - Total Cost (emphasized, currency formatted with thousand separators and up to 6 decimals)
- *  - Users
+ * Displays a tenant/organization-level credits or cost summary using live backend.
  *
- * Includes loading and error states. Uses a local mock fetch to simulate data retrieval.
- * The mock is structured so it can be easily replaced with a real API call.
- *
- * Props:
- * - onLoaded?: (data) => void   // optional callback when data loads successfully
- * - failChance?: number         // 0..1 chance to simulate failure; default 0.1 (10%)
+ * Backend alignment notes:
+ *  - Current OpenAPI provides:
+ *      GET /api/tenants/{tenantId}/credits-summary  -> tenant credit summary and usage breakdowns
+ *    There is no explicit /api/orgs/:orgId/summary in the spec.
+ *  - We will call the credits-summary endpoint as the closest match.
+ *  - TODO: If backend adds a costs-focused org summary, update the endpoint here.
  */
-export default function CostsOrganizationSummary({ onLoaded, failChance = 0.1 }) {
+export default function CostsOrganizationSummary({ orgId, onLoaded }) {
   const [state, setState] = React.useState({
-    loading: true,
+    loading: false,
     error: "",
     data: null,
   });
 
   const load = React.useCallback(async () => {
+    if (!orgId) return;
     setState((s) => ({ ...s, loading: true, error: "" }));
     try {
-      // Simulated fetch - replace with real API when available:
-      // Example:
-      // const res = await api.get('/api/tenants/{id}/costs-summary');
-      // const payload = { organizationId: res.orgId, organizationName: res.orgName, totalCost: res.totalCost, users: res.usersCount };
-      const payload = await mockFetchOrganizationSummary(failChance);
+      const res = await api.get(`/api/tenants/${encodeURIComponent(orgId)}/credits-summary`);
+      const payload = normalizeSummary(orgId, res?.data || {});
       setState({ loading: false, error: "", data: payload });
       if (onLoaded) onLoaded(payload);
     } catch (e) {
-      setState({ loading: false, error: e?.message || "Failed to load organization summary.", data: null });
+      setState({
+        loading: false,
+        error: e?.message || "Failed to load organization summary.",
+        data: null,
+      });
     }
-  }, [onLoaded, failChance]);
+  }, [orgId, onLoaded]);
 
   React.useEffect(() => {
     load();
   }, [load]);
 
   const { loading, error, data } = state;
+
+  if (!orgId) {
+    return null;
+  }
 
   return (
     <Card
@@ -76,10 +79,9 @@ export default function CostsOrganizationSummary({ onLoaded, failChance = 0.1 })
           </SummaryItem>
         </div>
       ) : error ? (
-        <ErrorState
-          message={error}
-          onRetry={load}
-        />
+        <ErrorState message={error} onRetry={load} />
+      ) : !data ? (
+        <div>No organization data available.</div>
       ) : (
         <div className="org-summary-grid" style={styles.grid}>
           <SummaryItem label="Organization ID">{data.organizationId}</SummaryItem>
@@ -87,7 +89,7 @@ export default function CostsOrganizationSummary({ onLoaded, failChance = 0.1 })
           <SummaryItem label="Total Cost" emphasize>
             {formatCurrencyAmount(data.totalCost, { currency: "USD", maximumFractionDigits: 6 })}
           </SummaryItem>
-          <SummaryItem label="Users">{Number(data.users).toLocaleString()}</SummaryItem>
+          <SummaryItem label="Users">{Number(data.users ?? 0).toLocaleString()}</SummaryItem>
         </div>
       )}
     </Card>
@@ -95,9 +97,38 @@ export default function CostsOrganizationSummary({ onLoaded, failChance = 0.1 })
 }
 
 /**
+ * Normalize backend response from credits-summary to expected UI fields.
+ */
+function normalizeSummary(orgId, data) {
+  const totalCost =
+    typeof data.total_usage_cost === "number"
+      ? data.total_usage_cost
+      : typeof data.totalCost === "number"
+      ? data.totalCost
+      : 0;
+
+  const usersCount =
+    typeof data.total_users === "number"
+      ? data.total_users
+      : typeof data.usersCount === "number"
+      ? data.usersCount
+      : typeof data.users === "number"
+      ? data.users
+      : 0;
+
+  return {
+    organizationId: orgId,
+    organizationName: data.tenant_name || data.organizationName || orgId,
+    totalCost,
+    users: usersCount,
+  };
+}
+
+/**
  * SummaryItem
  * Renders a label/value pair with emphasis and Ocean theme styles.
  */
+// PUBLIC_INTERFACE
 function SummaryItem({ label, children, emphasize = false }) {
   return (
     <div
@@ -135,30 +166,6 @@ function SummaryItem({ label, children, emphasize = false }) {
       </div>
     </div>
   );
-}
-
-/**
- * mockFetchOrganizationSummary
- * Local mock API used to simulate loading and error states.
- * Returns the requested static values after a small delay.
- */
-async function mockFetchOrganizationSummary(failChance = 0.1) {
-  await delay(350 + Math.random() * 400); // 350-750ms delay
-  // Simulate a failure condition occasionally
-  if (Math.random() < (Number.isFinite(failChance) ? failChance : 0.1)) {
-    throw new Error("Network error: Unable to fetch organization summary");
-  }
-  // Static values as per requirement
-  return {
-    organizationId: "T0002",
-    organizationName: "KAVIA",
-    totalCost: 2663.216423,
-    users: 25,
-  };
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const styles = {

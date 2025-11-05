@@ -1,67 +1,19 @@
-//
-// PUBLIC_INTERFACE
-// apiGet (JS wrapper)
-// Wrapper delegating to the TypeScript implementation when available.
-// Duplicates the small fetch logic to remain resilient if TS module resolution is not active.
-//
-function isAbsoluteUrl(url) {
-  return /^https?:\/\//i.test(url);
-}
+import axios from 'axios';
 
-function joinUrl(base, path) {
-  if (!base) return path;
-  const b = base.endsWith('/') ? base.slice(0, -1) : base;
-  if (!path) return b;
-  const p = path.startsWith('/') ? path : `/${path}`;
-  return `${b}${p}`;
-}
+/**
+ * PUBLIC_INTERFACE
+ * api
+ * Axios instance preconfigured for the frontend to hit the Express backend.
+ * Proxy is handled by setupProxy.js in development.
+ */
+const api = axios.create({
+  // baseURL intentionally left undefined to let setupProxy handle /api in dev
+  // In production, ensure the app is served from the same origin or set REACT_APP_API_BASE.
+  baseURL: process.env.REACT_APP_API_BASE || undefined,
+  withCredentials: true,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
 
-// PUBLIC_INTERFACE
-export async function apiGet(url, options = {}) {
-  const base =
-    (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_BASE_URL) || '';
-  const finalUrl = isAbsoluteUrl(url)
-    ? url
-    : url.startsWith('/api')
-      ? url
-      : joinUrl(base, url);
-
-  const res = await fetch(finalUrl, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      ...(options.headers || {}),
-    },
-    signal: options.signal,
-  });
-
-  let payload = null;
-  const contentType = res.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    try {
-      payload = await res.json();
-    } catch {
-      payload = null;
-    }
-  } else {
-    try {
-      payload = await res.text();
-    } catch {
-      payload = null;
-    }
-  }
-
-  if (!res.ok) {
-    const message =
-      (payload && typeof payload === 'object' && (payload.message || payload.detail)) ||
-      (typeof payload === 'string' ? payload : `Request failed (${res.status})`);
-    const err = new Error(message);
-    err.status = res.status;
-    err.payload = payload;
-    throw err;
-  }
-
-  return payload;
-}
-
-export default { apiGet };
+export default api;

@@ -1,26 +1,20 @@
-import { getProjectCost } from '../api/projects';
-
-// PUBLIC_INTERFACE
-export async function devTryProjectCost(projectId) {
-  /** Convenience dev helper to quickly test the project cost endpoint from the console. */
-  const pid = projectId ?? '21566';
-  const data = await getProjectCost(pid);
-  // eslint-disable-next-line no-console
-  console.log('[devTryProjectCost]', pid, data);
-  return data;
-}
-
-// PUBLIC_INTERFACE
-export async function devTrySampleProjectCosts() {
-  /** Test both sample IDs: 21566 and 20684. */
-  const ids = ['21566', '20684'];
-  const results = [];
-  for (const id of ids) {
-    // eslint-disable-next-line no-await-in-loop
-    const data = await getProjectCost(id);
-    results.push({ id, ...data });
+ /**
+  * PUBLIC_INTERFACE
+  * devTryProjectCost
+  * Dev-only helper used in local development to simulate project cost history.
+  * This function is disabled in production builds and will throw if invoked.
+  */
+export default async function devTryProjectCost(projectId) {
+  if (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production') {
+    throw new Error('devTryProjectCost is disabled in production.');
   }
-  // eslint-disable-next-line no-console
-  console.table(results);
-  return results;
+  await new Promise((r) => setTimeout(r, 300));
+  return {
+    projectId: projectId ?? 'demo',
+    history: [
+      { date: '2024-10-01', total: 10 },
+      { date: '2024-10-02', total: 14 },
+      { date: '2024-10-03', total: 7 },
+    ],
+  };
 }
