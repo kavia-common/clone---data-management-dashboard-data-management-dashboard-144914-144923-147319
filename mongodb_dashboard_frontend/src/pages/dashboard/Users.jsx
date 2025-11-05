@@ -3,6 +3,7 @@ import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
+import MostActiveUsersChart from "../../components/charts/MostActiveUsersChart.jsx";
 
 
 export default function Users() {
@@ -107,6 +108,21 @@ export default function Users() {
           </div>
           <div className="card-content">
             <UsersDepartmentChart variant="bar" height={340} />
+          </div>
+        </div>
+      </div>
+
+      {/* Most Active Users (by recent updated_at) */}
+      <div style={{ marginBottom: 12 }}>
+        <div className="card">
+          <div className="card-header" style={{ paddingBottom: 0 }}>
+            <div>
+              <h3 className="card-title">Most Active Users (Recent)</h3>
+              <div className="card-subtitle">Top users by most recent update time</div>
+            </div>
+          </div>
+          <div className="card-content">
+            <MostActiveUsersChart />
           </div>
         </div>
       </div>
