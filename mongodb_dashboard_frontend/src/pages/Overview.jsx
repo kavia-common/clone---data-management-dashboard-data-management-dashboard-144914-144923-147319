@@ -1,18 +1,10 @@
-import React from "react";
-import OverviewContainer from "../components/overview/OverviewContainer.jsx";
+import React from 'react';
+import DashboardOverview from './dashboard/Overview.jsx';
 
 /**
  * PUBLIC_INTERFACE
- * Top-level Overview page (non-namespaced).
- * Renders the shared OverviewContainer so it appears in any Overview route usage.
+ * Top-level Overview that reuses dashboard Overview for modules loading.
  */
 export default function Overview() {
-  return (
-    <div className="overview-page" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <OverviewContainer />
-      <div aria-hidden="true" style={{ display: "none" }}>
-        Loading overview…
-      </div>
-    </div>
-  );
+  return <DashboardOverview />;
 }
