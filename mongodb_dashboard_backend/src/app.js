@@ -19,10 +19,10 @@ try {
 
 app.set('trust proxy', 1); // only trust local proxies
 app.use(helmetMiddleware());
-// app.use(corsMiddleware());
-app.use(cors({
-  origin: '*'
-}));
+// Configure CORS with allowlist and credentials support via our middleware
+app.use(corsMiddleware());
+// Handle preflight across API routes explicitly to avoid 404 on OPTIONS
+app.options('/api/*', cors()); // uses default which will be overridden by corsMiddleware above
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -86,10 +86,11 @@ app.use('/', baseRouter);
 app.get('/api/health', (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
-  const payload = { status: 'ok', db };
+  const payload = { status: 'ok', db, timestamp: new Date().toISOString() };
   if (db !== 'connected') {
     payload.hint = 'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
   }
+  res.set('Cache-Control', 'no-store');
   return res.status(200).json(payload);
 });
 

@@ -24,8 +24,12 @@ MONGODB_DB=your_database_name
 
 If your frontend runs on http://localhost:3000, ensure it is allowed. You can use any of:
 - FRONTEND_ORIGIN=http://localhost:3000
+- CORS_ORIGIN=http://localhost:3000
 - CORS_ORIGINS=http://localhost:3000,https://localhost:3000
 If your frontend uses REACT_APP_API_BASE_URL, the origin will be inferred automatically.
+
+To enable cookies/sessions across origins:
+- CORS_CREDENTIALS=true
 
 ## Verification steps
 

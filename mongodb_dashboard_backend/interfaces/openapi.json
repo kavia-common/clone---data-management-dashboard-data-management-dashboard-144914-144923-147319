@@ -451,15 +451,6 @@
         }
       }
     },
-    "Inline notes on hashing scheme and migration": {
-      "0": {
-        "v1 (legacy)": "static salt from environment (SECRET_SALT/AUTH_TENANT_SALT); verification-only."
-      },
-      "1": {
-        "v2 (current)": "tenant.orgSalt (+ optional global pepper from env) concatenated with password, hashed using argon2id when available, then bcrypt, then scrypt as a fallback. New accounts use v2."
-      },
-      "2": "If tenant.orgSalt is missing (legacy tenants), it is auto-generated and persisted on-demand."
-    },
     "/api/auth/login": {
       "post": {
         "summary": "Login",
@@ -559,10 +550,6 @@
           }
         }
       }
-    },
-    "SECURITY & MIGRATION NOTES": {
-      "0": "This endpoint rehashes using v2 regardless of prior version; user.hashVersion is set to 2 on success.",
-      "1": "If tenant.orgSalt is missing, it is generated and persisted before hashing."
     },
     "/api/dashboard/overview/metrics": {
       "get": {
