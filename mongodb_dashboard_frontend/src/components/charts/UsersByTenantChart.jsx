@@ -11,7 +11,7 @@ import {
   ResponsiveContainer,
   LabelList,
 } from "recharts";
-import { fetchUsersByTenant } from "../../api/usersAnalyticsClient";
+import { getTenantUsersSummary } from "../../api/usersAnalytics";
 import { getChartTheme } from "./chartTheme";
 
 /**
@@ -52,9 +52,9 @@ export default function UsersByTenantChart({
       setLoading(true);
       setErr("");
       try {
-        // Note: fetchUsersByTenant supports status and includeInactive. If from/to are needed later,
-        // the backend can be extended; for now align with available client API.
-        const res = await fetchUsersByTenant({
+        const res = await getTenantUsersSummary({
+          from,
+          to,
           status,
           includeInactive,
         });
