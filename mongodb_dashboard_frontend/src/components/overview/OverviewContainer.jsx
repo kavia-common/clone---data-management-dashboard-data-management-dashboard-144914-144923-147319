@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import OverviewTimeControls from './OverviewTimeControls';
 import OverviewKpiCards from './OverviewKpiCards';
 import OverviewTrendChart from './OverviewTrendChart';
-import SummaryPanel from './SummaryPanel.jsx';
 import { fetchOverviewAnalytics } from '../../api/overviewAnalytics';
 import LoadingState from '../common/LoadingState';
 import ErrorState from '../common/ErrorState';
@@ -53,7 +52,6 @@ export default function OverviewContainer() {
       {!loading && !error && (
         <>
           <OverviewKpiCards kpis={kpis} loading={loading} />
-          <SummaryPanel buckets={buckets} loading={loading} />
           <OverviewTrendChart data={chartData} metric={metric} />
           {chartData?.length === 0 && (
             <div style={{ color: '#6B7280', fontSize: 14, textAlign: 'center' }}>
