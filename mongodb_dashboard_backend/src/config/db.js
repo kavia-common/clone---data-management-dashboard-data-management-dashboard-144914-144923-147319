@@ -20,12 +20,11 @@ async function connectDB() {
 
   if (!uri || typeof uri !== 'string' || uri.trim() === '') {
     // eslint-disable-next-line no-console
-    console.error(
-      'MongoDB connection aborted: MONGODB_URI is not set. Configure it in the environment (.env).'
+    console.warn(
+      '[db] MONGODB_URI is not set. Skipping MongoDB connection. The API will start, health endpoints will report db=disconnected.'
     );
-    const err = new Error('MONGODB_URI is not configured');
-    err.status = 503;
-    throw err;
+    // Return the current mongoose.connection without attempting to connect
+    return mongoose.connection;
   }
 
   mongoose.set('strictQuery', true);
