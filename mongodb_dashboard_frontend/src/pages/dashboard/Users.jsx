@@ -4,7 +4,8 @@ import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
 import ActiveUsersList from "../../components/users/ActiveUsersList.jsx";
-
+import ActiveUsersTrendChart from "../../components/charts/ActiveUsersTrendChart.jsx";
+import useActiveUsersTrend from "../../hooks/useActiveUsersTrend";
 
 export default function Users() {
   const [open, setOpen] = useState(false);
@@ -75,6 +76,14 @@ export default function Users() {
     </div>
   );
 
+  // Active Users Trend hook state (separate from UsersByTenant range control)
+  const {
+    loading: trendLoading,
+    error: trendError,
+    items: trendItems,
+    controls: trendControls,
+  } = useActiveUsersTrend({ days: 30, granularity: "day" });
+
   return (
     <div>
       {/* Users by Tenant Chart */}
@@ -97,6 +106,16 @@ export default function Users() {
             />
           </div>
         </div>
+      </div>
+
+      {/* Active Users Trend Chart */}
+      <div style={{ marginBottom: 12 }}>
+        <ActiveUsersTrendChart
+          data={trendItems}
+          loading={trendLoading}
+          error={trendError}
+          controls={trendControls}
+        />
       </div>
 
       {/* Users by Department Chart */}

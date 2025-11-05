@@ -1,189 +1,149 @@
-import React, { useEffect, useMemo, useState } from "react";
-import PropTypes from "prop-types";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
-import { getActiveUsersTrend } from "../../api/usersAnalytics";
-import { getChartTheme, withAlpha } from "./chartTheme";
+import React from 'react';
+import './ActiveUsersTrendChart.css';
 
 /**
+ * Minimal responsive SVG area/line chart for active users trend.
+ *
  * PUBLIC_INTERFACE
  * ActiveUsersTrendChart
- * Renders a responsive line chart for active users trend over time.
- *
- * Props:
- * - from?: string (ISO)
- * - to?: string (ISO)
- * - granularity?: 'day' | 'week' (default 'day')
- * - status?: string (default 'completed|active')
- * - tenant_id?: string (optional scope)
+ * @param {Object} props
+ * @param {Array<{date:string,total:number}>} props.data - Time series points
+ * @param {boolean} [props.loading]
+ * @param {string|null} [props.error]
+ * @param {Object} props.controls - { days, setDays, granularity, setGranularity, refetch }
  */
-export default function ActiveUsersTrendChart({
-  from,
-  to,
-  granularity = "day",
-  status = "completed|active",
-  tenant_id,
-}) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
+export default function ActiveUsersTrendChart({ data = [], loading, error, controls }) {
+  const width = 800;
+  const height = 220;
+  const padding = { top: 16, right: 16, bottom: 28, left: 40 };
 
-  useEffect(() => {
-    let mounted = true;
-    async function run() {
-      setLoading(true);
-      setErr("");
-      try {
-        const res = await getActiveUsersTrend({ from, to, granularity, status, tenant_id });
-        if (!mounted) return;
-        const items = Array.isArray(res?.items) ? res.items : [];
-        // console debug to verify backend payload for troubleshooting empty states
-        if (process.env.NODE_ENV !== "production") {
-          // eslint-disable-next-line no-console
-          console.debug("[ActiveUsersTrendChart] items received:", items.length);
-        }
-        // Ensure sorted by date asc and coerce shapes
-        const sorted = [...items]
-          .map((it) => ({
-            date: String(it?.date || ""),
-            total: Number(isFinite(it?.total) ? it.total : 0),
-          }))
-          .sort((a, b) => String(a.date).localeCompare(String(b.date)));
-        setRows(sorted);
-      } catch (e) {
-        if (!mounted) return;
-        setErr(e?.message || "Failed to load Active Users Trend");
-        setRows([]);
-      } finally {
-        if (mounted) setLoading(false);
-      }
+  const values = data.map(d => d.total || 0);
+  const dates = data.map(d => d.date);
+
+  const minX = 0;
+  const maxX = Math.max(data.length - 1, 1);
+  const minY = 0;
+  const maxY = Math.max(Math.max(...values, 1), 5);
+
+  const xScale = (i) =>
+    padding.left + (i - minX) * ((width - padding.left - padding.right) / (maxX - minX || 1));
+  const yScale = (v) =>
+    height - padding.bottom - (v - minY) * ((height - padding.top - padding.bottom) / (maxY - minY || 1));
+
+  const areaPath = () => {
+    if (!data.length) return '';
+    let p = `M ${xScale(0)} ${yScale(0)} L ${xScale(0)} ${yScale(values[0])}`;
+    for (let i = 1; i < data.length; i++) {
+      p += ` L ${xScale(i)} ${yScale(values[i])}`;
     }
-    run();
-    return () => {
-      mounted = false;
-    };
-  }, [from, to, granularity, status, tenant_id]);
+    p += ` L ${xScale(maxX)} ${yScale(0)} Z`;
+    return p;
+  };
 
-  const data = useMemo(
-    () =>
-      rows.map((r) => ({
-        date: r?.date || "",
-        active_users: Number(r?.total || 0),
-      })),
-    [rows]
-  );
-
-  const t = getChartTheme();
-  const primary = t.primary;
-  const primaryDark = t.primaryActive;
-  const gridStroke = t.grid;
-
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      const d = payload[0]?.payload || {};
-      return (
-        <div
-          role="dialog"
-          aria-live="polite"
-          style={{
-            background: t.tooltip.bg,
-            border: `1px solid ${t.tooltip.border}`,
-            borderRadius: 8,
-            padding: "8px 10px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-            color: t.tooltip.text,
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
-          <div>Active users: {d?.active_users ?? 0}</div>
-        </div>
-      );
+  const linePath = () => {
+    if (!data.length) return '';
+    let p = `M ${xScale(0)} ${yScale(values[0])}`;
+    for (let i = 1; i < data.length; i++) {
+      p += ` L ${xScale(i)} ${yScale(values[i])}`;
     }
-    return null;
+    return p;
   };
 
   return (
-    <div role="region" aria-label="Active users trend chart" style={{ width: "100%" }}>
-      <div style={{ height: 280 }}>
-        {loading ? (
-          <div aria-busy="true">
-            <div className="skeleton" style={{ height: 14, width: "35%", marginBottom: 8 }} />
-            <div className="skeleton" style={{ height: 12, width: "65%", marginBottom: 8 }} />
-            <div className="skeleton" style={{ height: 12, width: "55%", marginBottom: 8 }} />
+    <div className="active-users-chart card">
+      <div className="header">
+        <div className="title">
+          <h3>Active Users Trend</h3>
+          <p className="subtitle">Distinct active users per {controls?.granularity || 'day'}</p>
+        </div>
+        <div className="controls">
+          <div className="segmented">
+            <button
+              className={controls?.days === 7 ? 'active' : ''}
+              onClick={() => controls?.setDays?.(7)}
+            >
+              7d
+            </button>
+            <button
+              className={controls?.days === 30 ? 'active' : ''}
+              onClick={() => controls?.setDays?.(30)}
+            >
+              30d
+            </button>
+            <button
+              className={controls?.days === 90 ? 'active' : ''}
+              onClick={() => controls?.setDays?.(90)}
+            >
+              90d
+            </button>
           </div>
-        ) : err ? (
-          <div className="error" role="alert">
-            {err}
+          <div className="segmented">
+            <button
+              className={controls?.granularity === 'day' ? 'active' : ''}
+              onClick={() => controls?.setGranularity?.('day')}
+            >
+              Day
+            </button>
+            <button
+              className={controls?.granularity === 'week' ? 'active' : ''}
+              onClick={() => controls?.setGranularity?.('week')}
+            >
+              Week
+            </button>
           </div>
-        ) : data.length === 0 ? (
-          <div className="screen-center">No data</div>
-        ) : (
-          <ResponsiveContainer>
-            <LineChart data={data} margin={{ top: 8, right: 24, bottom: 8, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 12, fill: t.axisTick }}
-                tickMargin={8}
-                minTickGap={28}
-                label={{
-                  value: granularity === "week" ? "Week start" : "Date",
-                  position: "insideBottomRight",
-                  offset: -4,
-                  fill: t.axisTick,
-                  fontSize: 12,
-                }}
-              />
-              <YAxis
-                tick={{ fontSize: 12, fill: t.axisTick }}
-                allowDecimals={false}
-                label={{
-                  value: "Active users",
-                  angle: -90,
-                  position: "insideLeft",
-                  fill: t.axisTick,
-                  fontSize: 12,
-                }}
-              />
-              <Tooltip
-                content={<CustomTooltip />}
-                wrapperStyle={{ outline: "none" }}
-              />
-              <Legend
-                verticalAlign="top"
-                height={24}
-                wrapperStyle={{ fontSize: 12, color: t.legend.text }}
-                payload={[{ id: "Active users", value: "Active users", type: "line", color: primary }]}
-              />
-              <Line
-                type="monotone"
-                dataKey="active_users"
-                name="Active users"
-                stroke={primary}
-                strokeWidth={2}
-                dot={{ r: 2, stroke: primaryDark, strokeWidth: 1, fill: withAlpha(primary, 0.1) }}
-                activeDot={{ r: 4, stroke: primaryDark, strokeWidth: 2 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
+        </div>
       </div>
+
+      {loading && <div className="state">Loading...</div>}
+      {error && !loading && <div className="state error">Error: {error}</div>}
+      {!loading && !error && data.length === 0 && (
+        <div className="state">No data in selected range</div>
+      )}
+
+      {!loading && !error && data.length > 0 && (
+        <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" role="img" aria-label="Active users trend chart">
+          {/* Axes */}
+          <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} className="axis" />
+          <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} className="axis" />
+
+          {/* Y ticks */}
+          {[0, 0.25, 0.5, 0.75, 1].map((t, idx) => {
+            const v = Math.round(minY + t * (maxY - minY));
+            const y = yScale(v);
+            return (
+              <g key={idx}>
+                <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="grid" />
+                <text x={padding.left - 8} y={y} textAnchor="end" alignmentBaseline="middle" className="tick">
+                  {v}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* X ticks (sparse to avoid clutter) */}
+          {dates.map((d, i) => {
+            const show = i === 0 || i === maxX || i % Math.ceil(dates.length / 6) === 0;
+            if (!show) return null;
+            const x = xScale(i);
+            return (
+              <text key={i} x={x} y={height - padding.bottom + 18} textAnchor="middle" className="tick">
+                {d}
+              </text>
+            );
+          })}
+
+          {/* Area */}
+          <path d={areaPath()} className="area" />
+
+          {/* Line */}
+          <path d={linePath()} className="line" />
+
+          {/* Dots */}
+          {values.map((v, i) => (
+            <circle key={i} cx={xScale(i)} cy={yScale(v)} r="2.5" className="dot" />
+          ))}
+        </svg>
+      )}
     </div>
   );
 }
-
-ActiveUsersTrendChart.propTypes = {
-  from: PropTypes.string,
-  to: PropTypes.string,
-  granularity: PropTypes.oneOf(["day", "week"]),
-  status: PropTypes.string,
-  tenant_id: PropTypes.string,
-};
