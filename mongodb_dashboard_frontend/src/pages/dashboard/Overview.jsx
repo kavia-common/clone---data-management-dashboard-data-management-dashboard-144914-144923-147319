@@ -3,19 +3,16 @@ import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
-
-
+import OverviewContainer from "../../components/overview/OverviewContainer";
 
 // PUBLIC_INTERFACE
 export default function Overview() {
-  /** Overview page with basic metrics and activity trends. */
+  /** Overview page with basic metrics, activity trends, and time-based analytics. */
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
   const [trend, setTrend] = useState([]);
   const [error, setError] = useState("");
   const [apiStatus, setApiStatus] = useState("checking");
-
-
 
   useEffect(() => {
     async function fetchData() {
@@ -98,6 +95,10 @@ export default function Overview() {
         </div>
       </Card>
 
+      {/* Time-based analytics section (OverviewContainer) */}
+      <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
+        <OverviewContainer />
+      </div>
 
       {/* Full-width trend row aligned to the right by spanning all columns */}
       <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
@@ -112,8 +113,6 @@ export default function Overview() {
           )}
         </Card>
       </div>
-
-
 
     </div>
   );
