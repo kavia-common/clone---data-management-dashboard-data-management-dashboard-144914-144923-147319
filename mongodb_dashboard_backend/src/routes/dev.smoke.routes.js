@@ -3,6 +3,25 @@
 const express = require('express');
 const router = express.Router();
 
+// Guard: enable only when not production or ALLOW_DEV_ROUTES=true
+const allowDev =
+  (process.env.NODE_ENV !== 'production') ||
+  (String(process.env.ALLOW_DEV_ROUTES || '').toLowerCase() === 'true');
+
+if (!allowDev) {
+  try { console.warn('[routes] /api/dev/smoke endpoints are disabled in this environment'); } catch {}
+  // PUBLIC_INTERFACE
+  router.get('/disabled', (req, res) => {
+    return res.status(403).json({
+      success: false,
+      message: 'Dev smoke routes are disabled. Set ALLOW_DEV_ROUTES=true to enable in production.',
+    });
+  });
+  module.exports = router;
+  // Early return prevents registering any smoke endpoints below
+  return;
+}
+
 /**
  * PUBLIC_INTERFACE
  * GET /api/dev/smoke/pagination

@@ -9,8 +9,29 @@ const Tenant = require('../models/tenant.model');
 const Project = require('../models/project.model');
 const LLMCost = require('../models/llmCosts.model');
 
+/**
+ * Guard: Only enable dev routes when NODE_ENV !== 'production'
+ * or when ALLOW_DEV_ROUTES === 'true'
+ */
+const allowDev =
+  (process.env.NODE_ENV !== 'production') ||
+  (String(process.env.ALLOW_DEV_ROUTES || '').toLowerCase() === 'true');
 
 const router = express.Router();
+
+// If disabled, expose a minimal notice endpoint and export
+if (!allowDev) {
+  try { console.warn('[routes] /api/dev endpoints are disabled in this environment'); } catch {}
+  // PUBLIC_INTERFACE
+  router.get('/disabled', (req, res) => {
+    return res.status(403).json({
+      success: false,
+      message: 'Dev routes are disabled. Set ALLOW_DEV_ROUTES=true to enable in production.',
+    });
+  });
+  module.exports = router;
+  return;
+}
 
 /**
  * PUBLIC_INTERFACE

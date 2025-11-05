@@ -6,6 +6,12 @@
 
 Environment example: see .env.example.
 
+Dev routes
+- Dev-only endpoints under /api/dev/* are mounted only when:
+  - NODE_ENV is not 'production', OR
+  - ALLOW_DEV_ROUTES is set to 'true'
+- In production without ALLOW_DEV_ROUTES=true, these routes are not registered. A warning is logged at startup.
+
 CORS
 - Defaults allow localhost:3000.
 - You can set FRONTEND_ORIGIN or CORS_ORIGINS or define REACT_APP_API_BASE_URL and we infer its origin.

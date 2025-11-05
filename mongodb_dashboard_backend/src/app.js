@@ -116,8 +116,19 @@ if (process.env.NODE_ENV === 'test') {
   });
 }
 
-// Dev utilities
-app.use('/api/dev', require('./routes/dev.routes'));
+/**
+ * Dev utilities (guarded)
+ * Only mount when NODE_ENV !== 'production' or explicit ALLOW_DEV_ROUTES === 'true'
+ */
+const allowDev =
+  (process.env.NODE_ENV !== 'production') ||
+  (String(process.env.ALLOW_DEV_ROUTES || '').toLowerCase() === 'true');
+if (allowDev) {
+  try { console.warn('[routes] Dev routes ENABLED'); } catch {}
+  app.use('/api/dev', require('./routes/dev.routes'));
+} else {
+  try { console.warn('[routes] Dev routes DISABLED (set ALLOW_DEV_ROUTES=true to enable)'); } catch {}
+}
 
 /**
  * Public API routes
