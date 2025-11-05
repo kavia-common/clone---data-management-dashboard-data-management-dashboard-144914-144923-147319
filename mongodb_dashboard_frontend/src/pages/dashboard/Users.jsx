@@ -3,6 +3,7 @@ import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
+import ActiveUsersList from "../../components/users/ActiveUsersList.jsx";
 
 
 export default function Users() {
@@ -109,6 +110,16 @@ export default function Users() {
             <UsersDepartmentChart variant="bar" height={340} />
           </div>
         </div>
+      </div>
+
+      {/* Active Users List */}
+      <div style={{ marginBottom: 12 }}>
+        <ActiveUsersList
+          page={1}
+          limit={20}
+          sort="-created_at"
+          onRowClick={handleUserSelect}
+        />
       </div>
 
       {/* Users List */}
