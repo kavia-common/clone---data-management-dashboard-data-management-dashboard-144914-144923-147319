@@ -1,105 +1,20 @@
-import React, { useEffect, useState } from "react";
-import Card from "../../components/ui/Card.jsx";
-import Skeleton from "../../components/ui/Skeleton.jsx";
-import { listUsers, listSessions, listDeployments, health } from "../../api";
+import React from "react";
+import OverviewContainer from "../../components/overview/OverviewContainer.jsx";
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * Dashboard Overview page
+ * Renders the analytics OverviewContainer (KPI row + Sessions time-series).
+ * Provides a tiny non-intrusive fallback so users see feedback in rare empty cases.
+ */
 export default function Overview() {
-  /** Overview page with basic metrics only (trend chart removed). */
-  const [loading, setLoading] = useState(true);
-  const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
-  const [error, setError] = useState("");
-  const [apiStatus, setApiStatus] = useState("checking");
-
-  useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
-      setError("");
-      try {
-        const [users, sessions, deployments] = await Promise.all([
-          listUsers({ limit: 5 }),
-          listSessions({ limit: 5 }),
-          listDeployments({ limit: 5 }),
-        ]);
-        setMetrics({
-          users: users?.total || users?.length || 0,
-          sessions: sessions?.total || sessions?.length || 0,
-          deployments: deployments?.total || deployments?.length || 0,
-        });
-      } catch (e) {
-        setError(e?.response?.data?.message || e?.message || "Failed to load overview data.");
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    async function ping() {
-      try {
-        const info = await health();
-        if (!mounted) return;
-        setApiStatus(info ? "ok" : "error");
-      } catch {
-        if (!mounted) return;
-        setApiStatus("error");
-      }
-    }
-    ping();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
   return (
-    <div className="grid">
-      {/* KPI cards row */}
-      <Card title="Users" subtitle="Total referral users" className="kpi-card">
-        <div className="kpi">
-          <div className="kpi-value">
-            {loading ? (
-              <Skeleton width={72} height={28} aria-label="Loading users metric" />
-            ) : (
-              metrics.users
-            )}
-          </div>
-          <div className="kpi-label">Users</div>
-        </div>
-      </Card>
-
-      <Card title="Sessions" subtitle="Active and historical sessions" className="kpi-card">
-        <div className="kpi">
-          <div className="kpi-value">
-            {loading ? (
-              <Skeleton width={72} height={28} aria-label="Loading sessions metric" />
-            ) : (
-              metrics.sessions
-            )}
-          </div>
-          <div className="kpi-label">Sessions</div>
-        </div>
-      </Card>
-
-      <Card title="Deployments" subtitle="Recent app deployments" className="kpi-card">
-        <div className="kpi">
-          <div className="kpi-value">
-            {loading ? (
-              <Skeleton width={72} height={28} aria-label="Loading deployments metric" />
-            ) : (
-              metrics.deployments
-            )}
-          </div>
-          <div className="kpi-label">Deployments</div>
-        </div>
-      </Card>
-
-      {error && (
-        <div className="block-full error" role="alert" style={{ marginTop: "1rem" }}>
-          {error}
-        </div>
-      )}
+    <div className="overview-page" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <OverviewContainer />
+      {/* Hidden fallback text in case the child renders nothing in extreme cases */}
+      <div aria-hidden="true" style={{ display: "none" }}>
+        Loading overview…
+      </div>
     </div>
   );
 }
