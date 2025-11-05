@@ -6,6 +6,7 @@ import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
 import ActiveUsersList from "../../components/users/ActiveUsersList.jsx";
 import ActiveUsersTrendChart from "../../components/charts/ActiveUsersTrendChart.jsx";
 import useActiveUsersTrend from "../../hooks/useActiveUsersTrend";
+import MostActiveUsersBarChart from "../../components/charts/MostActiveUsersBarChart.jsx";
 
 export default function Users() {
   const [open, setOpen] = useState(false);
@@ -116,6 +117,11 @@ export default function Users() {
           error={trendError}
           controls={trendControls}
         />
+      </div>
+
+      {/* Most Active Users Bar Chart */}
+      <div style={{ marginBottom: 12 }}>
+        <MostActiveUsersBarChart initialWindow={30} initialTopN={10} />
       </div>
 
       {/* Users by Department Chart */}

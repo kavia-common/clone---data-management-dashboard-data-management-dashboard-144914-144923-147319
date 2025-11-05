@@ -3,4 +3,5 @@ export { getApiClient, listUsers, listSessions, listDeployments, listLlmCosts, h
 export * from './baseClient';
 export * from './modulesClient';
 export * from './util';
+export * from './sessionTracking';
 
