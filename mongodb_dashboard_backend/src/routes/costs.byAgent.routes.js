@@ -1,9 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { bearerAuthAttach } = require('../middleware/jwtAuth');
 const router = express.Router();
-router.use(bearerAuthAttach());
 const { asyncHandler } = require('../utils/http');
 const { getCollection } = require('../config/db');
 

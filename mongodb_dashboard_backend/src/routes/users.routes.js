@@ -7,13 +7,9 @@ const SessionTracking = require('../models/sessionTracking.model');
 const Tenant = require('../models/tenant.model');
 const { getReferralSources } = require('../controllers/users.analytics.controller');
 const mongoose = require('mongoose');
-const { bearerAuthAttach } = require('../middleware/jwtAuth');
 
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
-
-// Attach auth to ensure /api/users CRUD and list are protected
-router.use(bearerAuthAttach());
 
 // Simple in-memory cache for tenant summary (5 minutes TTL)
 const TENANT_SUMMARY_CACHE = new Map();

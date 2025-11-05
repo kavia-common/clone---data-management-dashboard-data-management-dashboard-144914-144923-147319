@@ -2,14 +2,12 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const LLMCost = require('../models/llmCosts.model');
-const { bearerAuthAttach } = require('../middleware/jwtAuth');
 
 const router = express.Router();
-// Require auth for all LLMCosts endpoints
-router.use(bearerAuthAttach());
-
 // Default sort by most recent cost first
 const controller = buildCrudController(LLMCost, '-timestamp');
+
+
 
 /**
  * @swagger

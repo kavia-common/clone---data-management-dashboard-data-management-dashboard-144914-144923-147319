@@ -1,12 +1,10 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
-const { bearerAuthAttach } = require('../middleware/jwtAuth');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 
 const router = express.Router();
-router.use(bearerAuthAttach());
 const controller = buildCrudController(SessionTracking, '-session_start');
 
 // In-memory TTL cache for distinct endpoints
