@@ -4,7 +4,58 @@ const { asyncHandler } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const AppDeployment = require('../models/appDeployments.model');
 const User = require('../models/user.model');
-const Sample = require('../models/sample.model');
+let Sample;
+try {
+  // Prefer a real model if present
+  // eslint-disable-next-line global-require
+  Sample = require('../models/sample.model');
+} catch (e) {
+  // Create a minimal stub model when sample.model is not available
+  // This prevents startup crashes in dev-only routes.
+  try {
+    const { Schema, model } = require('mongoose');
+    const sampleSchema = new Schema(
+      {
+        name: { type: String },
+        value: Schema.Types.Mixed,
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+      },
+      { collection: 'sample' }
+    );
+    Sample = model('Sample', sampleSchema);
+    // eslint-disable-next-line no-console
+    console.warn('[dev.routes] Using in-memory Sample model stub (no file ../models/sample.model)');
+  } catch (err) {
+    // As a last resort, simulate a limited API to avoid crashes in route handlers
+    // Methods used below: countDocuments, insertMany, findOne, find, sort, lean, limit
+    const inMem = [];
+    Sample = {
+      async countDocuments() { return inMem.length; },
+      async insertMany(docs) {
+        const now = new Date();
+        const normalized = docs.map(d => ({ _id: `${Date.now()}-${Math.random()}`, updated_at: now, ...d }));
+        inMem.push(...normalized);
+        return normalized;
+      },
+      findOne() {
+        const obj = inMem[inMem.length - 1] || null;
+        return {
+          sort() { return this; },
+          lean() { return Promise.resolve(obj); },
+        };
+      },
+      find() {
+        return {
+          limit() { return this; },
+          lean() { return Promise.resolve(inMem.slice(0, 3)); },
+        };
+      },
+    };
+    // eslint-disable-next-line no-console
+    console.warn('[dev.routes] Using ultra-minimal in-memory Sample stub (no mongoose available)');
+  }
+}
 const Tenant = require('../models/tenant.model');
 const Project = require('../models/project.model');
 const LLMCost = require('../models/llmCosts.model');
@@ -46,10 +97,11 @@ router.get('/db-status', asyncHandler(async (req, res) => {
   const conn = mongoose.connection;
   let host = 'unknown-host';
   try {
-    const uri = process.env.MONGODB_URI ||
-      'mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData';
-    const parsed = new URL(uri);
-    host = parsed.hostname || host;
+    const uri = process.env.MONGODB_URI || '';
+    if (uri) {
+      const parsed = new URL(uri);
+      host = parsed.hostname || host;
+    }
   } catch {
     // ignore
   }
