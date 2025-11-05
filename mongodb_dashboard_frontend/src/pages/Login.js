@@ -74,13 +74,13 @@ export default function Login() {
     }
     setLoadingLogin(true);
     try {
-      const { token, tenant_id } = await loginWithOrgEmailPassword({
+      const { token } = await loginWithOrgEmailPassword({
         organizationId: selectedOrgId,
         email,
         password,
       });
-      // Persist session via context provider and store tenant
-      login(token || null, { tenant_id });
+      // Persist session via context provider
+      login(token || null);
       const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
       navigate(from, { replace: true });
     } catch (e) {

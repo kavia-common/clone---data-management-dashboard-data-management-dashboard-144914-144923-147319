@@ -33,12 +33,7 @@ export async function fetchUserOrganizationsByEmail(email) {
   throw err;
 }
 
-/**
- * PUBLIC_INTERFACE
- * loginWithOrgEmailPassword
- * Performs login and returns { token, payload, tenant_id }.
- * The backend may include tenant_id in its JSON response; if not present, fall back to STATIC_ORGANIZATION_ID.
- */
+// PUBLIC_INTERFACE
 export async function loginWithOrgEmailPassword({ email, password }) {
   if (!email) throw new Error("email is required");
   if (!password) throw new Error("password is required");
@@ -111,10 +106,5 @@ export async function loginWithOrgEmailPassword({ email, password }) {
     token = payload.token || payload.access_token;
   }
 
-  // Extract tenant_id if provided, otherwise fall back to organization_id used
-  const tenant_id =
-    (payload && (payload.tenant_id || payload.organization_id)) ||
-    organization_id;
-
-  return { token, payload, tenant_id };
+  return { token, payload };
 }

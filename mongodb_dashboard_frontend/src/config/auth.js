@@ -26,18 +26,10 @@ export function getStoredAuth() {
   }
 }
 
-export function saveAuthSession(token, extra = {}) {
-  const base = token ? { loggedIn: true, token } : { loggedIn: true };
-  const data = { ...base, ...extra };
+export function saveAuthSession(token) {
+  const data = token ? { loggedIn: true, token } : { loggedIn: true };
   try {
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
-    // If tenant_id is present, mirror to activeTenant
-    if (extra && extra.tenant_id) {
-      try {
-        localStorage.setItem('activeTenant', String(extra.tenant_id));
-        localStorage.removeItem('activeTenantId');
-      } catch { /* no-op */ }
-    }
   } catch (e) {
     console.warn("Failed to store auth session:", e);
   }

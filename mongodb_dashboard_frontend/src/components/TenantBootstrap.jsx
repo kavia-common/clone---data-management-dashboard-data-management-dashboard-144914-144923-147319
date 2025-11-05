@@ -62,8 +62,33 @@ export default function TenantBootstrap() {
           return;
         }
 
-        // No active tenant: we no longer list all tenants. We defer to selector screen,
-        // which will render only the stored/single tenant if available.
+        // No active tenant: fetch and decide
+        const tenants = await fetchSessionTenants();
+        if (cancelled) return;
+
+        const count = Array.isArray(tenants) ? tenants.length : 0;
+
+        if (count <= 0) {
+          navigate('/tenant/select', { replace: true, state: { empty: true } });
+          return;
+        }
+
+        if (count === 1) {
+          const tid = normalizeTenantId(tenants[0]);
+          if (tid) {
+            try {
+              await selectTenant(tid, 'auto-select:single-tenant');
+              if (!cancelled) navigate('/dashboard/overview', { replace: true });
+            } catch (postErr) {
+              // eslint-disable-next-line no-console
+              if (process.env.NODE_ENV !== 'production') console.warn('Tenant auto-select failed', postErr);
+              if (!cancelled) navigate('/tenant/select', { replace: true });
+            }
+            return;
+          }
+        }
+
+        // Multiple tenants or invalid id → tenant selector
         navigate('/tenant/select', { replace: true });
       } catch (e) {
         // On error, fail open to the selector
