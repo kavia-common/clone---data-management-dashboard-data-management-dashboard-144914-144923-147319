@@ -10,40 +10,33 @@ const { startOfDayUTC, addDaysUTC, formatYYYYMMDD } = require('../utils/date');
  *
  * Query params:
  * - range: 7d | 30d | 12w | 12m
- * - bucket: daily | weekly | monthly
+ * - metric: sessions | activeUsers | deployments | errorRate | llmCost (optional selector for series; default sessions)
  *
  * Response:
  *  {
- *    kpis: { total, created, updated, deleted },
- *    series: [{ t, value }],
+ *    kpis: { activeUsers, sessions, deploySuccessRate, errorRate, totalLlmCost, avgCostPerSession },
+ *    series: [{ t, sessions, activeUsers?, deployments?, errorRate?, llmCost? }],
  *    meta: { bucket, range }
  *  }
  *
  * Notes:
- * - Aggregates over a generic "events" style data model when available:
- *   tries to infer collections and fields:
- *     - Primary collections attempted: ['audit_log', 'auditLog', 'audit_logs', 'events', 'records', 'session_tracking']
- *     - Timestamps considered: ['created_at','createdAt','timestamp','last_updated','updated_at','updatedAt','session_start']
- *     - Operation hints: ['operation','action','event_type','type','status'] with values including created/updated/deleted when present.
- * - If DB is not connected or collections are absent, responds with a zero-filled time series for the requested range/bucket.
+ * - Computes KPIs from existing collections when available:
+ *   - session_tracking: counts sessions in range (by session_start or last_updated), distinct active users, errorRate from status=failed.
+ *   - app_deployments: deploySuccessRate = successes/total in range (status success/failed).
+ *   - llm_costs: sum total_cost for range; avgCostPerSession = totalCost / max(1, sessionsRangeCount)
+ * - If DB is not connected or collections are absent, responds with zeros and a zero-filled time series.
  */
-
-// PUBLIC_INTERFACE
 async function computeOverviewAnalytics(req, res) {
   try {
-    const { range = '30d', bucket = 'daily' } = req.query;
+    const { range = '30d', metric = 'sessions' } = req.query;
 
     // Validate/normalize inputs
     const validRanges = new Set(['7d', '30d', '12w', '12m']);
-    const validBuckets = new Set(['daily', 'weekly', 'monthly']);
     const normRange = validRanges.has(range) ? range : '30d';
-    const normBucket = validBuckets.has(bucket) ? bucket : 'daily';
 
     // Resolve start-end based on range
     const now = new Date();
     let start = new Date(now);
-    let stepDays = 1;
-
     if (normRange === '7d') {
       start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     } else if (normRange === '30d') {
@@ -55,251 +48,383 @@ async function computeOverviewAnalytics(req, res) {
       start = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
     }
 
-    if (normBucket === 'daily') stepDays = 1;
-    else if (normBucket === 'weekly') stepDays = 7;
-    else if (normBucket === 'monthly') stepDays = 30; // approximate monthly bucket
+    // Bucket selection from range
+    let bucket = 'daily';
+    let stepDays = 1;
+    if (normRange === '12w') {
+      bucket = 'weekly';
+      stepDays = 7;
+    } else if (normRange === '12m') {
+      bucket = 'monthly';
+      stepDays = 30; // approximate monthly
+    }
 
     const periodStart = startOfDayUTC(start);
     const periodEnd = startOfDayUTC(now);
 
-    // Helper to produce empty series for resilience
+    // Helper: build empty series timeline keys
     const buildEmptySeries = () => {
       const points = [];
       let cursor = new Date(periodStart);
-      // Generate until we pass end (inclusive of last bucket start)
       while (cursor <= periodEnd) {
-        points.push({ t: formatYYYYMMDD(cursor), value: 0 });
+        let t;
+        if (bucket === 'daily') {
+          t = formatYYYYMMDD(cursor);
+        } else if (bucket === 'weekly') {
+          const y = cursor.getUTCFullYear();
+          const startOfYear = new Date(Date.UTC(y, 0, 1));
+          const diffDays = Math.floor((cursor - startOfYear) / (24 * 60 * 60 * 1000)) + 1;
+          const w = Math.max(1, Math.min(53, Math.ceil(diffDays / 7)));
+          t = `${String(y).padStart(4, '0')}-W${String(w).padStart(2, '0')}`;
+        } else {
+          const y = cursor.getUTCFullYear();
+          const m = String(cursor.getUTCMonth() + 1).padStart(2, '0');
+          t = `${String(y).padStart(4, '0')}-${m}`;
+        }
+        points.push({ t, sessions: 0, activeUsers: 0, deployments: 0, errorRate: 0, llmCost: 0 });
         cursor = addDaysUTC(cursor, stepDays);
       }
       return points;
     };
 
-    // If DB not connected, return empty series to keep UI functional
+    // If DB not connected, return empty series and zero KPIs
     if (!isDbConnected()) {
       return res.status(200).json({
-        kpis: { total: 0, created: 0, updated: 0, deleted: 0 },
-        series: buildEmptySeries(),
-        meta: { bucket: normBucket, range: normRange },
-      });
-    }
-
-    // Try to aggregate from plausible collections
-    const db = await getDb();
-
-    // Decide on candidate collection and fields
-    const candidateCollections = [
-      'audit_log',
-      'auditLog',
-      'audit_logs',
-      'events',
-      'records',
-      'session_tracking',
-    ];
-    const existing = await db.listCollections({}, { nameOnly: true }).toArray();
-    const existingNames = new Set(existing.map((c) => c.name));
-    const collectionName =
-      candidateCollections.find((n) => existingNames.has(n)) || null;
-
-    if (!collectionName) {
-      // Fallback - no known collection exists
-      return res.status(200).json({
-        kpis: { total: 0, created: 0, updated: 0, deleted: 0 },
-        series: buildEmptySeries(),
-        meta: { bucket: normBucket, range: normRange },
-      });
-    }
-
-    const col = db.collection(collectionName);
-
-    // Try to detect timestamp and operation fields
-    const timestampFields = [
-      'created_at',
-      'createdAt',
-      'timestamp',
-      'last_updated',
-      'updated_at',
-      'updatedAt',
-      'session_start',
-    ];
-    const opFields = ['operation', 'action', 'event_type', 'type', 'status'];
-
-    // Probe first document for field hints (best-effort)
-    const sample = await col.find({}).project({}).limit(1).toArray();
-    const sampleDoc = sample[0] || {};
-    const chosenTsField =
-      timestampFields.find((f) => Object.prototype.hasOwnProperty.call(sampleDoc, f)) ||
-      'created_at';
-    const chosenOpField =
-      opFields.find((f) => Object.prototype.hasOwnProperty.call(sampleDoc, f)) ||
-      null;
-
-    // Build $match for date range
-    const match = {
-      [chosenTsField]: {
-        $gte: periodStart,
-        $lte: new Date(periodEnd.getTime() + 24 * 60 * 60 * 1000 - 1), // include end day
-      },
-    };
-
-    // Build group id by bucket
-    let dateToParts = {
-      year: { $year: { date: `$${chosenTsField}`, timezone: 'UTC' } },
-      month: { $month: { date: `$${chosenTsField}`, timezone: 'UTC' } },
-      day: { $dayOfMonth: { date: `$${chosenTsField}`, timezone: 'UTC' } },
-    };
-
-    if (normBucket === 'weekly') {
-      // Use ISO week (approximation without $isoWeekYear/$isoWeek in older servers)
-      dateToParts = {
-        year: { $year: { date: `$${chosenTsField}`, timezone: 'UTC' } },
-        week: { $week: { date: `$${chosenTsField}`, timezone: 'UTC' } },
-      };
-    } else if (normBucket === 'monthly') {
-      dateToParts = {
-        year: { $year: { date: `$${chosenTsField}`, timezone: 'UTC' } },
-        month: { $month: { date: `$${chosenTsField}`, timezone: 'UTC' } },
-      };
-    }
-
-    const pipeline = [
-      { $match: match },
-      {
-        $group: {
-          _id: dateToParts,
-          count: { $sum: 1 },
-          ...(chosenOpField
-            ? {
-                created: {
-                  $sum: {
-                    $cond: [
-                      { $in: [{ $toLower: { $ifNull: [`$${chosenOpField}`, ''] } }, ['create', 'created', 'insert', 'inserted']] },
-                      1,
-                      0,
-                    ],
-                  },
-                },
-                updated: {
-                  $sum: {
-                    $cond: [
-                      { $in: [{ $toLower: { $ifNull: [`$${chosenOpField}`, ''] } }, ['update', 'updated', 'modify', 'modified']] },
-                      1,
-                      0,
-                    ],
-                  },
-                },
-                deleted: {
-                  $sum: {
-                    $cond: [
-                      { $in: [{ $toLower: { $ifNull: [`$${chosenOpField}`, ''] } }, ['delete', 'deleted', 'remove', 'removed']] },
-                      1,
-                      0,
-                    ],
-                  },
-                },
-              }
-            : {}),
+        kpis: {
+          activeUsers: 0,
+          sessions: 0,
+          deploySuccessRate: 0,
+          errorRate: 0,
+          totalLlmCost: 0,
+          avgCostPerSession: 0,
         },
-      },
-      { $sort: { '_id.year': 1, '_id.month': 1, '_id.week': 1, '_id.day': 1 } },
-    ];
-
-    const raw = await col.aggregate(pipeline, { allowDiskUse: true }).toArray();
-
-    // Build map for quick lookups
-    const byKey = new Map();
-    let kpiCreated = 0;
-    let kpiUpdated = 0;
-    let kpiDeleted = 0;
-    let kpiTotal = 0;
-
-    for (const r of raw) {
-      let keyDateStr = '';
-      if (normBucket === 'daily') {
-        const y = r._id.year;
-        const m = r._id.month;
-        const d = r._id.day;
-        keyDateStr = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      } else if (normBucket === 'weekly') {
-        const y = r._id.year;
-        const w = r._id.week;
-        // Represent as first day of that week (approx): year-week -> convert to a pseudo-date string
-        keyDateStr = `${String(y).padStart(4, '0')}-W${String(w).padStart(2, '0')}`;
-      } else {
-        // monthly
-        const y = r._id.year;
-        const m = r._id.month;
-        keyDateStr = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}`;
-      }
-
-      const value = r.count || 0;
-      byKey.set(keyDateStr, value);
-
-      kpiTotal += value;
-      if (typeof r.created === 'number') kpiCreated += r.created;
-      if (typeof r.updated === 'number') kpiUpdated += r.updated;
-      if (typeof r.deleted === 'number') kpiDeleted += r.deleted;
+        series: buildEmptySeries(),
+        meta: { bucket, range: normRange },
+      });
     }
 
-    // Generate full series with zeros for missing points
-    const series = [];
-    let cursor = new Date(periodStart);
-    while (cursor <= periodEnd) {
-      if (normBucket === 'daily') {
-        const t = formatYYYYMMDD(cursor);
-        series.push({ t, value: byKey.get(t) || 0 });
-        cursor = addDaysUTC(cursor, stepDays);
-      } else if (normBucket === 'weekly') {
-        // For weekly, format t as YYYY-Www using ISO-like pattern
-        const y = cursor.getUTCFullYear();
-        // approximate: week number by using /7 from day of year
-        const startOfYear = new Date(Date.UTC(y, 0, 1));
-        const diffDays = Math.floor((cursor - startOfYear) / (24 * 60 * 60 * 1000)) + 1;
-        const w = Math.max(1, Math.min(53, Math.ceil(diffDays / 7)));
-        const key = `${String(y).padStart(4, '0')}-W${String(w).padStart(2, '0')}`;
-        series.push({ t: key, value: byKey.get(key) || 0 });
-        cursor = addDaysUTC(cursor, stepDays);
+    const db = await getDb();
+    const collections = await db.listCollections({}, { nameOnly: true }).toArray();
+    const names = new Set(collections.map((c) => c.name));
+
+    const hasSessions = names.has('session_tracking');
+    const hasDeployments = names.has('app_deployments');
+    const hasLlmCosts = names.has('llm_costs');
+
+    // Aggregations with graceful fallbacks
+    let sessionsTotal = 0;
+    let errorSessions = 0;
+    let uniqueUsers = 0;
+    let deployTotal = 0;
+    let deploySuccess = 0;
+    let totalLlmCost = 0;
+
+    const dateUpperInclusive = new Date(periodEnd.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+    // Sessions + Active Users + Error Rate
+    if (hasSessions) {
+      const col = db.collection('session_tracking');
+
+      // Count sessions by bucket and distinct users by bucket
+      // Build base match
+      const match = {
+        $and: [
+          {
+            $or: [
+              { session_start: { $gte: periodStart, $lte: dateUpperInclusive } },
+              { last_updated: { $gte: periodStart, $lte: dateUpperInclusive } },
+              { created_at: { $gte: periodStart, $lte: dateUpperInclusive } },
+            ],
+          },
+        ],
+      };
+
+      // Total sessions in range
+      sessionsTotal = await col.countDocuments(match).catch(() => 0);
+
+      // Error sessions in range
+      errorSessions = await col.countDocuments({ ...match, status: 'failed' }).catch(() => 0);
+
+      // Distinct active users in range
+      const userIds = await col.distinct('user_id', match).catch(() => []);
+      uniqueUsers = Array.isArray(userIds) ? userIds.length : 0;
+    }
+
+    // Deployments success rate
+    if (hasDeployments) {
+      const col = db.collection('app_deployments');
+      const match = { created_at: { $gte: periodStart, $lte: dateUpperInclusive } };
+      deployTotal = await col.countDocuments(match).catch(() => 0);
+      deploySuccess = await col.countDocuments({ ...match, status: 'success' }).catch(() => 0);
+    }
+
+    // LLM total costs
+    if (hasLlmCosts) {
+      const col = db.collection('llm_costs');
+      const match = {
+        $or: [
+          { timestamp: { $gte: periodStart, $lte: dateUpperInclusive } },
+          { created_at: { $gte: periodStart, $lte: dateUpperInclusive } },
+        ],
+      };
+      const agg = await col
+        .aggregate([{ $match: match }, { $group: { _id: null, total: { $sum: '$total_cost' } } }])
+        .toArray()
+        .catch(() => []);
+      totalLlmCost = agg?.[0]?.total || 0;
+    }
+
+    const errorRate = sessionsTotal > 0 ? errorSessions / sessionsTotal : 0;
+    const deploySuccessRate = deployTotal > 0 ? deploySuccess / deployTotal : 0;
+    const avgCostPerSession = sessionsTotal > 0 ? totalLlmCost / sessionsTotal : 0;
+
+    // Build time series keyed map for buckets
+    const seriesMap = new Map();
+    for (const pt of buildEmptySeries()) {
+      seriesMap.set(pt.t, { ...pt });
+    }
+
+    // Fill series from collections when available
+    // Sessions per bucket
+    if (hasSessions) {
+      const col = db.collection('session_tracking');
+      // Determine date field preference
+      const dateField = 'last_updated';
+      const match = {
+        [dateField]: { $gte: periodStart, $lte: dateUpperInclusive },
+      };
+
+      let idExpr;
+      if (bucket === 'daily') {
+        idExpr = {
+          y: { $year: { date: `$${dateField}`, timezone: 'UTC' } },
+          m: { $month: { date: `$${dateField}`, timezone: 'UTC' } },
+          d: { $dayOfMonth: { date: `$${dateField}`, timezone: 'UTC' } },
+        };
+      } else if (bucket === 'weekly') {
+        idExpr = {
+          y: { $year: { date: `$${dateField}`, timezone: 'UTC' } },
+          w: { $week: { date: `$${dateField}`, timezone: 'UTC' } },
+        };
       } else {
-        // monthly key YYYY-MM
-        const y = cursor.getUTCFullYear();
-        const m = String(cursor.getUTCMonth() + 1).padStart(2, '0');
-        const key = `${String(y).padStart(4, '0')}-${m}`;
-        series.push({ t: key, value: byKey.get(key) || 0 });
-        cursor = addDaysUTC(cursor, stepDays);
+        idExpr = {
+          y: { $year: { date: `$${dateField}`, timezone: 'UTC' } },
+          m: { $month: { date: `$${dateField}`, timezone: 'UTC' } },
+        };
+      }
+
+      const sessAgg = await col
+        .aggregate([
+          { $match: match },
+          { $group: { _id: idExpr, count: { $sum: 1 }, users: { $addToSet: '$user_id' } } },
+          { $sort: { '_id.y': 1, '_id.m': 1, '_id.w': 1, '_id.d': 1 } },
+        ])
+        .toArray()
+        .catch(() => []);
+
+      for (const r of sessAgg) {
+        let key;
+        if (bucket === 'daily') {
+          key = `${String(r._id.y).padStart(4, '0')}-${String(r._id.m).padStart(2, '0')}-${String(r._id.d).padStart(2, '0')}`;
+        } else if (bucket === 'weekly') {
+          key = `${String(r._id.y).padStart(4, '0')}-W${String(r._id.w).padStart(2, '0')}`;
+        } else {
+          key = `${String(r._id.y).padStart(4, '0')}-${String(r._id.m).padStart(2, '0')}`;
+        }
+        const curr = seriesMap.get(key) || { t: key };
+        curr.sessions = (curr.sessions || 0) + (r.count || 0);
+        curr.activeUsers = (curr.activeUsers || 0) + (Array.isArray(r.users) ? r.users.length : 0);
+        seriesMap.set(key, curr);
+      }
+
+      // Error rate per bucket (failed / total)
+      const errAgg = await col
+        .aggregate([
+          { $match: match },
+          {
+            $group: {
+              _id: idExpr,
+              total: { $sum: 1 },
+              failed: {
+                $sum: {
+                  $cond: [{ $eq: ['$status', 'failed'] }, 1, 0],
+                },
+              },
+            },
+          },
+          { $sort: { '_id.y': 1, '_id.m': 1, '_id.w': 1, '_id.d': 1 } },
+        ])
+        .toArray()
+        .catch(() => []);
+      for (const r of errAgg) {
+        let key;
+        if (bucket === 'daily') {
+          key = `${String(r._id.y).padStart(4, '0')}-${String(r._id.m).padStart(2, '0')}-${String(r._id.d).padStart(2, '0')}`;
+        } else if (bucket === 'weekly') {
+          key = `${String(r._id.y).padStart(4, '0')}-W${String(r._id.w).padStart(2, '0')}`;
+        } else {
+          key = `${String(r._id.y).padStart(4, '0')}-${String(r._id.m).padStart(2, '0')}`;
+        }
+        const curr = seriesMap.get(key) || { t: key };
+        const total = r.total || 0;
+        const failed = r.failed || 0;
+        curr.errorRate = total > 0 ? failed / total : 0;
+        seriesMap.set(key, curr);
       }
     }
+
+    // Deployments per bucket and success rate (optional)
+    if (hasDeployments) {
+      const col = db.collection('app_deployments');
+      const dateField = 'created_at';
+      const match = {
+        [dateField]: { $gte: periodStart, $lte: dateUpperInclusive },
+      };
+      let idExpr;
+      if (bucket === 'daily') {
+        idExpr = {
+          y: { $year: { date: `$${dateField}`, timezone: 'UTC' } },
+          m: { $month: { date: `$${dateField}`, timezone: 'UTC' } },
+          d: { $dayOfMonth: { date: `$${dateField}`, timezone: 'UTC' } },
+        };
+      } else if (bucket === 'weekly') {
+        idExpr = {
+          y: { $year: { date: `$${dateField}`, timezone: 'UTC' } },
+          w: { $week: { date: `$${dateField}`, timezone: 'UTC' } },
+        };
+      } else {
+        idExpr = {
+          y: { $year: { date: `$${dateField}`, timezone: 'UTC' } },
+          m: { $month: { date: `$${dateField}`, timezone: 'UTC' } },
+        };
+      }
+
+      const depAgg = await col
+        .aggregate([
+          { $match: match },
+          {
+            $group: {
+              _id: idExpr,
+              total: { $sum: 1 },
+              success: {
+                $sum: {
+                  $cond: [{ $eq: ['$status', 'success'] }, 1, 0],
+                },
+              },
+            },
+          },
+          { $sort: { '_id.y': 1, '_id.m': 1, '_id.w': 1, '_id.d': 1 } },
+        ])
+        .toArray()
+        .catch(() => []);
+
+      for (const r of depAgg) {
+        let key;
+        if (bucket === 'daily') {
+          key = `${String(r._id.y).padStart(4, '0')}-${String(r._id.m).padStart(2, '0')}-${String(r._id.d).padStart(2, '0')}`;
+        } else if (bucket === 'weekly') {
+          key = `${String(r._id.y).padStart(4, '0')}-W${String(r._id.w).padStart(2, '0')}`;
+        } else {
+          key = `${String(r._id.y).padStart(4, '0')}-${String(r._id.m).padStart(2, '0')}`;
+        }
+        const curr = seriesMap.get(key) || { t: key };
+        curr.deployments = (curr.deployments || 0) + (r.total || 0);
+        // We keep success rate only as KPI; per-point success rate is optional and omitted for simplicity
+        seriesMap.set(key, curr);
+      }
+    }
+
+    // LLM Cost per bucket (sum)
+    if (hasLlmCosts) {
+      const col = db.collection('llm_costs');
+      const dateField = 'timestamp';
+      const match = {
+        $or: [
+          { [dateField]: { $gte: periodStart, $lte: dateUpperInclusive } },
+          { created_at: { $gte: periodStart, $lte: dateUpperInclusive } },
+        ],
+      };
+      let idExpr;
+      if (bucket === 'daily') {
+        idExpr = {
+          y: { $year: { date: `$${dateField}`, timezone: 'UTC' } },
+          m: { $month: { date: `$${dateField}`, timezone: 'UTC' } },
+          d: { $dayOfMonth: { date: `$${dateField}`, timezone: 'UTC' } },
+        };
+      } else if (bucket === 'weekly') {
+        idExpr = {
+          y: { $year: { date: `$${dateField}`, timezone: 'UTC' } },
+          w: { $week: { date: `$${dateField}`, timezone: 'UTC' } },
+        };
+      } else {
+        idExpr = {
+          y: { $year: { date: `$${dateField}`, timezone: 'UTC' } },
+          m: { $month: { date: `$${dateField}`, timezone: 'UTC' } },
+        };
+      }
+      const costAgg = await col
+        .aggregate([
+          { $match: match },
+          { $group: { _id: idExpr, total: { $sum: '$total_cost' } } },
+          { $sort: { '_id.y': 1, '_id.m': 1, '_id.w': 1, '_id.d': 1 } },
+        ])
+        .toArray()
+        .catch(() => []);
+      for (const r of costAgg) {
+        let key;
+        if (bucket === 'daily') {
+          key = `${String(r._id.y).padStart(4, '0')}-${String(r._id.m).padStart(2, '0')}-${String(r._id.d).padStart(2, '0')}`;
+        } else if (bucket === 'weekly') {
+          key = `${String(r._id.y).padStart(4, '0')}-W${String(r._id.w).padStart(2, '0')}`;
+        } else {
+          key = `${String(r._id.y).padStart(4, '0')}-${String(r._id.m).padStart(2, '0')}`;
+        }
+        const curr = seriesMap.get(key) || { t: key };
+        curr.llmCost = (curr.llmCost || 0) + (r.total || 0);
+        seriesMap.set(key, curr);
+      }
+    }
+
+    const series = Array.from(seriesMap.values());
 
     return res.status(200).json({
       kpis: {
-        total: kpiTotal,
-        created: kpiCreated,
-        updated: kpiUpdated,
-        deleted: kpiDeleted,
+        activeUsers: uniqueUsers,
+        sessions: sessionsTotal,
+        deploySuccessRate,
+        errorRate,
+        totalLlmCost,
+        avgCostPerSession,
       },
       series,
-      meta: { bucket: normBucket, range: normRange },
+      meta: { range: normRange, bucket },
     });
   } catch (err) {
-    // On any failure, provide safe empty series to avoid UI "Failed to fetch"
     // eslint-disable-next-line no-console
     console.error('[analytics.overview] error:', err?.message || err);
-    // Default to daily/30d fallbacks if query parsing failed earlier
+    // Fallback with safe zeros
     const now = new Date();
     const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const series = [];
     let cursor = startOfDayUTC(start);
     const end = startOfDayUTC(now);
     while (cursor <= end) {
-      series.push({ t: formatYYYYMMDD(cursor), value: 0 });
+      series.push({ t: formatYYYYMMDD(cursor), sessions: 0, activeUsers: 0, deployments: 0, errorRate: 0, llmCost: 0 });
       cursor = addDaysUTC(cursor, 1);
     }
     return res.status(200).json({
-      kpis: { total: 0, created: 0, updated: 0, deleted: 0 },
+      kpis: {
+        activeUsers: 0,
+        sessions: 0,
+        deploySuccessRate: 0,
+        errorRate: 0,
+        totalLlmCost: 0,
+        avgCostPerSession: 0,
+      },
       series,
       meta: { bucket: 'daily', range: '30d' },
     });
   }
 }
 
-module.exports = {
-  computeOverviewAnalytics,
-};
+module.exports = { computeOverviewAnalytics };
