@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
+import SummaryPanel from "../../components/overview/SummaryPanel.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
 
 
@@ -12,6 +13,10 @@ export default function Overview() {
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
   const [trend, setTrend] = useState([]);
+  // For compatibility with SummaryPanel expecting buckets with label/value (and optional per-service series),
+  // we mirror the trend array into a buckets-like structure. If a richer service breakdown exists in future,
+  // it can be attached to these bucket items under 'services'.
+  const buckets = trend;
   const [error, setError] = useState("");
   const [apiStatus, setApiStatus] = useState("checking");
 
@@ -98,6 +103,11 @@ export default function Overview() {
         </div>
       </Card>
 
+
+      {/* Summary Panel above Weekly activity */}
+      <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
+        <SummaryPanel buckets={buckets} loading={loading} />
+      </div>
 
       {/* Full-width trend row aligned to the right by spanning all columns */}
       <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
