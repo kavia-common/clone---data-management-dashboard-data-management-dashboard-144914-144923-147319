@@ -2,10 +2,12 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
-const { buildCrudController } = require('../controllers/crudFactory');
+const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
 
 const router = express.Router();
-const controller = buildCrudController(SessionTracking, '-session_start');
+const { verifyAuth } = require('../middleware/verifyAuth');
+const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
+const controller = buildTenantCrudController(SessionTracking, '-session_start');
 
 // In-memory TTL cache for distinct endpoints
 const DISTINCT_TTL_MS = 60 * 1000; // 60s short-lived cache
@@ -165,6 +167,8 @@ function slSet(key, payload) {
 // PUBLIC_INTERFACE
 router.get(
   '/',
+  verifyAuth,
+  requireTenantMw,
   asyncHandler(async (req, res) => {
     // Parse pagination and filter (support pageSize alias for limit)
     const rawQuery = { ...req.query };
@@ -322,7 +326,7 @@ router.get(
  *       404: { description: Not found }
  *       400: { description: Invalid id }
  */
-router.get('/:id', asyncHandler(controller.getById));
+router.get('/:id', verifyAuth, requireTenantMw, asyncHandler(controller.getById));
 
 /**
  * @swagger
@@ -340,7 +344,7 @@ router.get('/:id', asyncHandler(controller.getById));
  *       422: { description: Validation failed }
  *       400: { description: Bad request }
  */
-router.post('/', asyncHandler(controller.create));
+router.post('/', verifyAuth, requireTenantMw, asyncHandler(controller.create));
 
 /**
  * @swagger
@@ -364,7 +368,7 @@ router.post('/', asyncHandler(controller.create));
  *       400: { description: Invalid id or payload }
  *       422: { description: Validation failed }
  */
-router.put('/:id', asyncHandler(controller.update));
+router.put('/:id', verifyAuth, requireTenantMw, asyncHandler(controller.update));
 
 /**
  * @swagger
@@ -382,7 +386,7 @@ router.put('/:id', asyncHandler(controller.update));
  *       404: { description: Not found }
  *       400: { description: Invalid id }
  */
-router.delete('/:id', asyncHandler(controller.remove));
+router.delete('/:id', verifyAuth, requireTenantMw, asyncHandler(controller.remove));
 
 /**
  * Simple in-memory cache with TTL for aggregation responses.

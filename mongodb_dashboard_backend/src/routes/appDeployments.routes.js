@@ -1,12 +1,14 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const AppDeployment = require('../models/appDeployments.model');
-const { buildCrudController } = require('../controllers/crudFactory');
+const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
 const { validateAppDeployment } = require('../middleware/validators');
 const { normalizeProjectId } = require('../services/enrichment.util');
 
 const router = express.Router();
-const controller = buildCrudController(AppDeployment, '-created_at');
+const { verifyAuth } = require('../middleware/verifyAuth');
+const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
+const controller = buildTenantCrudController(AppDeployment, '-created_at');
 
 /**
  * Lightweight in-memory cache for projectId -> projectName lookups.
@@ -98,7 +100,7 @@ function extractNormalizedProjectId(payload) {
  *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400: { description: Invalid filter }
  */
-router.get('/', asyncHandler(controller.list));
+router.get('/', verifyAuth, requireTenantMw, asyncHandler(controller.list));
 
 /**
  * @swagger
@@ -208,7 +210,7 @@ router.get(
  *       404: { description: Not found }
  *       400: { description: Invalid id }
  */
-router.get('/:id', asyncHandler(controller.getById));
+router.get('/:id', verifyAuth, requireTenantMw, asyncHandler(controller.getById));
 
 /**
  * @swagger
@@ -228,6 +230,8 @@ router.get('/:id', asyncHandler(controller.getById));
  */
 router.post(
   '/',
+  verifyAuth,
+  requireTenantMw,
   validateAppDeployment,
   asyncHandler(async (req, res) => {
     // Invalidation note:
@@ -267,6 +271,8 @@ router.post(
  */
 router.put(
   '/:id',
+  verifyAuth,
+  requireTenantMw,
   validateAppDeployment,
   asyncHandler(async (req, res) => {
     // Invalidate for projectId present in payload
@@ -308,6 +314,8 @@ router.put(
  */
 router.delete(
   '/:id',
+  verifyAuth,
+  requireTenantMw,
   asyncHandler(async (req, res) => {
     // Before delete, try to load the record to determine project id for invalidation
     const existing = await AppDeployment.findById(req.params.id, {

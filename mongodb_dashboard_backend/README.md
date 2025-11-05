@@ -19,6 +19,12 @@ CORS
 Key route to verify:
 - GET /api/users/active-trend (e.g., http://localhost:3001/api/users/active-trend)
 
+Multi-tenant enforcement:
+- All protected routes should use verifyAuth and requireTenant middlewares.
+- For Mongoose-based CRUD, prefer buildTenantCrudController(Model) from src/controllers/crudFactory.tenant.js.
+- For custom queries/aggregations, ensure every filter/pipeline starts with tenant_id from req.auth.tenantId.
+- Sample endpoints: see src/routes/tenantSample.routes.js.
+
 ## Authentication and Password Hashing (v1 → v2 migration)
 
 This backend implements a versioned password hashing strategy with per-organization salts.

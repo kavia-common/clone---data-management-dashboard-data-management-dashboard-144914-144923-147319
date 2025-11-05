@@ -1,11 +1,13 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
-const { buildCrudController } = require('../controllers/crudFactory');
+const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
 const LLMCost = require('../models/llmCosts.model');
 
 const router = express.Router();
 // Default sort by most recent cost first
-const controller = buildCrudController(LLMCost, '-timestamp');
+const { verifyAuth } = require('../middleware/verifyAuth');
+const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
+const controller = buildTenantCrudController(LLMCost, '-timestamp');
 
 
 
@@ -55,7 +57,7 @@ const controller = buildCrudController(LLMCost, '-timestamp');
  *       400:
  *         description: Invalid filter
  */
-router.get('/', asyncHandler(controller.list));
+router.get('/', verifyAuth, requireTenantMw, asyncHandler(controller.list));
 
 
 
@@ -75,7 +77,7 @@ router.get('/', asyncHandler(controller.list));
  *       404: { description: Not found }
  *       400: { description: Invalid id }
  */
-router.get('/:id', asyncHandler(controller.getById));
+router.get('/:id', verifyAuth, requireTenantMw, asyncHandler(controller.getById));
 
 /**
  * @swagger
@@ -93,7 +95,7 @@ router.get('/:id', asyncHandler(controller.getById));
  *       422: { description: Validation failed }
  *       400: { description: Bad request }
  */
-router.post('/', asyncHandler(controller.create));
+router.post('/', verifyAuth, requireTenantMw, asyncHandler(controller.create));
 
 /**
  * @swagger
@@ -117,7 +119,7 @@ router.post('/', asyncHandler(controller.create));
  *       400: { description: Invalid id or payload }
  *       422: { description: Validation failed }
  */
-router.put('/:id', asyncHandler(controller.update));
+router.put('/:id', verifyAuth, requireTenantMw, asyncHandler(controller.update));
 
 /**
  * @swagger
@@ -135,6 +137,6 @@ router.put('/:id', asyncHandler(controller.update));
  *       404: { description: Not found }
  *       400: { description: Invalid id }
  */
-router.delete('/:id', asyncHandler(controller.remove));
+router.delete('/:id', verifyAuth, requireTenantMw, asyncHandler(controller.remove));
 
 module.exports = router;

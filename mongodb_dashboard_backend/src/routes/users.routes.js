@@ -1,15 +1,17 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
-const { buildCrudController } = require('../controllers/crudFactory');
+const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
 const User = require('../models/user.model');
 const { getUserProjectsFromSessions } = require('../services/users.service');
 const SessionTracking = require('../models/sessionTracking.model');
 const Tenant = require('../models/tenant.model');
 const { getReferralSources } = require('../controllers/users.analytics.controller');
 const mongoose = require('mongoose');
+const { verifyAuth } = require('../middleware/verifyAuth');
+const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
 
 const router = express.Router();
-const controller = buildCrudController(User, '-created_at');
+const controller = buildTenantCrudController(User, '-created_at');
 
 // Simple in-memory cache for tenant summary (5 minutes TTL)
 const TENANT_SUMMARY_CACHE = new Map();
@@ -452,6 +454,8 @@ router.get(
 // PUBLIC_INTERFACE
 router.get(
   '/',
+  verifyAuth,
+  requireTenantMw,
   asyncHandler(async (req, res) => {
     // Determine pagination intent and parse filter/sort similar to controller logic
     const explicit =
@@ -619,6 +623,8 @@ router.get(
  */
 router.get(
   '/:id',
+  verifyAuth,
+  requireTenantMw,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const idStr = String(id);
@@ -728,7 +734,7 @@ router.get(
  *       400:
  *         description: Bad request
  */
-router.post('/', asyncHandler(controller.create));
+router.post('/', verifyAuth, requireTenantMw, asyncHandler(controller.create));
 
 /**
  * @swagger
@@ -756,7 +762,7 @@ router.post('/', asyncHandler(controller.create));
  *       422:
  *         description: Validation failed
  */
-router.put('/:id', asyncHandler(controller.update));
+router.put('/:id', verifyAuth, requireTenantMw, asyncHandler(controller.update));
 
 /**
  * @swagger
@@ -777,7 +783,7 @@ router.put('/:id', asyncHandler(controller.update));
  *       400:
  *         description: Invalid id
  */
-router.delete('/:id', asyncHandler(controller.remove));
+router.delete('/:id', verifyAuth, requireTenantMw, asyncHandler(controller.remove));
 
 /**
  * @swagger

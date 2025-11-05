@@ -50,4 +50,7 @@ router.use('/analytics', analyticsOverviewRoutes);
 // Counts endpoints mounted at top-level /api
 router.use('/', countsRoutes);
 
+// Sample tenant-scoped demo endpoints
+router.use('/', require('./tenantSample.routes'));
+
 module.exports = router;

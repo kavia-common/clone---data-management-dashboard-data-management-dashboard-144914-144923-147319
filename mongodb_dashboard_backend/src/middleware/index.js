@@ -1,4 +1,16 @@
-// This file will export middleware as the application grows
+'use strict';
+
+// Central export for all middlewares
 module.exports = {
-  // Add your middleware here
+  // Existing groups (some may be empty pass-throughs depending on project)
+  ...require('./auth'),
+  ...require('./jwtAuth'),
+  ...require('./security'),
+  ...require('./standardHandlers'),
+  ...require('./tenantContext'),
+  ...require('./validators'),
+
+  // Newly added tenant-aware auth middlewares
+  ...require('./verifyAuth'),
+  ...require('./requireTenant'),
 };
