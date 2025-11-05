@@ -3,6 +3,7 @@ const { getTenantSaltConfig, getTenantConfig } = require('../config/auth');
 const User = require('../models/user.model');
 const Tenant = require('../models/tenant.model');
 const { hashPassword, verifyAndMigrate, ensureTenantOrgSalt } = require('../utils/authHash');
+const { bearerAuthAttach } = require('../middleware/jwtAuth');
 
 const router = express.Router();
 // Note: This router is mounted at /api/auth in app.js, so endpoints are effective under /api/auth.
@@ -48,6 +49,30 @@ router.get('/health', (req, res) => {
     tenantSaltWarning,
     // do not expose salt; include safe metadata only
     length: typeof salt === 'string' ? salt.length : 0,
+  });
+});
+
+/**
+ * PUBLIC_INTERFACE
+ * @swagger
+ * /api/auth/me:
+ *   get:
+ *     summary: Return current user context
+ *     description: Returns the authenticated user context derived from the Authorization bearer token.
+ *     tags: [Auth]
+ *     responses:
+ *       200:
+ *         description: Current user
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/me', bearerAuthAttach(), (req, res) => {
+  const user = req.user || {};
+  return res.status(200).json({
+    tenant_id: user.tenant_id || null,
+    is_admin: !!user.is_admin,
+    email: user.email || null,
+    id: user.id || null,
   });
 });
 

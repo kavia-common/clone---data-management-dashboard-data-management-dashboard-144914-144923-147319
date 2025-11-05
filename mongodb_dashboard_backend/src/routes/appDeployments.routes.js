@@ -4,8 +4,12 @@ const AppDeployment = require('../models/appDeployments.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 const { validateAppDeployment } = require('../middleware/validators');
 const { normalizeProjectId } = require('../services/enrichment.util');
+const { bearerAuthAttach } = require('../middleware/jwtAuth');
 
 const router = express.Router();
+// Protect routes
+router.use(bearerAuthAttach());
+
 const controller = buildCrudController(AppDeployment, '-created_at');
 
 /**

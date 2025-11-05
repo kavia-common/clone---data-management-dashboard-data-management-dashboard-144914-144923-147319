@@ -2,11 +2,13 @@
 
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
+const { bearerAuthAttach } = require('../middleware/jwtAuth');
 const User = require('../models/user.model');
 const AppDeployment = require('../models/appDeployments.model');
 const SessionTracking = require('../models/sessionTracking.model');
 
 const router = express.Router();
+router.use(bearerAuthAttach());
 
 /**
  * @swagger

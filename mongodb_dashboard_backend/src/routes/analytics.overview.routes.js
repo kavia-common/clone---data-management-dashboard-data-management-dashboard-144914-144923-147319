@@ -1,18 +1,27 @@
 'use strict';
 
 const express = require('express');
-const router = express.Router();
 const { computeOverviewAnalytics } = require('../controllers/analytics.overview.controller');
+const { bearerAuthAttach } = require('../middleware/jwtAuth');
+
+const router = express.Router();
+
+// Require bearer auth for all analytics overview routes
+router.use(bearerAuthAttach());
 
 /**
  * PUBLIC_INTERFACE
- * GET /api/analytics/overview
- * Returns time-bucketed overview metrics for the dashboard.
+ * GET /api/analytics/users/new-over-time
+ * Delegates to controller that computes new users over time.
  */
-router.head('/overview', (req, res) => {
-  res.set('X-Endpoint', 'analytics-overview').set('Cache-Control', 'no-store').status(204).end();
+router.get('/users/new-over-time', (req, res, next) => {
+  // Controller will read query params. Tenant scoping can be applied by the controller
+  // using req.user.tenant_id if necessary.
+  return computeOverviewAnalytics(req, res, next);
 });
-router.options('/overview', (req, res) => res.sendStatus(204));
-router.get('/overview', computeOverviewAnalytics);
+
+// HEAD and OPTIONS are no-ops here but keep route surface similar
+router.head('/users/new-over-time', (req, res) => res.status(200).end());
+router.options('/users/new-over-time', (req, res) => res.status(204).end());
 
 module.exports = router;

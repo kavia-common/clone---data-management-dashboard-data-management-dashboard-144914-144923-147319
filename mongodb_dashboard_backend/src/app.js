@@ -227,6 +227,20 @@ app.use('/api/dashboard', require('./routes/dashboard.routes'));
 app.use('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
 app.use('/api/auth', require('./routes/auth.routes'));
 
+// Shortcut guard route for quick verification
+const { bearerAuthAttach } = require('./middleware/jwtAuth');
+// PUBLIC_INTERFACE
+// GET /api/me - return current user context
+app.get('/api/me', bearerAuthAttach(), (req, res) => {
+  const user = req.user || {};
+  return res.status(200).json({
+    tenant_id: user.tenant_id || null,
+    is_admin: !!user.is_admin,
+    email: user.email || null,
+    id: user.id || null,
+  });
+});
+
 /* Users analytics routes have been fully removed to avoid dangling references */
 
 // 404 JSON
