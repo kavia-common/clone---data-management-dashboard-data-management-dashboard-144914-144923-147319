@@ -40,9 +40,9 @@ export default function Login() {
     setLoading(true);
     try {
       // Perform login using auth client (throws on non-2xx)
-      const { token } = await loginWithOrgEmailPassword(form);
-      // Persist session via context
-      login(token || null);
+      const { token, tenant_id } = await loginWithOrgEmailPassword(form);
+      // Persist session via context and store tenant_id from login
+      login(token || null, { tenant_id });
       // success -> redirect to dashboard overview or prior route
       navigate(from, { replace: true });
     } catch (err) {

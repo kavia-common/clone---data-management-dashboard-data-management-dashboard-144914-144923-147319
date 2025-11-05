@@ -1,4 +1,5 @@
 import { getApiBase } from "./config";
+import { getActiveTenant } from "../utils/tenantClient";
 
 /**
  * Internal helper: detect absolute URLs.
@@ -70,7 +71,15 @@ async function parseResponse(res) {
  * Axios-like "get" returning { data }.
  */
 async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
-  const url = buildUrl(`${pathOrUrl}${toQuery(params)}`);
+  // Append tenant_id automatically if not provided and if we have one stored
+  const effectiveParams = { ...(params || {}) };
+  if (!('tenant_id' in effectiveParams) && !('tenantId' in effectiveParams)) {
+    const tid = getActiveTenant();
+    if (tid) {
+      effectiveParams.tenant_id = tid;
+    }
+  }
+  const url = buildUrl(`${pathOrUrl}${toQuery(effectiveParams)}`);
   const res = await fetch(url, {
     method: "GET",
     headers: {
