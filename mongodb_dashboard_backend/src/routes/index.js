@@ -2,6 +2,8 @@
 
 const express = require('express');
 const healthController = require('../controllers/health');
+const { verifyAuth } = require('../middleware/verifyAuth');
+const { requireTenant } = require('../middleware/requireTenant');
 
 // Core route modules
 const authRoutes = require('./auth.routes');
@@ -29,25 +31,28 @@ const router = express.Router();
 router.get('/', healthController.check.bind(healthController));
 router.get('/healthz', healthController.check.bind(healthController));
 
-// Mount core API routes (analysis routes removed)
+// Public auth routes remain unprotected
 router.use('/auth', authRoutes);
-router.use('/users', usersRoutes);
-router.use('/tenants', tenantsRoutes);
 
-router.use('/llm-costs', llmCostsRoutes);
-router.use('/llm-costs-aggregate', llmCostsAggregateRoutes);
-router.use('/costs', costsByAgentRoutes);
-router.use('/session', sessionRoutes);
-router.use('/session-tracking', sessionTrackingRoutes);
-router.use('/app-deployments', appDeploymentsRoutes);
+// Protected core routes behind auth + tenant
+router.use('/users', verifyAuth, requireTenant, usersRoutes);
+router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 
-// Dashboard overview routes
-router.use('/dashboard/overview', dashboardRoutes);
-router.use('/dashboard/overview', dashboardModulesRoutes);
+router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);
+router.use('/llm-costs-aggregate', verifyAuth, requireTenant, llmCostsAggregateRoutes);
+router.use('/costs', verifyAuth, requireTenant, costsByAgentRoutes);
+router.use('/session', verifyAuth, requireTenant, sessionRoutes);
+router.use('/session-tracking', verifyAuth, requireTenant, sessionTrackingRoutes);
+router.use('/app-deployments', verifyAuth, requireTenant, appDeploymentsRoutes);
 
+// Dashboard overview routes (protected)
+router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardRoutes);
+router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardModulesRoutes);
+
+// Analytics overview (protected in its own router, but double-safeguard here)
 router.use('/analytics', analyticsOverviewRoutes);
 
-// Counts endpoints mounted at top-level /api
+// Counts endpoints (these are lightweight; keep public if they are used for landing)
 router.use('/', countsRoutes);
 
 // Sample tenant-scoped demo endpoints

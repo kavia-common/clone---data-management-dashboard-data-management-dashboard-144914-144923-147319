@@ -4,6 +4,8 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { newUsersOverTime } = require('../controllers/analytics.controller');
 const { getLlmCostByAgentController } = require('../controllers/llmCost.controller');
+const { verifyAuth } = require('../middleware/verifyAuth');
+const { requireTenant } = require('../middleware/requireTenant');
 
 const analyticsRouter = express.Router();
 
@@ -61,9 +63,11 @@ analyticsRouter.options('/llm-cost-by-agent', (req, res) => res.sendStatus(204))
  */
 analyticsRouter.get(
   '/llm-cost-by-agent',
+  verifyAuth,
+  requireTenant,
   (req, res, next) => {
     // eslint-disable-next-line no-console
-    console.log(`[analytics] GET /api/analytics/llm-cost-by-agent ip=${req.ip} ua=${req.get('user-agent') || ''}`);
+    console.log(`[analytics] GET /api/analytics/llm-cost-by-agent ip=${req.ip} ua=${req.get('user-agent') || ''} tenant=${req?.auth?.tenantId || 'n/a'}`);
     next();
   },
   asyncHandler(getLlmCostByAgentController)
@@ -103,6 +107,6 @@ analyticsRouter.get(
  *       200:
  *         description: Aggregated new users over time
  */
-analyticsRouter.get('/users/new-over-time', asyncHandler(newUsersOverTime));
+analyticsRouter.get('/users/new-over-time', verifyAuth, requireTenant, asyncHandler(newUsersOverTime));
 
 module.exports = analyticsRouter;

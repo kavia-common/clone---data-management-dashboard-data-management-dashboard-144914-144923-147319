@@ -4,8 +4,12 @@ const { buildCrudController } = require('../controllers/crudFactory');
 const Tenant = require('../models/tenant.model');
 const { getSessionDurations, getCosts } = require('../services/analytics');
 const { usdToCredits } = require('../utils/credits');
+const { verifyAuth } = require('../middleware/verifyAuth');
+const { requireTenant } = require('../middleware/requireTenant');
 
 const router = express.Router();
+// enforce auth+tenant for all routes in this router
+router.use(verifyAuth, requireTenant);
 const controller = buildCrudController(Tenant, '-created_at');
 
 /**
@@ -49,6 +53,10 @@ router.get(
   '/:tenantId/navigation',
   asyncHandler(async (req, res) => {
     const { tenantId } = req.params;
+    // Enforce path param matches authenticated tenant unless RBAC expanded later
+    if (req?.auth?.tenantId && req.auth.tenantId !== tenantId) {
+      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+    }
     const tenant = await Tenant.findOne({ tenant_id: tenantId }).lean();
     if (!tenant) {
       return res.status(404).json({ success: false, message: 'Tenant not found' });
@@ -100,6 +108,9 @@ router.get(
   '/:tenantId/credits-summary',
   asyncHandler(async (req, res) => {
     const { tenantId } = req.params;
+    if (req?.auth?.tenantId && req.auth.tenantId !== tenantId) {
+      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+    }
     const tenant = await Tenant.findOne({ tenant_id: tenantId }).lean();
     if (!tenant) return res.status(404).json({ success: false, message: 'Tenant not found' });
 
@@ -158,6 +169,9 @@ router.get(
   '/:tenantId/users/usage',
   asyncHandler(async (req, res) => {
     const { tenantId } = req.params;
+    if (req?.auth?.tenantId && req.auth.tenantId !== tenantId) {
+      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+    }
 
     // Costs and durations by user
     const [costs, durations] = await Promise.all([

@@ -8,11 +8,17 @@ const jwt = require('jsonwebtoken');
  * and attaches it to req.auth = { sub, email, tenantId, roles, isAdmin, raw }.
  * - Supports Cognito-compatible claims (custom:tenant_id, cognito:groups)
  * - Verifies using JWT_PUBLIC_KEY (RS256) or JWT_SECRET (HS256) from environment variables.
+ * - Falls back to x-tenant-id header for tenant scoping if token lacks tenant
+ *   (useful for legacy clients or intermediate migration).
  */
 function verifyAuth(req, res, next) {
   try {
     const header = req.headers['authorization'] || req.headers['Authorization'];
     if (!header) {
+      if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+        // eslint-disable-next-line no-console
+        console.debug('[verifyAuth] Missing Authorization header for', req.method, req.originalUrl);
+      }
       return res.status(401).json({ success: false, message: 'Missing Authorization header' });
     }
     const parts = header.split(' ');
@@ -33,7 +39,7 @@ function verifyAuth(req, res, next) {
     });
 
     const claims = verified || {};
-    const tenantId =
+    let tenantId =
       claims['custom:tenant_id'] ||
       claims['tenant_id'] ||
       claims['tenantId'] ||
@@ -41,6 +47,17 @@ function verifyAuth(req, res, next) {
         ? (claims['cognito:groups'].find((g) => typeof g === 'string' && g.startsWith('tenant:')) || '').split(':')[1]
         : null) ||
       null;
+
+    // Fallback: allow x-tenant-id header to populate tenant if claim missing
+    if (!tenantId) {
+      const hdrTenant = (req.headers['x-tenant-id'] || req.headers['x-tenant'] || '').toString().trim();
+      if (hdrTenant) {
+        tenantId = hdrTenant;
+      } else if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+        // eslint-disable-next-line no-console
+        console.debug('[verifyAuth] tenantId unresolved from token and header for', req.method, req.originalUrl);
+      }
+    }
 
     const sub = claims.sub || claims.user_id || claims.userId || null;
     const email = claims.email || claims['cognito:username'] || null;
@@ -63,6 +80,10 @@ function verifyAuth(req, res, next) {
     };
     return next();
   } catch (err) {
+    if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+      // eslint-disable-next-line no-console
+      console.debug('[verifyAuth] Token verification failed:', err?.message);
+    }
     return res.status(401).json({ success: false, message: 'Invalid or expired token' });
   }
 }
