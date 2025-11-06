@@ -1,3 +1,7 @@
+/* Ensure environment variables from .env are loaded even if the process
+ * is started without "-r dotenv/config" (e.g., by external orchestrators). */
+try { require('dotenv').config(); } catch {}
+
 const app = require('./app');
 const mongoose = require('mongoose');
 
@@ -5,12 +9,19 @@ const mongoose = require('mongoose');
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
+// Early startup banner to aid diagnostics
+try {
+  // eslint-disable-next-line no-console
+  console.log(`[startup] Initializing server on ${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+} catch {}
+
 const server = app
   .listen(PORT, HOST, () => {
-    // eslint-disable-next-line no-console
-    console.log("CURRENTDB",mongoose.connection.db.databaseName);
+    const dbName = mongoose.connection.name || '(not connected yet)';
+    console.log('CURRENTDB', dbName);
     console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
   })
+
   .on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
       // eslint-disable-next-line no-console

@@ -1,4 +1,4 @@
 {
-    "command": "CI=true PORT=<port> HOST=<host> npm run dev",
-    "working_directory": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144923/mongodb_dashboard_backend"
+    "command": "PORT=<port> HOST=<host> BROWSER=none npm start",
+    "working_directory": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend"
 }

@@ -6,12 +6,24 @@
 
 Environment example: see .env.example.
 
+Dev routes
+- Dev-only endpoints under /api/dev/* are mounted only when:
+  - NODE_ENV is not 'production', OR
+  - ALLOW_DEV_ROUTES is set to 'true'
+- In production without ALLOW_DEV_ROUTES=true, these routes are not registered. A warning is logged at startup.
+
 CORS
 - Defaults allow localhost:3000.
 - You can set FRONTEND_ORIGIN or CORS_ORIGINS or define REACT_APP_API_BASE_URL and we infer its origin.
 
 Key route to verify:
 - GET /api/users/active-trend (e.g., http://localhost:3001/api/users/active-trend)
+
+Multi-tenant enforcement:
+- All protected routes should use verifyAuth and requireTenant middlewares.
+- For Mongoose-based CRUD, prefer buildTenantCrudController(Model) from src/controllers/crudFactory.tenant.js.
+- For custom queries/aggregations, ensure every filter/pipeline starts with tenant_id from req.auth.tenantId.
+- Sample endpoints: see src/routes/tenantSample.routes.js.
 
 ## Authentication and Password Hashing (v1 → v2 migration)
 

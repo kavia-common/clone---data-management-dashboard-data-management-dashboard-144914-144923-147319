@@ -1,4 +1,11 @@
-// This file will export middleware as the application grows
+'use strict';
+
+const { verifyAuth, requireTenant, tenantFilter } = require('./jwtAuth');
+const simpleVerifyAuth = require('./verifyAuth');
+
 module.exports = {
-  // Add your middleware here
+  verifyAuth,
+  requireTenant,
+  tenantFilter,
+  simpleVerifyAuth, // deprecated fallback
 };
