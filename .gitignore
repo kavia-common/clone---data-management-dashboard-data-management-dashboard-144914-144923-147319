@@ -215,3 +215,4 @@ __marimo__/
 # Auto-added by security check to prevent sensitive data exposure
 mongodb_dashboard_frontend/src/config/auth.js
 mongodb_dashboard_frontend/src/config/auth.ts
+.knowledge/
