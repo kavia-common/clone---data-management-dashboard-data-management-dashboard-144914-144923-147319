@@ -8,11 +8,7 @@
 function ensureTenantFilter(original = {}, tenantId) {
   const criteria = { ...(original || {}) };
   if (!tenantId) return criteria;
-  if (Object.prototype.hasOwnProperty.call(criteria, 'tenant_id')) {
-    criteria.tenant_id = tenantId;
-  } else {
-    criteria.tenant_id = tenantId;
-  }
+  criteria.tenant_id = tenantId;
   return criteria;
 }
 
@@ -33,4 +29,24 @@ function withTenantMatch(pipeline = [], tenantId) {
   return [head, ...(pipeline || [])];
 }
 
-module.exports = { ensureTenantFilter, withTenantMatch };
+/**
+ * PUBLIC_INTERFACE
+ * requireTenantScope
+ * Central response guard utility for controllers/services to enforce tenant scope.
+ * Throws or returns HTTP 403 when tenantId is missing.
+ */
+function requireTenantScope(req, res) {
+  const tenantId = req?.auth?.tenantId || null;
+  if (!tenantId) {
+    if (res) {
+      res.status(403).json({ success: false, message: 'Tenant required' });
+      return null;
+    }
+    const err = new Error('Tenant required');
+    err.status = 403;
+    throw err;
+  }
+  return tenantId;
+}
+
+module.exports = { ensureTenantFilter, withTenantMatch, requireTenantScope };
