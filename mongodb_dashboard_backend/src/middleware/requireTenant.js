@@ -16,9 +16,6 @@ function requireTenant(req, res, next) {
     null;
 
   if (!tenantId) {
-    if ((process.env.NODE_ENV || '').toLowerCase() !== 'production') {
-      try { console.warn('[tenant] Missing tenant context on request', req.originalUrl); } catch {}
-    }
     return res
       .status(403)
       .json({ success: false, message: 'Tenant context required' });
@@ -45,9 +42,6 @@ function requireTenant(req, res, next) {
       roles.includes('superadmin') ||
       roles.includes('tenant:read:all');
     if (!isAdmin) {
-      if ((process.env.NODE_ENV || '').toLowerCase() !== 'production') {
-        try { console.warn('[tenant] Mismatch route param vs token tenant', { paramTenant, tokenTenant: tenantId }); } catch {}
-      }
       return res
         .status(403)
         .json({ success: false, message: 'Forbidden: tenant scope mismatch' });

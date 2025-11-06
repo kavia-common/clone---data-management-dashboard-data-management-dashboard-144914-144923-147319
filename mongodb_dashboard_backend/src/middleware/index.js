@@ -2,16 +2,13 @@
 
 const { verifyTenantAccess } = require('./jwtAuth');
 const { requireTenant } = require('./requireTenant');
+const simpleVerifyAuth = require('./verifyAuth');
 
-// Provide a named verifyAuth middleware expected by routers
-function verifyAuth(req, res, next) {
-  return verifyTenantAccess(req, res, next);
-}
-
-// Backward-compatible exports
+// Backward-compatible exports: prefer verifyTenantAccess as verifyAuth
 module.exports = {
-  verifyAuth,
+  verifyAuth: verifyTenantAccess,
   requireTenant,
   // tenantFilter was previously exported; keep a no-op stub for compatibility
   tenantFilter: (x) => x,
+  simpleVerifyAuth, // deprecated fallback
 };

@@ -97,17 +97,11 @@ function verifyTenantAccess(req, res, next) {
   /** Express middleware that verifies token and attaches normalized auth context. */
   const token = getToken(req);
   if (!token) {
-    if (DEV) {
-      try { console.warn('[auth] Missing Authorization token'); } catch {}
-    }
     return res.status(401).json({ success: false, message: 'Missing Authorization token' });
   }
 
   const { decoded, error } = verifyAndDecode(token);
   if (error || !decoded) {
-    if (DEV) {
-      try { console.warn('[auth] Invalid or expired token'); } catch {}
-    }
     return res.status(401).json({ success: false, message: 'Invalid or expired token' });
   }
 
