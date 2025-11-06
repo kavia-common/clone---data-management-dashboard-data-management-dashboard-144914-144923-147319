@@ -35,10 +35,13 @@ try {
 const cors = require('cors');
 const app = express();
 
-// Startup log
+ // Startup log
 try {
   // eslint-disable-next-line no-console
   console.log('[startup] Initializing Express app for Dashboard API');
+  const portPreview = process.env.PORT || 3001;
+  const hostPreview = process.env.HOST || '0.0.0.0';
+  console.log(`[startup] App composed. Server will bind to ${hostPreview}:${portPreview} (configured in src/server.js)`);
 } catch {}
 
 app.set('trust proxy', 1);

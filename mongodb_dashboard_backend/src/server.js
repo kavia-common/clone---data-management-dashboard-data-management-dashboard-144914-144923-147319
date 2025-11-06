@@ -18,7 +18,9 @@ try {
 const server = app
   .listen(PORT, HOST, () => {
     const dbName = mongoose.connection.name || '(not connected yet)';
-    console.log('CURRENTDB', dbName);
+    // eslint-disable-next-line no-console
+    console.log('[startup] CURRENTDB', dbName);
+    // eslint-disable-next-line no-console
     console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
   })
 
