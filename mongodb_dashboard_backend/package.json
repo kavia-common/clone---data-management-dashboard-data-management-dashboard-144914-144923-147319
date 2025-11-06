@@ -4,8 +4,8 @@
   "description": "Minimal Express app with scalable structure",
   "main": "src/server.js",
   "scripts": {
-    "start": "node -r dotenv/config src/server.js",
-    "dev": "nodemon -r dotenv/config src/server.js",
+    "start": "PORT=3001 NODE_ENV=production node -r dotenv/config src/server.js",
+    "dev": "PORT=3001 NODE_ENV=development nodemon -r dotenv/config src/server.js",
     "test": "jest",
     "lint": "eslint .",
     "gen:openapi": "node generate_openapi.js"
