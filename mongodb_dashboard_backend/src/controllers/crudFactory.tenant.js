@@ -1,129 +1,95 @@
 'use strict';
 
-const { failure } = require('../utils/http');
-const { verifyAuth } = require('../middleware/verifyAuth');
-const { requireTenant } = require('../middleware/requireTenant');
+const { ensureTenantFilter } = require('../utils/tenantFilter');
 
 /**
- * PUBLIC_INTERFACE
- * Ensures a query object contains the current tenant filter and does not attempt to override it.
+ * CRUD handlers with strict tenant enforcement.
+ * All operations are constrained by req.auth.tenantId and set tenant_id on writes.
  */
-function withTenantFilter(req, base = {}) {
-  if (!req.auth?.tenantId) throw new Error('Missing tenant context');
-  if (Object.prototype.hasOwnProperty.call(base, 'tenant_id') && base.tenant_id !== req.auth.tenantId) {
-    throw new Error('Tenant mismatch in query');
-  }
-  return { ...base, tenant_id: req.auth.tenantId };
-}
 
-/**
- * PUBLIC_INTERFACE
- * Enforce tenant on a create/update payload; prevents cross-tenant writes.
- */
-function enforceTenantOnPayload(req, payload = {}) {
-  if (!req.auth?.tenantId) throw new Error('Missing tenant context');
-  if (Object.prototype.hasOwnProperty.call(payload, 'tenant_id') && payload.tenant_id !== req.auth.tenantId) {
-    throw new Error('Tenant mismatch in payload');
-  }
-  return { ...payload, tenant_id: req.auth.tenantId };
-}
-
-/**
- * PUBLIC_INTERFACE
- * Build a tenant-enforced CRUD controller for a Mongoose Model.
- * The returned handlers expect verifyAuth + requireTenant applied in the route chain.
- */
-function buildTenantCrudController(Model, listDefaultSort = '-_id') {
-  function mapAndReplyError(res, err, context = 'operation') {
-    const msg = err?.message || 'Request failed';
-    const status = /tenant/i.test(msg) ? 403 : (err?.name === 'CastError' ? 400 : 400);
-    return failure(res, msg, status, { context });
-  }
-
-  return {
-    // PUBLIC_INTERFACE
-    async list(req, res) {
-      const explicit = Object.prototype.hasOwnProperty.call(req.query, 'page') || Object.prototype.hasOwnProperty.call(req.query, 'limit');
-      const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-      const limit = Math.min(Math.max(parseInt(req.query.limit || req.query.pageSize, 10) || 20, 1), 200);
-      const skip = (page - 1) * limit;
-      const sort = req.query.sort || listDefaultSort;
-
-      let filter = {};
+// PUBLIC_INTERFACE
+function listHandler(model) {
+  /** List documents belonging to the current tenant with optional pagination. */
+  return async function (req, res) {
+    const { page, limit, sort, filter } = req.query;
+    let parsedFilter = {};
+    if (filter) {
       try {
-        const raw = req.query.filter ? req.query.filter : '{}';
-        filter = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        filter = withTenantFilter(req, filter);
+        parsedFilter = JSON.parse(filter);
       } catch (e) {
-        return failure(res, e.message || 'Invalid filter JSON', /tenant/i.test(e.message) ? 403 : 400);
+        return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
       }
-
-      try {
-        if (explicit) {
-          const [items, total] = await Promise.all([
-            Model.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-            Model.countDocuments(filter),
-          ]);
-          return res.status(200).json({ success: true, data: items, meta: { page, limit, total } });
-        }
-        const items = await Model.find(filter).sort(sort).lean();
-        return res.status(200).json(items);
-      } catch (err) {
-        return mapAndReplyError(res, err, 'list');
-      }
-    },
-
-    // PUBLIC_INTERFACE
-    async getById(req, res) {
-      try {
-        const filter = withTenantFilter(req, { _id: req.params.id });
-        const doc = await Model.findOne(filter).lean();
-        if (!doc) return failure(res, 'Not found', 404);
-        return res.status(200).json(doc);
-      } catch (err) {
-        return mapAndReplyError(res, err, 'getById');
-      }
-    },
-
-    // PUBLIC_INTERFACE
-    async create(req, res) {
-      try {
-        const payload = enforceTenantOnPayload(req, req.body || {});
-        const doc = await Model.create(payload);
-        return res.status(201).json(doc);
-      } catch (err) {
-        return mapAndReplyError(res, err, 'create');
-      }
-    },
-
-    // PUBLIC_INTERFACE
-    async update(req, res) {
-      try {
-        const filter = withTenantFilter(req, { _id: req.params.id });
-        const payload = enforceTenantOnPayload(req, req.body || {});
-        const doc = await Model.findOneAndUpdate(filter, payload, { new: true }).lean();
-        if (!doc) return failure(res, 'Not found', 404);
-        return res.status(200).json(doc);
-      } catch (err) {
-        return mapAndReplyError(res, err, 'update');
-      }
-    },
-
-    // PUBLIC_INTERFACE
-    async remove(req, res) {
-      try {
-        const filter = withTenantFilter(req, { _id: req.params.id });
-        const doc = await Model.findOneAndDelete(filter).lean();
-        if (!doc) return failure(res, 'Not found', 404);
-        return res.status(200).json({ _id: String(doc._id) });
-      } catch (err) {
-        return mapAndReplyError(res, err, 'remove');
-      }
-    },
-
-    verifyAuth,
-    requireTenant,
+    }
+    const tenantFilter = ensureTenantFilter(parsedFilter, req?.auth?.tenantId);
+    const cursor = model.find(tenantFilter);
+    if (sort) cursor.sort(sort);
+    if (page || limit) {
+      const p = Math.max(parseInt(page || '1', 10), 1);
+      const l = Math.min(Math.max(parseInt(limit || '20', 10), 1), 200);
+      const total = await model.countDocuments(tenantFilter);
+      const data = await cursor.skip((p - 1) * l).limit(l);
+      return res.json({ success: true, data, meta: { page: p, limit: l, total } });
+    }
+    const data = await cursor;
+    res.json(data);
   };
 }
 
-module.exports = { buildTenantCrudController, withTenantFilter, enforceTenantOnPayload, verifyAuth, requireTenant };
+// PUBLIC_INTERFACE
+function getByIdHandler(model) {
+  /** Retrieve a document by id enforcing tenant_id. */
+  return async function (req, res) {
+    const id = req.params.id;
+    const doc = await model.findOne(ensureTenantFilter({ _id: id }, req?.auth?.tenantId));
+    if (!doc) return res.status(404).json({ success: false, message: 'Not found' });
+    res.json(doc);
+  };
+}
+
+// PUBLIC_INTERFACE
+function createHandler(model) {
+  /** Create document and stamp tenant_id from req.auth.tenantId. */
+  return async function (req, res) {
+    const tenantId = req?.auth?.tenantId;
+    const payload = { ...(req.body || {}), tenant_id: tenantId };
+    const created = await model.create(payload);
+    res.status(201).json(created);
+  };
+}
+
+// PUBLIC_INTERFACE
+function updateHandler(model) {
+  /** Update document within tenant scope; tenant_id cannot be changed. */
+  return async function (req, res) {
+    const id = req.params.id;
+    const tenantId = req?.auth?.tenantId;
+    const payload = { ...(req.body || {}) };
+    delete payload.tenant_id; // prevent cross-tenant reassignment
+    const updated = await model.findOneAndUpdate(
+      ensureTenantFilter({ _id: id }, tenantId),
+      { $set: { ...payload } },
+      { new: true }
+    );
+    if (!updated) return res.status(404).json({ success: false, message: 'Not found' });
+    res.json(updated);
+  };
+}
+
+// PUBLIC_INTERFACE
+function deleteHandler(model) {
+  /** Delete document within tenant scope. */
+  return async function (req, res) {
+    const id = req.params.id;
+    const deleted = await model.findOneAndDelete(ensureTenantFilter({ _id: id }, req?.auth?.tenantId));
+    if (!deleted) return res.status(404).json({ success: false, message: 'Not found' });
+    res.json({ success: true });
+  };
+}
+
+module.exports = {
+  listHandler,
+  getByIdHandler,
+  createHandler,
+  updateHandler,
+  deleteHandler,
+};

@@ -1,6 +1,8 @@
-# Sample Tenant-Scoped Endpoints
+# Overview Endpoint
 
-- GET /api/sample/records
-- POST /api/sample/records
+Provides totals for dashboard.
 
-These endpoints demonstrate automatic tenant scoping on reads and writes using getTenantCollection().
+Security and tenant enforcement:
+- All protected endpoints require Authorization: Bearer <token>.
+- Tenant is extracted from JWT claims (custom:tenant_id or tenant_id) and enforced across queries and aggregations.
+- Any :tenantId param must match req.auth.tenantId unless admin role is present.
