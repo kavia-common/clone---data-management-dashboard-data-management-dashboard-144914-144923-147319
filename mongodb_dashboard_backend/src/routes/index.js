@@ -49,8 +49,11 @@ router.use('/app-deployments', verifyAuth, requireTenant, appDeploymentsRoutes);
 router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardRoutes);
 router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardModulesRoutes);
 
-// Analytics overview (protected in its own router, but double-safeguard here)
-router.use('/analytics', analyticsOverviewRoutes);
+/**
+ * Analytics overview routes protected here as well
+ * This guarantees verifyAuth + requireTenant are always enforced.
+ */
+router.use('/analytics', verifyAuth, requireTenant, analyticsOverviewRoutes);
 
 // Counts endpoints (these are lightweight; keep public if they are used for landing)
 router.use('/', countsRoutes);

@@ -221,7 +221,7 @@ app.use('/api/sessionTracking', verifyAuth, requireTenant, require('./routes/ses
  * - Overview time-bucketed metrics
  */
 app.use('/api/analytics/agents', verifyAuth, requireTenant, analyticsAgentsRoutes);
-app.use('/api/analytics', require('./routes/analytics.overview.routes'));
+app.use('/api/analytics', verifyAuth, requireTenant, require('./routes/analytics.overview.routes'));
 
 app.use('/api/app-deployments', verifyAuth, requireTenant, require('./routes/appDeployments.routes'));
 app.use('/api/appDeployments', verifyAuth, requireTenant, require('./routes/appDeployments.routes'));

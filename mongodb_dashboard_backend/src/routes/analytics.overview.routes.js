@@ -11,6 +11,8 @@ const { requireTenant } = require('../middleware/requireTenant');
  * GET /api/analytics/overview
  * Returns time-bucketed overview metrics for the dashboard.
  */
+router.use(verifyAuth, requireTenant);
+
 router.head('/overview', (req, res) => {
   res.set('X-Endpoint', 'analytics-overview').set('Cache-Control', 'no-store').status(204).end();
 });

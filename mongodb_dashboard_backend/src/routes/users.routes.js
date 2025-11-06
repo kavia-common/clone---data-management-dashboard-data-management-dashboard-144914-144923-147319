@@ -236,6 +236,11 @@ router.get(
 
     // Prepare match filter over session_tracking
     const match = {};
+    // Non-admin users are always scoped to their tenant to avoid cross-tenant scans
+    const isAdmin = Array.isArray(req.auth?.roles) && (req.auth.roles.includes('admin') || req.auth.roles.includes('administrator'));
+    if (!isAdmin && req.auth?.tenantId) {
+      match.tenant_id = req.auth.tenantId;
+    }
     // Status filter handling
     if (statusParam.includes('|')) {
       const parts = statusParam.split('|').map((s) => s.trim()).filter(Boolean);
@@ -477,6 +482,15 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
+    // Enforce tenant scope on filter to prevent cross-tenant/global scans
+    if (!req?.auth?.tenantId) {
+      return res.status(403).json({ success: false, message: 'Tenant not set in token' });
+    }
+    if (Object.prototype.hasOwnProperty.call(filter, 'tenant_id') && filter.tenant_id !== req.auth.tenantId) {
+      return res.status(400).json({ success: false, message: 'Tenant mismatch in filter' });
+    }
+    filter.tenant_id = req.auth.tenantId;
+
     // First pass: check data presence without sending a response
     let items = [];
     let total = 0;
@@ -633,7 +647,7 @@ router.get(
     async function findUserByFlexibleId(candidate) {
       // Try ObjectId lookup first when valid
       if (mongoose.Types.ObjectId.isValid(candidate)) {
-        const byId = await User.findById(candidate).lean();
+        const byId = await User.findOne({ _id: candidate, tenant_id: req.auth.tenantId }).lean();
         if (byId) return byId;
       }
 
@@ -648,13 +662,14 @@ router.get(
         { 'referral_history.user_id': candidate }, // direct match when stored as string
       ];
 
-      const direct = await User.findOne({ $or: orFields }).lean();
+      const direct = await User.findOne({ tenant_id: req.auth.tenantId, $or: orFields }).lean();
       if (direct) return direct;
 
       // Final fallback: match referral_history.user_id after string coercion (covers ObjectId/number)
       const agg = await User.aggregate([
         {
           $match: {
+            tenant_id: req.auth.tenantId,
             referral_history: { $exists: true, $type: 'array', $ne: [] },
           },
         },
@@ -851,7 +866,9 @@ router.get(
     const toStr = req.query.to || now.toISOString();
     const granularity = (req.query.granularity || 'day').toLowerCase() === 'week' ? 'week' : 'day';
     const statusParam = (req.query.status || 'completed|active').trim();
-    const tenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
+    const requestedTenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
+    const isAdmin2 = Array.isArray(req.auth?.roles) && (req.auth.roles.includes('admin') || req.auth.roles.includes('administrator'));
+    const tenantId = isAdmin2 ? (requestedTenantId || req.auth?.tenantId || null) : (req.auth?.tenantId || null);
 
     // Validate dates
     const fromDate = new Date(fromStr);
@@ -1292,7 +1309,15 @@ router.get(
   '/:userId/projects',
   asyncHandler(async (req, res) => {
     const { userId } = req.params;
-    const { tenant_id: tenantId, from, to } = req.query || {};
+    let { tenant_id: tenantId, from, to } = req.query || {};
+    // Prefer tenant from token; if provided param mismatches token, reject
+    const tokenTenant = req?.auth?.tenantId || null;
+    if (tokenTenant) {
+      if (tenantId && tenantId !== tokenTenant) {
+        return res.status(400).json({ success: false, message: 'Tenant mismatch with token' });
+      }
+      tenantId = tokenTenant;
+    }
 
     if (!tenantId) {
       return res.status(400).json({ success: false, message: 'tenant_id is required' });
@@ -1357,6 +1382,6 @@ router.get(
  *                   type: integer
  */
 // PUBLIC_INTERFACE
-router.get('/referral-sources', asyncHandler(getReferralSources));
+router.get('/referral-sources', verifyAuth, requireTenantMw, asyncHandler(getReferralSources));
 
 module.exports = router;

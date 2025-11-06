@@ -50,7 +50,11 @@ function verifyAuth(req, res, next) {
 
     // Fallback: allow x-tenant-id header to populate tenant if claim missing
     if (!tenantId) {
-      const hdrTenant = (req.headers['x-tenant-id'] || req.headers['x-tenant'] || '').toString().trim();
+      const hdrTenant =
+        (req.headers['x-tenant-id'] ||
+          req.headers['x-tenant'] ||
+          req.headers['X-Tenant-Id'] ||
+          req.headers['X-Tenant'])?.toString().trim() || '';
       if (hdrTenant) {
         tenantId = hdrTenant;
       } else if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {

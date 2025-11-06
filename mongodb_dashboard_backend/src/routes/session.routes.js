@@ -8,7 +8,10 @@ const { userHasTenant, normalizeUserTenants } = require('../utils/rbac');
 
 const router = express.Router();
 
-// Attach auth context for these routes
+/**
+ * Note: These routes are mounted behind verifyAuth + requireTenant in app.js.
+ * We still attach additional auth context for legacy routes as needed.
+ */
 router.use(attachAuthContext());
 
 /**
