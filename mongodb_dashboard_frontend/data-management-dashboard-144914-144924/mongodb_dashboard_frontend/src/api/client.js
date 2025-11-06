@@ -5,15 +5,17 @@
 // - Attaches Authorization: Bearer <token>
 // - Adds x-tenant-id header for backend hints (backend still enforces tenant from token)
 //
+import { setToken, setTenantId, getToken, getTenantId } from './authStore';
+
 export function setAuthContext({ token, tenant_id }) {
-  if (typeof token === 'string') localStorage.setItem('AccessToken', token);
-  if (typeof tenant_id === 'string') localStorage.setItem('tenant_id', tenant_id);
+  if (typeof token === 'string') setToken(token);
+  if (typeof tenant_id === 'string') setTenantId(tenant_id);
 }
 
 export function getAuthContext() {
   return {
-    token: localStorage.getItem('AccessToken') || null,
-    tenant_id: localStorage.getItem('tenant_id') || null,
+    token: getToken(),
+    tenant_id: getTenantId(),
   };
 }
 
@@ -24,10 +26,10 @@ export async function apiFetch(path, { method = 'GET', headers = {}, body } = {}
 
   const reqHeaders = {
     'Content-Type': 'application/json',
+    ...(tenant_id ? { 'x-tenant-id': tenant_id } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...headers,
   };
-  if (token) reqHeaders.Authorization = `Bearer ${token}`;
-  if (tenant_id) reqHeaders['x-tenant-id'] = tenant_id;
 
   const resp = await fetch(url, {
     method,
@@ -37,7 +39,7 @@ export async function apiFetch(path, { method = 'GET', headers = {}, body } = {}
   });
 
   if (resp.status === 401) {
-    // optionally handle logout
+    // In a fuller app we would trigger a logout here
   }
   return resp;
 }

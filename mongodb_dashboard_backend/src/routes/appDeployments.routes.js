@@ -6,7 +6,7 @@ const { validateAppDeployment } = require('../middleware/validators');
 const { normalizeProjectId } = require('../services/enrichment.util');
 
 const router = express.Router();
-const { verifyAuth } = require('../middleware/verifyAuth');
+const { verifyAuth } = require('../middleware');
 const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
 const controller = buildTenantCrudController(AppDeployment, '-created_at');
 

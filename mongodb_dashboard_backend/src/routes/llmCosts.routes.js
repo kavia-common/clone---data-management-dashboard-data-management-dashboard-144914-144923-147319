@@ -5,7 +5,7 @@ const LLMCost = require('../models/llmCosts.model');
 
 const router = express.Router();
 // Default sort by most recent cost first
-const { verifyAuth } = require('../middleware/verifyAuth');
+const { verifyAuth } = require('../middleware');
 const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
 const controller = buildTenantCrudController(LLMCost, '-timestamp');
 

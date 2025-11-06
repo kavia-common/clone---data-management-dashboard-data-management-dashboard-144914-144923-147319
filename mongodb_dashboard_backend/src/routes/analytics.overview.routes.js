@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const { computeOverviewAnalytics } = require('../controllers/analytics.overview.controller');
-const { verifyAuth } = require('../middleware/verifyAuth');
+const { verifyAuth } = require('../middleware');
 const { requireTenant } = require('../middleware/requireTenant');
 
 /**

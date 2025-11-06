@@ -2,7 +2,7 @@
 
 const express = require('express');
 const healthController = require('../controllers/health');
-const { verifyAuth } = require('../middleware/verifyAuth');
+const { verifyAuth } = require('../middleware');
 const { requireTenant } = require('../middleware/requireTenant');
 
 // Core route modules
@@ -33,6 +33,19 @@ router.get('/healthz', healthController.check?.bind?.(healthController) || ((req
 
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /me
+ * Protected identity probe to validate JWT and tenant extraction.
+ */
+router.get('/me', verifyAuth, requireTenant, (req, res) => {
+  return res.status(200).json({
+    tenant_id: req?.auth?.tenantId || null,
+    sub: req?.auth?.sub || null,
+    roles: req?.auth?.roles || [],
+  });
+});
 
 // Protected core routes behind auth + tenant
 router.use('/users', verifyAuth, requireTenant, usersRoutes);

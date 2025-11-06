@@ -5,7 +5,7 @@ const SessionTracking = require('../models/sessionTracking.model');
 const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
 
 const router = express.Router();
-const { verifyAuth } = require('../middleware/verifyAuth');
+const { verifyAuth } = require('../middleware');
 const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
 const controller = buildTenantCrudController(SessionTracking, '-session_start');
 

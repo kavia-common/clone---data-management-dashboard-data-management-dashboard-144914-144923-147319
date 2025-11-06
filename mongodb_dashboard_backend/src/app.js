@@ -192,7 +192,7 @@ app.get('/api/users/tenant-summary', async (req, res) => {
 
 const analyticsAgentsRoutes = require('./routes/analyticsAgents');
 
-const { verifyAuth } = require('./middleware/verifyAuth');
+const { verifyAuth } = require('./middleware'); // unified verifyTenantAccess
 const { requireTenant } = require('./middleware/requireTenant');
 
 /**
@@ -245,6 +245,20 @@ app.use('/api/session', verifyAuth, requireTenant, require('./routes/session.rou
 app.use('/api/dashboard', verifyAuth, requireTenant, require('./routes/dashboard.routes'));
 app.use('/api/dashboard/overview', verifyAuth, requireTenant, require('./routes/dashboard.modules.routes'));
 app.use('/api/auth', require('./routes/auth.routes'));
+
+// Protected verification endpoint
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/me
+ * Returns current auth context, primarily tenant_id and sub to validate JWT middleware.
+ */
+app.get('/api/me', verifyAuth, requireTenant, (req, res) => {
+  return res.status(200).json({
+    tenant_id: req?.auth?.tenantId || req?.tenantId || null,
+    sub: req?.auth?.sub || req?.user?.sub || null,
+    roles: req?.auth?.roles || [],
+  });
+});
 
 /* Users analytics routes have been fully removed to avoid dangling references */
 

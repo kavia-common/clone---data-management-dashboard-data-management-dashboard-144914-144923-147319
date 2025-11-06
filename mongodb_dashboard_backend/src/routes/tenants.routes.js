@@ -4,7 +4,7 @@ const { buildCrudController } = require('../controllers/crudFactory');
 const Tenant = require('../models/tenant.model');
 const { getSessionDurations, getCosts } = require('../services/analytics');
 const { usdToCredits } = require('../utils/credits');
-const { verifyAuth } = require('../middleware/verifyAuth');
+const { verifyAuth } = require('../middleware');
 const { requireTenant } = require('../middleware/requireTenant');
 
 const router = express.Router();

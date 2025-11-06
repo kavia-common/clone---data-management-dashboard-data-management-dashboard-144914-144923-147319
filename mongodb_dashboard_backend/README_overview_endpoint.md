@@ -2,6 +2,9 @@
 
 Provides totals for dashboard.
 
+Verification:
+- Use GET /api/me with Authorization: Bearer <token> to confirm middleware extracts tenant_id and sub.
+
 Security and tenant enforcement:
 - All protected endpoints require Authorization: Bearer <token>.
 - Tenant is extracted from JWT claims (custom:tenant_id or tenant_id) and enforced across queries and aggregations.

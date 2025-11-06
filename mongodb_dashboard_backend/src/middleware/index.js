@@ -1,11 +1,14 @@
 'use strict';
 
-const { verifyAuth, requireTenant, tenantFilter } = require('./jwtAuth');
+const { verifyTenantAccess } = require('./jwtAuth');
+const { requireTenant } = require('./requireTenant');
 const simpleVerifyAuth = require('./verifyAuth');
 
+// Backward-compatible exports: prefer verifyTenantAccess as verifyAuth
 module.exports = {
-  verifyAuth,
+  verifyAuth: verifyTenantAccess,
   requireTenant,
-  tenantFilter,
+  // tenantFilter was previously exported; keep a no-op stub for compatibility
+  tenantFilter: (x) => x,
   simpleVerifyAuth, // deprecated fallback
 };
