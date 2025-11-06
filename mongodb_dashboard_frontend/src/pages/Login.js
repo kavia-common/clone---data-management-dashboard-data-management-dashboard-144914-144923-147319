@@ -8,17 +8,9 @@ import Button from '../components/ui/Button.jsx';
 import './Login.css';
 import appLogo from '../assets/logo/app-logo-2025.png'; // REQ-UI-LOGO-REPLACE: reuse sidebar logo
 
-/**
- * PUBLIC_INTERFACE
- * Login
- * Two-step login flow:
- * 1. Enter email -> fetch organizations for that email
- * 2. Select organization and enter password -> login
- * Uses shared UI primitives (Card, Input, Button) and global tokens (accent #FF6600, dark mode variables).
- */
 export default function Login() {
   const [email, setEmail] = useState('');
-  const [orgResponse, setOrgResponse] = useState(null); // { email, organizations }
+  const [orgResponse, setOrgResponse] = useState(null);
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [password, setPassword] = useState('');
   const [loadingOrgs, setLoadingOrgs] = useState(false);
@@ -37,6 +29,7 @@ export default function Login() {
 
   const SUCCESS_REDIRECT = '/dashboard/overview';
 
+  // 🔹 Fetch organizations for given email
   async function handleFindOrgs() {
     setError('');
     if (!email) {
@@ -48,14 +41,20 @@ export default function Login() {
       const resp = await fetchUserOrganizationsByEmail(email);
       setOrgResponse(resp);
       const items = Array.isArray(resp?.organizations) ? resp.organizations : [];
+
       if (items.length === 0) {
         setSelectedOrgId('');
         setError('No organizations found for this email.');
       } else {
-        setSelectedOrgId(items[0]?.id || '');
+        // ✅ Try to auto-select "Kavia B2C"
+        const kaviaOrg = items.find(
+          (org) => org.name?.toLowerCase() === 'kavia b2c'
+        );
+
+        // ✅ If found, auto-select it, else keep empty
+        setSelectedOrgId(kaviaOrg?.id || '');
       }
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error(e);
       setError(e.message || 'Failed to fetch organizations. Please try again.');
       setOrgResponse(null);
@@ -63,6 +62,25 @@ export default function Login() {
     } finally {
       setLoadingOrgs(false);
     }
+  }
+
+  // 🔹 Trigger when user selects organization manually
+  function handleOrganizationSelect(e) {
+    const selectedId = e.target.value;
+    setSelectedOrgId(selectedId);
+
+    // ✅ Add your custom logic here
+    console.log('✅ Selected Organization ID:', selectedId);
+
+    // Example: If you want to also log org name or send event
+    const selectedOrg = orgResponse?.organizations?.find((o) => o.id === selectedId);
+    if (selectedOrg) {
+      console.log('✅ Selected Organization Name:', selectedOrg.name);
+    }
+
+    // You could also trigger something like:
+    // triggerEncryption(selectedId);
+    // or storeOrganization(selectedId);
   }
 
   async function handleLogin(e) {
@@ -79,12 +97,10 @@ export default function Login() {
         email,
         password,
       });
-      // Persist session via context provider
       login(token || null);
       const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
       navigate(from, { replace: true });
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error('Login error', e);
       const status = e?.status;
       if (status === 401 || status === 403) {
@@ -103,7 +119,6 @@ export default function Login() {
     <div className="auth-screen">
       <div className="auth-card">
         <div className="auth-header">
-          {/* REQ-UI-LOGO-REPLACE: Replace star with shared logo asset, sized for login header */}
           <img
             src={appLogo}
             alt="Company logo"
@@ -152,7 +167,7 @@ export default function Login() {
             <select
               className="ui-input"
               value={selectedOrgId}
-              onChange={(e) => setSelectedOrgId(e.target.value)}
+              onChange={handleOrganizationSelect} // 🔹 updated here
               aria-label="Organization"
             >
               <option value="">Select organization...</option>
@@ -190,3 +205,4 @@ export default function Login() {
     </div>
   );
 }
+ 

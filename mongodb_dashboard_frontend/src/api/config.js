@@ -1,6 +1,6 @@
 const apiBase =
   
-  `${window.location.protocol}//${window.location.hostname}:3001/api`;
+  `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
 
 /**
  * PUBLIC_INTERFACE
