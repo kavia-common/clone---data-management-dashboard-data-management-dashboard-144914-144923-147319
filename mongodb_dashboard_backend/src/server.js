@@ -18,8 +18,11 @@ try {
 const server = app
   .listen(PORT, HOST, () => {
     const dbName = mongoose.connection.name || '(not connected yet)';
-    console.log('CURRENTDB', dbName);
-    console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+    try { console.log('CURRENTDB', dbName); } catch {}
+    try {
+      console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+      console.log(`[startup] Health: http://${HOST}:${PORT}/api/health  Docs: http://${HOST}:${PORT}/docs`);
+    } catch {}
   })
 
   .on('error', (err) => {

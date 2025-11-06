@@ -34,8 +34,16 @@ try {
 
 const cors = require('cors');
 const app = express();
-const cookieParser = require('cookie-parser');
-const session = require('express-session');
+let cookieParser = () => (req, res, next) => next();
+let session = () => (req, res, next) => next();
+try {
+  // eslint-disable-next-line global-require
+  cookieParser = require('cookie-parser');
+  // eslint-disable-next-line global-require
+  session = require('express-session');
+} catch {
+  try { console.warn('[startup] cookie-parser/express-session not installed; continuing without session cookies'); } catch {}
+}
 
 // Session and cookie parsing
 app.use(cookieParser());
