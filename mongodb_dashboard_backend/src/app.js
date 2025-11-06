@@ -83,8 +83,8 @@ app.use('/', baseRouter);
 /**
  * Simple health with DB status
  */
-try { console.log('[startup] Registering GET /api/health'); } catch {}
-app.get('/api/health', (req, res) => {
+try { console.log('[startup] Registering GET /api/health and GET /health'); } catch {}
+const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
   const payload = { status: 'ok', db, timestamp: new Date().toISOString() };
@@ -93,7 +93,9 @@ app.get('/api/health', (req, res) => {
   }
   res.set('Cache-Control', 'no-store');
   return res.status(200).json(payload);
-});
+};
+app.get('/api/health', healthHandler);
+app.get('/health', healthHandler);
 
 if (process.env.NODE_ENV === 'test') {
   try { mongoose.set('bufferCommands', false); } catch {}
