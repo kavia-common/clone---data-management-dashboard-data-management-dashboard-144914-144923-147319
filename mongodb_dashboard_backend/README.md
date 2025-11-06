@@ -6,6 +6,21 @@
 
 Environment example: see .env.example.
 
+## Run scripts
+
+The project includes proper start commands for both production and development.
+
+- Development (auto-reload with nodemon)
+  - CI usage: CI=true PORT=3001 HOST=0.0.0.0 npm run dev
+  - Local usage: npm run dev
+  - Script: "dev": "nodemon -r dotenv/config src/server.js"
+
+- Production
+  - CI/local: PORT=3001 HOST=0.0.0.0 npm start
+  - Script: "start": "node -r dotenv/config src/server.js"
+
+Server binds to HOST=0.0.0.0 and listens on PORT (defaults to 3001). Entry file: src/server.js (bootstraps app from src/app.js).
+
 Dev routes
 - Dev-only endpoints under /api/dev/* are mounted only when:
   - NODE_ENV is not 'production', OR
