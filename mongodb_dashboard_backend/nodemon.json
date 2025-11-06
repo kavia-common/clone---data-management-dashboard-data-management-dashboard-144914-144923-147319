@@ -1,0 +1,15 @@
+{
+  "watch": ["src"],
+  "ignore": [
+    "node_modules",
+    "package.json",
+    "package-lock.json",
+    "*.lock",
+    "*.log",
+    "*.md",
+    ".git",
+    "dist",
+    "build"
+  ],
+  "ext": "js,json"
+}
