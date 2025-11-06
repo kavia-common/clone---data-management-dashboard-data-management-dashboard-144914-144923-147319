@@ -1,5 +1,7 @@
 /* Ensure environment variables from .env are loaded even if the process
- * is started without "-r dotenv/config" (e.g., by external orchestrators). */
+ * is started without "-r dotenv/config" (e.g., by external orchestrators).
+ * This guarantees preview/CI can boot without special node flags.
+ */
 try { require('dotenv').config(); } catch {}
 
 const app = require('./app');

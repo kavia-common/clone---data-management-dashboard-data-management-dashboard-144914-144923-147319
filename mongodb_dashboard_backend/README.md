@@ -1,8 +1,20 @@
 # Backend (Express) - Dashboard API
 
 - Default port: 3001 (configurable via PORT in .env)
+- Host bind: 0.0.0.0 by default (configurable via HOST)
 - Docs (Swagger UI): http://localhost:3001/docs (alias: http://localhost:3001/api-docs)
 - OpenAPI JSON: http://localhost:3001/openapi.json (alias: http://localhost:3001/api-docs.json)
+
+Quick start (development)
+- cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
+- npm install
+- npm run dev   # binds to 0.0.0.0:3001 with nodemon; dotenv is loaded programmatically
+- curl http://localhost:3001/health  # fast 200
+- curl http://localhost:3001/api/health  # includes db state
+
+Important
+- Do NOT run `npm run dev` from the frontend folder; it has no dev script and CI logs will show "Missing script: dev".
+- Avoid `-r dotenv/config` in scripts; dotenv is required in src/server.js.
 
 Environment example: see .env.example.
 
@@ -11,6 +23,11 @@ Dev routes
   - NODE_ENV is not 'production', OR
   - ALLOW_DEV_ROUTES is set to 'true'
 - In production without ALLOW_DEV_ROUTES=true, these routes are not registered. A warning is logged at startup.
+
+Health/readiness
+- GET /health → Fast readiness (always 200) with `{ status: "ok", db: connected|connecting|disconnected, timestamp }`
+- GET /api/health → Same payload; safe for monitoring
+- Health responses are not cached (`Cache-Control: no-store`)
 
 CORS
 - Defaults allow localhost:3000.

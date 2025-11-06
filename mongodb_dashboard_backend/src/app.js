@@ -95,7 +95,15 @@ const healthHandler = (req, res) => {
   return res.status(200).json(payload);
 };
 app.get('/api/health', healthHandler);
-app.get('/health', healthHandler);
+/**
+ * PUBLIC_INTERFACE
+ * GET /health
+ * Fast readiness check that does not depend on MongoDB. Returns 200 with status ok and db state.
+ */
+app.get('/health', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return healthHandler(req, res);
+});
 
 if (process.env.NODE_ENV === 'test') {
   try { mongoose.set('bufferCommands', false); } catch {}
