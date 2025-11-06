@@ -3,22 +3,20 @@
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 
-// Defensive: keep Swagger optional if generator is absent
 let getBaseOpenApiSpec = () => ({
   openapi: '3.0.0',
   info: { title: 'Dashboard API', version: '1.0.0' },
 });
 try {
-  // Optional swagger module if present
   // eslint-disable-next-line import/no-unresolved, global-require
   getBaseOpenApiSpec = require('../swagger').getBaseOpenApiSpec;
 } catch {
-  // noop: minimal spec used
+  // use minimal spec
 }
 
 const mongoose = require('mongoose');
 
-// Basic, local middlewares; if security modules are missing, fall back to safe defaults
+// Optional security helpers; fall back to safe no-ops if not present
 let corsMiddleware = () => (req, res, next) => next();
 let helmetMiddleware = () => (req, res, next) => next();
 let rateLimiter = () => (req, res, next) => next();
@@ -28,12 +26,12 @@ try {
   corsMiddleware = sec.corsMiddleware || corsMiddleware;
   helmetMiddleware = sec.helmetMiddleware || helmetMiddleware;
   rateLimiter = sec.rateLimiter || rateLimiter;
-} catch {
-  // fall back to no-op implementations
-}
+} catch { /* noop */ }
 
 const cors = require('cors');
 const app = express();
+
+// Cookie/session setup must never crash boot
 let cookieParser = () => (req, res, next) => next();
 let session = () => (req, res, next) => next();
 try {
@@ -47,7 +45,13 @@ try {
 
 // Session and cookie parsing
 app.use(cookieParser());
-const SESSION_SECRET = process.env.SESSION_SECRET || process.env.AUTH_SESSION_SECRET;
+
+// Sessions are optional; only configure when secret is provided
+const SESSION_SECRET =
+  process.env.SESSION_SECRET ||
+  process.env.AUTH_SESSION_SECRET ||
+  ''; // no default; disabled-auth mode if empty
+
 if (SESSION_SECRET) {
   app.use(
     session({
@@ -76,6 +80,7 @@ try {
 app.set('trust proxy', 1);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
+// Allow preflight for API routes without requiring env
 app.options('/api/*', cors());
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
@@ -117,11 +122,13 @@ const swaggerUiHandler = swaggerUi.setup(null, {
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-// Base health/root without pulling in the big index router to avoid require crashes
+// Minimal fast health endpoints that never touch DB directly
+// PUBLIC_INTERFACE
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 app.get('/', (req, res) => res.status(200).json({ ok: true, service: 'dashboard-api' }));
 app.get('/healthz', (req, res) => res.status(200).json({ ok: true, service: 'dashboard-api' }));
 
-// Simple health with DB status (non-fatal if DB missing)
+// Health with DB status (non-fatal if DB missing)
 try {
   // eslint-disable-next-line no-console
   console.log('[startup] Registering GET /api/health');
@@ -138,17 +145,20 @@ app.get('/api/health', (req, res) => {
   return res.status(200).json(payload);
 });
 
-// Mount only existing routes to ensure startup succeeds
+// Middlewares for protected routes must be imported once and used consistently
 const { verifyAuth } = require('./middleware');
 const { requireTenant } = require('./middleware/requireTenant');
 
+// Mount routes after middlewares setup; use safe loader to avoid fatal require errors
 const safeMount = (path, factory) => {
   try {
     const router = factory();
     if (router) app.use(path, router);
   } catch (e) {
-    // eslint-disable-next-line no-console
-    console.warn(`[startup] Skipping route ${path}:`, e?.message || e);
+    try {
+      // eslint-disable-next-line no-console
+      console.warn(`[startup] Skipping route ${path}:`, e?.message || e);
+    } catch {}
   }
 };
 
@@ -187,5 +197,4 @@ app.use((req, res) => {
   });
 });
 
-// Mongo connection is handled in server.js via connectDB; keep this file focused on app composition.
 module.exports = app;

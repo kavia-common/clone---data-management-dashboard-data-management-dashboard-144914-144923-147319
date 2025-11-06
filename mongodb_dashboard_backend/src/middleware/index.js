@@ -4,11 +4,15 @@ const { verifyTenantAccess } = require('./jwtAuth');
 const { requireTenant } = require('./requireTenant');
 const simpleVerifyAuth = require('./verifyAuth');
 
-// Backward-compatible exports: prefer verifyTenantAccess as verifyAuth
+/**
+ * PUBLIC_INTERFACE
+ * Middleware export surface
+ * - verifyAuth: main JWT verification + tenant extraction middleware
+ * - requireTenant: enforces tenant presence and :tenantId path checks
+ */
 module.exports = {
   verifyAuth: verifyTenantAccess,
   requireTenant,
-  // tenantFilter was previously exported; keep a no-op stub for compatibility
-  tenantFilter: (x) => x,
+  tenantFilter: (x) => x, // legacy no-op
   simpleVerifyAuth, // deprecated fallback
 };
