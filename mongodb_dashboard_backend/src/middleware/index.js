@@ -1,16 +1,11 @@
 'use strict';
 
-// Central export for all middlewares
-module.exports = {
-  // Existing groups (some may be empty pass-throughs depending on project)
-  ...require('./auth'),
-  ...require('./jwtAuth'),
-  ...require('./security'),
-  ...require('./standardHandlers'),
-  ...require('./tenantContext'),
-  ...require('./validators'),
+const { verifyAuth, requireTenant, tenantFilter } = require('./jwtAuth');
+const simpleVerifyAuth = require('./verifyAuth');
 
-  // Newly added tenant-aware auth middlewares
-  ...require('./verifyAuth'),
-  ...require('./requireTenant'),
+module.exports = {
+  verifyAuth,
+  requireTenant,
+  tenantFilter,
+  simpleVerifyAuth, // deprecated fallback
 };

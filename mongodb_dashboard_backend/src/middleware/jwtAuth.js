@@ -1,207 +1,148 @@
 'use strict';
 
-const jwt = require('jsonwebtoken');
-const jwksClient = require('jwks-rsa');
-const { getJwtSecretConfig } = require('../config/auth');
-
 /**
-// PUBLIC_INTERFACE
- * getAuthVerifier
- * Creates a verifier that validates JWTs using either:
- * - JWKS URL (preferred if AUTH_JWKS_URL is set)
- * - HMAC secret (AUTH_JWT_SECRET) for HS256
- * - Dev fallback: decode without signature when ALLOW_INSECURE_JWT_DECODE='true'
+ * JWT verification middleware with Cognito-compatible claims extraction.
+ * - Verifies tokens using RS256 against JWKS (well-known or configured URL)
+ * - Validates issuer and audience if configured
+ * - Extracts tenant ID from custom:tenant_id (Cognito convention) or tenant_id fallback
+ * - Sets req.auth = { sub, email, tenantId, raw, scopes }
  *
- * The verifier extracts minimal user context and normalizes claims:
- * - sub -> id
- * - email
- * - tenant -> tenant_id (or organization_id)
- * - scope/roles -> is_admin flag when available
+ * Environment variables required (documented for orchestrator to set in .env):
+ * - JWT_JWKS_URI: URL to JWKS (e.g., https://cognito-idp.<region>.amazonaws.com/<userPoolId>/.well-known/jwks.json)
+ * - JWT_ISSUER: expected issuer (e.g., https://cognito-idp.<region>.amazonaws.com/<userPoolId>)
+ * - JWT_AUDIENCE: expected audience/client_id
+ * - JWT_HEADER: header to read (default Authorization)
+ * - JWT_SCHEME: scheme prefix (default Bearer)
  */
-function getAuthVerifier() {
-  const jwksUrl = process.env.AUTH_JWKS_URL || process.env.COGNITO_JWKS_URL || '';
-  const { secret, isMissing } = getJwtSecretConfig();
-  const allowInsecureDecode = String(process.env.ALLOW_INSECURE_JWT_DECODE || '').toLowerCase() === 'true';
-  let client = null;
 
-  if (jwksUrl) {
-    client = jwksClient({
-      jwksUri: jwksUrl,
+const jwksClient = require('jwks-rsa');
+const jwt = require('jsonwebtoken');
+
+const JWKS_URI = process.env.JWT_JWKS_URI || '';
+const EXPECT_ISS = process.env.JWT_ISSUER || '';
+const EXPECT_AUD = process.env.JWT_AUDIENCE || '';
+const HEADER_NAME = (process.env.JWT_HEADER || 'authorization').toLowerCase();
+const SCHEME = (process.env.JWT_SCHEME || 'bearer').toLowerCase();
+
+// Initialize JWKS client if configured
+const client = JWKS_URI
+  ? jwksClient({
+      jwksUri: JWKS_URI,
       cache: true,
       cacheMaxEntries: 5,
-      cacheMaxAge: 10 * 60 * 1000,
-      requestHeaders: {}, // can add auth if required by provider
-      timeout: 7000,
-    });
+      cacheMaxAge: 10 * 60 * 1000, // 10 min
+      timeout: 10000,
+    })
+  : null;
+
+async function getKey(header, callback) {
+  if (!client) {
+    return callback(new Error('JWKS client not configured'));
   }
-
-  async function getKey(header, cb) {
-    if (!client || header.alg && header.alg.startsWith('HS')) {
-      // For HS*, use local secret
-      return cb(null, secret || '');
-    }
-    try {
-      client.getSigningKey(header.kid, (err, key) => {
-        if (err) return cb(err);
-        const signingKey = key.getPublicKey();
-        return cb(null, signingKey);
-      });
-    } catch (e) {
-      return cb(e);
-    }
+  if (!header || !header.kid) {
+    return callback(new Error('Token header missing kid'));
   }
-
-  function normalizeUserFromClaims(claims) {
-    const id = claims.sub || claims.user_id || claims.uid || null;
-    const email = claims.email || claims['custom:email'] || null;
-    const tenantClaim = claims.tenant_id || claims.tenant || claims.organization_id || claims.org_id || null;
-    const roles = Array.isArray(claims.roles)
-      ? claims.roles
-      : typeof claims.scope === 'string'
-        ? claims.scope.split(' ').filter(Boolean)
-        : [];
-    const is_admin = roles.includes('admin') || roles.includes('superadmin') || claims.is_admin === true;
-    return {
-      id,
-      email,
-      tenant_id: tenantClaim || null,
-      is_admin,
-      roles: roles.length ? roles : undefined,
-      claims,
-    };
+  try {
+    const key = await client.getSigningKey(header.kid);
+    const signingKey = key.getPublicKey();
+    callback(null, signingKey);
+  } catch (err) {
+    callback(err);
   }
-
-  async function verifyToken(token) {
-    if (!token) {
-      const err = new Error('Missing token');
-      err.statusCode = 401;
-      throw err;
-    }
-
-    // JWKS verification (preferred)
-    if (client) {
-      const opts = {
-        algorithms: ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512'],
-        ignoreExpiration: false,
-      };
-      return new Promise((resolve, reject) => {
-        jwt.verify(token, getKey, opts, (err, decoded) => {
-          if (err) return reject(err);
-          const user = normalizeUserFromClaims(decoded || {});
-          resolve({ decoded, user, source: 'jwks' });
-        });
-      });
-    }
-
-    // HMAC secret verification
-    if (!isMissing && secret) {
-      try {
-        const decoded = jwt.verify(token, secret, { algorithms: ['HS256', 'HS384', 'HS512'] });
-        const user = normalizeUserFromClaims(decoded || {});
-        return { decoded, user, source: 'secret' };
-      } catch (e) {
-        // continue to fallback if allowed
-        if (!allowInsecureDecode) {
-          e.statusCode = 401;
-          throw e;
-        }
-      }
-    }
-
-    // Dev fallback: decode without signature
-    if (allowInsecureDecode) {
-      const decoded = jwt.decode(token) || {};
-      const user = normalizeUserFromClaims(decoded);
-      return { decoded, user, source: 'insecure-decode' };
-    }
-
-    const err = new Error('No verification method configured');
-    err.statusCode = 401;
-    throw err;
-  }
-
-  return { verifyToken };
-}
-
-/**
- * Extract bearer token from Authorization header
- */
-function getBearerToken(req) {
-  const h = req.headers?.authorization || '';
-  const [type, val] = h.split(' ');
-  if (type && /^Bearer$/i.test(type) && val) return val.trim();
-  return null;
 }
 
 // PUBLIC_INTERFACE
-function bearerAuthAttach() {
+function verifyAuth(options = {}) {
   /**
-   * Middleware that requires Authorization bearer token, validates it,
-   * and attaches req.user and req.user.tenant_id from token claims.
+   * Express middleware to verify JWT and attach req.auth.
+   * Returns 401 on failure.
    */
-  const { verifyToken } = getAuthVerifier();
-  return async function (req, res, next) {
+  return function jwtVerifyMiddleware(req, res, next) {
     try {
-      const token = getBearerToken(req);
-      if (!token) {
-        return res.status(401).json({ success: false, message: 'Authorization header missing' });
+      const headerVal = (req.headers[HEADER_NAME] || '').toString();
+      if (!headerVal) {
+        return res.status(401).json({ success: false, message: 'Missing Authorization header' });
       }
-      const { user } = await verifyToken(token);
+      const parts = headerVal.split(' ');
+      const hasScheme = parts.length === 2 && parts[0].toLowerCase() === SCHEME;
+      const token = hasScheme ? parts[1] : headerVal;
 
-      if (!user || !user.id) {
-        return res.status(401).json({ success: false, message: 'Invalid token (no subject)' });
-      }
-      req.user = {
-        ...req.user,
-        id: user.id,
-        email: user.email || req.user?.email || null,
-        roles: user.roles || req.user?.roles,
-        is_admin: user.is_admin || false,
-        tenants: req.user?.tenants, // preserve if already loaded elsewhere
-        tenant_id: user.tenant_id || req.user?.tenant_id || null,
-        claims: user.claims,
+      const verifyOpts = {
+        algorithms: ['RS256', 'HS256'], // allow HS256 only if HMAC secret provided
+        issuer: EXPECT_ISS || undefined,
+        audience: EXPECT_AUD || undefined,
       };
-      return next();
+
+      // When JWKS configured, use RS256 verifier; else fallback to HMAC secret if present
+      const HMAC_SECRET = process.env.JWT_HS256_SECRET;
+
+      const onVerified = (err, decoded) => {
+        if (err || !decoded) {
+          return res.status(401).json({ success: false, message: 'Invalid token' });
+        }
+        // Cognito custom attributes often appear as "custom:tenant_id"
+        const tenantId =
+          decoded['custom:tenant_id'] ||
+          decoded.tenant_id ||
+          decoded.tenantId ||
+          (decoded['cognito:groups'] && Array.isArray(decoded['cognito:groups'])
+            ? decoded['cognito:groups'].find((g) => g.startsWith('tenant:'))?.split(':')[1]
+            : undefined);
+
+        req.auth = {
+          sub: decoded.sub || decoded.user_id || decoded.id,
+          email: decoded.email || decoded['cognito:username'] || null,
+          tenantId: tenantId || null,
+          raw: decoded,
+          scopes: decoded.scope ? decoded.scope.split(' ') : decoded.scopes || [],
+        };
+        return next();
+      };
+
+      if (client) {
+        // Verify with JWKS public keys
+        jwt.verify(token, getKey, verifyOpts, onVerified);
+      } else if (HMAC_SECRET) {
+        // Verify with HMAC
+        jwt.verify(token, HMAC_SECRET, verifyOpts, onVerified);
+      } else {
+        return res
+          .status(500)
+          .json({ success: false, message: 'Auth not configured: missing JWKS or HMAC secret' });
+      }
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('[jwtAuth] verify failed:', e?.message || e);
-      const status = e.statusCode || 401;
-      return res.status(status).json({ success: false, message: 'Unauthorized' });
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
   };
 }
 
 // PUBLIC_INTERFACE
-function optionalBearerAuthAttach() {
-  /**
-   * Middleware that tries to attach req.user if a token is present,
-   * but does not reject on failure.
-   */
-  const { verifyToken } = getAuthVerifier();
-  return async function (req, res, next) {
-    try {
-      const token = getBearerToken(req);
-      if (!token) return next();
-      const { user } = await verifyToken(token);
-      req.user = {
-        ...req.user,
-        id: user.id || req.user?.id || null,
-        email: user.email || req.user?.email || null,
-        roles: user.roles || req.user?.roles,
-        is_admin: user.is_admin || false,
-        tenants: req.user?.tenants,
-        tenant_id: user.tenant_id || req.user?.tenant_id || null,
-        claims: user.claims,
-      };
-    } catch (e) {
-      // ignore errors, proceed as unauthenticated
+function requireTenant() {
+  /** Ensure req.auth.tenantId exists; else 403 */
+  return function (req, res, next) {
+    const tenantId = req?.auth?.tenantId;
+    if (!tenantId) {
+      return res.status(403).json({ success: false, message: 'Tenant not set in token' });
     }
-    return next();
+    next();
+  };
+}
+
+// PUBLIC_INTERFACE
+function tenantFilter(baseFilter = {}) {
+  /**
+   * Return a MongoDB filter merged with tenant enforcement.
+   * Usage in controllers/services: const filter = tenantFilter({ status: 'active' })(req);
+   */
+  return function (req) {
+    const tenantId = req?.auth?.tenantId;
+    const enforced = tenantId ? { tenant_id: tenantId } : {};
+    return { ...baseFilter, ...enforced };
   };
 }
 
 module.exports = {
-  getAuthVerifier,
-  bearerAuthAttach,
-  optionalBearerAuthAttach,
+  verifyAuth,
+  requireTenant,
+  tenantFilter,
 };

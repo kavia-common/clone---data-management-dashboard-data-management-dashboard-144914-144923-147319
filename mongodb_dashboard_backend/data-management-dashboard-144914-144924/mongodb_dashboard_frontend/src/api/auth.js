@@ -7,8 +7,8 @@ export async function login({ organization_id, email, password }) {
     body: { organization_id, email, password },
   });
   const json = await res.json();
-  if (res.ok && json && (json.token || json.AccessToken)) {
-    const token = json.token || json.AccessToken;
+  if (res.ok && json && (json.id_token || json.token || json.AccessToken)) {
+    const token = json.id_token || json.token || json.AccessToken;
     const tenant_id = json.tenant_id || json.tenantId || organization_id || null;
     setAuthContext({ token, tenant_id });
   }

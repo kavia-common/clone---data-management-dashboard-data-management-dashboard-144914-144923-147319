@@ -5,72 +5,65 @@ const jwt = require('jsonwebtoken');
 /**
  * PUBLIC_INTERFACE
  * verifyAuth middleware validates a Bearer token, extracts tenant and user info,
- * and attaches it to req.auth = { userId, tenantId, roles, isAdmin, rawClaims }.
- *
- * Behavior:
- * - Accepts Authorization: Bearer <token>
- * - Verifies using JWT_PUBLIC_KEY or JWT_SECRET from environment variables.
- * - Extracts tenant from one of: custom:tenant_id, tenant_id, tenantId
- * - Extracts user id from one of: sub, user_id, userId
- * - Extracts roles from one of: roles (array|string, comma separated), 'cognito:groups'
- * - Sets isAdmin if roles includes 'admin'
- * - On invalid/missing token: 401
- *
- * Note: This demo uses HS/RS verification based on available envs. For production,
- * prefer JWKS-based verification for providers like Cognito/Auth0.
+ * and attaches it to req.auth = { sub, email, tenantId, roles, isAdmin, raw }.
+ * - Supports Cognito-compatible claims (custom:tenant_id, cognito:groups)
+ * - Verifies using JWT_PUBLIC_KEY (RS256) or JWT_SECRET (HS256) from environment variables.
  */
 function verifyAuth(req, res, next) {
   try {
-    const authz = req.headers['authorization'] || req.headers['Authorization'];
-    if (!authz || !authz.startsWith('Bearer ')) {
+    const header = req.headers['authorization'] || req.headers['Authorization'];
+    if (!header) {
       return res.status(401).json({ success: false, message: 'Missing Authorization header' });
     }
-    const token = authz.slice('Bearer '.length).trim();
+    const parts = header.split(' ');
+    const token = parts.length === 2 && /^Bearer$/i.test(parts[0]) ? parts[1] : header;
+
     const publicKey = process.env.JWT_PUBLIC_KEY;
     const secret = process.env.JWT_SECRET;
 
     if (!publicKey && !secret) {
-      return res.status(500).json({ success: false, message: 'Auth not configured: missing JWT_PUBLIC_KEY / JWT_SECRET' });
+      return res.status(500).json({ success: false, message: 'Auth not configured: set JWT_PUBLIC_KEY or JWT_SECRET' });
     }
 
-    // Prefer public key verification, fallback to shared secret
     const verified = jwt.verify(token, publicKey || secret, {
       algorithms: publicKey ? ['RS256', 'RS384', 'RS512'] : ['HS256', 'HS384', 'HS512'],
       ignoreExpiration: false,
+      issuer: process.env.JWT_ISSUER || undefined,
+      audience: process.env.JWT_AUDIENCE || undefined,
     });
 
-    // Normalize claims
     const claims = verified || {};
     const tenantId =
       claims['custom:tenant_id'] ||
       claims['tenant_id'] ||
       claims['tenantId'] ||
+      (Array.isArray(claims['cognito:groups'])
+        ? (claims['cognito:groups'].find((g) => typeof g === 'string' && g.startsWith('tenant:')) || '').split(':')[1]
+        : null) ||
       null;
 
-    const userId = claims['sub'] || claims['user_id'] || claims['userId'] || null;
+    const sub = claims.sub || claims.user_id || claims.userId || null;
+    const email = claims.email || claims['cognito:username'] || null;
 
     let roles = [];
     const rawRoles = claims['roles'] || claims['cognito:groups'] || claims['groups'] || [];
     if (Array.isArray(rawRoles)) {
       roles = rawRoles;
     } else if (typeof rawRoles === 'string') {
-      roles = rawRoles.split(',').map((r) => r.trim()).filter(Boolean);
+      roles = rawRoles.split(/[,\s]+/).map((r) => r.trim()).filter(Boolean);
     }
 
-    const isAdmin = roles.includes('admin') || roles.includes('administrator');
-
     req.auth = {
-      userId,
+      sub,
+      email,
       tenantId,
       roles,
-      isAdmin,
-      rawClaims: claims,
-      tokenUse: claims['token_use'] || claims['typ'] || null,
+      isAdmin: roles.includes('admin') || roles.includes('administrator'),
+      raw: claims,
     };
-
     return next();
   } catch (err) {
-    return res.status(401).json({ success: false, message: 'Invalid or expired token', error: err && err.message });
+    return res.status(401).json({ success: false, message: 'Invalid or expired token' });
   }
 }
 

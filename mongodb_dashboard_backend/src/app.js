@@ -192,9 +192,12 @@ app.get('/api/users/tenant-summary', async (req, res) => {
 
 const analyticsAgentsRoutes = require('./routes/analyticsAgents');
 
+const { verifyAuth } = require('./middleware/verifyAuth');
+const { requireTenant } = require('./middleware/requireTenant');
+
 // Provide both kebab and camelCase aliases for session tracking and deployments
-app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
-app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
+app.use('/api/session-tracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
+app.use('/api/sessionTracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
 
 /**
  * Analytics endpoints
