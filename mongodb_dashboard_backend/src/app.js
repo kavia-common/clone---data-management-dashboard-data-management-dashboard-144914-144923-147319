@@ -137,6 +137,12 @@ safeMount('/api/analytics', () => require('./routes/analytics.overview.routes'))
  * Returns current auth context, primarily tenant_id and sub to validate JWT middleware.
  */
 app.get('/api/me', verifyAuth, requireTenant, (req, res) => {
+  if ((process.env.NODE_ENV || '').toLowerCase() !== 'production') {
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('[me] tenantId:', req?.auth?.tenantId, 'sub:', req?.auth?.sub);
+    } catch {}
+  }
   return res.status(200).json({
     tenant_id: req?.auth?.tenantId || req?.tenantId || null,
     sub: req?.auth?.sub || req?.user?.sub || null,
