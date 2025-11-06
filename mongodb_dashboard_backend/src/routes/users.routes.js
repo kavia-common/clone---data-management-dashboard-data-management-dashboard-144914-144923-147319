@@ -7,7 +7,7 @@ const SessionTracking = require('../models/sessionTracking.model');
 const Tenant = require('../models/tenant.model');
 const { getReferralSources } = require('../controllers/users.analytics.controller');
 const mongoose = require('mongoose');
-const { verifyAuth } = require('../middleware/verifyAuth');
+const { verifyAuth } = require('../middleware');
 const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
 
 const router = express.Router();
