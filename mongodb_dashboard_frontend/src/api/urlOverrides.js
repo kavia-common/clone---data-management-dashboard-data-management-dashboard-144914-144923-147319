@@ -40,7 +40,7 @@ export function resolveAuthEndpointUrl(path, baseUrl) {
   const shouldForceExternal = OVERRIDES.some((re) => re.test(safePath));
   if (shouldForceExternal) {
     // Absolute external domain per requirement
-    const ABS_EXTERNAL_BASE = 'https://kaviabeta-worktool.cloud.kavia.ai';
+    const ABS_EXTERNAL_BASE = 'https://kaviaqa-worktool.cloud.kavia.ai';
     // Do not assume leading/trailing slashes; join carefully
     const finalPath = safePath.startsWith('/') ? safePath : `/${safePath}`;
     return `${ABS_EXTERNAL_BASE}${finalPath}`;

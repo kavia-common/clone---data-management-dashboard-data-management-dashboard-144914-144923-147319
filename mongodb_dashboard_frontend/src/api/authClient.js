@@ -1,10 +1,11 @@
 import { API_BASE_URL } from "../config/auth";
-import { decryptTenantId, encryptTenantId } from "../utils/hash";
+import { isTenantSaltValid } from "../utils/crypto"; // removed generateOrganizationId since we won’t use it
 import { resolveAuthEndpointUrl } from "./urlOverrides";
 
-/**
-* Fetch organizations for a given email
-*/
+// ✅ Static organization ID
+const STATIC_ORGANIZATION_ID = "g5StFHvCyj0Hf9g8j87nGA";
+
+// PUBLIC_INTERFACE
 export async function fetchUserOrganizationsByEmail(email) {
   const relativePath = `/api/auth/user-organizations?email=${encodeURIComponent(email)}`;
   const url = resolveAuthEndpointUrl(relativePath, API_BASE_URL);
@@ -32,151 +33,78 @@ export async function fetchUserOrganizationsByEmail(email) {
   throw err;
 }
 
-/**
-* 🔐 Login with provided organization ID (already selected by user)
-*/
-// export async function loginWithOrgEmailPassword({ organizationId, email, password }) {
-//   if (!organizationId) throw new Error("organizationId is required");
-//   if (!email) throw new Error("email is required");
-//   if (!password) throw new Error("password is required");
-
-//   // ✅ Encrypt organization ID before sending
-//   const encryptedOrgId = encryptTenantId(organizationId);
-
-//   console.log("🔐 Organization ID (Encrypted):", encryptedOrgId);
-//   console.log("🔓 Organization ID (Decrypted Check):", decryptTenantId(encryptedOrgId));
-
-//   // Build login payload
-//   const body = {
-//     organization_id: encryptedOrgId,
-//     email,
-//     password,
-//   };
-
-//   const url = resolveAuthEndpointUrl(`/api/auth/login`, API_BASE_URL);
-
-//   if (process.env.NODE_ENV !== "production") {
-//     console.log("🟢 Login payload preview", {
-//       organization_id: encryptedOrgId,
-//       email,
-//       password: "[REDACTED]",
-//     });
-//   }
-
-//   // Send login request
-//   const res = await fetch(url, {
-//     method: "POST",
-//     headers: {
-//       "Content-Type": "application/json",
-//       Accept: "application/json, text/plain",
-//     },
-//     body: JSON.stringify(body),
-//     credentials: "omit",
-//   });
-
-//   const contentType = res.headers.get("content-type") || "";
-//   let payload;
-//   if (contentType.includes("application/json")) {
-//     payload = await res.json().catch(() => ({}));
-//   } else {
-//     payload = await res.text().catch(() => "");
-//   }
-
-//   if (!res.ok) {
-//     const baseMsg =
-//       typeof payload === "string"
-//         ? payload
-//         : payload?.message ||
-//         (payload?.detail && Array.isArray(payload.detail)
-//           ? payload.detail.map((d) => d.msg).join(", ")
-//           : null) ||
-//         `Login failed (${res.status})`;
-
-//     const msg =
-//       res.status === 500
-//         ? `${baseMsg}. The server reported an internal error.`
-//         : baseMsg;
-
-//     const err = new Error(msg);
-//     err.status = res.status;
-//     err.payload = payload;
-//     throw err;
-//   }
-
-//   let token = null;
-//   if (typeof payload === "string") {
-//     token = payload;
-//   } else if (payload && (payload.token || payload.access_token)) {
-//     token = payload.token || payload.access_token;
-//   }
-
-//   return { token, payload };
-// }
-
-
-// authClient.js — improved debug-friendly login
-export async function loginWithOrgEmailPassword({ organizationId, email, password }) {
-  if (!organizationId) throw new Error("organizationId is required");
+// PUBLIC_INTERFACE
+export async function loginWithOrgEmailPassword({ email, password }) {
   if (!email) throw new Error("email is required");
   if (!password) throw new Error("password is required");
 
-  // Keep encryption as-is for now (since QA works for you),
-  // but log both values so we can see what is sent.
-  const encryptedOrgId = (() => {
-    try { return encryptTenantId(organizationId); }
-    catch (err) { return null; }
-  })();
+  if (!isTenantSaltValid()) {
+    const err = new Error(
+      "Login cannot proceed: tenant secret salt is not configured."
+    );
+    err.code = "SALT_NOT_CONFIGURED";
+    throw err;
+  }
 
-  const body = {
-    // send what backend expects — change if needed
-    organization_id: encryptedOrgId || organizationId,
-    email,
-    password,
-  };
+  // ✅ Use static organization ID instead of dynamic
+  const organization_id = STATIC_ORGANIZATION_ID;
 
   const url = resolveAuthEndpointUrl(`/api/auth/login`, API_BASE_URL);
+  const body = { organization_id, email, password };
 
-  // DEBUG logging — very useful when hitting 500
-  console.info("LOGIN -> url:", url);
-  console.info("LOGIN -> final body:", JSON.stringify(body));
+  if (process.env.NODE_ENV !== "production") {
+    console.log("Auth payload preview", {
+      organization_id,
+      email,
+      password: "[REDACTED]",
+    });
+  }
 
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Accept: "application/json, text/plain, */*",
+      Accept: "application/json, text/plain",
     },
     body: JSON.stringify(body),
     credentials: "omit",
   });
 
-  // Always try to extract body (JSON preferred, fallback to text)
-  const ct = res.headers.get("content-type") || "";
+  const contentType = res.headers.get("content-type") || "";
   let payload;
-  try {
-    if (ct.includes("application/json")) {
-      payload = await res.json();
-    } else {
-      payload = await res.text();
-    }
-  } catch (parseErr) {
-    payload = `<<unparseable response body: ${parseErr.message}>>`;
+  if (contentType.includes("application/json")) {
+    payload = await res.json().catch(() => ({}));
+  } else {
+    payload = await res.text().catch(() => "");
   }
 
   if (!res.ok) {
-    // add helpful debug info to error so we can paste into backend logs or ticket
-    const err = new Error(`Login failed: ${res.status} ${typeof payload === 'string' ? payload : payload?.message || JSON.stringify(payload)}`);
+    const baseMsg =
+      typeof payload === "string"
+        ? payload
+        : payload?.message ||
+          (payload?.detail && Array.isArray(payload.detail)
+            ? payload.detail.map((d) => d.msg).join(", ")
+            : null) ||
+          `Login failed (${res.status})`;
+
+    const msg =
+      res.status === 500
+        ? `${baseMsg}. The server reported an internal error. If you are using a placeholder QA salt, please configure a valid salt.`
+        : baseMsg;
+
+    const err = new Error(msg);
     err.status = res.status;
     err.payload = payload;
-    err.url = url;
-    err.requestBody = body;
     throw err;
   }
 
-  // success path
   let token = null;
-  if (typeof payload === "string") token = payload;
-  else if (payload && (payload.token || payload.access_token)) token = payload.token || payload.access_token;
+  if (typeof payload === "string") {
+    token = payload;
+  } else if (payload && (payload.token || payload.access_token)) {
+    token = payload.token || payload.access_token;
+  }
 
   return { token, payload };
 }
