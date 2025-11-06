@@ -35,6 +35,7 @@ export async function apiFetch(path, { method = 'GET', headers = {}, body } = {}
     method,
     headers: reqHeaders,
     body: body ? JSON.stringify(body) : undefined,
+    // include allows session cookies (id_token/tenant_id) to be sent when backend sets them
     credentials: 'include',
   });
 

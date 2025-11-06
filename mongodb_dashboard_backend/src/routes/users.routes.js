@@ -213,14 +213,14 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Determine pagination intent and parse filter/sort similar to controller logic
-    const explicit =
+    // Support either pagination (page/limit) or simple limit param similar to external example
+    const hasPagination =
       Object.prototype.hasOwnProperty.call(req.query, 'page') ||
       Object.prototype.hasOwnProperty.call(req.query, 'limit');
 
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
-    const skip = (page - 1) * limit;
+    const limitNum = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
+    const skip = (page - 1) * limitNum;
 
     const sort = req.query.sort || '-created_at';
 
@@ -233,47 +233,43 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
-    // Enforce tenant scope on filter to prevent cross-tenant/global scans
-    if (!req?.auth?.tenantId) {
+    // Enforce tenant scope
+    const tenantId = req?.auth?.tenantId || req?.tenantId || null;
+    if (!tenantId) {
       return res.status(403).json({ success: false, message: 'Tenant not set in token' });
     }
-    if (Object.prototype.hasOwnProperty.call(filter, 'tenant_id') && filter.tenant_id !== req.auth.tenantId) {
+    if (Object.prototype.hasOwnProperty.call(filter, 'tenant_id') && filter.tenant_id !== tenantId) {
       return res.status(400).json({ success: false, message: 'Tenant mismatch in filter' });
     }
-    filter.tenant_id = req.auth.tenantId;
+    filter.tenant_id = tenantId;
 
-    // First pass: check data presence without sending a response
-    let items = [];
-    let total = 0;
+    // Projection to return only necessary fields
+    const projection = {
+      _id: 1,
+      name: 1,
+      email: 1,
+      role: 1,
+    };
 
     try {
-      if (explicit) {
-        // For pagination, we still need to detect emptiness using the paginated query
-        [items, total] = await Promise.all([
-          User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
+      if (hasPagination) {
+        const [items, total] = await Promise.all([
+          User.find(filter, projection).sort(sort).skip(skip).limit(limitNum).lean(),
           User.countDocuments(filter),
         ]);
-      } else {
-        items = await User.find(filter).sort(sort).lean();
-        total = items.length;
+        return res.status(200).json({ success: true, data: items, meta: { page, limit: limitNum, total } });
       }
+      // Non-paginated: support ?limit=200 behavior
+      const simpleLimit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 200);
+      const items = await User.find(filter, projection).sort(sort).limit(simpleLimit).lean();
+      return res.status(200).json(items);
     } catch (err) {
-      // Map common cast errors to 400 to avoid 500
       const message = err?.message || 'Request failed';
       if (err?.name === 'CastError' || /Cast to/.test(message)) {
         return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
       }
       return res.status(400).json({ success: false, message: 'Request failed', details: message });
     }
-
-    if (explicit) {
-      return res.status(200).json({
-        success: true,
-        data: items,
-        meta: { page, limit, total },
-      });
-    }
-    return res.status(200).json(items);
   })
 );
 

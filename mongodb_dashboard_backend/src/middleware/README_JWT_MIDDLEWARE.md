@@ -44,7 +44,9 @@ const data = await collection.aggregate(pipeline).toArray();
 ```
 
 Token rules:
-- Authorization: Bearer <token> required. Cookies (id_token) are tolerated if present but not required.
-- HS256 verification with JWT_SECRET (or 'dev-secret' in non-production).
+- Authorization: Bearer <token> required. Cookies (id_token) are tolerated if present; session.id_token is also used if available.
+- Verification strategies:
+  - Prefer RS256/RS512 with JWT_PUBLIC_KEY or JWT_PUBLIC_KEY_FILE when provided.
+  - Fallback to HS256/HS512 with JWT_SECRET (or 'dev-secret' in non-production).
 - Optional issuer/audience checks via JWT_ISSUER/JWT_AUDIENCE or COGNITO_*.
 - Tenant claim normalization: custom:tenant_id OR tenant_id OR tenantId OR organization_id. Normalized to req.auth.tenantId and req.tenantId.

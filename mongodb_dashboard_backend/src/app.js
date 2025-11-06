@@ -34,6 +34,30 @@ try {
 
 const cors = require('cors');
 const app = express();
+const cookieParser = require('cookie-parser');
+const session = require('express-session');
+
+// Session and cookie parsing
+app.use(cookieParser());
+const SESSION_SECRET = process.env.SESSION_SECRET || process.env.AUTH_SESSION_SECRET;
+if (SESSION_SECRET) {
+  app.use(
+    session({
+      name: 'sid',
+      secret: SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60 * 1000, // 1 hour
+      },
+    })
+  );
+} else {
+  try { console.warn('[startup] SESSION_SECRET not set; session cookies disabled'); } catch {}
+}
 
 // Startup log
 try {
@@ -135,6 +159,8 @@ safeMount('/api/analytics', () => require('./routes/analytics.overview.routes'))
  * PUBLIC_INTERFACE
  * GET /api/me
  * Returns current auth context, primarily tenant_id and sub to validate JWT middleware.
+ * Reads token from Authorization header or id_token cookie if present.
+ * Response: { tenant_id, sub, roles }
  */
 app.get('/api/me', verifyAuth, requireTenant, (req, res) => {
   return res.status(200).json({
