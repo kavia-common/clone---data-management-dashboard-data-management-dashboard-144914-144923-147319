@@ -117,13 +117,6 @@ function verifyTenantAccess(req, res, next) {
   req.auth = { sub, email, roles, tenantId };
   req.tenantId = tenantId;
 
-  if (DEV) {
-    try {
-      // eslint-disable-next-line no-console
-      console.debug('[auth] tenantId:', tenantId, 'sub:', sub);
-    } catch {}
-  }
-
   if (!tenantId) {
     return res.status(403).json({ success: false, message: 'Tenant not found in token' });
   }
@@ -147,7 +140,11 @@ function applyTenantFilter(queryOrCriteria = {}, tenantId) {
 
   // Plain criteria object
   const merged = { ...(queryOrCriteria || {}) };
-  merged.tenant_id = tenantId;
+  if (Object.prototype.hasOwnProperty.call(merged, 'tenant_id')) {
+    merged.tenant_id = tenantId;
+  } else {
+    merged.tenant_id = tenantId;
+  }
   return merged;
 }
 

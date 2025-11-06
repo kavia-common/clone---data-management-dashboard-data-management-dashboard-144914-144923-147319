@@ -3,7 +3,7 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const controller = require('../controllers/analytics.overview.controller');
-const { verifyAuth } = require('../middleware'); // unify export source
+const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 
 const router = express.Router();
