@@ -260,31 +260,6 @@ router.post('/login', async (req, res) => {
 
     if (!user.password_hash) {
       const idToken = issueToken();
-
-      // Set cookies and session if available
-      try {
-        res.cookie('id_token', idToken, {
-          httpOnly: true,
-          sameSite: 'Lax',
-          secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-          maxAge: 60 * 60 * 1000,
-          path: '/',
-        });
-        res.cookie('tenant_id', tenantId, {
-          httpOnly: false,
-          sameSite: 'Lax',
-          secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-          maxAge: 7 * 24 * 60 * 60 * 1000,
-          path: '/',
-        });
-      } catch { /* ignore cookie failures */ }
-      try {
-        if (req.session) {
-          req.session.id_token = idToken;
-          req.session.tenant_id = tenantId;
-        }
-      } catch { /* ignore session failures */ }
-
       return res.status(200).json({
         success: true,
         tenant_id: tenantId,
@@ -312,30 +287,6 @@ router.post('/login', async (req, res) => {
     }
 
     const idToken = issueToken();
-
-    try {
-      res.cookie('id_token', idToken, {
-        httpOnly: true,
-        sameSite: 'Lax',
-        secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-        maxAge: 60 * 60 * 1000,
-        path: '/',
-      });
-      res.cookie('tenant_id', tenantId, {
-        httpOnly: false,
-        sameSite: 'Lax',
-        secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-        path: '/',
-      });
-    } catch { /* ignore */ }
-    try {
-      if (req.session) {
-        req.session.id_token = idToken;
-        req.session.tenant_id = tenantId;
-      }
-    } catch { /* ignore */ }
-
     return res.status(200).json({
       success: true,
       tenant_id: tenantId,
@@ -426,26 +377,6 @@ router.post('/reset-password', async (req, res) => {
     console.error('[auth.reset-password] failed', e?.message || e);
     return res.status(400).json({ success: false, message: 'Reset failed' });
   }
-});
-
-/**
- * PUBLIC_INTERFACE
- * POST /api/auth/logout
- * Clears authentication cookies and session variables.
- */
-router.post('/logout', (req, res) => {
-  try {
-    res.clearCookie('id_token', { path: '/' });
-    res.clearCookie('tenant_id', { path: '/' });
-  } catch { /* ignore */ }
-  try {
-    if (req.session) {
-      req.session.id_token = null;
-      req.session.tenant_id = null;
-      req.session.destroy?.(() => {});
-    }
-  } catch { /* ignore */ }
-  return res.status(200).json({ success: true });
 });
 
 module.exports = router;

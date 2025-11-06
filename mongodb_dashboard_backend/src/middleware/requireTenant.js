@@ -16,7 +16,9 @@ function requireTenant(req, res, next) {
     null;
 
   if (!tenantId) {
-    return res.status(403).json({ success: false, message: 'Tenant context required' });
+    return res
+      .status(403)
+      .json({ success: false, message: 'Tenant context required' });
   }
 
   // Normalize onto req.auth

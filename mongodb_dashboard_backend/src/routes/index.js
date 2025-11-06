@@ -13,13 +13,6 @@ const router = express.Router();
  */
 router.get('/', (req, res) => res.json({ ok: true }));
 
-/**
- * PUBLIC_INTERFACE
- * GET /health
- * Minimal readiness probe (no DB access)
- */
-router.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
-
 router.get('/healthz', (req, res) => res.json({ ok: true }));
 
 // Public auth routes

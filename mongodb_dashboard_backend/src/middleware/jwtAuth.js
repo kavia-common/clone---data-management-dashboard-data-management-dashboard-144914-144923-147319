@@ -27,14 +27,8 @@
  */
 
 const jwt = require('jsonwebtoken');
-const fs = require('fs');
 
 const DEV = (process.env.NODE_ENV || '').toLowerCase() !== 'production';
-
-// Consistent error helper
-function sendError(res, code, message) {
-  return res.status(code).json({ success: false, message });
-}
 
 // Internal: normalize roles from multiple claim shapes
 function normalizeRoles(claims) {
@@ -44,7 +38,7 @@ function normalizeRoles(claims) {
   return [];
 }
 
-// Internal: pick token from header, cookie, or session
+// Internal: pick token from header or cookie
 function getToken(req) {
   const hdr = req.headers?.authorization || req.headers?.Authorization;
   if (hdr && typeof hdr === 'string') {
@@ -56,15 +50,9 @@ function getToken(req) {
     if (req.cookies && typeof req.cookies.id_token === 'string' && req.cookies.id_token) {
       return req.cookies.id_token;
     }
-  } catch { /* ignore */ }
-
-  // fallback to session if configured
-  try {
-    if (req.session && typeof req.session.id_token === 'string' && req.session.id_token) {
-      return req.session.id_token;
-    }
-  } catch { /* ignore */ }
-
+  } catch {
+    // ignore cookies if cookie-parser is not mounted
+  }
   return null;
 }
 
@@ -82,40 +70,22 @@ function extractTenantIdFromClaims(claims) {
   );
 }
 
-// Resolve verification strategy: RS256 if public key present; else HS256 with secret
-function getVerifyConfig() {
-  const pubKey = process.env.JWT_PUBLIC_KEY || '';
-  const pubKeyPath = process.env.JWT_PUBLIC_KEY_FILE || '';
-  let publicKey = pubKey;
-  if (!publicKey && pubKeyPath) {
-    try {
-      publicKey = fs.readFileSync(pubKeyPath, 'utf8');
-    } catch { /* ignore */ }
+// PUBLIC_INTERFACE
+function verifyAndDecode(token) {
+  /** Verify JWT with HS256. Optional iss/aud checks if configured. */
+  const secret = process.env.JWT_SECRET || process.env.JWT_HS256_SECRET || (DEV ? 'dev-secret' : null);
+  if (!secret) {
+    return { decoded: null, error: new Error('JWT secret not configured') };
   }
-
-  const hsSecret = process.env.JWT_SECRET || process.env.JWT_HS256_SECRET || (DEV ? 'dev-secret' : null);
   const expectedAud = process.env.COGNITO_AUDIENCE || process.env.JWT_AUDIENCE;
   const expectedIss = process.env.COGNITO_ISSUER || process.env.JWT_ISSUER;
 
-  if (publicKey && publicKey.includes('BEGIN PUBLIC KEY')) {
-    return { algs: ['RS256', 'RS512'], key: publicKey, options: { audience: expectedAud, issuer: expectedIss } };
-  }
-  return { algs: ['HS256', 'HS512'], key: hsSecret, options: { audience: expectedAud, issuer: expectedIss } };
-}
-
-// PUBLIC_INTERFACE
-function verifyAndDecode(token) {
-  /** Verify JWT. Prefer RS256 public key when configured; fallback to HS256 secret. */
-  const { algs, key, options } = getVerifyConfig();
-  if (!key) {
-    return { decoded: null, error: new Error('JWT verification key/secret not configured') };
-  }
-  const opts = {};
-  if (options?.audience) opts.audience = options.audience;
-  if (options?.issuer) opts.issuer = options.issuer;
+  const options = {};
+  if (expectedAud) options.audience = expectedAud;
+  if (expectedIss) options.issuer = expectedIss;
 
   try {
-    const decoded = jwt.verify(token, key, { algorithms: algs, ...opts });
+    const decoded = jwt.verify(token, secret, { algorithms: ['HS256'], ...options });
     return { decoded, error: null };
   } catch (err) {
     return { decoded: null, error: err };
@@ -127,12 +97,12 @@ function verifyTenantAccess(req, res, next) {
   /** Express middleware that verifies token and attaches normalized auth context. */
   const token = getToken(req);
   if (!token) {
-    return sendError(res, 401, 'Missing Authorization token');
+    return res.status(401).json({ success: false, message: 'Missing Authorization token' });
   }
 
   const { decoded, error } = verifyAndDecode(token);
   if (error || !decoded) {
-    return sendError(res, 401, 'Invalid or expired token');
+    return res.status(401).json({ success: false, message: 'Invalid or expired token' });
   }
 
   // Attach req.user and normalized req.auth
@@ -148,15 +118,8 @@ function verifyTenantAccess(req, res, next) {
   req.tenantId = tenantId;
 
   if (!tenantId) {
-    return sendError(res, 403, 'Tenant not found in token');
+    return res.status(403).json({ success: false, message: 'Tenant not found in token' });
   }
-
-  // If session exists, sync session.tenant_id for convenience
-  try {
-    if (req.session) {
-      req.session.tenant_id = tenantId;
-    }
-  } catch { /* ignore */ }
 
   return next();
 }
