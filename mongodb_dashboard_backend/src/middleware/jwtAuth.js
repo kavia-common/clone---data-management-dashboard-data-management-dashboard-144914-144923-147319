@@ -1,16 +1,29 @@
 'use strict';
 
 /**
- * PUBLIC_INTERFACE
  * JWT verification and tenant extraction middleware/utilities.
  *
- * Summary/Usage:
- * - Use verifyTenantAccess on protected routes: router.use(verifyAuth, requireTenant)
- * - Token source: strictly Authorization: Bearer <token> (cookies tolerated if present but not required)
- * - HS256 verification with JWT_SECRET (fallback to 'dev-secret' in non-production)
- * - Optional issuer/audience checks via JWT_ISSUER/JWT_AUDIENCE or COGNITO_ISSUER/COGNITO_AUDIENCE
- * - Tenant claim normalization: custom:tenant_id OR tenant_id OR tenantId OR organization_id
- * - Attaches req.user (claims), req.token (raw), req.auth = { sub, email, roles[], tenantId }, req.tenantId
+ * Behavior:
+ * - Reads token from Authorization: Bearer <token> or cookie "id_token"
+ * - Verifies JWT using HS256 with JWT_SECRET (fallback to 'dev-secret' in non-production to ease local testing)
+ * - Optionally enforces issuer and audience when JWT_ISSUER/JWT_AUDIENCE (or COGNITO_* variants) are provided
+ * - Extracts tenant id from one of:
+ *      - claims['custom:tenant_id']
+ *      - claims.tenant_id
+ *      - claims['tenant_id']
+ *      - claims.tenantId
+ *      - claims.organization_id (fallback)
+ * - On success:
+ *      - req.user = decoded
+ *      - req.auth = { sub, email, roles[], tenantId }
+ *      - req.tenantId = tenantId
+ *      - req.token = raw token
+ * - On failure: responds 401 with a safe message
+ *
+ * PUBLIC INTERFACES:
+ *  - verifyTenantAccess (Express middleware)
+ *  - applyTenantFilter (for Mongo/Mongoose queries)
+ *  - withTenantMatch (for aggregation pipelines; ensures $match { tenant_id } is first)
  */
 
 const jwt = require('jsonwebtoken');
@@ -25,30 +38,27 @@ function normalizeRoles(claims) {
   return [];
 }
 
-// Internal: pick token from header; tolerate cookie if present but do not require it
+// Internal: pick token from header or cookie
 function getToken(req) {
   const hdr = req.headers?.authorization || req.headers?.Authorization;
   if (hdr && typeof hdr === 'string') {
     const [scheme, token] = hdr.split(' ');
     if (/^Bearer$/i.test(scheme) && token) return token.trim();
   }
-  // tolerate presence of cookie if clients send it; do not require
+  // fallback to cookie named id_token if present
   try {
     if (req.cookies && typeof req.cookies.id_token === 'string' && req.cookies.id_token) {
       return req.cookies.id_token;
     }
   } catch {
-    // ignore when cookie-parser is not mounted
+    // ignore cookies if cookie-parser is not mounted
   }
   return null;
 }
 
 // PUBLIC_INTERFACE
 function extractTenantIdFromClaims(claims) {
-  /**
-   * Extract tenant id from common claims.
-   * Normalization order: custom:tenant_id -> tenant_id -> 'tenant_id' -> tenantId -> organization_id
-   */
+  /** Extract tenant id from common claims. */
   if (!claims || typeof claims !== 'object') return null;
   return (
     claims['custom:tenant_id'] ||
@@ -62,10 +72,7 @@ function extractTenantIdFromClaims(claims) {
 
 // PUBLIC_INTERFACE
 function verifyAndDecode(token) {
-  /**
-   * Verify JWT with HS256. Optional iss/aud checks if configured.
-   * Uses JWT_SECRET (or JWT_HS256_SECRET) and allows 'dev-secret' in non-production.
-   */
+  /** Verify JWT with HS256. Optional iss/aud checks if configured. */
   const secret = process.env.JWT_SECRET || process.env.JWT_HS256_SECRET || (DEV ? 'dev-secret' : null);
   if (!secret) {
     return { decoded: null, error: new Error('JWT secret not configured') };
@@ -87,13 +94,10 @@ function verifyAndDecode(token) {
 
 // PUBLIC_INTERFACE
 function verifyTenantAccess(req, res, next) {
-  /**
-   * Express middleware that strictly requires Authorization: Bearer <token>.
-   * On success attaches normalized auth context and requires tenant to be present in claims.
-   */
+  /** Express middleware that verifies token and attaches normalized auth context. */
   const token = getToken(req);
   if (!token) {
-    return res.status(401).json({ success: false, message: 'Missing Authorization: Bearer token' });
+    return res.status(401).json({ success: false, message: 'Missing Authorization token' });
   }
 
   const { decoded, error } = verifyAndDecode(token);
@@ -124,7 +128,7 @@ function verifyTenantAccess(req, res, next) {
 function applyTenantFilter(queryOrCriteria = {}, tenantId) {
   /**
    * Merge tenant_id constraint into Mongo or Mongoose find criteria.
-   * - For plain objects: returns a new object with tenant_id merged (enforced equality).
+   * - For plain objects: returns a new object with tenant_id merged.
    * - For Mongoose Query instances: mutates by adding where('tenant_id').equals(tenantId) and returns the query.
    */
   if (!tenantId) return queryOrCriteria;
@@ -136,15 +140,17 @@ function applyTenantFilter(queryOrCriteria = {}, tenantId) {
 
   // Plain criteria object
   const merged = { ...(queryOrCriteria || {}) };
-  merged.tenant_id = tenantId;
+  if (Object.prototype.hasOwnProperty.call(merged, 'tenant_id')) {
+    merged.tenant_id = tenantId;
+  } else {
+    merged.tenant_id = tenantId;
+  }
   return merged;
 }
 
 // PUBLIC_INTERFACE
 function withTenantMatch(pipeline = [], tenantId) {
-  /**
-   * Ensure first aggregation stage matches tenant_id; replace existing first-stage $match on tenant_id if present.
-   */
+  /** Ensure first pipeline stage matches tenant_id; replace existing first-stage $match on tenant_id if present. */
   const head = { $match: { tenant_id: tenantId } };
   if (Array.isArray(pipeline) && pipeline.length > 0) {
     const first = pipeline[0];

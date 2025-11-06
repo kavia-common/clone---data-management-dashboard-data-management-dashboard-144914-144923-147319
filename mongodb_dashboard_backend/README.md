@@ -4,7 +4,7 @@
 - Docs (Swagger UI): http://localhost:3001/docs (alias: http://localhost:3001/api-docs)
 - OpenAPI JSON: http://localhost:3001/openapi.json (alias: http://localhost:3001/api-docs.json)
 
-Environment example: see .env.example (includes JWT_SECRET and optional JWT_ISSUER/JWT_AUDIENCE). Copy .env.example to .env and set JWT_SECRET for production.
+Environment example: see .env.example (includes JWT_SECRET and optional JWT_ISSUER/JWT_AUDIENCE).
 
 Dev routes
 - Dev-only endpoints under /api/dev/* are mounted only when:

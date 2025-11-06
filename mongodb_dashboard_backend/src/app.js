@@ -130,12 +130,11 @@ safeMount('/api/session', () => require('./routes/session.routes'));
 safeMount('/api/app-deployments', () => require('./routes/appDeployments.routes'));
 safeMount('/api/analytics', () => require('./routes/analytics.overview.routes'));
 
+// Protected identity probe
 /**
  * PUBLIC_INTERFACE
  * GET /api/me
- * Purpose: Validate JWT middleware by returning normalized auth context.
- * Security: Protected by verifyAuth + requireTenant.
- * Returns: { tenant_id, sub, roles }
+ * Returns current auth context, primarily tenant_id and sub to validate JWT middleware.
  */
 app.get('/api/me', verifyAuth, requireTenant, (req, res) => {
   return res.status(200).json({

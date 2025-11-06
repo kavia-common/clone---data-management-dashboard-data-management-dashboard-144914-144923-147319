@@ -2,7 +2,7 @@
 
 - Start command: npm start (ensures dotenv is loaded) or node src/server.js (dotenv is auto-loaded now).
 - Default bind: HOST=0.0.0.0 PORT=3001
-- Health endpoint: GET /api/health (public) returns 200 regardless of DB connection; payload includes db: connected|connecting|disconnected.
+- Health endpoint: GET /api/health returns 200 regardless of DB connection; payload includes db: connected|connecting|disconnected.
 - MongoDB: If MONGODB_URI is unset, the server still starts. Logs a warning and health shows db=disconnected.
 
 Troubleshooting
