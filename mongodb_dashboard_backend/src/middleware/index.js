@@ -1,4 +1,8 @@
-// This file will export middleware as the application grows
+/**
+ * PUBLIC_INTERFACE
+ * Middleware registry: export common middlewares for centralized imports if desired.
+ */
 module.exports = {
-  // Add your middleware here
+  // Auth
+  verifyAuth: require('./verifyAuth').verifyAuth,
 };
