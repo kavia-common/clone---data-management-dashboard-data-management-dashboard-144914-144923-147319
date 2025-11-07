@@ -26,10 +26,12 @@ const router = express.Router();
 /**
  * PUBLIC_INTERFACE
  * GET /
- * Health endpoint for base router
+ * Health endpoint for base router.
+ * Returns 200 with { status: 'ok', db, timestamp, host, port }.
+ * This is used by container readiness checks.
  */
-router.get('/', healthController.check?.bind?.(healthController) || ((req, res) => res.json({ ok: true })));
-router.get('/healthz', healthController.check?.bind?.(healthController) || ((req, res) => res.json({ ok: true })));
+router.get('/', healthController.check?.bind?.(healthController) || ((req, res) => res.status(200).json({ status: 'ok' })));
+router.get('/healthz', healthController.check?.bind?.(healthController) || ((req, res) => res.status(200).json({ status: 'ok' })));
 
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);

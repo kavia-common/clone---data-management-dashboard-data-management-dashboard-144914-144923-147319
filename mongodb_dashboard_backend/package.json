@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/server.js",
     "start:alt": "PORT=3101 HOST=0.0.0.0 node src/server.js",
-    "dev": "HOST=0.0.0.0 PORT=3001 NODE_ENV=development nodemon src/server.js",
+    "dev": "HOST=0.0.0.0 PORT=3001 NODE_ENV=development node scripts/kill-port.js 3001 && nodemon src/server.js",
+    "dev:force": "HOST=0.0.0.0 PORT=3001 NODE_ENV=development node scripts/kill-port.js 3001 --force && nodemon src/server.js",
+    "health": "curl -sf http://127.0.0.1:${PORT:-3001}/health >/dev/null && echo 'ok' || (echo 'not ok' && exit 1)",
     "test": "jest",
     "lint": "eslint .",
     "gen:openapi": "node generate_openapi.js"

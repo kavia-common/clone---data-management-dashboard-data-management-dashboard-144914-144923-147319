@@ -25,7 +25,7 @@ const server = app
       const dbName = mongoose.connection?.name || '(not connected yet)';
       const dbState = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
       // Use exactly this phrasing to signal readiness to preview/CI
-      console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+      console.log(`[startup] READY - Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
       console.log(`[startup] MongoDB state=${dbState} db=${dbName}`);
     } catch {
       // Best-effort logs; avoid throwing in callback
