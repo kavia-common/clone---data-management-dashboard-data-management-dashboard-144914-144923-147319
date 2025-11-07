@@ -14,7 +14,13 @@ function requireTenant(req, res, next) {
   }
 
   if (!req.auth || !req.auth.tenantId) {
+    if (process.env.NODE_ENV !== 'production' || String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true') {
+      try { console.warn('[requireTenant] Missing tenantId on req.auth'); } catch {}
+    }
     return res.status(403).json({ success: false, message: 'Tenant required' });
+  }
+  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+    try { console.debug('[requireTenant] tenantId', req.auth.tenantId); } catch {}
   }
   return next();
 }

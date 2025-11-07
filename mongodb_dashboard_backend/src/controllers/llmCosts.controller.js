@@ -28,6 +28,11 @@ async function getHierarchy(req, res) {
     // Best-effort index creation (non-blocking); ignore errors
     ensureLlmCostsIndexes().catch(() => {});
 
+    // Enforce tenant filter
+    const tenantId = req?.auth?.tenantId || req?.tenant?.id || req?.headers['x-tenant-id'] || req?.headers['x-tenant'];
+    if (tenantId && !Object.prototype.hasOwnProperty.call(filter, 'tenant_id')) {
+      filter.tenant_id = String(tenantId);
+    }
     const data = await aggregateHierarchy({ filter });
     return success(res, data);
   } catch (err) {

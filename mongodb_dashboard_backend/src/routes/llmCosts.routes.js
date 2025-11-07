@@ -10,7 +10,7 @@ const { requireTenant: requireTenantMw } = require('../middleware/requireTenant'
 const controller = buildCrudController(LLMCost, '-timestamp');
 
 // Enforce JWT + Tenant at router level
-router.use(verifyAuth, requireTenantMw);
+router.use(verifyAuth, requireTenantMw, require('../middleware/tenantScope').tenantScope());
 
 /**
  * @swagger

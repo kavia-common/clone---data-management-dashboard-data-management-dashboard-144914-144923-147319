@@ -21,6 +21,9 @@ async function getOverviewTotals(tenantId) {
   // Count docs within tenant only
   const usersCount = await users.countDocuments({ tenant_id: tenantId });
   const appsCount = await app_deployments.countDocuments({ tenant_id: tenantId });
+  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+    try { console.debug('[analytics.getOverviewTotals] tenantFilter', { tenant_id: tenantId }); } catch {}
+  }
 
   return { totalUsers: usersCount, totalDeployedApps: appsCount };
 }

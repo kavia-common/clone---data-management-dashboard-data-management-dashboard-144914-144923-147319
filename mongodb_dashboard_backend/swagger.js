@@ -38,6 +38,14 @@ function getBaseOpenApiSpec() {
       { name: 'Dev', description: 'Development utilities (guarded)' },
     ],
     components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'Include a Bearer JWT with tenantId claim. All protected endpoints are tenant-scoped server-side.',
+        },
+      },
       schemas: {
         // Minimal placeholders so UI renders; detailed schemas can be added by generators
         GenericDocument: { type: 'object', additionalProperties: true },
@@ -65,6 +73,7 @@ function getBaseOpenApiSpec() {
         },
       },
     },
+    security: [{ bearerAuth: [] }],
     paths: {
       // Keep a couple of base paths documented; others are described in route-level swagger JSDoc
       '/health': {
