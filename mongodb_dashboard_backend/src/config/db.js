@@ -46,7 +46,7 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'develop_kaviaroot'; // Optional; if not set, Mongo will use the URI/path default
+  const dbName = 'test'; // Optional; if not set, Mongo will use the URI/path default
 
   const options = {
     autoIndex,
