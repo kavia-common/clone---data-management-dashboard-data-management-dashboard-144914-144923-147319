@@ -5,6 +5,9 @@
     "version": "1.0.0",
     "description": "REST API for Data Management Dashboard with MongoDB and Express"
   },
+   "servers": [
+    { "url": "https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api" }
+  ],
   "components": {
     "schemas": {
       "GenericDocument": {

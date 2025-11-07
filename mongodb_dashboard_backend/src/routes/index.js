@@ -5,6 +5,22 @@ const healthController = require('../controllers/health');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 
+// Core route modules
+const authRoutes = require('./auth.routes');
+const usersRoutes = require('./users.routes');
+const tenantsRoutes = require('./tenants.routes');
+
+const llmCostsRoutes = require('./llmCosts.routes');
+const llmCostsAggregateRoutes = require('./llmCosts.aggregate.routes');
+const costsByAgentRoutes = require('./costs.byAgent.routes');
+const sessionTrackingRoutes = require('./sessionTracking.routes');
+const sessionRoutes = require('./session.routes');
+const appDeploymentsRoutes = require('./appDeployments.routes');
+const dashboardRoutes = require('./dashboard.routes');
+const dashboardModulesRoutes = require('./dashboard.modules.routes');
+const countsRoutes = require('./counts.routes');
+const analyticsOverviewRoutes = require('./analytics.overview.routes');
+
 const router = express.Router();
 
 /**
@@ -16,30 +32,33 @@ router.get('/', healthController.check?.bind?.(healthController) || ((req, res) 
 router.get('/healthz', healthController.check?.bind?.(healthController) || ((req, res) => res.json({ ok: true })));
 
 // Public auth routes remain unprotected
-router.use('/auth', require('./auth.routes'));
+router.use('/auth', authRoutes);
 
-// Counts and sample routes are public to support landing/overview
-router.use('/', require('./counts.routes'));
-router.use('/', require('./tenantSample.routes'));
+// Protected core routes behind auth + tenant
+router.use('/users', verifyAuth, requireTenant, usersRoutes);
+router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 
-// Protected core routes behind auth + tenant (imports deferred until used)
-router.use('/users', verifyAuth, requireTenant, require('./users.routes'));
-router.use('/tenants', verifyAuth, requireTenant, require('./tenants.routes'));
-
-router.use('/llm-costs', verifyAuth, requireTenant, require('./llmCosts.routes'));
-router.use('/llm-costs-aggregate', verifyAuth, requireTenant, require('./llmCosts.aggregate.routes'));
-router.use('/costs', verifyAuth, requireTenant, require('./costs.byAgent.routes'));
-router.use('/session', verifyAuth, requireTenant, require('./session.routes'));
-router.use('/session-tracking', verifyAuth, requireTenant, require('./sessionTracking.routes'));
-router.use('/app-deployments', verifyAuth, requireTenant, require('./appDeployments.routes'));
+router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);
+router.use('/llm-costs-aggregate', verifyAuth, requireTenant, llmCostsAggregateRoutes);
+router.use('/costs', verifyAuth, requireTenant, costsByAgentRoutes);
+router.use('/session', verifyAuth, requireTenant, sessionRoutes);
+router.use('/session-tracking', verifyAuth, requireTenant, sessionTrackingRoutes);
+router.use('/app-deployments', verifyAuth, requireTenant, appDeploymentsRoutes);
 
 // Dashboard overview routes (protected)
-router.use('/dashboard/overview', verifyAuth, requireTenant, require('./dashboard.routes'));
-router.use('/dashboard/overview', verifyAuth, requireTenant, require('./dashboard.modules.routes'));
+router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardRoutes);
+router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardModulesRoutes);
 
 /**
  * Analytics overview routes protected here as well
+ * This guarantees verifyAuth + requireTenant are always enforced.
  */
-router.use('/analytics', verifyAuth, requireTenant, require('./analytics.overview.routes'));
+router.use('/analytics', verifyAuth, requireTenant, analyticsOverviewRoutes);
+
+// Counts endpoints (these are lightweight; keep public if they are used for landing)
+router.use('/', countsRoutes);
+
+// Sample tenant-scoped demo endpoints
+router.use('/', require('./tenantSample.routes'));
 
 module.exports = router;
