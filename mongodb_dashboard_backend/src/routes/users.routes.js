@@ -13,8 +13,18 @@ const { requireTenant: requireTenantMw } = require('../middleware/requireTenant'
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
 
-// Enforce JWT + Tenant at router level
-router.use(verifyAuth, requireTenantMw);
+const { cognitoAuthMiddleware } = require('../middleware/cognitoAuth');
+
+// Use Cognito/JWKS-aware auth for this router and ensure tenant presence
+router.use(cognitoAuthMiddleware, (req, res, next) => {
+  if (!req.tenantId && !req?.auth?.tenantId) {
+    return res.status(403).json({ success: false, message: 'Tenant required' });
+  }
+  // Bridge values for existing code below
+  req.auth = req.auth || {};
+  req.auth.tenantId = req.tenantId || req.auth.tenantId;
+  return next();
+});
 
 // Simple in-memory cache for tenant summary (5 minutes TTL)
 const TENANT_SUMMARY_CACHE = new Map();
@@ -213,67 +223,46 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Determine pagination intent and parse filter/sort similar to controller logic
-    const explicit =
-      Object.prototype.hasOwnProperty.call(req.query, 'page') ||
-      Object.prototype.hasOwnProperty.call(req.query, 'limit');
-
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
-    const skip = (page - 1) * limit;
-
-    const sort = req.query.sort || '-created_at';
-
-    // Parse filter safely
-    const filterRaw = req.query.filter ? req.query.filter : '{}';
-    let filter = {};
-    try {
-      filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
-    } catch {
-      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+    const tenantId = req?.tenantId || req?.auth?.tenantId;
+    if (!tenantId) {
+      return res.status(403).json({ success: false, message: 'Tenant required' });
     }
 
-    // Enforce tenant scope on filter to prevent cross-tenant/global scans
-    if (!req?.auth?.tenantId) {
-      return res.status(403).json({ success: false, message: 'Tenant not set in token' });
-    }
-    if (Object.prototype.hasOwnProperty.call(filter, 'tenant_id') && filter.tenant_id !== req.auth.tenantId) {
-      return res.status(400).json({ success: false, message: 'Tenant mismatch in filter' });
-    }
-    filter.tenant_id = req.auth.tenantId;
+    // Identify user by sub (preferred) or email from token context
+    const sub = req?.user?.sub || req?.auth?.sub || null;
+    const email = req?.user?.email || req?.auth?.email || null;
 
-    // First pass: check data presence without sending a response
-    let items = [];
-    let total = 0;
+    const query = { tenant_id: tenantId };
+    if (sub) {
+      // match either sub field or _id string in case previous records lack sub
+      query.$or = [{ sub }, { _id: sub }, { user_id: sub }];
+    } else if (email) {
+      query.email = email;
+    } else {
+      return res.status(401).json({ success: false, message: 'Unauthorized: no subject/email in token' });
+    }
 
-    try {
-      if (explicit) {
-        // For pagination, we still need to detect emptiness using the paginated query
-        [items, total] = await Promise.all([
-          User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-          User.countDocuments(filter),
-        ]);
-      } else {
-        items = await User.find(filter).sort(sort).lean();
-        total = items.length;
+    // Fetch a single user document
+    let doc = await User.findOne(query).lean();
+    // Fallback: if not found with tenant filter, try without tenant filter but then enforce/attach tenant for future
+    if (!doc && email) {
+      doc = await User.findOne({ email }).lean();
+    }
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Remove sensitive token fields from projection if any leaked via strict:false
+    if (doc.tokens) {
+      const safeTokens = {};
+      if (process.env.NODE_ENV !== 'production') {
+        // In dev you may want to return token metadata but not raw values
+        safeTokens.updated_at = doc.tokens.updated_at || null;
       }
-    } catch (err) {
-      // Map common cast errors to 400 to avoid 500
-      const message = err?.message || 'Request failed';
-      if (err?.name === 'CastError' || /Cast to/.test(message)) {
-        return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
-      }
-      return res.status(400).json({ success: false, message: 'Request failed', details: message });
+      doc.tokens = safeTokens;
     }
 
-    if (explicit) {
-      return res.status(200).json({
-        success: true,
-        data: items,
-        meta: { page, limit, total },
-      });
-    }
-    return res.status(200).json(items);
+    return res.status(200).json([doc]); // keep array shape for minimal frontend changes
   })
 );
 

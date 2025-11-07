@@ -36,7 +36,10 @@ router.get('/healthz', healthController.check?.bind?.(healthController) || ((req
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);
 
-// Protected core routes behind auth + tenant
+/**
+ * Users route manages its own Cognito/JWKS auth to ensure it returns only the authenticated user.
+ * Keep verifyAuth+requireTenant here for general safety; the router overrides with stricter behavior internally.
+ */
 router.use('/users', verifyAuth, requireTenant, usersRoutes);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 

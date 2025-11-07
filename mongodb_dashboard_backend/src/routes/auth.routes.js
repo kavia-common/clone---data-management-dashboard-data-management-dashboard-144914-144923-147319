@@ -260,6 +260,25 @@ router.post('/login', async (req, res) => {
 
     if (!user.password_hash) {
       const idToken = issueToken();
+      try {
+        await User.updateOne(
+          { _id: user._id },
+          {
+            $set: {
+              sub: String(user._id || ''),
+              tenant_id: tenantId,
+              'tokens.id_token': idToken,
+              'tokens.access_token': idToken,
+              'tokens.refresh_token': null,
+              'tokens.updated_at': new Date(),
+              updated_at: new Date(),
+            },
+          }
+        );
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[auth.login] token persist (no-hash) failed:', e?.message || e);
+      }
       return res.status(200).json({
         success: true,
         tenant_id: tenantId,
@@ -287,6 +306,26 @@ router.post('/login', async (req, res) => {
     }
 
     const idToken = issueToken();
+    // Persist tokens on login keyed by sub (user._id) and tenant_id
+    try {
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            sub: String(user._id || ''),
+            tenant_id: tenantId,
+            'tokens.id_token': idToken,
+            'tokens.access_token': idToken, // HS256 local token doubles as access token in this demo
+            'tokens.refresh_token': null,
+            'tokens.updated_at': new Date(),
+            updated_at: new Date(),
+          },
+        }
+      );
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[auth.login] token persist failed (non-fatal):', e?.message || e);
+    }
     return res.status(200).json({
       success: true,
       tenant_id: tenantId,

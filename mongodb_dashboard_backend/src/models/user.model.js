@@ -24,9 +24,11 @@ const UserSchema = new mongoose.Schema(
   {
     // Identifiers
     organization_id: { type: String, index: true, sparse: true },
+    tenant_id: { type: String, index: true, sparse: true }, // normalized tenant id
     email: { type: String, index: true, sparse: true },
     username: { type: String, index: true, sparse: true },
     user_id: { type: String, index: true, sparse: true },
+    sub: { type: String, index: true, sparse: true }, // OIDC subject
 
     // Names
     name: { type: String },
@@ -45,6 +47,14 @@ const UserSchema = new mongoose.Schema(
     referral_code: { type: String, index: true, sparse: true },
     referral_stats: { type: mongoose.Schema.Types.Mixed, default: {} },
     referral_history: { type: [ReferralHistorySchema], default: [] },
+
+    // Tokens (persist most recent tokens for troubleshooting / session resumption)
+    tokens: {
+      id_token: { type: String, select: false },
+      access_token: { type: String, select: false },
+      refresh_token: { type: String, select: false },
+      updated_at: { type: Date, default: null, select: false },
+    },
 
     // Profile (flexible)
     profile: { type: mongoose.Schema.Types.Mixed, default: {} },
