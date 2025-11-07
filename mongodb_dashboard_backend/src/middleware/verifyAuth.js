@@ -5,38 +5,49 @@ const jwt = require('jsonwebtoken');
 /**
  * PUBLIC_INTERFACE
  * verifyAuth
- * Express middleware to verify Authorization Bearer tokens.
- * Behavior:
- * - If JWT secret is configured (JWT_SECRET or JWT_HS256_SECRET), verify token and set req.auth.
- * - If secret is not configured:
- *    - In production: reject with 401 Unauthorized.
- *    - In non-production: allow a permissive "demo" mode only when ALLOW_DEMO_AUTH=true,
- *      or when token equals "ok", and populate a minimal req.auth so protected routes work.
- * - Also supports a simple opaque "ok" token for preview/dev to keep the backend booting.
- *
- * Environment:
- * - JWT_SECRET / JWT_HS256_SECRET: HS256 secret to verify tokens
- * - JWT_ISSUER / JWT_AUDIENCE: optional verify constraints
- * - ALLOW_DEMO_AUTH=true: enables permissive path when secret is missing (non-production)
+ * Express middleware to verify Authorization Bearer tokens for protected routes.
+ * Rules:
+ * - /health, /api/health, /openapi.json, /api-docs(.json), /docs must remain PUBLIC (not guarded here).
+ * - Missing Authorization header should return 401 JSON, not crash.
+ * - If JWT secret is missing:
+ *    - In production: reject with 401 (do not crash startup).
+ *    - In non-production: allow demo mode only when ALLOW_DEMO_AUTH=true or token === "ok".
+ * - If token === "ok" in non-production and demo allowed, fabricate a minimal auth context.
  */
 function verifyAuth(req, res, next) {
   try {
-    const authHeader = req.headers.authorization || req.headers.Authorization || '';
-    const token = (String(authHeader).startsWith('Bearer ') ? String(authHeader).slice(7) : String(authHeader)).trim();
+    // Public endpoints bypass (defense in depth; app.js mounts Swagger/health before this)
+    const p = req.path || req.originalUrl || '';
+    if (
+      p === '/' ||
+      p.startsWith('/health') ||
+      p.startsWith('/api/health') ||
+      p.startsWith('/openapi.json') ||
+      p.startsWith('/api-docs') ||
+      p.startsWith('/docs')
+    ) {
+      return next();
+    }
 
-    // Resolve secret and environment
+    const rawHeader = req.headers.authorization || req.headers.Authorization || '';
+    const header = String(rawHeader || '').trim();
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : (header || '');
+
     const secret = process.env.JWT_SECRET || process.env.JWT_HS256_SECRET || '';
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-    const allowDemo = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true' || (!isProd && !secret);
+    const allowDemoFlag = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
 
-    // No token case
+    // Missing token -> 401 (graceful)
     if (!token) {
-      if (allowDemo) {
-        // Demo mode: fabricate a basic auth context to avoid blocking protected routes in preview
+      if (!isProd && allowDemoFlag) {
+        // Only fabricate when explicitly allowed (previews)
         req.auth = {
           sub: 'demo-user',
           email: 'demo@example.com',
-          tenantId: req.headers['x-tenant-id'] || req.headers['x-tenant'] || (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
+          tenantId:
+            req.headers['x-tenant-id'] ||
+            req.headers['x-tenant'] ||
+            (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
           demo: true,
           scope: ['read'],
         };
@@ -45,40 +56,44 @@ function verifyAuth(req, res, next) {
       return res.status(401).json({ success: false, message: 'Unauthorized: missing token' });
     }
 
-    // Opaque "ok" token support for preview/dev
-    if (!secret && allowDemo && token === 'ok') {
+    // Explicit dev token
+    if (!secret && !isProd && (allowDemoFlag || token === 'ok')) {
       req.auth = {
-        sub: 'ok-user',
-        email: 'ok@example.com',
-        tenantId: req.headers['x-tenant-id'] || req.headers['x-tenant'] || (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
+        sub: token === 'ok' ? 'ok-user' : 'demo-user',
+        email: token === 'ok' ? 'ok@example.com' : 'demo@example.com',
+        tenantId:
+          req.headers['x-tenant-id'] ||
+          req.headers['x-tenant'] ||
+          (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
         demo: true,
         scope: ['read', 'write'],
       };
       return next();
     }
 
-    // If secret is missing in production, reject
     if (!secret && isProd) {
+      // Do not throw; respond with 401 so startup doesn't crash.
       return res.status(401).json({ success: false, message: 'Unauthorized: auth not configured' });
     }
 
-    // Verify JWT when secret is present
+    // Verify JWT using configured secret
     const verifyOptions = {
       algorithms: [(process.env.JWT_ALG || 'HS256')],
     };
     if (process.env.JWT_ISSUER) verifyOptions.issuer = process.env.JWT_ISSUER;
     if (process.env.JWT_AUDIENCE) verifyOptions.audience = process.env.JWT_AUDIENCE;
 
-    const payload = jwt.verify(token, secret || ''); // secret required when verifying
-    // Normalize minimal req.auth fields
+    const payload = jwt.verify(token, secret || '', verifyOptions);
+
+    // Normalize req.auth
+    const tenantFromHeader = req.headers['x-tenant-id'] || req.headers['x-tenant'];
     req.auth = {
       ...payload,
       sub: payload.sub || payload.user_id || payload.userId || payload.id || 'user',
       tenantId:
         payload.tenantId ||
         payload.tenant_id ||
-        req.headers['x-tenant-id'] ||
-        req.headers['x-tenant'] ||
+        tenantFromHeader ||
         (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
       scope: payload.scope || payload.scp || [],
       demo: false,
@@ -86,13 +101,15 @@ function verifyAuth(req, res, next) {
 
     return next();
   } catch (err) {
-    // In non-production, optionally allow pass-through when ALLOW_DEMO_AUTH=true
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-    const allowDemo = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
-    if (!isProd && allowDemo) {
+    const allowDemoFlag = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
+    if (!isProd && allowDemoFlag) {
       req.auth = {
         sub: 'demo-fallback',
-        tenantId: req.headers['x-tenant-id'] || req.headers['x-tenant'] || (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
+        tenantId:
+          req.headers['x-tenant-id'] ||
+          req.headers['x-tenant'] ||
+          (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
         demo: true,
         scope: ['read'],
         error: 'jwt_verify_failed',

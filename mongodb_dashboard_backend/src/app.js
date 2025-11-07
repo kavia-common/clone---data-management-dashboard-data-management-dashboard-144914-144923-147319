@@ -83,15 +83,7 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    // servers: [{ url: `${protocol}://${fullHost}` }],
-    servers: [
-  {
-    url:
-      process.env.SWAGGER_SERVER_URL ||
-      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-  },
-],
-
+    servers: [{ url: `${protocol}://${fullHost}` }],
   };
 };
 
@@ -125,13 +117,19 @@ app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 // Primary docs path per requirements
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-// Add a small helper to expose current authenticated context for debugging
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/me
+ * Returns current auth context (for debugging). Protected by authTenant.
+ * Gracefully handles missing fields to avoid crashes.
+ */
 app.get('/api/me', authTenant, (req, res) => {
+  const ctx = req.auth || {};
   return res.json({
     success: true,
-    userId: req.auth.userId,
-    tenantId: req.auth.tenantId,
+    userId: ctx.userId || ctx.sub || null,
+    tenantId: ctx.tenantId || null,
+    demo: !!ctx.demo,
   });
 });
 
