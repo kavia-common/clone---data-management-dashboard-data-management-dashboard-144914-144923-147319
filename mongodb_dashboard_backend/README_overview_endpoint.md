@@ -1,10 +1,18 @@
-# API Docs
+# Backend Preview and API Docs
 
-Swagger UI is mounted at /api-docs and serves the OpenAPI spec from /openapi.json, which reads the file at interfaces/openapi.json.
+The Express backend is configured to bind on 0.0.0.0:3001 and exposes Swagger UI and the OpenAPI JSON.
 
-- UI: GET /api-docs
-- JSON: GET /openapi.json
+- Swagger UI: http://localhost:3001/api-docs
+- OpenAPI JSON: http://localhost:3001/openapi.json
 
-To develop locally:
-- PORT defaults to 3001 (override with env PORT).
-- Start: npm start
+Scripts:
+- npm start -> node src/server.js
+- npm run dev -> nodemon src/server.js
+
+Environment:
+- PORT defaults to 3001 (override with env PORT)
+- HOST defaults to 0.0.0.0
+
+Notes:
+- /openapi.json serves interfaces/openapi.json statically; Swagger UI uses that spec.
+- Health endpoints are available at /health and /api/health.
