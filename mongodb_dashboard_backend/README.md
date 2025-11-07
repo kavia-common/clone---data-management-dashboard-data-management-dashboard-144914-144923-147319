@@ -38,7 +38,7 @@ Key route to verify:
 
 Multi-tenant enforcement:
 - All protected routes should use verifyAuth and requireTenant middlewares.
-- For Mongoose-based CRUD, prefer buildTenantCrudController(Model) from src/controllers/crudFactory.tenant.js.
+- For Mongoose-based CRUD, prefer buildCrudController(Model) from src/controllers/crudFactory.tenant.js.
 - For custom queries/aggregations, ensure every filter/pipeline starts with tenant_id from req.auth.tenantId.
 - Sample endpoints: see src/routes/tenantSample.routes.js.
 

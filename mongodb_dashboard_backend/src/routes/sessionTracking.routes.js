@@ -2,12 +2,12 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
-const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
+const { buildCrudController } = require('../controllers/crudFactory');
 
 const router = express.Router();
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
-const controller = buildTenantCrudController(SessionTracking, '-session_start');
+const controller = buildCrudController(SessionTracking, '-session_start');
 
 // Enforce JWT + Tenant at router level
 router.use(verifyAuth, requireTenantMw);

@@ -1,14 +1,14 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const AppDeployment = require('../models/appDeployments.model');
-const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
+const { buildCrudController } = require('../controllers/crudFactory');
 const { validateAppDeployment } = require('../middleware/validators');
 const { normalizeProjectId } = require('../services/enrichment.util');
 
 const router = express.Router();
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
-const controller = buildTenantCrudController(AppDeployment, '-created_at');
+const controller = buildCrudController(AppDeployment, '-created_at');
 
 /**
  * Lightweight in-memory cache for projectId -> projectName lookups.
