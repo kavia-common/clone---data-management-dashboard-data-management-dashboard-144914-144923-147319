@@ -2,40 +2,7 @@
 
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
-const { authTenant } = require('./middleware/authTenant');
-// Load swagger base spec safely; fallback to a minimal spec if module path changes
-let getBaseOpenApiSpec = () => ({
-  openapi: '3.0.0',
-  info: {
-    title: 'Dashboard API',
-    version: '1.0.0',
-    description: 'REST API for Data Management Dashboard with MongoDB and Express',
-  },
-  paths: {},
-  tags: [],
-});
-try {
-  // swagger.js is at project root of the backend container (../.. from src)
-  // Attempt multiple resolution strategies to avoid require-time crash.
-  // Primary: root-level swagger.js (one directory up from src is project root? Here backend root contains swagger.js)
-  // from src/app.js, backend root is "..", so "../swagger.js"
-  // Try both without and with extension.
-  // eslint-disable-next-line global-require, import/no-dynamic-require
-  const swaggerModule = require('../swagger');
-  if (swaggerModule && typeof swaggerModule.getBaseOpenApiSpec === 'function') {
-    getBaseOpenApiSpec = swaggerModule.getBaseOpenApiSpec;
-  }
-} catch (e1) {
-  try {
-    // eslint-disable-next-line global-require, import/no-dynamic-require
-    const swaggerModule2 = require('../../swagger');
-    if (swaggerModule2 && typeof swaggerModule2.getBaseOpenApiSpec === 'function') {
-      getBaseOpenApiSpec = swaggerModule2.getBaseOpenApiSpec;
-    }
-  } catch (e2) {
-    try { console.warn('[startup] Swagger module not found; using minimal in-memory OpenAPI spec.'); } catch {}
-  }
-}
+const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
@@ -83,29 +50,19 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
+    // servers: [{ url: `${protocol}://${fullHost}` }],
     servers: [
-  {'https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api' },
+  {
+    url:
+      process.env.SWAGGER_SERVER_URL ||
+      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+  },
 ],
 
   };
 };
 
-const fs = require('fs');
-const path = require('path');
-
-// Serve the statically curated OpenAPI spec from interfaces/openapi.json for consistency with acceptance criteria
-app.get('/openapi.json', (_req, res) => {
-  try {
-    const specPath = path.resolve(__dirname, '..', 'interfaces', 'openapi.json');
-    const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
-    res.setHeader('Content-Type', 'application/json');
-    return res.status(200).send(spec);
-  } catch (err) {
-    // fallback to dynamic spec if file cannot be read
-    try { console.warn('[openapi.json] Falling back to dynamic spec:', err?.message); } catch {}
-    return res.json(buildDynamicSpec(_req));
-  }
-});
+app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 
 const swaggerUiHandler = swaggerUi.setup(null, {
@@ -117,24 +74,7 @@ const swaggerUiHandler = swaggerUi.setup(null, {
   customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
 });
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
-// Primary docs path per requirements
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
-
-/**
- * PUBLIC_INTERFACE
- * GET /api/me
- * Returns current auth context (for debugging). Protected by authTenant.
- * Gracefully handles missing fields to avoid crashes.
- */
-app.get('/api/me', authTenant, (req, res) => {
-  const ctx = req.auth || {};
-  return res.json({
-    success: true,
-    userId: ctx.userId || ctx.sub || null,
-    tenantId: ctx.tenantId || null,
-    demo: !!ctx.demo,
-  });
-});
 
 // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');

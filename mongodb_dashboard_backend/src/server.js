@@ -4,7 +4,7 @@
  */
 try { require('dotenv').config(); } catch {}
 
-const app = require('./app');
+const app = require('./app.js');
 const mongoose = require('mongoose');
 
 // Default to 3001 to match container deployment and docs URL
@@ -24,15 +24,9 @@ const server = app
       const ready = mongoose.connection?.readyState ?? 0;
       const dbName = mongoose.connection?.name || '(not connected yet)';
       const dbState = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
-      const baseUrl = `http://${HOST}:${PORT}`;
       // Use exactly this phrasing to signal readiness to preview/CI
-      console.log(`[startup] Express listening on ${baseUrl} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
-      console.log('[startup] Ready: health endpoint at GET /health');
+      console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
       console.log(`[startup] MongoDB state=${dbState} db=${dbName}`);
-      // Helpful direct links for preview
-      console.log(`[startup] Health:     ${baseUrl}/health`);
-      console.log(`[startup] OpenAPI:    ${baseUrl}/openapi.json`);
-      console.log(`[startup] Swagger UI: ${baseUrl}/api-docs (alias: /docs)`);
     } catch {
       // Best-effort logs; avoid throwing in callback
       // eslint-disable-next-line no-console
