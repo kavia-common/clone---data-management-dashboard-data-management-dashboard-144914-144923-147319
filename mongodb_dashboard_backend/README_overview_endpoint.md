@@ -1,8 +1,10 @@
-# Overview Endpoint
+# API Docs
 
-Provides totals for dashboard.
+Swagger UI is mounted at /api-docs and serves the OpenAPI spec from /openapi.json, which reads the file at interfaces/openapi.json.
 
-Security and tenant enforcement:
-- All protected endpoints require Authorization: Bearer <token>.
-- Tenant is extracted from JWT claims (custom:tenant_id or tenant_id) and enforced across queries and aggregations.
-- Any :tenantId param must match req.auth.tenantId unless admin role is present.
+- UI: GET /api-docs
+- JSON: GET /openapi.json
+
+To develop locally:
+- PORT defaults to 3001 (override with env PORT).
+- Start: npm start

@@ -94,7 +94,22 @@ const buildDynamicSpec = (req) => {
   };
 };
 
-app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
+const fs = require('fs');
+const path = require('path');
+
+// Serve the statically curated OpenAPI spec from interfaces/openapi.json for consistency with acceptance criteria
+app.get('/openapi.json', (_req, res) => {
+  try {
+    const specPath = path.resolve(__dirname, '..', 'interfaces', 'openapi.json');
+    const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(200).send(spec);
+  } catch (err) {
+    // fallback to dynamic spec if file cannot be read
+    try { console.warn('[openapi.json] Falling back to dynamic spec:', err?.message); } catch {}
+    return res.json(buildDynamicSpec(_req));
+  }
+});
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 
 const swaggerUiHandler = swaggerUi.setup(null, {
@@ -106,6 +121,7 @@ const swaggerUiHandler = swaggerUi.setup(null, {
   customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
 });
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
+// Primary docs path per requirements
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
 // Base router (non-/api) for health and overview
