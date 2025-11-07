@@ -32,7 +32,7 @@ const server = app
       // Helpful direct links for preview
       console.log(`[startup] Health:     ${baseUrl}/health`);
       console.log(`[startup] OpenAPI:    ${baseUrl}/openapi.json`);
-      console.log(`[startup] Swagger UI: ${baseUrl}/api-docs`);
+      console.log(`[startup] Swagger UI: ${baseUrl}/api-docs (alias: /docs)`);
     } catch {
       // Best-effort logs; avoid throwing in callback
       // eslint-disable-next-line no-console
