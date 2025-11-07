@@ -26,6 +26,7 @@ const server = app
       const dbState = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
       // Use exactly this phrasing to signal readiness to preview/CI
       console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+      console.log('[startup] Ready: health endpoint at GET /health');
       console.log(`[startup] MongoDB state=${dbState} db=${dbName}`);
     } catch {
       // Best-effort logs; avoid throwing in callback

@@ -5,7 +5,12 @@ const mongoose = require('mongoose');
 /**
  * PUBLIC_INTERFACE
  * check
- * Health handler used by base router; does not require DB.
+ * Health handler used by base router; does not require DB connectivity to return 200.
+ * Returns:
+ *  - status: "ok"
+ *  - db: "connected" | "connecting" | "disconnected"
+ *  - timestamp: ISO string
+ * This endpoint is safe for readiness/liveness probes.
  */
 async function check(req, res) {
   const ready = mongoose.connection.readyState;

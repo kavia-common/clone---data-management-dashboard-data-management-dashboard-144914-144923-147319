@@ -2,7 +2,39 @@
 
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
-const { getBaseOpenApiSpec } = require('../swagger');
+// Load swagger base spec safely; fallback to a minimal spec if module path changes
+let getBaseOpenApiSpec = () => ({
+  openapi: '3.0.0',
+  info: {
+    title: 'Dashboard API',
+    version: '1.0.0',
+    description: 'REST API for Data Management Dashboard with MongoDB and Express',
+  },
+  paths: {},
+  tags: [],
+});
+try {
+  // swagger.js is at project root of the backend container (../.. from src)
+  // Attempt multiple resolution strategies to avoid require-time crash.
+  // Primary: root-level swagger.js (one directory up from src is project root? Here backend root contains swagger.js)
+  // from src/app.js, backend root is "..", so "../swagger.js"
+  // Try both without and with extension.
+  // eslint-disable-next-line global-require, import/no-dynamic-require
+  const swaggerModule = require('../swagger');
+  if (swaggerModule && typeof swaggerModule.getBaseOpenApiSpec === 'function') {
+    getBaseOpenApiSpec = swaggerModule.getBaseOpenApiSpec;
+  }
+} catch (e1) {
+  try {
+    // eslint-disable-next-line global-require, import/no-dynamic-require
+    const swaggerModule2 = require('../../swagger');
+    if (swaggerModule2 && typeof swaggerModule2.getBaseOpenApiSpec === 'function') {
+      getBaseOpenApiSpec = swaggerModule2.getBaseOpenApiSpec;
+    }
+  } catch (e2) {
+    try { console.warn('[startup] Swagger module not found; using minimal in-memory OpenAPI spec.'); } catch {}
+  }
+}
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
