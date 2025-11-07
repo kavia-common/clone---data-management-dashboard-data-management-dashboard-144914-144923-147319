@@ -1,4 +1,5 @@
 const { parsePagination, success, failure } = require('../utils/http');
+const { applyTenantFilter } = require('../middleware/authTenant');
 
 /**
  * Lightweight micro-cache for list endpoints to coalesce identical rapid requests.
@@ -41,15 +42,7 @@ function buildListKey(req, filter, sort, page, limit, skip, explicit) {
 /**
  * Build a REST controller for a Mongoose model.
  * Supports list with basic filtering, get by id, create, update, delete.
- * This implementation adds robust error handling to avoid runtime 500s for:
- * - CastError (e.g., invalid _id, invalid filter value types)
- * - ValidationError (create/update schema validations)
- *
- * Response format change:
- * - If pagination is NOT explicitly requested (no page/limit query), return RAW MongoDB data:
- *   - list: returns an array of documents directly (no {success,data,meta})
- *   - getById/create/update/remove: return the document or result object directly
- * - If pagination IS explicitly requested, keep envelope { success, data, meta } for backward compatibility.
+ * Adds tenant-aware filtering/stamping using req.auth.tenantId when present.
  */
 function buildCrudController(Model, listDefaultSort = '-_id') {
   // Map known Mongoose errors to user-friendly responses
@@ -67,7 +60,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       return failure(res, 'Validation failed', 422, { error: message, details: err?.errors || undefined });
     }
 
-    // Fallback: avoid 500 leaks but still communicate failure
+    // Fallback
     return failure(res, 'Request failed', 400, { error: message });
   }
 
@@ -80,8 +73,13 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       let filter = {};
       try {
         filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
-      } catch (err) {
+      } catch (_err) {
         return failure(res, 'Invalid filter JSON', 400);
+      }
+
+      // Enforce tenant scoping
+      if (req.auth?.tenantId) {
+        filter = applyTenantFilter(filter, req.auth.tenantId);
       }
 
       const sort = req.query.sort || listDefaultSort;
@@ -117,7 +115,11 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       /** Get a single document by Mongo _id */
       const { id } = req.params;
       try {
-        const doc = await Model.findById(id).lean();
+        let query = Model.findById(id);
+        if (req.auth?.tenantId) {
+          query = applyTenantFilter(query, req.auth.tenantId);
+        }
+        const doc = await query.lean();
         if (!doc) return failure(res, 'Not found', 404);
         // Return raw doc
         return res.status(200).json(doc);
@@ -129,8 +131,11 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
     // PUBLIC_INTERFACE
     async create(req, res) {
       /** Create a new document */
-      const data = req.body;
+      const data = req.body || {};
       try {
+        if (req.auth?.tenantId && data && typeof data === 'object' && data.tenant_id == null) {
+          data.tenant_id = req.auth.tenantId;
+        }
         const doc = await Model.create(data);
         // Return raw created doc
         return res.status(201).json(doc);
@@ -143,11 +148,15 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
     async update(req, res) {
       /** Update a document by _id with provided data */
       const { id } = req.params;
-      const data = req.body;
+      const data = req.body || {};
       try {
-        const doc = await Model.findByIdAndUpdate(id, data, { new: true }).lean();
+        let doc;
+        if (req.auth?.tenantId) {
+          doc = await Model.findOneAndUpdate({ _id: id, tenant_id: req.auth.tenantId }, data, { new: true }).lean();
+        } else {
+          doc = await Model.findByIdAndUpdate(id, data, { new: true }).lean();
+        }
         if (!doc) return failure(res, 'Not found', 404);
-        // Return raw updated doc
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'update');
@@ -159,7 +168,12 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       /** Delete a document by _id */
       const { id } = req.params;
       try {
-        const doc = await Model.findByIdAndDelete(id).lean();
+        let doc;
+        if (req.auth?.tenantId) {
+          doc = await Model.findOneAndDelete({ _id: id, tenant_id: req.auth.tenantId }).lean();
+        } else {
+          doc = await Model.findByIdAndDelete(id).lean();
+        }
         if (!doc) return failure(res, 'Not found', 404);
         // Return minimal raw response indicating deleted id
         return res.status(200).json({ _id: id });

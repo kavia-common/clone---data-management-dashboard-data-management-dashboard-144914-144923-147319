@@ -2,6 +2,7 @@
 
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
+const { authTenant } = require('./middleware/authTenant');
 // Load swagger base spec safely; fallback to a minimal spec if module path changes
 let getBaseOpenApiSpec = () => ({
   openapi: '3.0.0',
@@ -123,6 +124,16 @@ const swaggerUiHandler = swaggerUi.setup(null, {
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 // Primary docs path per requirements
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
+
+// Add a small helper to expose current authenticated context for debugging
+// PUBLIC_INTERFACE
+app.get('/api/me', authTenant, (req, res) => {
+  return res.json({
+    success: true,
+    userId: req.auth.userId,
+    tenantId: req.auth.tenantId,
+  });
+});
 
 // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');

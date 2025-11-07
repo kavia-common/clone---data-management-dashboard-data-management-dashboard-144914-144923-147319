@@ -18,6 +18,12 @@ Important
 
 Environment example: see .env.example.
 
+JWT & tenancy
+- Protected routes require Authorization: Bearer <JWT>.
+- Set JWT_SECRET in your environment for token verification (a dev fallback is used if missing, but do not use it in production).
+- req.auth = { userId, tenantId, token } is available in controllers and routes after auth.
+- All DB queries must be scoped by tenant_id; shared CRUD factory and routes now enforce this automatically.
+
 Dev routes
 - Dev-only endpoints under /api/dev/* are mounted only when:
   - NODE_ENV is not 'production', OR

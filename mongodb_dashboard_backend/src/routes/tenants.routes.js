@@ -1,15 +1,18 @@
+'use strict';
+
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const Tenant = require('../models/tenant.model');
-const { getSessionDurations, getCosts } = require('../services/analytics');
-const { usdToCredits } = require('../utils/credits');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
+const { ensureTenantAccess } = require('../middleware/authTenant');
 
 const router = express.Router();
-// enforce auth+tenant for all routes in this router
+
+// Enforce auth+tenant for all routes in this router
 router.use(verifyAuth, requireTenant);
+
 const controller = buildCrudController(Tenant, '-created_at');
 
 /**
@@ -33,13 +36,10 @@ router.delete('/:id', asyncHandler(controller.remove));
  */
 router.get(
   '/:tenantId/navigation',
+  ensureTenantAccess,
   asyncHandler(async (req, res) => {
     const { tenantId } = req.params;
-    const roles = req.auth?.roles || [];
-    const isAdmin = roles.includes('admin') || roles.includes('superadmin') || roles.includes('tenant:read:all');
-    if (!isAdmin && req?.auth?.tenantId && req.auth.tenantId !== tenantId) {
-      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
-    }
+
     const tenant = await Tenant.findOne({ tenant_id: tenantId }).lean();
     if (!tenant) {
       return res.status(404).json({ success: false, message: 'Tenant not found' });
@@ -59,6 +59,58 @@ router.get(
       groups,
       users,
       projects,
+    });
+  })
+);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/tenants/:tenantId/credits-summary
+ * Placeholder guarded route (controller/service may be added later).
+ */
+router.get(
+  '/:tenantId/credits-summary',
+  ensureTenantAccess,
+  asyncHandler(async (req, res) => {
+    const { tenantId } = req.params;
+    const tenant = await Tenant.findOne({ tenant_id: tenantId }).lean();
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+    // If there is a service/controller to compute credits summary, call it here.
+    // For now, return minimal structure to avoid 404 in client lookups.
+    return res.status(200).json({
+      tenant_id: tenant.tenant_id,
+      tenant_name: tenant.tenant_name,
+      credits: {
+        allocated: tenant.credits_allocated ?? null,
+        used: tenant.credits_used ?? null,
+        balance: tenant.credits_balance ?? null,
+      },
+    });
+  })
+);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/tenants/:tenantId/users/usage
+ * Placeholder guarded route (controller/service may be added later).
+ */
+router.get(
+  '/:tenantId/users/usage',
+  ensureTenantAccess,
+  asyncHandler(async (req, res) => {
+    const { tenantId } = req.params;
+    const tenant = await Tenant.findOne({ tenant_id: tenantId }).lean();
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'Tenant not found' });
+    }
+    // If there is an analytics service for users usage by tenant, call it here.
+    // Minimal response to satisfy route presence.
+    return res.status(200).json({
+      tenant_id: tenant.tenant_id,
+      users: [],
+      total_users: 0,
     });
   })
 );
