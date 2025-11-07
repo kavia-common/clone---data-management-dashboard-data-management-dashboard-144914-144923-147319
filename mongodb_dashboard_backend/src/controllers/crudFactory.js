@@ -1,5 +1,5 @@
 const { parsePagination, success, failure } = require('../utils/http');
-const { filterObject, filterQuery, stampCreate } = require('../middleware/tenantScope');
+const { applyTenantFilter } = require('../middleware/authTenant');
 
 /**
  * Lightweight micro-cache for list endpoints to coalesce identical rapid requests.
@@ -77,12 +77,9 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         return failure(res, 'Invalid filter JSON', 400);
       }
 
-      // Enforce tenant scoping (server-side)
+      // Enforce tenant scoping
       if (req.auth?.tenantId) {
-        filter = filterObject(filter, req.auth.tenantId);
-        if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-          try { console.debug('[crudFactory.list] tenantFilter', { tenant_id: req.auth.tenantId }); } catch {}
-        }
+        filter = applyTenantFilter(filter, req.auth.tenantId);
       }
 
       const sort = req.query.sort || listDefaultSort;
@@ -120,7 +117,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       try {
         let query = Model.findById(id);
         if (req.auth?.tenantId) {
-          query = filterQuery(query, req.auth.tenantId);
+          query = applyTenantFilter(query, req.auth.tenantId);
         }
         const doc = await query.lean();
         if (!doc) return failure(res, 'Not found', 404);
@@ -136,8 +133,8 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       /** Create a new document */
       const data = req.body || {};
       try {
-        if (req.auth?.tenantId) {
-          stampCreate(data, req.auth.tenantId);
+        if (req.auth?.tenantId && data && typeof data === 'object' && data.tenant_id == null) {
+          data.tenant_id = req.auth.tenantId;
         }
         const doc = await Model.create(data);
         // Return raw created doc

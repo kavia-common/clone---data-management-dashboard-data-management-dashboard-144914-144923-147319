@@ -279,12 +279,7 @@ const devHeadersLogger = (req, res, next) => {
 app.use(devHeadersLogger);
 
 // Provide both kebab and camelCase aliases for session tracking and deployments
-app.use('/api/session-tracking',
-  verifyAuth,
-  requireTenant,
-  require('./middleware/tenantScope').tenantScope(),
-  require('./routes/sessionTracking.routes')
-);
+app.use('/api/session-tracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
 app.use('/api/sessionTracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
 
 /**
@@ -304,20 +299,10 @@ app.use('/api/appDeployments', verifyAuth, requireTenant, require('./routes/appD
  */
 
 // Costs aggregate endpoints (non-users analytics)
-app.use('/api/costs',
-  verifyAuth,
-  requireTenant,
-  require('./middleware/tenantScope').tenantScope(),
-  require('./routes/costs.byAgent.routes')
-);
+app.use('/api/costs', verifyAuth, requireTenant, require('./routes/costs.byAgent.routes'));
 
 // LLM costs endpoints
-app.use('/api/llm-costs',
-  verifyAuth,
-  requireTenant,
-  require('./middleware/tenantScope').tenantScope(),
-  require('./routes/llmCosts.routes')
-);
+app.use('/api/llm-costs', verifyAuth, requireTenant, require('./routes/llmCosts.routes'));
 app.use('/api/llmCosts', verifyAuth, requireTenant, require('./routes/llmCosts.routes'));
 
 // Tenants, Projects, Auth, Session

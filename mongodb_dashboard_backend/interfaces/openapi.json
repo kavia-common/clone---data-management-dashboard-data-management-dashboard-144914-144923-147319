@@ -6,14 +6,6 @@
     "description": "REST API for Data Management Dashboard with MongoDB and Express"
   },
   "components": {
-    "securitySchemes": {
-      "bearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-        "description": "Include Bearer JWT. Server enforces tenant scoping using tenantId claim."
-      }
-    },
     "schemas": {
       "GenericDocument": {
         "type": "object",
@@ -60,11 +52,6 @@
       }
     }
   },
-  "security": [
-    {
-      "bearerAuth": []
-    }
-  ],
   "paths": {
     "/api/analytics/llm-cost-by-agent": {
       "get": {

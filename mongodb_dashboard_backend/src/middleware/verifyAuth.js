@@ -98,9 +98,6 @@ function verifyAuth(req, res, next) {
       scope: payload.scope || payload.scp || [],
       demo: false,
     };
-    if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-      try { console.debug('[verifyAuth] auth.tenantId', req.auth.tenantId); } catch {}
-    }
 
     return next();
   } catch (err) {

@@ -10,7 +10,7 @@ const { requireTenant: requireTenantMw } = require('../middleware/requireTenant'
 const controller = buildCrudController(SessionTracking, '-session_start');
 
 // Enforce JWT + Tenant at router level
-router.use(verifyAuth, requireTenantMw, require('../middleware/tenantScope').tenantScope());
+router.use(verifyAuth, requireTenantMw);
 
 // Simple list with tenant enforced by controller
 router.get('/', asyncHandler(controller.list));
