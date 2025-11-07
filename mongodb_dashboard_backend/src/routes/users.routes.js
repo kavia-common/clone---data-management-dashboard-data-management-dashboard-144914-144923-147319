@@ -15,16 +15,9 @@ const controller = buildCrudController(User, '-created_at');
 
 const { cognitoAuthMiddleware } = require('../middleware/cognitoAuth');
 
-// Use Cognito/JWKS-aware auth for this router and ensure tenant presence
-router.use(cognitoAuthMiddleware, (req, res, next) => {
-  if (!req.tenantId && !req?.auth?.tenantId) {
-    return res.status(403).json({ success: false, message: 'Tenant required' });
-  }
-  // Bridge values for existing code below
-  req.auth = req.auth || {};
-  req.auth.tenantId = req.tenantId || req.auth.tenantId;
-  return next();
-});
+// Apply Cognito auth only for endpoints in this router that require it.
+// We will guard GET '/' with this middleware specifically (not the whole router),
+// to meet the requirement "Middleware is applied to this endpoint only".
 
 // Simple in-memory cache for tenant summary (5 minutes TTL)
 const TENANT_SUMMARY_CACHE = new Map();
@@ -180,48 +173,26 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
  * @swagger
  * /api/users:
  *   get:
- *     summary: List users
+ *     summary: Get the authenticated user (scoped by tenant)
  *     description: |
- *       Returns a list of users from the users collection. Supports optional text search, sorting, and pagination.
- *       - If pagination parameters (page and/or limit) are provided, the response is wrapped in an envelope with meta.
- *       - Without pagination, a raw array of user documents is returned.
+ *       Returns only the authenticated user's document, filtered by tenant_id derived from the token (custom:tenant_id).
+ *       Response is an array with a single user for minimal frontend change.
  *     tags:
  *       - Users
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *         description: Page number to enable envelope response
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 200
- *         description: Page size to enable envelope response
- *       - in: query
- *         name: search
- *         schema:
- *           type: string
- *         description: Case-insensitive text search on common user fields (e.g., name, email)
- *       - in: query
- *         name: sort
- *         schema:
- *           type: string
- *         description: Sort string (e.g., -created_at or email)
- *       - in: query
- *         name: filter
- *         schema:
- *           type: string
- *         description: JSON string filter applied server-side (e.g., {"referral_code":"ABC"})
  *     responses:
  *       '200':
- *         description: Successful response containing users
+ *         description: Authenticated user (single element array)
+ *       '401':
+ *         description: Missing or invalid token; or token missing sub/email
+ *       '403':
+ *         description: Missing tenant_id
+ *       '404':
+ *         description: No matching user found
  */
+// PUBLIC_INTERFACE
 router.get(
   '/',
+  cognitoAuthMiddleware,
   asyncHandler(async (req, res) => {
     const tenantId = req?.tenantId || req?.auth?.tenantId;
     if (!tenantId) {
@@ -232,37 +203,33 @@ router.get(
     const sub = req?.user?.sub || req?.auth?.sub || null;
     const email = req?.user?.email || req?.auth?.email || null;
 
-    const query = { tenant_id: tenantId };
-    if (sub) {
-      // match either sub field or _id string in case previous records lack sub
-      query.$or = [{ sub }, { _id: sub }, { user_id: sub }];
-    } else if (email) {
-      query.email = email;
-    } else {
+    if (!sub && !email) {
       return res.status(401).json({ success: false, message: 'Unauthorized: no subject/email in token' });
     }
 
-    // Fetch a single user document
-    let doc = await User.findOne(query).lean();
-    // Fallback: if not found with tenant filter, try without tenant filter but then enforce/attach tenant for future
-    if (!doc && email) {
-      doc = await User.findOne({ email }).lean();
+    const query = { tenant_id: tenantId };
+    if (sub) {
+      // match either sub field or legacy identifiers that may hold the subject
+      query.$or = [{ sub }, { user_id: sub }];
+    } else if (email) {
+      query.email = email;
     }
+
+    const doc = await User.findOne(query).lean();
     if (!doc) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Remove sensitive token fields from projection if any leaked via strict:false
+    // sanitize token fields if present
     if (doc.tokens) {
       const safeTokens = {};
       if (process.env.NODE_ENV !== 'production') {
-        // In dev you may want to return token metadata but not raw values
         safeTokens.updated_at = doc.tokens.updated_at || null;
       }
       doc.tokens = safeTokens;
     }
 
-    return res.status(200).json([doc]); // keep array shape for minimal frontend changes
+    return res.status(200).json([doc]);
   })
 );
 
