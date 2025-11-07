@@ -5,8 +5,10 @@
   "main": "src/server.js",
   "scripts": {
     "start": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=production node src/server.js",
+    "serve": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=production node src/server.js",
     "preview": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=production node src/server.js",
     "dev": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=development nodemon src/server.js",
+    "start:dev": "npm run dev",
     "test": "jest",
     "lint": "eslint .",
     "gen:openapi": "node generate_openapi.js",
