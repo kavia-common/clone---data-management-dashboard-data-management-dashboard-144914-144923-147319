@@ -8,19 +8,23 @@
 Quick start (development)
 - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
 - npm install
-- npm run dev   # binds to 0.0.0.0:3001 with node; dotenv is loaded programmatically
+- npm run dev   # nodemon, binds to 0.0.0.0:3001; dotenv is loaded programmatically
 - curl http://localhost:3001/health  # fast 200
 - curl http://localhost:3001/api/health  # includes db state
 
+Production run
+- npm start     # node, binds to 0.0.0.0:3001
+- Health check: npm run health  (or curl http://127.0.0.1:3001/health)
+
 Important
-- Do NOT run `npm run dev` from the frontend folder; it has no dev script and CI logs will show "Missing script: dev".
-- Avoid `-r dotenv/config` in scripts; dotenv is required in src/server.js.
+- Run npm commands from the backend folder above. Running in the frontend path can cause "Missing script: dev".
+- Avoid `-r dotenv/config` in scripts; dotenv is loaded in src/server.js.
 
 Environment example: see .env.example.
 
 JWT & tenancy
 - Protected routes require Authorization: Bearer <JWT>.
-- Set JWT_SECRET in your environment for token verification (a dev fallback is used if missing, but do not use it in production).
+- Set JWT_SECRET (or AUTH_JWT_SECRET) for token verification (do not use dev fallbacks in production).
 - req.auth = { userId, tenantId, token } is available in controllers and routes after auth.
 - All DB queries must be scoped by tenant_id; shared CRUD factory and routes now enforce this automatically.
 

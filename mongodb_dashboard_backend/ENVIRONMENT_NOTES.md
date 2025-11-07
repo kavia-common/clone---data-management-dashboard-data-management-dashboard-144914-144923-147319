@@ -1,18 +1,17 @@
-# Runtime notes for preview/CI
+# Backend environment and startup notes
 
-- Start command: npm start (ensures dotenv is loaded) or node src/server.js (dotenv is auto-loaded now).
-- Default bind: HOST=0.0.0.0 PORT=3001
-- Health endpoint: 
-  - GET /api/health returns 200 regardless of DB connection; payload includes db: connected|connecting|disconnected.
-  - GET /health is also available and returns `{ status: "ok", ... }`.
-- MongoDB: If MONGODB_URI is unset, the server still starts. Logs a warning and health shows db=disconnected.
+- Server binds to HOST (default 0.0.0.0) and PORT (default 3001).
+- Key routes for readiness:
+  - GET /health -> 200 JSON { status: "ok", db: "connected|connecting|disconnected" }
+  - GET /api/health -> same payload; safe for probes
+- Scripts:
+  - npm run dev  -> nodemon, HOST=0.0.0.0, PORT=3001
+  - npm start    -> production node, HOST=0.0.0.0, PORT=3001
+  - npm run health -> local probe curl http://127.0.0.1:3001/health
 
-Troubleshooting
-- If port 3001 is reported unavailable, check logs for [startup] and EADDRINUSE.
-- Dev routes are disabled in production unless ALLOW_DEV_ROUTES=true.
+Environment variables to set via .env (do not hardcode in code):
+- MONGODB_URI=<your connection string>
+- AUTH_TENANT_SALT / SECRET_SALT (if required by auth)
+- SWAGGER_* (optional)
 
-Local development quick check
-- npm install
-- npm run dev  (binds to 0.0.0.0:3001 with nodemon)
-- curl http://localhost:3001/health  (or /api/health) should return 200 JSON.
-- No need for `-r dotenv/config`; dotenv is programmatically loaded in src/server.js.
+Do not commit .env. Provide .env via deployment configuration.

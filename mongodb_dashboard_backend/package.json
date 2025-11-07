@@ -4,12 +4,13 @@
   "description": "Minimal Express app with scalable structure",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "preview": "node src/server.js",
-    "dev": "NODE_ENV=development node src/server.js",
+    "start": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=production node src/server.js",
+    "preview": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=production node src/server.js",
+    "dev": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=development nodemon src/server.js",
     "test": "jest",
     "lint": "eslint .",
-    "gen:openapi": "node generate_openapi.js"
+    "gen:openapi": "node generate_openapi.js",
+    "health": "curl -sS http://127.0.0.1:${PORT:-3001}/health || exit 1"
   },
   "dependencies": {
     "cors": "2.8.5",
