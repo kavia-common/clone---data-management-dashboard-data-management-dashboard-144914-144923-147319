@@ -11,6 +11,15 @@ const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
 
 const router = express.Router();
+
+// Route-local CORS safety for users endpoints (no credentials, ACAO "*")
+try {
+  const { permissiveCorsMiddleware } = require('../middleware/permissiveCors');
+  router.use(permissiveCorsMiddleware);
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.warn('[CORS][users] permissive CORS middleware not available:', e?.message || e);
+}
 const controller = buildCrudController(User, '-created_at');
 
 const { cognitoAuthMiddleware } = require('../middleware/cognitoAuth');

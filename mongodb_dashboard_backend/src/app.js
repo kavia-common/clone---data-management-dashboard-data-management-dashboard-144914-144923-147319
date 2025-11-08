@@ -4,6 +4,7 @@ const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
+const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
@@ -20,12 +21,13 @@ try {
 
 app.set('trust proxy', 1); // only trust local proxies
 app.use(helmetMiddleware());
-// Configure CORS with allowlist and credentials support via our middleware
-app.use(corsMiddleware());
-/**
- * Preflight will be handled by the configured global corsMiddleware above.
- * Do not mount a separate app.options handler with default cors() to avoid mismatched settings.
- */
+
+// Strictly permissive, non-credentialed CORS for /api/* (handles preflight and errors)
+app.use('/api', permissiveCorsMiddleware);
+
+// Optionally keep the existing security CORS for non-/api routes if needed (but not necessary here)
+// Do not mount app.options; preflight is handled by permissiveCorsMiddleware above.
+
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
