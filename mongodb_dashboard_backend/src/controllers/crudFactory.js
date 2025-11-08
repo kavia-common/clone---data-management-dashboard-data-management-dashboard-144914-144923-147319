@@ -200,8 +200,13 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       /** Create a new document */
       const data = req.body || {};
       try {
-        if (req.auth?.tenantId && data && typeof data === 'object' && data.tenant_id == null) {
-          data.tenant_id = req.auth.tenantId;
+        if (req.auth?.tenantId && data && typeof data === 'object') {
+          // In strict contexts (e.g., session-tracking), always override tenant regardless of client input
+          if (req.strictTenantEnforce || req.enforceSessionTenantScope || req.forcedFilter?.tenant_id) {
+            data.tenant_id = String(req.auth.tenantId);
+          } else if (data.tenant_id == null) {
+            data.tenant_id = String(req.auth.tenantId);
+          }
         }
         const doc = await Model.create(data);
         // Return raw created doc

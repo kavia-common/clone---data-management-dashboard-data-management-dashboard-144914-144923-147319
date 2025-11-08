@@ -39,6 +39,8 @@ function sessionTrackingScope(req, res, next) {
 
   // Stamp for any consumers
   req.enforceSessionTenantScope = true;
+  // Hint to CRUD layer to aggressively stamp/override tenant on writes
+  req.strictTenantEnforce = true;
 
   // Debug log of applied forced filter (non-production only)
   try {
