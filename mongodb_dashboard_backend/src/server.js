@@ -47,8 +47,17 @@ try {
   if (!hasHealth) {
     app.get("/health", fallbackHealth);
   }
+  // Optionally mount alias if REACT_APP_HEALTHCHECK_PATH is provided (e.g., "/_health")
+  const aliasPath = process.env.REACT_APP_HEALTHCHECK_PATH;
+  if (aliasPath && aliasPath !== "/health") {
+    app.get(aliasPath, fallbackHealth);
+  }
 } catch {
   app.get("/health", fallbackHealth);
+  const aliasPath = process.env.REACT_APP_HEALTHCHECK_PATH;
+  if (aliasPath && aliasPath !== "/health") {
+    app.get(aliasPath, fallbackHealth);
+  }
 }
 
 // Normalize PORT and HOST
