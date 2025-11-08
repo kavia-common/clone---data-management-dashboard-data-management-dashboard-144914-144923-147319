@@ -235,19 +235,20 @@ try {
   console.log('[startup] Mounting /api/session-tracking routes with strict tenant+user scoping middleware active');
 } catch {}
 // Provide both kebab and camelCase aliases for session tracking
-app.use('/api/session-tracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
-app.use('/api/sessionTracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
+const { tenantScopeEnforcer } = require('./middleware/tenantScopeEnforcer');
+app.use('/api/session-tracking', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/sessionTracking.routes'));
+app.use('/api/sessionTracking', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/sessionTracking.routes'));
 
 /**
  * Analytics endpoints
  * - Agents cost/usage aggregation
  * - Overview time-bucketed metrics
  */
-app.use('/api/analytics/agents', verifyAuth, requireTenant, analyticsAgentsRoutes);
-app.use('/api/analytics', verifyAuth, requireTenant, require('./routes/analytics.overview.routes'));
+app.use('/api/analytics/agents', verifyAuth, requireTenant, tenantScopeEnforcer(), analyticsAgentsRoutes);
+app.use('/api/analytics', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/analytics.overview.routes'));
 
-app.use('/api/app-deployments', verifyAuth, requireTenant, require('./routes/appDeployments.routes'));
-app.use('/api/appDeployments', verifyAuth, requireTenant, require('./routes/appDeployments.routes'));
+app.use('/api/app-deployments', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/appDeployments.routes'));
+app.use('/api/appDeployments', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/appDeployments.routes'));
 
 /**
  * Sample data route removed. The application now only exposes real MongoDB-backed APIs.
@@ -255,18 +256,18 @@ app.use('/api/appDeployments', verifyAuth, requireTenant, require('./routes/appD
  */
 
 // Costs aggregate endpoints (non-users analytics)
-app.use('/api/costs', verifyAuth, requireTenant, require('./routes/costs.byAgent.routes'));
+app.use('/api/costs', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/costs.byAgent.routes'));
 
 // LLM costs endpoints
-app.use('/api/llm-costs', verifyAuth, requireTenant, require('./routes/llmCosts.routes'));
-app.use('/api/llmCosts', verifyAuth, requireTenant, require('./routes/llmCosts.routes'));
+app.use('/api/llm-costs', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/llmCosts.routes'));
+app.use('/api/llmCosts', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/llmCosts.routes'));
 
 // Tenants, Projects, Auth, Session
-app.use('/api/tenants', verifyAuth, requireTenant, require('./routes/tenants.routes'));
-app.use('/api/projects', verifyAuth, requireTenant, require('./routes/projects.routes'));
-app.use('/api/session', verifyAuth, requireTenant, require('./routes/session.routes'));
-app.use('/api/dashboard', verifyAuth, requireTenant, require('./routes/dashboard.routes'));
-app.use('/api/dashboard/overview', verifyAuth, requireTenant, require('./routes/dashboard.modules.routes'));
+app.use('/api/tenants', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/tenants.routes'));
+app.use('/api/projects', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/projects.routes'));
+app.use('/api/session', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/session.routes'));
+app.use('/api/dashboard', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/dashboard.routes'));
+app.use('/api/dashboard/overview', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/dashboard.modules.routes'));
 app.use('/api/auth', require('./routes/auth.routes'));
 
 /* Users analytics routes have been fully removed to avoid dangling references */

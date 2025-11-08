@@ -13,6 +13,7 @@ const jwt = require('jsonwebtoken');
  *    - In production: reject with 401 (do not crash startup).
  *    - In non-production: allow demo mode only when ALLOW_DEMO_AUTH=true or token === "ok".
  * - If token === "ok" in non-production and demo allowed, fabricate a minimal auth context.
+ * - Extract tenant_id/tenantId from JWT payload and attach as req.auth.tenantId (normalized).
  */
 function verifyAuth(req, res, next) {
   try {

@@ -40,25 +40,26 @@ router.use('/auth', authRoutes);
  * Users route manages its own Cognito/JWKS auth to ensure it returns only the authenticated user.
  * Enforce verifyAuth + requireTenant at mount to guarantee tenant scoping and authentication.
  */
-router.use('/users', verifyAuth, requireTenant, usersRoutes);
-router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
+const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
+router.use('/users', verifyAuth, requireTenant, tenantScopeEnforcer(), usersRoutes);
+router.use('/tenants', verifyAuth, requireTenant, tenantScopeEnforcer(), tenantsRoutes);
 
-router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);
-router.use('/llm-costs-aggregate', verifyAuth, requireTenant, llmCostsAggregateRoutes);
-router.use('/costs', verifyAuth, requireTenant, costsByAgentRoutes);
-router.use('/session', verifyAuth, requireTenant, sessionRoutes);
-router.use('/session-tracking', verifyAuth, requireTenant, sessionTrackingRoutes);
-router.use('/app-deployments', verifyAuth, requireTenant, appDeploymentsRoutes);
+router.use('/llm-costs', verifyAuth, requireTenant, tenantScopeEnforcer(), llmCostsRoutes);
+router.use('/llm-costs-aggregate', verifyAuth, requireTenant, tenantScopeEnforcer(), llmCostsAggregateRoutes);
+router.use('/costs', verifyAuth, requireTenant, tenantScopeEnforcer(), costsByAgentRoutes);
+router.use('/session', verifyAuth, requireTenant, tenantScopeEnforcer(), sessionRoutes);
+router.use('/session-tracking', verifyAuth, requireTenant, tenantScopeEnforcer(), sessionTrackingRoutes);
+router.use('/app-deployments', verifyAuth, requireTenant, tenantScopeEnforcer(), appDeploymentsRoutes);
 
 // Dashboard overview routes (protected)
-router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardRoutes);
-router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardModulesRoutes);
+router.use('/dashboard/overview', verifyAuth, requireTenant, tenantScopeEnforcer(), dashboardRoutes);
+router.use('/dashboard/overview', verifyAuth, requireTenant, tenantScopeEnforcer(), dashboardModulesRoutes);
 
 /**
  * Analytics overview routes protected here as well
  * This guarantees verifyAuth + requireTenant are always enforced.
  */
-router.use('/analytics', verifyAuth, requireTenant, analyticsOverviewRoutes);
+router.use('/analytics', verifyAuth, requireTenant, tenantScopeEnforcer(), analyticsOverviewRoutes);
 
 // Counts endpoints (these are lightweight; keep public if they are used for landing)
 router.use('/', countsRoutes);
