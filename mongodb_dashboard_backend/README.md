@@ -5,11 +5,12 @@ A minimal Express backend for the data management dashboard.
 ## Development
 
 Start the server (binds to 0.0.0.0:3001 by default):
-- npm run dev
+- npm run start   # production-like (node)
+- npm run dev     # development (auto uses nodemon if available)
 
 Notes:
-- Uses a plain Node process (no nodemon, no cross-env).
-- src/server.js defaults HOST to 0.0.0.0 and PORT to 3001 if env vars are not provided.
+- Scripts available: start, dev, health, check:ready.
+- src/server.js defaults HOST to 0.0.0.0 and PORT to 3001 if env vars are not provided and logs readiness.
 - Health endpoints: GET /health (no DB dependency) and GET /api/health (reports DB status).
 - The server listens on 0.0.0.0 so external preview can reach it.
 
