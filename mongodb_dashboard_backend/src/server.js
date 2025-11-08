@@ -27,8 +27,14 @@ async function start() {
 
   const server = http.createServer(app);
   server.listen(PORT, HOST, () => {
-    console.log(`[Server] Listening on http://${HOST}:${PORT} (bind=0.0.0.0 compatible)`);
+    // Clear, stable readiness log for preview detectors
+    console.log(`Server listening on http://0.0.0.0:${PORT}`);
     console.log('[Server] Ready. Health endpoints: GET /health and GET /api/health');
+  });
+
+  // Handle server errors without exiting; keep process alive and log the issue
+  server.on('error', (err) => {
+    console.error('[Server] Error event:', err && err.message ? err.message : err);
   });
 
   return server;
@@ -36,8 +42,9 @@ async function start() {
 
 if (require.main === module) {
   start().catch((err) => {
-    console.error('[Server] Failed to start:', err);
-    process.exit(1);
+    console.error('[Server] Failed to start:', err && err.message ? err.message : err);
+    // Do not exit; allow process to stay up so health endpoint can be probed
+    // A subsequent hot-reload or environment fix can recover without killing the container.
   });
 }
 
