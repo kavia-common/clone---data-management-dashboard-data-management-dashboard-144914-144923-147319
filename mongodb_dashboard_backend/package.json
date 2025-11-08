@@ -9,6 +9,7 @@
     "dev:nodemon": "nodemon --watch src --ext js,json src/server.js",
     "dev:node": "node src/server.js",
     "dev": "sh -c \"command -v nodemon >/dev/null 2>&1 && npm run dev:nodemon || npm run dev:node\"",
+    "preview": "npm run start:ci",
     "health": "node -e \"const http=require('http');const p=process.env.PORT||3001;http.get({host:'127.0.0.1',port:p,path:'/health'},res=>{if(res.statusCode===200){console.log('ok');process.exit(0)}else{console.error('not ok');process.exit(1)}}).on('error',()=>{console.error('not ok');process.exit(1)})\"",
     "check:ready": "node -e \"const http=require('http');const p=process.env.PORT||3001;http.get({host:'127.0.0.1',port:p,path:'/health'},res=>{if(res.statusCode===200){console.log('ready');process.exit(0)}else{console.error('not ready');process.exit(1)}}).on('error',()=>{console.error('not ready');process.exit(1)})\"",
     "test": "jest",
