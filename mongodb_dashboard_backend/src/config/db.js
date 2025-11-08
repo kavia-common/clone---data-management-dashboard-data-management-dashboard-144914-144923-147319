@@ -1,199 +1,71 @@
-const mongoose = require('mongoose');
+'use strict';
+
+const { MongoClient } = require('mongodb');
+
+let _client = null;
+let _db = null;
 
 /**
+ * Lightweight connector: attempts to connect only if MONGODB_URI exists.
+ * Returns { client, db } or { client:null, db:null } on absence/failure.
+ *
  * PUBLIC_INTERFACE
- * Establishes a connection to MongoDB using Mongoose.
- * - Reads the connection string from process.env.MONGODB_URI
- * - Does NOT hard-code any default credentials or URIs (security and environment portability)
- * - Emits useful, non-sensitive logs for verification
- *
- * Returns the active mongoose.connection.
- *
- * ENVIRONMENT VARIABLES REQUIRED:
- * - MONGODB_URI: Mongo connection string (e.g. mongodb://user:pass@host:27017/db)
- * - MONGODB_DB (optional): Database name override
- * - MONGOOSE_AUTO_INDEX (optional): 'true' to enable autoIndex
  */
-async function connectDB() {
-  // Enforce env-based configuration; never hard-code credentials
+async function connect(logger = console) {
   const uri = process.env.MONGODB_URI;
-
-  if (!uri || typeof uri !== 'string' || uri.trim() === '') {
-    // eslint-disable-next-line no-console
-    console.warn(
-      '[db] MONGODB_URI is not set. Skipping MongoDB connection. The API will start, health endpoints will report db=disconnected.'
-    );
-    // Return the current mongoose.connection without attempting to connect
-    return mongoose.connection;
+  if (!uri) {
+    logger.warn('[DB] MONGODB_URI not set. Skipping DB connection.');
+    return { client: null, db: null };
   }
-
-  mongoose.set('strictQuery', true);
-
-  // In test mode, prefer fast failures and no buffering to keep tests snappy.
-  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
-  if (isTest) {
-    try {
-      mongoose.set('bufferCommands', false);
-    } catch {
-      // ignore
-    }
-  }
-
-  // Connection options recommended for modern Mongoose
-  // - Disable autoIndex by default to avoid failures on clusters with existing duplicate data.
-  //   You can override by setting MONGOOSE_AUTO_INDEX=true
-  const autoIndex =
-    (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
-
-  // Allow overriding database name via environment; otherwise let Mongo use URI's default.
-  const dbName = process.env.MONGODB_DB && String(process.env.MONGODB_DB).trim() !== ''
-    ? String(process.env.MONGODB_DB).trim()
-    : undefined; // use undefined to avoid forcing 'test' implicitly
-
-  const options = {
-    autoIndex,
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: isTest ? 250 : 5000,
-    socketTimeoutMS: isTest ? 500 : 45000,
-    family: 4,
-    dbName,
-  };
-
-  // Prepare a safe, masked log for the cluster host (never log credentials)
-  let clusterHost = 'unknown-host';
-  try {
-    const parsed = new URL(uri);
-    clusterHost = parsed.hostname || clusterHost;
-  } catch {
-    // swallow parse errors; we will still attempt to connect
-  }
-
-  mongoose.connection.on('connected', () => {
-    // eslint-disable-next-line no-console
-    console.log(
-      `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
-    );
-    if (dbName) {
-      // eslint-disable-next-line no-console
-      console.log(`MongoDB dbName selected via env: ${dbName}`);
-    }
-    // eslint-disable-next-line no-console
-    console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
-  });
-
-  mongoose.connection.on('error', (err) => {
-    // eslint-disable-next-line no-console
-    console.error('MongoDB connection error:', err.message);
-  });
-
-  mongoose.connection.on('disconnected', () => {
-    // eslint-disable-next-line no-console
-    console.warn('MongoDB disconnected');
-  });
-
-  await mongoose.connect(uri, options);
-  return mongoose.connection;
-}
-
-/**
- * PUBLIC_INTERFACE
- * connectWithRetry
- * Attempts to connect to MongoDB with small delays between retries.
- * This never throws synchronously to callers if MONGODB_URI is missing; it will simply no-op.
- * If MONGODB_URI is present but connection fails, it will retry up to maxRetries times
- * while logging errors. It does not block server start; callers should invoke it in a fire-and-forget manner.
- */
-async function connectWithRetry({ maxRetries = 5, initialDelayMs = 500, backoffFactor = 2 } = {}) {
-  const uri = process.env.MONGODB_URI;
-  if (!uri || typeof uri !== 'string' || uri.trim() === '') {
-    // Nothing to do; keep API running without DB.
-    return mongoose.connection;
-  }
-  let attempt = 0;
-  let delay = initialDelayMs;
-
-  while (attempt < maxRetries && mongoose.connection.readyState !== 1) {
-    attempt += 1;
-    try {
-      // eslint-disable-next-line no-console
-      console.log(`[db] Attempt ${attempt}/${maxRetries} to connect to MongoDB...`);
-      await connectDB();
-      if (mongoose.connection.readyState === 1) {
-        // eslint-disable-next-line no-console
-        console.log('[db] MongoDB connection established.');
-        break;
-      }
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error(`[db] Attempt ${attempt} failed: ${err?.message || err}`);
-    }
-    if (attempt < maxRetries && mongoose.connection.readyState !== 1) {
-      await new Promise((r) => setTimeout(r, delay));
-      delay = Math.min(10000, delay * backoffFactor);
-    }
-  }
-
-  if (mongoose.connection.readyState !== 1) {
-    // eslint-disable-next-line no-console
-    console.warn('[db] Unable to establish MongoDB connection after retries. API will continue to run without DB.');
-  }
-  return mongoose.connection;
-}
-
-/**
- * PUBLIC_INTERFACE
- * getDb
- * Returns an active MongoDB Db instance from the current Mongoose connection.
- * Ensures a connection is established; if not connected, attempts to connect first.
- */
-async function getDb() {
-  // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
-  if (mongoose.connection.readyState !== 1) {
-    await connectDB();
-  }
-  // In rare cases during connect, db might still be null; await a tick
-  if (!mongoose.connection.db) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  return mongoose.connection.db;
-}
-
-/**
- * PUBLIC_INTERFACE
- * getCollection
- * Helper to obtain a native MongoDB collection by name. Accepts a string name
- * or an array of candidate names and returns the first existing collection;
- * if none exist, returns the first candidate name as a collection handle.
- *
- * Example:
- *  const col = await getCollection(['llm-costs', 'llm_costs']);
- */
-async function getCollection(nameOrNames) {
-  const db = await getDb();
-  const candidates = Array.isArray(nameOrNames) ? nameOrNames : [nameOrNames];
 
   try {
-    const existing = await db
-      .listCollections({ name: { $in: candidates } }, { nameOnly: true })
-      .toArray();
-
-    const existingNames = new Set(existing.map((c) => c.name));
-    const chosen = candidates.find((n) => existingNames.has(n)) || candidates[0];
-    return db.collection(chosen);
-  } catch (err) {
-    // Fallback: return the first candidate even if listCollections fails
-    return db.collection(candidates[0]);
+    const client = new MongoClient(uri);
+    await client.connect();
+    const db = process.env.MONGODB_DB ? client.db(process.env.MONGODB_DB) : client.db();
+    _client = client;
+    _db = db;
+    logger.info(`[DB] Connected: ${db.databaseName}`);
+    return { client, db };
+  } catch (e) {
+    logger.error('[DB] Connection error:', e?.message || e);
+    return { client: null, db: null, error: e };
   }
 }
 
 /**
  * PUBLIC_INTERFACE
- * isDbConnected
- * Returns boolean indicating if Mongoose is currently connected to MongoDB.
  */
-function isDbConnected() {
-  // 1 means connected
-  return mongoose.connection && mongoose.connection.readyState === 1;
+function db() {
+  return _db;
 }
 
-module.exports = { connectDB, getDb, getCollection, isDbConnected };
+/**
+ * PUBLIC_INTERFACE
+ */
+function client() {
+  return _client;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ */
+async function close(logger = console) {
+  if (_client) {
+    try {
+      await _client.close();
+      logger.info('[DB] Closed');
+    } catch (e) {
+      logger.warn('[DB] Close error:', e?.message || e);
+    } finally {
+      _client = null;
+      _db = null;
+    }
+  }
+}
+
+module.exports = {
+  connect,
+  db,
+  client,
+  close,
+};

@@ -1,307 +1,58 @@
 'use strict';
 
 const express = require('express');
-const swaggerUi = require('swagger-ui-express');
-const { getBaseOpenApiSpec } = require('../swagger');
-const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
-const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
-const { connectDB, connectWithRetry } = require('./config/db');
-const mongoose = require('mongoose');
-const { errorHandler } = require('./middleware/standardHandlers');
+const morgan = require('morgan');
 const cors = require('cors');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
+const routes = require('./routes');
 
-const app = express();
-
- // TEMP STARTUP LOGS to trace route mounting (will be removed after verification)
-try {
-  // eslint-disable-next-line no-console
-  console.log('[startup] Initializing Express app for Dashboard API');
-  console.log('[startup] CORS is set to allow all origins and required headers (Authorization, x-tenant-id) with unified OPTIONS handling.');
-} catch {}
-
-app.set('trust proxy', 1); // only trust local proxies
-app.use(helmetMiddleware());
-
-// Strictly permissive, non-credentialed CORS for /api/* (handles preflight and errors)
-app.use('/api', permissiveCorsMiddleware);
-
-// Optionally keep the existing security CORS for non-/api routes if needed (but not necessary here)
-// Do not mount app.options; preflight is handled by permissiveCorsMiddleware above.
-
-app.use(rateLimiter());
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true }));
-
-const buildDynamicSpec = (req) => {
-  const host = req.get('host');
-  let protocol = req.secure ? 'https' : req.protocol;
-  const actualPort = req.socket?.localPort;
-  const hasPort = host.includes(':');
-  const needsPort =
-    !hasPort &&
-    ((protocol === 'http' && actualPort !== 80) ||
-      (protocol === 'https' && actualPort !== 443));
-  const fullHost = needsPort ? `${host}:${actualPort}` : host;
-
-  const baseSpec = getBaseOpenApiSpec();
-  return {
-    ...baseSpec,
-    info: {
-      ...baseSpec.info,
-      title: process.env.SWAGGER_TITLE || baseSpec.info?.title || 'Dashboard API',
-      version: process.env.SWAGGER_VERSION || baseSpec.info?.version || '1.0.0',
-      description:
-        process.env.SWAGGER_DESCRIPTION ||
-        baseSpec.info?.description ||
-        'REST API for Data Management Dashboard with MongoDB and Express',
-    },
-    // servers: [{ url: `${protocol}://${fullHost}` }],
-    servers: [
-  {
-    url:
-      process.env.SWAGGER_SERVER_URL ||
-      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-  },
-],
-
-  };
-};
-
-app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
-app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
-
-const swaggerUiHandler = swaggerUi.setup(null, {
-  swaggerOptions: {
-    url: '/openapi.json',
-    displayRequestDuration: true,
-    docExpansion: 'none',
-  },
-  customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
-});
-app.use('/docs', swaggerUi.serve, swaggerUiHandler);
-app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
-
-// Base router (non-/api) for health and overview
-const baseRouter = require('./routes');
-app.use('/', baseRouter);
-
-/**
- * Simple health with DB status
- */
-try { console.log('[startup] Registering GET /api/health and GET /health'); } catch {}
-const healthHandler = (req, res) => {
-  const ready = mongoose.connection.readyState;
-  const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
-  const payload = { status: 'ok', db, timestamp: new Date().toISOString() };
-  if (db !== 'connected') {
-    payload.hint = 'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
-  }
-  res.set('Cache-Control', 'no-store');
-  return res.status(200).json(payload);
-};
-app.get('/api/health', healthHandler);
 /**
  * PUBLIC_INTERFACE
- * GET /health
- * Fast readiness check that does not depend on MongoDB. Returns 200 with status ok and db state.
+ * createApp
+ * Returns an Express app with basic security, logging, health route and the main /api router.
  */
-app.get('/health', (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  // Minimal readiness-friendly payload
-  return res.status(200).json({ status: 'ok' });
-});
+function createApp() {
+  const app = express();
 
-if (process.env.NODE_ENV === 'test') {
-  try { mongoose.set('bufferCommands', false); } catch {}
-  app.use((req, res, next) => {
-    const p = req.path || req.originalUrl || '';
-    const bypass =
-      p === '/' ||
-      p.startsWith('/health') ||
-      p.startsWith('/openapi.json') ||
-      p.startsWith('/api-docs.json') ||
-      p.startsWith('/docs') ||
-      p.startsWith('/api-docs') ||
-      p.startsWith('/api/dev');
-    if (bypass) return next();
-    if (mongoose.connection.readyState !== 1) {
-      return res
-        .status(503)
-        .json({ success: false, message: 'Service unavailable: database not connected (test mode)' });
-    }
-    return next();
+  // Security headers
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }));
+
+  // CORS (permissive for development)
+  app.use(cors());
+
+  // Logging
+  app.use(morgan('dev'));
+
+  // Body parsing
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true }));
+  app.use(cookieParser());
+
+  // Health endpoint that does not require DB
+  app.get('/health', (req, res) => {
+    res.json({ ok: true, db: !!req.app.locals.db });
   });
-}
 
-/**
- * Dev utilities (guarded)
- * Only mount when NODE_ENV !== 'production' or explicit ALLOW_DEV_ROUTES === 'true'
- */
-const allowDev =
-  (process.env.NODE_ENV !== 'production') ||
-  (String(process.env.ALLOW_DEV_ROUTES || '').toLowerCase() === 'true');
-if (allowDev) {
-  try { console.warn('[routes] Dev routes ENABLED'); } catch {}
-  app.use('/api/dev', require('./routes/dev.routes'));
-} else {
-  try { console.warn('[routes] Dev routes DISABLED (set ALLOW_DEV_ROUTES=true to enable)'); } catch {}
-}
+  // Main API router
+  app.use('/api', routes);
 
-/**
- * Public API routes
- * Users CRUD and analytics summary
- */
-try {
-  // eslint-disable-next-line no-console
-  console.log('[startup] Mounting /api/users routes...');
-} catch {}
-app.use('/api/users', require('./routes/users.routes'));
-
-try {
-  // eslint-disable-next-line no-console
-  console.log('[startup] Mounting /api/users tenant-summary routes...');
-} catch {}
-const usersAnalyticsSummaryRouter = require('./routes/users.analytics.summary.routes');
-if (usersAnalyticsSummaryRouter && usersAnalyticsSummaryRouter.stack) {
-  try {
-    // eslint-disable-next-line no-console
-    console.log('[startup] users.analytics.summary router loaded with', usersAnalyticsSummaryRouter.stack.length, 'layers');
-  } catch {}
-}
-app.use('/api/users', usersAnalyticsSummaryRouter);
-
-// Inline fallback handler for tenant-summary to avoid 404s if router wiring changes.
-// It maps controller output to array [{ tenant, count }] which the frontend expects.
-try {
-  // eslint-disable-next-line no-console
-  console.log('[startup] Registering inline fallback for GET /api/users/tenant-summary');
-} catch {}
-const { getUsersTenantSummary } = require('./controllers/users.analytics.summary.controller');
-app.get('/api/users/tenant-summary', async (req, res) => {
-  try {
-    // Reuse controller but capture its response to map shape
-    const fakeRes = {
-      _status: 200,
-      _sent: false,
-      status(code) { this._status = code; return this; },
-      json(payload) { this._sent = true; this._payload = payload; return this; }
-    };
-    await getUsersTenantSummary(req, fakeRes);
-    if (!fakeRes._sent) {
-      return res.status(500).json({ success: false, message: 'Controller did not respond' });
-    }
-    if (fakeRes._status !== 200) {
-      return res.status(fakeRes._status).json(fakeRes._payload);
-    }
-    const items = Array.isArray(fakeRes._payload?.items) ? fakeRes._payload.items : [];
-    const mapped = items.map((it) => ({
-      tenant: it.tenant_name || it.tenant_id || '',
-      count: typeof it.user_count === 'number' ? it.user_count : 0,
-    }));
-    return res.status(200).json(mapped);
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[tenant-summary.inline] error:', err?.message || err);
-    return res.status(500).json({ success: false, message: 'Internal Server Error' });
-  }
-});
-
-const analyticsAgentsRoutes = require('./routes/analyticsAgents');
-
-const { verifyAuth } = require('./middleware/verifyAuth');
-const { requireTenant } = require('./middleware/requireTenant');
-
-/**
- * Add a thin logger to confirm headers for protected API calls in development.
- */
-const devHeadersLogger = (req, res, next) => {
-  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-    if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
-      const authPresent = !!(req.headers?.authorization || req.headers?.Authorization);
-      const xtenant = req.headers?.['x-tenant-id'] || req.headers?.['x-tenant'] || null;
-      // eslint-disable-next-line no-console
-      console.debug(`[api] ${req.method} ${req.path} Authorization=${authPresent ? 'yes' : 'no'} x-tenant-id=${xtenant || 'n/a'}`);
-    }
-  }
-  next();
-};
-app.use(devHeadersLogger);
-
-/**
- * Session tracking routes (strict user+tenant scope is applied inside router via middleware)
- * Add a startup confirmation log to ensure scoping is active.
- */
-try {
-  // eslint-disable-next-line no-console
-  console.log('[startup] Mounting /api/session-tracking routes with strict tenant+user scoping middleware active');
-} catch {}
-// Provide both kebab and camelCase aliases for session tracking
-const { tenantScopeEnforcer } = require('./middleware/tenantScopeEnforcer'); // Enforces req.auth.tenantId scoping on all protected routes
-app.use('/api/session-tracking', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/sessionTracking.routes'));
-app.use('/api/sessionTracking', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/sessionTracking.routes'));
-
-/**
- * Analytics endpoints
- * - Agents cost/usage aggregation
- * - Overview time-bucketed metrics
- */
-app.use('/api/analytics/agents', verifyAuth, requireTenant, tenantScopeEnforcer(), analyticsAgentsRoutes);
-app.use('/api/analytics', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/analytics.overview.routes'));
-
-app.use('/api/app-deployments', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/appDeployments.routes'));
-app.use('/api/appDeployments', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/appDeployments.routes'));
-
-/**
- * Sample data route removed. The application now only exposes real MongoDB-backed APIs.
- * If needed in the future, reintroduce at /api/data with an actual collection.
- */
-
-// Costs aggregate endpoints (non-users analytics)
-app.use('/api/costs', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/costs.byAgent.routes'));
-
-// LLM costs endpoints
-app.use('/api/llm-costs', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/llmCosts.routes'));
-app.use('/api/llmCosts', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/llmCosts.routes'));
-
-// Tenants, Projects, Auth, Session
-app.use('/api/tenants', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/tenants.routes'));
-app.use('/api/projects', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/projects.routes'));
-app.use('/api/session', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/session.routes'));
-app.use('/api/dashboard', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/dashboard.routes'));
-app.use('/api/dashboard/overview', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/dashboard.modules.routes'));
-app.use('/api/auth', require('./routes/auth.routes'));
-
-/* Users analytics routes have been fully removed to avoid dangling references */
-
-// 404 JSON
-app.use((req, res) => {
-  return res.status(404).json({
-    success: false,
-    message: 'Not Found',
-    path: req.originalUrl,
+  // Basic not found handler
+  app.use((req, res) => {
+    res.status(404).json({ error: 'Not found' });
   });
-});
 
-app.use(errorHandler);
+  // Basic error handler
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message || 'Internal Server Error' });
+  });
 
-if (process.env.NODE_ENV !== 'test') {
-  // Connect to Mongo asynchronously; do not block server startup.
-  (async () => {
-    try {
-      // eslint-disable-next-line no-console
-      console.log('[startup] Initiating MongoDB connection with retry (non-blocking)...');
-      // Fire-and-forget retry loop; do not await completion for readiness
-      connectWithRetry({ maxRetries: 6, initialDelayMs: 500, backoffFactor: 2 })
-        .catch((err) => console.error('[startup] Unexpected error during connectWithRetry:', err?.message || err));
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('[startup] Failed to schedule MongoDB connection retry:', err?.message || err);
-    }
-  })();
-} else {
-  // eslint-disable-next-line no-console
-  console.log('[startup] Skipping MongoDB connection in test environment');
-  try { mongoose.set('bufferCommands', false); } catch {}
+  return app;
 }
 
-module.exports = app;
+module.exports = { createApp };
