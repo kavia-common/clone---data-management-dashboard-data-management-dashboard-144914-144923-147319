@@ -107,7 +107,8 @@ app.get('/api/health', healthHandler);
  */
 app.get('/health', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  return healthHandler(req, res);
+  // Minimal readiness-friendly payload
+  return res.status(200).json({ status: 'ok' });
 });
 
 if (process.env.NODE_ENV === 'test') {

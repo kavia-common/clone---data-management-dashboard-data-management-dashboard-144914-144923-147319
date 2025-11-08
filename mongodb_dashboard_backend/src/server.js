@@ -87,7 +87,10 @@ try {
   console.log(`[startup] Attempting to bind HTTP server on ${HOST}:${PORT} ...`);
   server.listen(PORT, HOST, () => {
     // eslint-disable-next-line no-console
-    console.log(`Server listening on http://${HOST}:${PORT} (health: /health)`);
+    console.log(`Server listening on http://0.0.0.0:${PORT}`);
+    try {
+      console.log(`[startup] Health endpoint ready at http://0.0.0.0:${PORT}/health`);
+    } catch {}
   });
 } catch (err) {
   // eslint-disable-next-line no-console
