@@ -40,6 +40,11 @@ function createApp() {
   // Main API router
   app.use('/api', routes);
 
+  // Also expose a lightweight health check at /api/health that does not require DB
+  app.get('/api/health', (req, res) => {
+    res.json({ ok: true, db: !!req.app.locals.db });
+  });
+
   // Basic not found handler
   app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });

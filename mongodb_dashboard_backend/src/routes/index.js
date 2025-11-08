@@ -31,7 +31,7 @@ const router = express.Router();
  * This is used by container readiness checks.
  */
 router.get('/', healthController.check?.bind?.(healthController) || ((req, res) => res.status(200).json({ status: 'ok' })));
-router.get('/health', healthController.check);
+router.get('/health', healthController.check || ((req, res) => res.status(200).json({ status: 'ok' })));
 router.get('/healthz', healthController.check?.bind?.(healthController) || ((req, res) => res.status(200).json({ status: 'ok' })));
 
 // Public auth routes remain unprotected

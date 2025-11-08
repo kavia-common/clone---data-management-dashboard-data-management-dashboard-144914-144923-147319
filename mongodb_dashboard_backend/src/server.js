@@ -19,9 +19,13 @@ async function start() {
 
   // Attempt DB connection asynchronously; expose db in app.locals if available.
   (async () => {
-    const { db } = await connect(console);
-    if (db) {
-      app.locals.db = db;
+    try {
+      const { db } = await connect(console);
+      if (db) {
+        app.locals.db = db;
+      }
+    } catch (e) {
+      console.error('[Server] DB connect error (non-fatal for readiness):', e && e.message ? e.message : e);
     }
   })();
 
