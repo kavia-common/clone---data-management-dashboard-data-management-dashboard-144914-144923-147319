@@ -5,7 +5,7 @@ const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
-const { connectDB } = require('./config/db');
+const { connectDB, connectWithRetry } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
@@ -289,11 +289,13 @@ if (process.env.NODE_ENV !== 'test') {
   (async () => {
     try {
       // eslint-disable-next-line no-console
-      console.log('[startup] Initiating MongoDB connection (non-blocking)...');
-      await connectDB();
+      console.log('[startup] Initiating MongoDB connection with retry (non-blocking)...');
+      // Fire-and-forget retry loop; do not await completion for readiness
+      connectWithRetry({ maxRetries: 6, initialDelayMs: 500, backoffFactor: 2 })
+        .catch((err) => console.error('[startup] Unexpected error during connectWithRetry:', err?.message || err));
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('[startup] Failed to connect to MongoDB on startup:', err?.message || err);
+      console.error('[startup] Failed to schedule MongoDB connection retry:', err?.message || err);
     }
   })();
 } else {

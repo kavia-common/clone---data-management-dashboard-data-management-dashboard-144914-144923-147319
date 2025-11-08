@@ -97,6 +97,51 @@ async function connectDB() {
 
 /**
  * PUBLIC_INTERFACE
+ * connectWithRetry
+ * Attempts to connect to MongoDB with small delays between retries.
+ * This never throws synchronously to callers if MONGODB_URI is missing; it will simply no-op.
+ * If MONGODB_URI is present but connection fails, it will retry up to maxRetries times
+ * while logging errors. It does not block server start; callers should invoke it in a fire-and-forget manner.
+ */
+async function connectWithRetry({ maxRetries = 5, initialDelayMs = 500, backoffFactor = 2 } = {}) {
+  const uri = process.env.MONGODB_URI;
+  if (!uri || typeof uri !== 'string' || uri.trim() === '') {
+    // Nothing to do; keep API running without DB.
+    return mongoose.connection;
+  }
+  let attempt = 0;
+  let delay = initialDelayMs;
+
+  while (attempt < maxRetries && mongoose.connection.readyState !== 1) {
+    attempt += 1;
+    try {
+      // eslint-disable-next-line no-console
+      console.log(`[db] Attempt ${attempt}/${maxRetries} to connect to MongoDB...`);
+      await connectDB();
+      if (mongoose.connection.readyState === 1) {
+        // eslint-disable-next-line no-console
+        console.log('[db] MongoDB connection established.');
+        break;
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[db] Attempt ${attempt} failed: ${err?.message || err}`);
+    }
+    if (attempt < maxRetries && mongoose.connection.readyState !== 1) {
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(10000, delay * backoffFactor);
+    }
+  }
+
+  if (mongoose.connection.readyState !== 1) {
+    // eslint-disable-next-line no-console
+    console.warn('[db] Unable to establish MongoDB connection after retries. API will continue to run without DB.');
+  }
+  return mongoose.connection;
+}
+
+/**
+ * PUBLIC_INTERFACE
  * getDb
  * Returns an active MongoDB Db instance from the current Mongoose connection.
  * Ensures a connection is established; if not connected, attempts to connect first.
