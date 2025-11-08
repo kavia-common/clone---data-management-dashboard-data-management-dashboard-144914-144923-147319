@@ -4,6 +4,11 @@
  * Entry point for the Express server.
  * Binds to process.env.PORT (default 3001) and host 0.0.0.0 to satisfy preview readiness checks.
  * Ensures a /health route that returns 200 OK.
+ *
+ * Environment expectations for preview:
+ * - HOST=0.0.0.0
+ * - PORT=3001
+ * These are also the defaults when not provided.
  */
 
 const http = require("http");

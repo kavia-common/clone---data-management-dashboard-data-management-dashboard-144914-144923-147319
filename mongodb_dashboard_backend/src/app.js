@@ -235,7 +235,7 @@ try {
   console.log('[startup] Mounting /api/session-tracking routes with strict tenant+user scoping middleware active');
 } catch {}
 // Provide both kebab and camelCase aliases for session tracking
-const { tenantScopeEnforcer } = require('./middleware/tenantScopeEnforcer');
+const { tenantScopeEnforcer } = require('./middleware/tenantScopeEnforcer'); // Enforces req.auth.tenantId scoping on all protected routes
 app.use('/api/session-tracking', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/sessionTracking.routes'));
 app.use('/api/sessionTracking', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/sessionTracking.routes'));
 
