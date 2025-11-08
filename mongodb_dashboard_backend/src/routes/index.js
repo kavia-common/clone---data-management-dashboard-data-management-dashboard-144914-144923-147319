@@ -38,7 +38,7 @@ router.use('/auth', authRoutes);
 
 /**
  * Users route manages its own Cognito/JWKS auth to ensure it returns only the authenticated user.
- * Keep verifyAuth+requireTenant here for general safety; the router overrides with stricter behavior internally.
+ * Enforce verifyAuth + requireTenant at mount to guarantee tenant scoping and authentication.
  */
 router.use('/users', verifyAuth, requireTenant, usersRoutes);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);

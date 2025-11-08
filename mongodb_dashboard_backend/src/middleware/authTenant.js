@@ -75,7 +75,25 @@ function ensureTenantAccess(req, res, next) {
  * - If it is a Mongoose query (has .where or .find), chains a where('tenant_id').equals(tenantId) only when not already applied.
  */
 function applyTenantFilter(modelOrQuery, tenantId) {
-  if (!tenantId) return modelOrQuery;
+  // If tenantId is missing, force a filter that matches nothing to avoid cross-tenant leakage.
+  const NO_TENANT_SENTINEL = '__NO_TENANT__';
+
+  if (!tenantId) {
+    // For plain filters
+    if (modelOrQuery && typeof modelOrQuery === 'object' && !isMongooseQuery(modelOrQuery)) {
+      return { ...(modelOrQuery || {}), tenant_id: NO_TENANT_SENTINEL };
+    }
+    // For mongoose queries
+    if (isMongooseQuery(modelOrQuery)) {
+      try {
+        modelOrQuery.where('tenant_id').equals(NO_TENANT_SENTINEL);
+      } catch (_) {
+        // ignore
+      }
+      return modelOrQuery;
+    }
+    return modelOrQuery;
+  }
 
   // If it's a plain object (filter)
   if (modelOrQuery && typeof modelOrQuery === 'object' && !isMongooseQuery(modelOrQuery)) {

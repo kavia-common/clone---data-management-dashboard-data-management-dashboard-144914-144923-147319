@@ -24,9 +24,8 @@ const controller = buildCrudController(User, '-created_at');
 
 const { cognitoAuthMiddleware } = require('../middleware/cognitoAuth');
 
-// Apply Cognito auth only for endpoints in this router that require it.
-// We will guard GET '/' with this middleware specifically (not the whole router),
-// to meet the requirement "Middleware is applied to this endpoint only".
+// Enforce auth + tenant on entire users router to prevent any accidental exposure
+router.use(verifyAuth, requireTenantMw);
 
 // Simple in-memory cache for tenant summary (5 minutes TTL)
 const TENANT_SUMMARY_CACHE = new Map();
@@ -203,8 +202,10 @@ router.get(
   '/',
   cognitoAuthMiddleware,
   asyncHandler(async (req, res) => {
+    // verifyAuth + requireTenant already enforced via router.use above.
     const tenantId = req?.tenantId || req?.auth?.tenantId;
     if (!tenantId) {
+      // Safe default: never return cross-tenant results if tenant missing
       return res.status(403).json({ success: false, message: 'Tenant required' });
     }
 
@@ -216,6 +217,7 @@ router.get(
       return res.status(401).json({ success: false, message: 'Unauthorized: no subject/email in token' });
     }
 
+    // Safe tenant filter default
     const query = { tenant_id: tenantId };
     if (sub) {
       // match either sub field or legacy identifiers that may hold the subject
