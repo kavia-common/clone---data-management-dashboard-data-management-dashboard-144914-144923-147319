@@ -45,11 +45,16 @@ async function start() {
 }
 
 if (require.main === module) {
-  start().catch((err) => {
-    console.error('[Server] Failed to start:', err && err.message ? err.message : err);
-    // Do not exit; allow process to stay up so health endpoint can be probed
-    // A subsequent hot-reload or environment fix can recover without killing the container.
-  });
+  // Wrap top-level start in try/catch to avoid unhandled rejection causing process exit
+  (async () => {
+    try {
+      await start();
+    } catch (err) {
+      console.error('[Server] Failed to start:', err && err.message ? err.message : err);
+      // Do not exit; allow process to stay up so health endpoint can be probed
+      // A subsequent hot-reload or environment fix can recover without killing the container.
+    }
+  })();
 }
 
 module.exports = { start };

@@ -32,9 +32,10 @@ function createApp() {
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
 
-  // Health endpoint that does not require DB
+  // PUBLIC_INTERFACE
+  // Health endpoint that does not require DB or any auth/tenant middleware; fast 200 response
   app.get('/health', (req, res) => {
-    res.json({ ok: true, db: !!req.app.locals.db });
+    res.status(200).json({ ok: true, db: !!req.app.locals.db });
   });
 
   // Main API router

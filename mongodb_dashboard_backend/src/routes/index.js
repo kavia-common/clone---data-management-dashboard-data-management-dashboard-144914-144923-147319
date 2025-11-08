@@ -31,6 +31,12 @@ const router = express.Router();
  * This is used by container readiness checks.
  */
 router.get('/', healthController.check?.bind?.(healthController) || ((req, res) => res.status(200).json({ status: 'ok' })));
+/**
+ * PUBLIC_INTERFACE
+ * GET /health
+ * Public health endpoint; must remain accessible without authentication or tenant context.
+ * Bypasses verifyAuth/requireTenant middlewares by being registered before protected mounts.
+ */
 router.get('/health', healthController.check || ((req, res) => res.status(200).json({ status: 'ok' })));
 router.get('/healthz', healthController.check?.bind?.(healthController) || ((req, res) => res.status(200).json({ status: 'ok' })));
 

@@ -3,11 +3,13 @@
 /**
  * PUBLIC_INTERFACE
  * check
- * Lightweight health handler that does not require DB connectivity.
- * Returns 200 with simple payload for readiness checks.
+ * Lightweight health handler that does not require DB connectivity or authentication.
+ * Returns 200 with a small JSON payload for readiness checks.
+ * This handler is used by:
+ *  - GET /health        (public)
+ *  - GET /api/health    (public)
  */
 function check(req, res) {
-  /** This endpoint is DB-independent and safe for container probes. */
   return res.status(200).json({
     ok: true,
     status: 'healthy',
