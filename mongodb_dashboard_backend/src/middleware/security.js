@@ -88,43 +88,13 @@ function corsMiddleware() {
   console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
 
   const corsInstance = cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true); // SSR / curl / same-origin
-      if (whitelist.has(origin)) return callback(null, true);
-
-      // Check same hostname, different port
-      try {
-        const o = new URL(origin);
-        if (
-          Array.from(whitelist).some((w) => {
-            try {
-              return new URL(w).hostname === o.hostname;
-            } catch {
-              return false;
-            }
-          })
-        ) {
-          return callback(null, true);
-        }
-      } catch {
-        // ignore
-      }
-
-      // Explicitly reject with proper CORS message
-
-      console.log('[CORS] Origin received:', origin);
-      return callback(null, true); // temporarily allow all
-
-      // return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
-    },
+    // Allow ALL origins: using function form and always callback(null, true)
+    // This also ensures when credentials=true, we reflect the request origin rather than '*'
+    origin: (_origin, callback) => callback(null, true),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    // Allow tenant headers in addition to common headers so that preflight with Authorization + x-tenant-id succeeds
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'x-tenant-id',
-      'x-tenant',
-    ],
+    // Allow ALL headers. Some environments of 'cors' don't support wildcard for allowedHeaders.
+    // If '*' causes issues, omit allowedHeaders to let the library echo incoming Access-Control-Request-Headers.
+    allowedHeaders: '*',
     exposedHeaders: ['Content-Length', 'Content-Type'],
     credentials: allowCredentials,
     optionsSuccessStatus: 204,

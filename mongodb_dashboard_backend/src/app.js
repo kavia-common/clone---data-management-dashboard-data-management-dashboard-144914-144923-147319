@@ -21,14 +21,10 @@ app.set('trust proxy', 1); // only trust local proxies
 app.use(helmetMiddleware());
 // Configure CORS with allowlist and credentials support via our middleware
 app.use(corsMiddleware());
-// Handle preflight across API routes explicitly to avoid 404 on OPTIONS
 /**
- * Use the configured CORS middleware for preflight as well.
- * The default cors() without options may omit custom allowedHeaders (e.g., x-tenant-id),
- * leading to preflight failures. Since app.use(corsMiddleware()) is mounted globally,
- * OPTIONS will be handled consistently and return 204.
+ * Preflight will be handled by the configured global corsMiddleware above.
+ * Do not mount a separate app.options handler with default cors() to avoid mismatched settings.
  */
- // Removed explicit app.options with default cors() to avoid overriding configured options.
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
