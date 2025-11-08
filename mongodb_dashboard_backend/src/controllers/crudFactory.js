@@ -137,7 +137,8 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       try {
         if (process.env.NODE_ENV !== 'production') {
           // eslint-disable-next-line no-console
-          console.debug('[crud.list] final filter:', filter);
+          const routeTag = (req.baseUrl || '').includes('session-tracking') ? '[session-tracking]' : '';
+          console.debug('[crud.list] final filter:', filter, routeTag);
         }
       } catch {}
 
