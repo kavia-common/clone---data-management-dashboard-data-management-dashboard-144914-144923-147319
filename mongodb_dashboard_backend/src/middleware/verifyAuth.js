@@ -93,20 +93,53 @@ function verifyAuth(req, res, next) {
     // Normalize req.auth to guarantee presence of sub and tenantId
     // IMPORTANT: Do not allow header to override tenant_id when token is present
     const tenantFromHeader = req.headers['x-tenant-id'] || req.headers['x-tenant'];
+
+    // Robust tenantId extraction:
+    // - Support common names: tenantId, tenant_id, organization_id, orgId
+    // - Support namespaced claims like 'https://example.com/tenantId' or 'custom:tenantId'
+    let extractedTenantId =
+      payload.tenantId ||
+      payload.tenant_id ||
+      payload.organization_id ||
+      payload.orgId ||
+      null;
+
+    if (!extractedTenantId && payload && typeof payload === 'object') {
+      for (const [k, v] of Object.entries(payload)) {
+        if (typeof v === 'string') {
+          const nk = k.toLowerCase();
+          if (
+            nk.endsWith('/tenantid') ||
+            nk.endsWith(':tenantid') ||
+            nk.endsWith('/tenant_id') ||
+            nk.endsWith(':tenant_id')
+          ) {
+            extractedTenantId = v;
+            break;
+          }
+        }
+      }
+    }
+
     req.auth = {
       ...payload,
       // sub is the canonical user identifier used across the app
       sub: payload.sub || payload.user_id || payload.userId || payload.id || 'user',
       // tenantId is used by scoping middleware and controllers (prefer JWT strictly)
-      tenantId:
-        payload.tenantId ||
-        payload.tenant_id ||
-        (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
+      tenantId: extractedTenantId || (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
       scope: payload.scope || payload.scp || [],
       demo: false,
       // include original header only for debugging (not used for auth)
       _tenantHeader: tenantFromHeader || null,
     };
+
+    // Dev-only concise logs: computed tenant and subject for troubleshooting
+    try {
+      if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+        // eslint-disable-next-line no-console
+        console.debug('[verifyAuth] sub=', req.auth.sub, 'tenantId=', req.auth.tenantId);
+      }
+    } catch {}
 
     return next();
   } catch (err) {

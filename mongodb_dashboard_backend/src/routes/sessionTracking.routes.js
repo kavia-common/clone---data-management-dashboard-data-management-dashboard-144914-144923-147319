@@ -16,6 +16,12 @@ const controller = buildCrudController(SessionTracking, '-session_start');
  *   GET '/', GET '/:id', POST '/', PUT '/:id', DELETE '/:id'
  */
 router.use(verifyAuth, requireTenantMw, sessionTrackingScope);
+try {
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.debug('[session-tracking] verifyAuth + requireTenant + sessionTrackingScope mounted');
+  }
+} catch {}
 
 /**
  * Dev-only: global response wrapper to assert and log tenant correctness for ALL /session-tracking routes.

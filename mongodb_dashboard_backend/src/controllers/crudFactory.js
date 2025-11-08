@@ -164,6 +164,17 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
         // No explicit pagination: return the raw array of documents (no envelope)
         const items = await Model.find(filter).sort(sort).lean();
+
+        // Dev-only: check returned tenants briefly
+        try {
+          if (process.env.NODE_ENV !== 'production') {
+            const expected = String(req?.auth?.tenantId || '');
+            const tenants = Array.from(new Set(items.map((d) => d && d.tenant_id))).slice(0, 5);
+            // eslint-disable-next-line no-console
+            console.debug('[crud.list] returned tenants(sample):', tenants, 'expected:', expected);
+          }
+        } catch {}
+
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
@@ -201,12 +212,8 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       const data = req.body || {};
       try {
         if (req.auth?.tenantId && data && typeof data === 'object') {
-          // In strict contexts (e.g., session-tracking), always override tenant regardless of client input
-          if (req.strictTenantEnforce || req.enforceSessionTenantScope || req.forcedFilter?.tenant_id) {
-            data.tenant_id = String(req.auth.tenantId);
-          } else if (data.tenant_id == null) {
-            data.tenant_id = String(req.auth.tenantId);
-          }
+          // Always overwrite tenant_id on create to authenticated tenant
+          data.tenant_id = String(req.auth.tenantId);
         }
         const doc = await Model.create(data);
         // Return raw created doc
@@ -223,6 +230,14 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       const data = req.body || {};
       try {
         let doc;
+        // Never allow changing tenant via update payload
+        if (data && typeof data === 'object') {
+          if (req?.auth?.tenantId) {
+            data.tenant_id = String(req.auth.tenantId);
+          } else {
+            delete data.tenant_id;
+          }
+        }
         // Build criteria and enforce tenant
         let criteria = enforceTenantOnFilter(req, { _id: id });
 
@@ -230,7 +245,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         try {
           if (process.env.NODE_ENV !== 'production') {
             // eslint-disable-next-line no-console
-            console.debug('[crud.update] criteria:', criteria);
+            console.debug('[crud.update] tenantId:', req?.auth?.tenantId || null, 'criteria:', criteria);
           }
         } catch {}
         doc = await Model.findOneAndUpdate(criteria, data, { new: true }).lean();
