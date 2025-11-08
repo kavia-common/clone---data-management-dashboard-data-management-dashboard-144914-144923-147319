@@ -22,6 +22,8 @@ try {
     app = express();
   }
 } catch (err) {
+  // eslint-disable-next-line no-console
+  console.warn(`[startup] Failed to load ./app: ${err?.message || err}. Using minimal app.`);
   // Fallback minimal app if src/app.js is not present or fails to load
   app = express();
 }
@@ -43,10 +45,43 @@ const HOST = process.env.HOST || "0.0.0.0";
 // Create server and listen on 0.0.0.0 to be reachable from outside container
 const server = http.createServer(app);
 
-server.listen(PORT, HOST, () => {
+// Listen error handling (e.g., EADDRINUSE)
+server.on("error", (err) => {
   // eslint-disable-next-line no-console
-  console.log(`Server listening on http://${HOST}:${PORT} (health: /health)`);
+  console.error(`[startup] HTTP server error: ${err?.code || "ERR"} ${err?.message || err}`);
+  if (err && err.code === "EADDRINUSE") {
+    console.error(
+      `[startup] Port ${PORT} is already in use on ${HOST}. ` +
+      `If running in CI/preview, ensure stale processes are killed. Try npm run dev:force or start:ci.`
+    );
+  }
+  // Surface fatal errors for CI visibility
+  try {
+    process.exitCode = 1;
+  } finally {
+    // give logs a moment to flush
+    setTimeout(() => process.exit(1), 50);
+  }
 });
+
+try {
+  // eslint-disable-next-line no-console
+  console.log(`[startup] Attempting to bind HTTP server on ${HOST}:${PORT} ...`);
+  server.listen(PORT, HOST, () => {
+    // eslint-disable-next-line no-console
+    console.log(`Server listening on http://${HOST}:${PORT} (health: /health)`);
+  });
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.error(`[startup] Unexpected error during server.listen: ${err?.message || err}`);
+  process.exit(1);
+}
+
+// Emit a brief readiness hint for CI logs
+setTimeout(() => {
+  // eslint-disable-next-line no-console
+  console.log(`[startup] Ready check: visit http://127.0.0.1:${PORT}/health`);
+}, 200);
 
 // Graceful shutdown support
 const shutdown = (signal) => {

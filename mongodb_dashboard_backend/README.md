@@ -14,7 +14,9 @@ Quick start (development)
 
 Production run
 - npm start     # node, binds to 0.0.0.0:3001
+- npm run start:ci  # CI-safe: forcibly frees port 3001 before starting
 - Health check: npm run health  (or curl http://127.0.0.1:3001/health)
+- Troubleshooting: If you see EADDRINUSE on 3001, kill stale processes or use `npm run dev:force` (dev) or `npm run start:ci` (CI).
 
 Important
 - Run npm commands from the backend folder above. Running in the frontend path can cause "Missing script: dev".
