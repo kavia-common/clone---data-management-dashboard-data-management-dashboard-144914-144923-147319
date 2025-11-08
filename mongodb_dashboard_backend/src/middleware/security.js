@@ -87,29 +87,45 @@ function corsMiddleware() {
   // eslint-disable-next-line no-console
   console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
 
+  // Explicit headers list to fully satisfy preflight for Authorization-bearing requests
   const corsInstance = cors({
-    // Allow ALL origins: using function form and always callback(null, true)
-    // This also ensures when credentials=true, we reflect the request origin rather than '*'
+    // Permissive origin: reflect request origin (keeps preview ports unchanged)
     origin: (_origin, callback) => callback(null, true),
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    // Allow ALL headers. Some environments of 'cors' don't support wildcard for allowedHeaders.
-    // If '*' causes issues, omit allowedHeaders to let the library echo incoming Access-Control-Request-Headers.
-    allowedHeaders: '*',
-    exposedHeaders: ['Content-Length', 'Content-Type'],
     credentials: allowCredentials,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-tenant-id',
+      'x-tenant',
+      'Accept',
+      'Origin',
+      'User-Agent',
+      'Cache-Control',
+      'Pragma'
+    ],
+    exposedHeaders: ['Content-Length', 'Content-Type'],
     optionsSuccessStatus: 204,
   });
+
+  // Log concise startup configuration for verification
+  try {
+    // eslint-disable-next-line no-console
+    console.log('[startup] CORS configured: origin=* (reflected), credentials=%s, methods=%s, allowedHeaders=%s',
+      allowCredentials, ['GET','POST','PUT','PATCH','DELETE','OPTIONS'].join(','), 'Content-Type, Authorization, x-tenant-id, x-tenant, Accept, Origin, User-Agent, Cache-Control, Pragma');
+  } catch {}
 
   return (req, res, next) => {
     corsInstance(req, res, (err) => {
       if (err) {
         // eslint-disable-next-line no-console
-        console.warn(`[CORS] Blocked origin: ${req.headers.origin}`);
+        console.warn(`[CORS] Blocked origin or error for ${req.headers.origin || 'unknown'}: ${err.message}`);
         return res.status(403).json({
           success: false,
           message: err.message,
         });
       }
+      // Ensure OPTIONS preflight uses the same settings and returns 204
       if (req.method === 'OPTIONS') {
         return res.sendStatus(204);
       }

@@ -11,10 +11,11 @@ const cors = require('cors');
 
 const app = express();
 
-// TEMP STARTUP LOGS to trace route mounting (will be removed after verification)
+ // TEMP STARTUP LOGS to trace route mounting (will be removed after verification)
 try {
   // eslint-disable-next-line no-console
   console.log('[startup] Initializing Express app for Dashboard API');
+  console.log('[startup] CORS is set to allow all origins and required headers (Authorization, x-tenant-id) with unified OPTIONS handling.');
 } catch {}
 
 app.set('trust proxy', 1); // only trust local proxies
