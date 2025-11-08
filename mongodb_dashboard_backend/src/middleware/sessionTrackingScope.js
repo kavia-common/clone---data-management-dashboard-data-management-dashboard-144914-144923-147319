@@ -37,7 +37,8 @@ function sessionTrackingScope(req, res, next) {
     });
   }
 
-  // Forced filter used by CRUD controller to scope list queries
+  // Forced filter used by CRUD controller to scope list queries and all ID-based operations.
+  // This is merged LAST in crudFactory, taking precedence over any client-provided filter.
   req.forcedFilter = {
     tenant_id: String(tenantId),
     user_id: String(userId),

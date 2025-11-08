@@ -84,7 +84,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
       // If a route-level forcedFilter exists (e.g., sessionTrackingScope), override tenant_id/user_id
       if (req.forcedFilter && typeof req.forcedFilter === 'object') {
-        // Never allow client to broaden tenant_id or user_id
+        // Never allow client to broaden tenant_id or user_id — server-side takes precedence LAST
         const enforced = { ...filter };
         if (req.forcedFilter.tenant_id != null) enforced.tenant_id = String(req.forcedFilter.tenant_id);
         if (req.forcedFilter.user_id != null) enforced.user_id = String(req.forcedFilter.user_id);

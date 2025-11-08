@@ -10,7 +10,11 @@ const { requireTenant: requireTenantMw } = require('../middleware/requireTenant'
 const { sessionTrackingScope } = require('../middleware/sessionTrackingScope');
 const controller = buildCrudController(SessionTracking, '-session_start');
 
-// Enforce JWT + Tenant + Session scope (tenant+user) at router level
+/**
+ * Enforce JWT + Tenant + Session scope (tenant+user) at router level for ALL routes.
+ * Using router.use ensures coverage for:
+ *   GET '/', GET '/:id', POST '/', PUT '/:id', DELETE '/:id'
+ */
 router.use(verifyAuth, requireTenantMw, sessionTrackingScope);
 
 // List and CRUD with strict scoping applied downstream by controller via req.forcedFilter
