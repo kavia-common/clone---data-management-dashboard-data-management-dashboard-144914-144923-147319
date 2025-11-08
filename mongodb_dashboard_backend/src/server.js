@@ -27,8 +27,8 @@ async function start() {
 
   const server = http.createServer(app);
   server.listen(PORT, HOST, () => {
-    console.log(`[Server] Listening on http://${HOST}:${PORT}`);
-    console.log('[Server] Ready. Health: GET /health, API health: GET /api/health');
+    console.log(`[Server] Listening on http://${HOST}:${PORT} (bind=0.0.0.0 compatible)`);
+    console.log('[Server] Ready. Health endpoints: GET /health and GET /api/health');
   });
 
   return server;

@@ -1,31 +1,22 @@
 'use strict';
 
-const mongoose = require('mongoose');
-
 /**
  * PUBLIC_INTERFACE
  * check
- * Health handler used by base router; does not require DB connectivity to return 200.
- * Returns:
- *  - status: "ok"
- *  - db: "connected" | "connecting" | "disconnected"
- *  - timestamp: ISO string
- *  - host: resolved server host
- *  - port: resolved server port
- * This endpoint is safe for readiness/liveness probes.
+ * Lightweight health handler that does not require DB connectivity.
+ * Returns 200 with simple payload for readiness checks.
  */
-async function check(req, res) {
-  const ready = mongoose.connection.readyState;
-  const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
-  const payload = {
-    status: 'ok',
-    db,
+function check(req, res) {
+  /** This endpoint is DB-independent and safe for container probes. */
+  return res.status(200).json({
+    ok: true,
+    status: 'healthy',
+    db: !!req.app?.locals?.db,
     timestamp: new Date().toISOString(),
-    host: process.env.HOST || '0.0.0.0',
-    port: Number(process.env.PORT) || 3001,
-  };
-  res.set('Cache-Control', 'no-store');
-  return res.status(200).json(payload);
+    service: 'mongodb_dashboard_backend',
+  });
 }
 
-module.exports = { check };
+module.exports = {
+  check,
+};
