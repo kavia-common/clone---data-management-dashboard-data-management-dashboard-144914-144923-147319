@@ -91,19 +91,21 @@ function verifyAuth(req, res, next) {
     const payload = jwt.verify(token, secret || '', verifyOptions);
 
     // Normalize req.auth to guarantee presence of sub and tenantId
+    // IMPORTANT: Do not allow header to override tenant_id when token is present
     const tenantFromHeader = req.headers['x-tenant-id'] || req.headers['x-tenant'];
     req.auth = {
       ...payload,
       // sub is the canonical user identifier used across the app
       sub: payload.sub || payload.user_id || payload.userId || payload.id || 'user',
-      // tenantId is used by scoping middleware and controllers
+      // tenantId is used by scoping middleware and controllers (prefer JWT strictly)
       tenantId:
         payload.tenantId ||
         payload.tenant_id ||
-        tenantFromHeader ||
         (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
       scope: payload.scope || payload.scp || [],
       demo: false,
+      // include original header only for debugging (not used for auth)
+      _tenantHeader: tenantFromHeader || null,
     };
 
     return next();

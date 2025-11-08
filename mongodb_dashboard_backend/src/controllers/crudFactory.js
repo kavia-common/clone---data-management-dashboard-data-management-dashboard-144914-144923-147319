@@ -80,6 +80,9 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       // Enforce tenant scoping
       if (req.auth?.tenantId) {
         filter = applyTenantFilter(filter, req.auth.tenantId);
+      } else {
+        // If no tenant present, force a filter that matches nothing to avoid cross-tenant leakage
+        filter = applyTenantFilter(filter, null);
       }
 
       // If a route-level forcedFilter exists (e.g., sessionTrackingScope), override tenant_id (and optionally user_id if provided).
