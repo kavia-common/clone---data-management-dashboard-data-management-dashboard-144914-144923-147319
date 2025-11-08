@@ -118,7 +118,13 @@ function corsMiddleware() {
       // return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    // Allow tenant headers in addition to common headers so that preflight with Authorization + x-tenant-id succeeds
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-tenant-id',
+      'x-tenant',
+    ],
     exposedHeaders: ['Content-Length', 'Content-Type'],
     credentials: allowCredentials,
     optionsSuccessStatus: 204,
