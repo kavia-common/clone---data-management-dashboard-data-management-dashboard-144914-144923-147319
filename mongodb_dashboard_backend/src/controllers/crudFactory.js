@@ -2,6 +2,59 @@ const { parsePagination, success, failure } = require('../utils/http');
 const { applyTenantFilter } = require('../middleware/authTenant');
 
 /**
+ * Merge and enforce tenant scope on a plain filter object using req.auth.tenantId.
+ * - Always sets/overrides filter.tenant_id to req.auth.tenantId when present.
+ * - If tenant is missing, injects sentinel via applyTenantFilter(null) behavior to match nothing.
+ * - Logs concise info in development for traceability.
+ */
+function enforceTenantOnFilter(req, inputFilter) {
+  let filter = inputFilter && typeof inputFilter === 'object' ? { ...inputFilter } : {};
+  const requestedTenant = filter && Object.prototype.hasOwnProperty.call(filter, 'tenant_id')
+    ? String(filter.tenant_id)
+    : undefined;
+
+  if (req?.auth?.tenantId) {
+    // Always override to authenticated tenant
+    filter.tenant_id = String(req.auth.tenantId);
+
+    // Dev-only concise log to show override behavior
+    try {
+      if (process.env.NODE_ENV !== 'production' && requestedTenant && requestedTenant !== filter.tenant_id) {
+        // eslint-disable-next-line no-console
+        console.debug('[crudFactory] Overriding client tenant_id', requestedTenant, '->', filter.tenant_id);
+      }
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.debug('[crudFactory] final tenant scope:', filter.tenant_id);
+      }
+    } catch {}
+  } else {
+    // No tenant: force a non-match sentinel via helper
+    filter = applyTenantFilter(filter, null);
+  }
+
+  // If a route-level forcedFilter exists, apply it last to ensure enforcement (e.g., sessionTrackingScope)
+  if (req?.forcedFilter && typeof req.forcedFilter === 'object') {
+    if (req.forcedFilter.tenant_id != null) filter.tenant_id = String(req.forcedFilter.tenant_id);
+    if (req.forcedFilter.user_id != null) filter.user_id = String(req.forcedFilter.user_id);
+  }
+
+  return filter;
+}
+
+/**
+ * Build a $match stage enforcing tenant scope for aggregation pipelines.
+ */
+function buildTenantMatch(req) {
+  const tenantId = req?.forcedFilter?.tenant_id || req?.auth?.tenantId || null;
+  if (!tenantId) {
+    // Use impossible tenant to avoid leakage when no tenant present
+    return { tenant_id: '__NO_TENANT__' };
+  }
+  return { tenant_id: String(tenantId) };
+}
+
+/**
  * Lightweight micro-cache for list endpoints to coalesce identical rapid requests.
  * Default TTL: 2000ms. Intended to mitigate bursts from quick sort/page toggles.
  * Note: In-memory and per-process only.
@@ -77,29 +130,16 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         return failure(res, 'Invalid filter JSON', 400);
       }
 
-      // Enforce tenant scoping
-      if (req.auth?.tenantId) {
-        filter = applyTenantFilter(filter, req.auth.tenantId);
-      } else {
-        // If no tenant present, force a filter that matches nothing to avoid cross-tenant leakage
-        filter = applyTenantFilter(filter, null);
-      }
+      // Enforce tenant scoping defensively: always intersect with req.auth.tenantId
+      filter = enforceTenantOnFilter(req, filter);
 
-      // If a route-level forcedFilter exists (e.g., sessionTrackingScope), override tenant_id (and optionally user_id if provided).
-      // Note: Tenant-only scope policy for session-tracking sets only tenant_id.
-      if (req.forcedFilter && typeof req.forcedFilter === 'object') {
-        const enforced = { ...filter };
-        if (req.forcedFilter.tenant_id != null) enforced.tenant_id = String(req.forcedFilter.tenant_id);
-        if (req.forcedFilter.user_id != null) enforced.user_id = String(req.forcedFilter.user_id);
-        filter = enforced;
-        // Debug log the final filter for verification (non-production only)
-        try {
-          if (process.env.NODE_ENV !== 'production' && (req.enforceSessionUserScope || req.enforceSessionTenantScope)) {
-            // eslint-disable-next-line no-console
-            console.debug('[crud.list] enforced filter applied (scoped):', filter);
-          }
-        } catch {}
-      }
+      // Dev-only concise log of final filter
+      try {
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.debug('[crud.list] final filter:', filter);
+        }
+      } catch {}
 
       const sort = req.query.sort || listDefaultSort;
 
@@ -135,19 +175,14 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       const { id } = req.params;
       try {
         let criteria = { _id: id };
-        if (req.auth?.tenantId) {
-          criteria = applyTenantFilter(criteria, req.auth.tenantId);
-        }
-        // If forcedFilter applies, ensure both tenant_id and user_id are enforced in lookup
-        if (req.forcedFilter && typeof req.forcedFilter === 'object') {
-          if (req.forcedFilter.tenant_id != null) criteria.tenant_id = String(req.forcedFilter.tenant_id);
-          if (req.forcedFilter.user_id != null) criteria.user_id = String(req.forcedFilter.user_id);
-        }
-        // Debug log criteria
+        // Always enforce tenant on criteria
+        criteria = enforceTenantOnFilter(req, criteria);
+
+        // Dev-only concise log
         try {
-          if (process.env.NODE_ENV !== 'production' && (req.enforceSessionUserScope || req.enforceSessionTenantScope)) {
+          if (process.env.NODE_ENV !== 'production') {
             // eslint-disable-next-line no-console
-            console.debug('[crud.getById] criteria with enforced scope:', criteria);
+            console.debug('[crud.getById] criteria:', criteria);
           }
         } catch {}
         const doc = await Model.findOne(criteria).lean();
@@ -182,18 +217,14 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       const data = req.body || {};
       try {
         let doc;
-        // Build criteria with tenant and optionally user constraint
-        let criteria = { _id: id };
-        if (req.auth?.tenantId) criteria.tenant_id = req.auth.tenantId;
-        if (req.forcedFilter && typeof req.forcedFilter === 'object') {
-          if (req.forcedFilter.tenant_id != null) criteria.tenant_id = String(req.forcedFilter.tenant_id);
-          if (req.forcedFilter.user_id != null) criteria.user_id = String(req.forcedFilter.user_id);
-        }
-        // Debug log criteria
+        // Build criteria and enforce tenant
+        let criteria = enforceTenantOnFilter(req, { _id: id });
+
+        // Dev-only concise log
         try {
-          if (process.env.NODE_ENV !== 'production' && (req.enforceSessionUserScope || req.enforceSessionTenantScope)) {
+          if (process.env.NODE_ENV !== 'production') {
             // eslint-disable-next-line no-console
-            console.debug('[crud.update] criteria with enforced scope:', criteria);
+            console.debug('[crud.update] criteria:', criteria);
           }
         } catch {}
         doc = await Model.findOneAndUpdate(criteria, data, { new: true }).lean();
@@ -209,17 +240,13 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       /** Delete a document by _id */
       const { id } = req.params;
       try {
-        let criteria = { _id: id };
-        if (req.auth?.tenantId) criteria.tenant_id = req.auth.tenantId;
-        if (req.forcedFilter && typeof req.forcedFilter === 'object') {
-          if (req.forcedFilter.tenant_id != null) criteria.tenant_id = String(req.forcedFilter.tenant_id);
-          if (req.forcedFilter.user_id != null) criteria.user_id = String(req.forcedFilter.user_id);
-        }
-        // Debug log criteria
+        let criteria = enforceTenantOnFilter(req, { _id: id });
+
+        // Dev-only concise log
         try {
-          if (process.env.NODE_ENV !== 'production' && (req.enforceSessionUserScope || req.enforceSessionTenantScope)) {
+          if (process.env.NODE_ENV !== 'production') {
             // eslint-disable-next-line no-console
-            console.debug('[crud.remove] criteria with enforced scope:', criteria);
+            console.debug('[crud.remove] criteria:', criteria);
           }
         } catch {}
         const doc = await Model.findOneAndDelete(criteria).lean();

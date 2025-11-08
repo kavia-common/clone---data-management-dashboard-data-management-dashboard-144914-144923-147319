@@ -25,6 +25,15 @@ async function getHierarchy(req, res) {
       }
     }
 
+    // Enforce tenant scope: always intersect with JWT tenant
+    const tenantId = req?.auth?.tenantId;
+    if (tenantId) {
+      filter.tenant_id = String(tenantId);
+    } else {
+      // no tenant -> force non-match to avoid leakage
+      filter.tenant_id = '__NO_TENANT__';
+    }
+
     // Best-effort index creation (non-blocking); ignore errors
     ensureLlmCostsIndexes().catch(() => {});
 
