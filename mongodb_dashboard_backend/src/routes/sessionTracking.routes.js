@@ -7,12 +7,13 @@ const { buildCrudController } = require('../controllers/crudFactory');
 const router = express.Router();
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant: requireTenantMw } = require('../middleware/requireTenant');
+const { sessionTrackingScope } = require('../middleware/sessionTrackingScope');
 const controller = buildCrudController(SessionTracking, '-session_start');
 
-// Enforce JWT + Tenant at router level
-router.use(verifyAuth, requireTenantMw);
+// Enforce JWT + Tenant + Session scope (tenant+user) at router level
+router.use(verifyAuth, requireTenantMw, sessionTrackingScope);
 
-// Simple list with tenant enforced by controller
+// List and CRUD with strict scoping applied downstream by controller via req.forcedFilter
 router.get('/', asyncHandler(controller.list));
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));

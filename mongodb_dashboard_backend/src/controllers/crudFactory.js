@@ -82,6 +82,15 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         filter = applyTenantFilter(filter, req.auth.tenantId);
       }
 
+      // If a route-level forcedFilter exists (e.g., sessionTrackingScope), override tenant_id/user_id
+      if (req.forcedFilter && typeof req.forcedFilter === 'object') {
+        // Never allow client to broaden tenant_id or user_id
+        const enforced = { ...filter };
+        if (req.forcedFilter.tenant_id != null) enforced.tenant_id = String(req.forcedFilter.tenant_id);
+        if (req.forcedFilter.user_id != null) enforced.user_id = String(req.forcedFilter.user_id);
+        filter = enforced;
+      }
+
       const sort = req.query.sort || listDefaultSort;
 
       try {
@@ -115,11 +124,16 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       /** Get a single document by Mongo _id */
       const { id } = req.params;
       try {
-        let query = Model.findById(id);
+        let criteria = { _id: id };
         if (req.auth?.tenantId) {
-          query = applyTenantFilter(query, req.auth.tenantId);
+          criteria = applyTenantFilter(criteria, req.auth.tenantId);
         }
-        const doc = await query.lean();
+        // If forcedFilter applies, ensure both tenant_id and user_id are enforced in lookup
+        if (req.forcedFilter && typeof req.forcedFilter === 'object') {
+          if (req.forcedFilter.tenant_id != null) criteria.tenant_id = String(req.forcedFilter.tenant_id);
+          if (req.forcedFilter.user_id != null) criteria.user_id = String(req.forcedFilter.user_id);
+        }
+        const doc = await Model.findOne(criteria).lean();
         if (!doc) return failure(res, 'Not found', 404);
         // Return raw doc
         return res.status(200).json(doc);
@@ -151,11 +165,14 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       const data = req.body || {};
       try {
         let doc;
-        if (req.auth?.tenantId) {
-          doc = await Model.findOneAndUpdate({ _id: id, tenant_id: req.auth.tenantId }, data, { new: true }).lean();
-        } else {
-          doc = await Model.findByIdAndUpdate(id, data, { new: true }).lean();
+        // Build criteria with tenant and optionally user constraint
+        let criteria = { _id: id };
+        if (req.auth?.tenantId) criteria.tenant_id = req.auth.tenantId;
+        if (req.forcedFilter && typeof req.forcedFilter === 'object') {
+          if (req.forcedFilter.tenant_id != null) criteria.tenant_id = String(req.forcedFilter.tenant_id);
+          if (req.forcedFilter.user_id != null) criteria.user_id = String(req.forcedFilter.user_id);
         }
+        doc = await Model.findOneAndUpdate(criteria, data, { new: true }).lean();
         if (!doc) return failure(res, 'Not found', 404);
         return res.status(200).json(doc);
       } catch (err) {
@@ -168,12 +185,13 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
       /** Delete a document by _id */
       const { id } = req.params;
       try {
-        let doc;
-        if (req.auth?.tenantId) {
-          doc = await Model.findOneAndDelete({ _id: id, tenant_id: req.auth.tenantId }).lean();
-        } else {
-          doc = await Model.findByIdAndDelete(id).lean();
+        let criteria = { _id: id };
+        if (req.auth?.tenantId) criteria.tenant_id = req.auth.tenantId;
+        if (req.forcedFilter && typeof req.forcedFilter === 'object') {
+          if (req.forcedFilter.tenant_id != null) criteria.tenant_id = String(req.forcedFilter.tenant_id);
+          if (req.forcedFilter.user_id != null) criteria.user_id = String(req.forcedFilter.user_id);
         }
+        const doc = await Model.findOneAndDelete(criteria).lean();
         if (!doc) return failure(res, 'Not found', 404);
         // Return minimal raw response indicating deleted id
         return res.status(200).json({ _id: id });
