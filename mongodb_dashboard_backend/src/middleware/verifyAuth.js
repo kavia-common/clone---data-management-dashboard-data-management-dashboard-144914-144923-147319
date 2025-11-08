@@ -59,6 +59,10 @@ function verifyAuth(req, res, next) {
 
     // Explicit dev token
     if (!secret && !isProd && (allowDemoFlag || token === 'ok')) {
+      try {
+        // eslint-disable-next-line no-console
+        console.warn('[auth] JWT secret not set; using demo token behavior for development.');
+      } catch {}
       req.auth = {
         sub: token === 'ok' ? 'ok-user' : 'demo-user',
         email: token === 'ok' ? 'ok@example.com' : 'demo@example.com',

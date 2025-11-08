@@ -33,10 +33,23 @@ try {
   app = express();
 }
 
-// Ensure /health route exists. If existing app already has it, adding again will just override.
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok" });
-});
+/**
+ * Health endpoints:
+ * - Prefer app's /health if already mounted; otherwise provide a minimal fallback.
+ */
+const fallbackHealth = (req, res) => res.status(200).json({ status: "ok", source: "server-fallback" });
+try {
+  // Probe if a /health handler exists by checking the stack; if not, mount fallback.
+  const hasHealth =
+    app && Array.isArray(app._router?.stack)
+      ? app._router.stack.some((l) => l?.route?.path === "/health")
+      : false;
+  if (!hasHealth) {
+    app.get("/health", fallbackHealth);
+  }
+} catch {
+  app.get("/health", fallbackHealth);
+}
 
 // Normalize PORT and HOST
 const PORT = (() => {

@@ -284,10 +284,17 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 if (process.env.NODE_ENV !== 'test') {
-  connectDB().catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error('Failed to connect to MongoDB on startup:', err.message);
-  });
+  // Connect to Mongo asynchronously; do not block server startup.
+  (async () => {
+    try {
+      // eslint-disable-next-line no-console
+      console.log('[startup] Initiating MongoDB connection (non-blocking)...');
+      await connectDB();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[startup] Failed to connect to MongoDB on startup:', err?.message || err);
+    }
+  })();
 } else {
   // eslint-disable-next-line no-console
   console.log('[startup] Skipping MongoDB connection in test environment');
