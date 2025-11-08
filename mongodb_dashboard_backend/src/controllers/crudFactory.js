@@ -82,18 +82,18 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         filter = applyTenantFilter(filter, req.auth.tenantId);
       }
 
-      // If a route-level forcedFilter exists (e.g., sessionTrackingScope), override tenant_id/user_id
+      // If a route-level forcedFilter exists (e.g., sessionTrackingScope), override tenant_id (and optionally user_id if provided).
+      // Note: Tenant-only scope policy for session-tracking sets only tenant_id.
       if (req.forcedFilter && typeof req.forcedFilter === 'object') {
-        // Never allow client to broaden tenant_id or user_id — server-side takes precedence LAST
         const enforced = { ...filter };
         if (req.forcedFilter.tenant_id != null) enforced.tenant_id = String(req.forcedFilter.tenant_id);
         if (req.forcedFilter.user_id != null) enforced.user_id = String(req.forcedFilter.user_id);
         filter = enforced;
         // Debug log the final filter for verification (non-production only)
         try {
-          if (process.env.NODE_ENV !== 'production' && req.enforceSessionUserScope) {
+          if (process.env.NODE_ENV !== 'production' && (req.enforceSessionUserScope || req.enforceSessionTenantScope)) {
             // eslint-disable-next-line no-console
-            console.debug('[crud.list] enforced filter applied (session-tracking scope):', filter);
+            console.debug('[crud.list] enforced filter applied (scoped):', filter);
           }
         } catch {}
       }
@@ -142,7 +142,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         }
         // Debug log criteria
         try {
-          if (process.env.NODE_ENV !== 'production' && req.enforceSessionUserScope) {
+          if (process.env.NODE_ENV !== 'production' && (req.enforceSessionUserScope || req.enforceSessionTenantScope)) {
             // eslint-disable-next-line no-console
             console.debug('[crud.getById] criteria with enforced scope:', criteria);
           }
@@ -188,7 +188,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         }
         // Debug log criteria
         try {
-          if (process.env.NODE_ENV !== 'production' && req.enforceSessionUserScope) {
+          if (process.env.NODE_ENV !== 'production' && (req.enforceSessionUserScope || req.enforceSessionTenantScope)) {
             // eslint-disable-next-line no-console
             console.debug('[crud.update] criteria with enforced scope:', criteria);
           }
@@ -214,7 +214,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         }
         // Debug log criteria
         try {
-          if (process.env.NODE_ENV !== 'production' && req.enforceSessionUserScope) {
+          if (process.env.NODE_ENV !== 'production' && (req.enforceSessionUserScope || req.enforceSessionTenantScope)) {
             // eslint-disable-next-line no-console
             console.debug('[crud.remove] criteria with enforced scope:', criteria);
           }
