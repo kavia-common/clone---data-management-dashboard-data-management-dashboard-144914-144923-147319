@@ -45,7 +45,10 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'test'; // Optional; if not set, Mongo will use the URI/path default
+  // Allow overriding database name via environment; otherwise let Mongo use URI's default.
+  const dbName = process.env.MONGODB_DB && String(process.env.MONGODB_DB).trim() !== ''
+    ? String(process.env.MONGODB_DB).trim()
+    : undefined; // use undefined to avoid forcing 'test' implicitly
 
   const options = {
     autoIndex,
