@@ -89,6 +89,13 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         if (req.forcedFilter.tenant_id != null) enforced.tenant_id = String(req.forcedFilter.tenant_id);
         if (req.forcedFilter.user_id != null) enforced.user_id = String(req.forcedFilter.user_id);
         filter = enforced;
+        // Debug log the final filter for verification (non-production only)
+        try {
+          if (process.env.NODE_ENV !== 'production' && req.enforceSessionUserScope) {
+            // eslint-disable-next-line no-console
+            console.debug('[crud.list] enforced filter applied (session-tracking scope):', filter);
+          }
+        } catch {}
       }
 
       const sort = req.query.sort || listDefaultSort;
@@ -133,6 +140,13 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
           if (req.forcedFilter.tenant_id != null) criteria.tenant_id = String(req.forcedFilter.tenant_id);
           if (req.forcedFilter.user_id != null) criteria.user_id = String(req.forcedFilter.user_id);
         }
+        // Debug log criteria
+        try {
+          if (process.env.NODE_ENV !== 'production' && req.enforceSessionUserScope) {
+            // eslint-disable-next-line no-console
+            console.debug('[crud.getById] criteria with enforced scope:', criteria);
+          }
+        } catch {}
         const doc = await Model.findOne(criteria).lean();
         if (!doc) return failure(res, 'Not found', 404);
         // Return raw doc
@@ -172,6 +186,13 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
           if (req.forcedFilter.tenant_id != null) criteria.tenant_id = String(req.forcedFilter.tenant_id);
           if (req.forcedFilter.user_id != null) criteria.user_id = String(req.forcedFilter.user_id);
         }
+        // Debug log criteria
+        try {
+          if (process.env.NODE_ENV !== 'production' && req.enforceSessionUserScope) {
+            // eslint-disable-next-line no-console
+            console.debug('[crud.update] criteria with enforced scope:', criteria);
+          }
+        } catch {}
         doc = await Model.findOneAndUpdate(criteria, data, { new: true }).lean();
         if (!doc) return failure(res, 'Not found', 404);
         return res.status(200).json(doc);
@@ -191,6 +212,13 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
           if (req.forcedFilter.tenant_id != null) criteria.tenant_id = String(req.forcedFilter.tenant_id);
           if (req.forcedFilter.user_id != null) criteria.user_id = String(req.forcedFilter.user_id);
         }
+        // Debug log criteria
+        try {
+          if (process.env.NODE_ENV !== 'production' && req.enforceSessionUserScope) {
+            // eslint-disable-next-line no-console
+            console.debug('[crud.remove] criteria with enforced scope:', criteria);
+          }
+        } catch {}
         const doc = await Model.findOneAndDelete(criteria).lean();
         if (!doc) return failure(res, 'Not found', 404);
         // Return minimal raw response indicating deleted id

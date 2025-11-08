@@ -226,7 +226,15 @@ const devHeadersLogger = (req, res, next) => {
 };
 app.use(devHeadersLogger);
 
-// Provide both kebab and camelCase aliases for session tracking and deployments
+/**
+ * Session tracking routes (strict user+tenant scope is applied inside router via middleware)
+ * Add a startup confirmation log to ensure scoping is active.
+ */
+try {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Mounting /api/session-tracking routes with strict tenant+user scoping middleware active');
+} catch {}
+// Provide both kebab and camelCase aliases for session tracking
 app.use('/api/session-tracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
 app.use('/api/sessionTracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
 

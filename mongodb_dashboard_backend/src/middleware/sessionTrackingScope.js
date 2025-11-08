@@ -46,6 +46,14 @@ function sessionTrackingScope(req, res, next) {
   // Stamp for any consumers
   req.enforceSessionUserScope = true;
 
+  // Debug log of applied forced filter (non-production only)
+  try {
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.debug(`[session-tracking.scope] ${req.method} ${req.originalUrl} enforced filter:`, req.forcedFilter);
+    }
+  } catch {}
+
   // Do not mutate incoming query/body here beyond attaching forced filter;
   // the controller will merge and override tenant_id/user_id to these values.
   return next();
