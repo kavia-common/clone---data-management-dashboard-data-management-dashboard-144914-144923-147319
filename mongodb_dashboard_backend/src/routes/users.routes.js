@@ -430,37 +430,46 @@ router.get(
     }
 
     // Enforce organization scope for users collection.
-    // Remove any client-provided org hints and apply a strict scope that matches either tenant_id or organization_id,
-    // since datasets may use either field naming convention.
+    // Remove any client-provided org hints and strip any $or attempting to bypass scoping.
     if (filter && typeof filter === 'object') {
       delete filter.organization_id;
       delete filter.tenant_id;
+      if (Array.isArray(filter.$or)) {
+        delete filter.$or;
+      }
     }
-    const orgScope = {
+
+    // Build enforced org scope: either organization_id or tenant_id must equal req.organizationId
+    const enforcedOrgScope = {
       $or: [
-        { tenant_id: req.organizationId },
         { organization_id: req.organizationId },
+        { tenant_id: req.organizationId },
       ],
     };
-    filter = { ...filter, ...orgScope };
 
-    // First pass: check data presence without sending a response
+    // Merge user filter with enforced org scope using $and to prevent overrides
+    const finalFilter = Object.keys(filter).length > 0 ? { $and: [filter, enforcedOrgScope] } : enforcedOrgScope;
+
+    // Temporary debug: expose the final filter when debug=true
+    if (String(req.query.debug || 'false') === 'true') {
+      res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort, page, limit, skip }));
+    }
+
+    // Execute scoped query
     let items = [];
     let total = 0;
 
     try {
       if (explicit) {
-        // For pagination, we still need to detect emptiness using the paginated query
         [items, total] = await Promise.all([
-          User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-          User.countDocuments(filter),
+          User.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
+          User.countDocuments(finalFilter),
         ]);
       } else {
-        items = await User.find(filter).sort(sort).lean();
+        items = await User.find(finalFilter).sort(sort).lean();
         total = items.length;
       }
     } catch (err) {
-      // Map common cast errors to 400 to avoid 500
       const message = err?.message || 'Request failed';
       if (err?.name === 'CastError' || /Cast to/.test(message)) {
         return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
@@ -468,11 +477,11 @@ router.get(
       return res.status(400).json({ success: false, message: 'Request failed', details: message });
     }
 
-    // If empty and no documents exist at all, seed and re-run once
+    // If empty and collection itself is empty, optionally seed scoped demo users then re-run once
     if (total === 0) {
       try {
-        const before = await User.countDocuments({});
-        if (before === 0) {
+        const beforeAll = await User.countDocuments({});
+        if (beforeAll === 0) {
           const now = new Date();
           const demoUsers = [
             {
@@ -499,29 +508,27 @@ router.get(
           ];
           await User.insertMany(demoUsers);
         }
-        // Re-run list after seeding
+        // Re-run list after potential seed
         if (explicit) {
           [items, total] = await Promise.all([
-            User.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-            User.countDocuments(filter),
+            User.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
+            User.countDocuments(finalFilter),
           ]);
         } else {
-          items = await User.find(filter).sort(sort).lean();
+          items = await User.find(finalFilter).sort(sort).lean();
           total = items.length;
         }
       } catch (err) {
-        // Seeding failure should not 500; return an empty array/envelope gracefully
-        // and log for diagnostics
         // eslint-disable-next-line no-console
         console.error('Auto-seed on empty /api/users failed:', err?.message || err);
       }
     }
 
-    // Final response (single send): match controller behavior and Swagger
+    // Final response
     if (explicit) {
       const meta = { page, limit, total };
       if (String(req.query.debug || 'false') === 'true') {
-        meta.debug = { finalFilter: filter, sort, skip, limit };
+        meta.debug = { finalFilter: finalFilter, sort, skip, limit };
       }
       return res.status(200).json({
         success: true,
@@ -529,9 +536,7 @@ router.get(
         meta,
       });
     }
-    if (String(req.query.debug || 'false') === 'true') {
-      res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter, sort }));
-    }
+
     return res.status(200).json(items);
   })
 );

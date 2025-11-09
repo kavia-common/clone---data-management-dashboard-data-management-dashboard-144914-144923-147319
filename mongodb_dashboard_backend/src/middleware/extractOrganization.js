@@ -12,6 +12,8 @@
  * Exposes:
  *  - req.organizationId: string
  *  - req.tenantId: string (alias to organizationId for consistency with existing code)
+ * Notes:
+ *  - Downstream routes must enforce scoping using req.organizationId. Any client-provided organization_id/tenant_id must be ignored in filters.
  */
 function extractOrganization() {
   return function (req, res, next) {
