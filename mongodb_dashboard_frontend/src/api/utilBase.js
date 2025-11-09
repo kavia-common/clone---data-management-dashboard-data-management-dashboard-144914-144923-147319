@@ -1,10 +1,11 @@
+import { getApiBaseUrl } from "./util";
+
+/**
+ * PUBLIC_INTERFACE (Deprecated)
+ * getApiBase
+ * Deprecated shim to preserve older imports. Delegates to getApiBaseUrl().
+ * Returns a base that includes '/api' suffix.
+ */
 export function getApiBase() {
-  const env = process.env.REACT_APP_API_BASE;
-  if (env && env.trim()) return env;
-  try {
-    const url = new URL(window.location.href);
-    return `${url.protocol}//${url.hostname}:3001`;
-  } catch {
-    return 'http://localhost:3001';
-  }
+  return getApiBaseUrl();
 }

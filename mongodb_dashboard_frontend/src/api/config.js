@@ -1,15 +1,20 @@
-const apiBase =
-  
-  `$https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
+/**
+ * Central API config that resolves the backend base URL.
+ * Delegates to util.getApiBaseUrl() for consistent env-based resolution.
+ */
+import { getApiBaseUrl } from "./util";
 
 /**
  * PUBLIC_INTERFACE
  * getApiBase
- * Returns the base URL for backend API requests, preferring REACT_APP_API_BASE_URL
- * and falling back to current host with port 3001.
+ * Returns the base URL for backend API requests.
+ * Priority:
+ * - REACT_APP_API_BASE_URL or REACT_APP_API_URL (build-time env)
+ * - In development: '/api' so CRA setupProxy can forward to backend
+ * - Fallback to http://localhost:3001/api if window is not available
  */
 export function getApiBase() {
-  return apiBase;
+  return getApiBaseUrl();
 }
 
 export default { getApiBase };
