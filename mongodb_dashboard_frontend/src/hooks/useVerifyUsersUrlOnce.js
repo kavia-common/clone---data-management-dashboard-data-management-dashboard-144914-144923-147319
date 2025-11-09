@@ -5,7 +5,7 @@ import { quickUsersResolutionSmoke } from "../api/verifyUsersRoute";
  * PUBLIC_INTERFACE
  * useVerifyUsersUrlOnce
  * React hook: in development, logs a one-time verification that /api/users resolves
- * to .../api/users?tenant_id=T0015 using the shared client conventions.
+ * to .../api/users?organization_id=T0015 using the shared client conventions.
  * No network calls. Safe in production (no-op).
  */
 export function useVerifyUsersUrlOnce() {

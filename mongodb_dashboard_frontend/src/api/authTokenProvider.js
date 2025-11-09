@@ -1,11 +1,12 @@
-//
-// Centralized Auth and Tenant token provider for client requests.
-// Responsible for reading/writing the JWT and tenant_id from storage,
-// and exposing helpers for API clients to attach headers consistently.
-//
+/*
+ Centralized Auth and Organization token provider for client requests.
+ Responsible for reading/writing the JWT and organization_id from storage,
+ and exposing helpers for API clients to attach headers consistently.
+*/
 
 const AUTH_STORAGE_KEY = 'auth';
-const ACTIVE_TENANT_KEY = 'activeTenant';
+const ACTIVE_ORG_KEY = 'activeOrganization';
+const ACTIVE_TENANT_KEY = 'activeTenant'; // legacy alias kept for backward compatibility
 
 // PUBLIC_INTERFACE
 export function getToken() {
@@ -21,54 +22,83 @@ export function getToken() {
   }
 }
 
-// PUBLIC_INTERFACE
-export function getTenantId() {
-  /** Returns the active tenant id (from localStorage activeTenant). */
+/**
+ * PUBLIC_INTERFACE
+ * getOrganizationId
+ * Returns the active organization_id from localStorage.
+ * Prefers ACTIVE_ORG_KEY; falls back to legacy ACTIVE_TENANT_KEY.
+ */
+export function getOrganizationId() {
   try {
-    const tid = localStorage.getItem(ACTIVE_TENANT_KEY);
-    return tid || null;
+    const oid = localStorage.getItem(ACTIVE_ORG_KEY);
+    if (oid) return oid;
+    const legacy = localStorage.getItem(ACTIVE_TENANT_KEY);
+    return legacy || null;
   } catch {
     return null;
   }
 }
 
 // PUBLIC_INTERFACE
-export function setFromLoginResponse({ token, tenant_id }) {
-  /**
-   * Sets auth token and optionally tenant_id from the login response.
-   * - token is required for logged-in state
-   * - tenant_id, if present, will be mirrored into activeTenant
-   */
+export function getTenantId() {
+  /** Legacy helper: returns organization_id using previous name. */
+  return getOrganizationId();
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * setFromLoginResponse
+ * Sets auth token and optionally organization_id from the login response.
+ * - token is required for logged-in state
+ * - organization_id, if present, will be mirrored into activeOrganization (and legacy activeTenant for compat)
+ */
+export function setFromLoginResponse({ token, organization_id, tenant_id } = {}) {
   try {
     if (token) {
       const data = { loggedIn: true, token };
       localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
     } else {
-      // Minimal loggedIn state for cookie-based flows
       localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ loggedIn: true }));
     }
   } catch {
     // ignore storage errors
   }
 
-  if (tenant_id) {
+  const org = organization_id || tenant_id || null;
+  if (org) {
     try {
-      localStorage.setItem(ACTIVE_TENANT_KEY, String(tenant_id));
+      localStorage.setItem(ACTIVE_ORG_KEY, String(org));
+      // keep legacy mirror for any scattered reads
+      localStorage.setItem(ACTIVE_TENANT_KEY, String(org));
     } catch {
       // ignore
     }
   }
 }
 
-// PUBLIC_INTERFACE
-export function setActiveTenantId(tenantId) {
-  /** Persist active tenant id to localStorage and keep it consistent. */
+/**
+ * PUBLIC_INTERFACE
+ * setActiveOrganizationId
+ * Persist active organization id to localStorage and keep legacy key in sync.
+ */
+export function setActiveOrganizationId(organizationId) {
   try {
-    if (tenantId) localStorage.setItem(ACTIVE_TENANT_KEY, String(tenantId));
-    else localStorage.removeItem(ACTIVE_TENANT_KEY);
+    if (organizationId) {
+      localStorage.setItem(ACTIVE_ORG_KEY, String(organizationId));
+      localStorage.setItem(ACTIVE_TENANT_KEY, String(organizationId)); // legacy mirror
+    } else {
+      localStorage.removeItem(ACTIVE_ORG_KEY);
+      localStorage.removeItem(ACTIVE_TENANT_KEY);
+    }
   } catch {
     // ignore
   }
+}
+
+// PUBLIC_INTERFACE
+export function setActiveTenantId(tenantId) {
+  /** Legacy alias mapping to organization setter. */
+  return setActiveOrganizationId(tenantId);
 }
 
 // PUBLIC_INTERFACE

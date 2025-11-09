@@ -1,21 +1,21 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { getStoredAuth, isAuthenticated as isAuthed, saveAuthSession, clearAuthSession } from '../config/auth';
-import { getTenantId as getActiveTenant, setActiveTenantId as setActiveTenant, setFromLoginResponse } from '../api/authTokenProvider';
+import { getOrganizationId as getActiveOrganization, setActiveOrganizationId as setActiveOrganization, setFromLoginResponse } from '../api/authTokenProvider';
 
 const AuthContext = createContext({
   isAuthenticated: false,
   token: null,
-  tenantId: null,
+  organizationId: null,
   login: (payload) => {},
   logout: () => {},
-  setTenantId: (tenantId) => {},
+  setOrganizationId: (organizationId) => {},
 });
 
 // PUBLIC_INTERFACE
 export function AuthProvider({ children }) {
   /** Context provider to expose authentication+tenant state based on localStorage. */
   const [auth, setAuth] = useState(() => getStoredAuth());
-  const [tenantId, setTenantIdState] = useState(() => getActiveTenant());
+  const [organizationId, setOrganizationIdState] = useState(() => getActiveOrganization());
 
   useEffect(() => {
     // Sync with localStorage changes (e.g., other tabs)
@@ -27,8 +27,8 @@ export function AuthProvider({ children }) {
           setAuth(null);
         }
       }
-      if (e.key === 'activeTenant') {
-        setTenantIdState(e.newValue || null);
+      if (e.key === 'activeOrganization' || e.key === 'activeTenant') {
+        setOrganizationIdState(e.newValue || null);
       }
     }
     window.addEventListener('storage', onStorage);
@@ -39,34 +39,41 @@ export function AuthProvider({ children }) {
     return {
       isAuthenticated: isAuthed(),
       token: auth?.token || null,
-      tenantId: tenantId || getActiveTenant(),
-      // login now accepts either token string or { token, tenant_id }
+      // expose both organizationId and legacy tenantId for consumers
+      organizationId: organizationId || getActiveOrganization(),
+      tenantId: organizationId || getActiveOrganization(),
+      // login now accepts either token string or { token, organization_id, tenant_id }
       login: (loginPayload) => {
         if (loginPayload && typeof loginPayload === 'object') {
-          const { token, tenant_id } = loginPayload;
-          setFromLoginResponse({ token: token || null, tenant_id: tenant_id || null });
+          const { token, organization_id, tenant_id } = loginPayload;
+          setFromLoginResponse({ token: token || null, organization_id: organization_id || tenant_id || null });
           // keep config/auth in sync for backwards compat
           saveAuthSession(token || null);
-          if (tenant_id) setActiveTenant(tenant_id);
+          if (organization_id || tenant_id) setActiveOrganization(organization_id || tenant_id);
         } else {
           const token = loginPayload || null;
-          setFromLoginResponse({ token, tenant_id: null });
+          setFromLoginResponse({ token, organization_id: null });
           saveAuthSession(token);
         }
         setAuth(getStoredAuth());
-        setTenantIdState(getActiveTenant());
+        setOrganizationIdState(getActiveOrganization());
       },
       logout: () => {
         clearAuthSession();
         setAuth(null);
-        // don't clear tenant automatically; it may be session-scoped via backend cookie
+        // don't clear organization automatically; it may be session-scoped via backend cookie
       },
+      setOrganizationId: (oid) => {
+        setActiveOrganization(oid || null);
+        setOrganizationIdState(oid || null);
+      },
+      // legacy setter alias
       setTenantId: (tid) => {
-        setActiveTenant(tid || null);
-        setTenantIdState(tid || null);
+        setActiveOrganization(tid || null);
+        setOrganizationIdState(tid || null);
       },
     };
-  }, [auth, tenantId]);
+  }, [auth, organizationId]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

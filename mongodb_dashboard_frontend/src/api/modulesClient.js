@@ -1,6 +1,6 @@
 import { getApiBaseUrl } from './util';
 import { getApiBase } from './utilBase';
-import { buildAuthHeaders, getTenantId } from './authTokenProvider';
+import { buildAuthHeaders, getOrganizationId } from './authTokenProvider';
 
 /**
  * Resolve a reliable API base URL.
@@ -22,15 +22,15 @@ function resolveBase() {
 }
 
 async function fetchJson(url, { credentials = 'omit' } = {}) {
-  const tid = getTenantId();
-  // Authorization only; tenant is appended as query param by this utility
+  const orgId = getOrganizationId();
+  // Authorization only; organization is appended as query param by this utility
   const headers = buildAuthHeaders({ Accept: 'application/json' });
 
-  // If endpoint expects tenant in query param, append when not present
+  // If endpoint expects organization in query param, append when not present
   let effUrl = url;
-  if (tid && !/[?&]tenant_id=/.test(url)) {
+  if (orgId && !/[?&]organization_id=/.test(url)) {
     const sep = url.includes('?') ? '&' : '?';
-    effUrl = `${url}${sep}tenant_id=${encodeURIComponent(tid)}`;
+    effUrl = `${url}${sep}organization_id=${encodeURIComponent(orgId)}`;
   }
 
   const res = await fetch(effUrl, {

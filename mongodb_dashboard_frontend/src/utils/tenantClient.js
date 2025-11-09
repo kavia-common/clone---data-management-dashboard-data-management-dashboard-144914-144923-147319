@@ -181,5 +181,11 @@ export async function selectTenant(tenantId, reason = 'user-selection') {
 
   // Mirror client-side state for UI hints
   setActiveTenant(tenantId);
+  try {
+    // Keep new organization storage key in sync for unified reads
+    window.localStorage.setItem('activeOrganization', String(tenantId));
+  } catch {
+    // ignore
+  }
   return payload;
 }

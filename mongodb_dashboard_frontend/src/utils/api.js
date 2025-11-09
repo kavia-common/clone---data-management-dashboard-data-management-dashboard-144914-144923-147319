@@ -1,4 +1,4 @@
-import { buildAuthHeaders, getTenantId } from '../api/authTokenProvider';
+import { buildAuthHeaders, getOrganizationId } from '../api/authTokenProvider';
 
 /**
  * PUBLIC_INTERFACE
@@ -32,12 +32,12 @@ export async function apiGet(url, options = {}) {
     ...(options.headers || {}),
   });
 
-  // Append tenant_id query if not present (some endpoints require query param)
+  // Append organization_id query if not present (some endpoints require query param)
   let effUrl = finalUrl;
-  const tid = getTenantId();
-  if (tid && !/[?&]tenant_id=/.test(finalUrl)) {
+  const orgId = getOrganizationId();
+  if (orgId && !/[?&]organization_id=/.test(finalUrl)) {
     const sep = finalUrl.includes('?') ? '&' : '?';
-    effUrl = `${finalUrl}${sep}tenant_id=${encodeURIComponent(tid)}`;
+    effUrl = `${finalUrl}${sep}organization_id=${encodeURIComponent(orgId)}`;
   }
 
   const res = await fetch(effUrl, {

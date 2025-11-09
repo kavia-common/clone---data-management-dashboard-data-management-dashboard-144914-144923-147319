@@ -1,5 +1,5 @@
 import { getApiBase } from "./config";
-import { buildAuthHeaders, getTenantId } from "./authTokenProvider";
+import { buildAuthHeaders, getOrganizationId } from "./authTokenProvider";
 
 /**
  * Internal helper: detect absolute URLs.
@@ -54,17 +54,17 @@ function toQuery(params = {}) {
 }
 
 /**
- * Ensure tenant scoping on query params by appending tenant_id when not present.
- * We no longer use tenant headers; tenant must be carried via query parameter.
+ * Ensure organization scoping on query params by appending organization_id when not present.
+ * We no longer use tenant headers; organization must be carried via query parameter.
  */
-function ensureTenantQueryParams(pathOrUrl, params = {}) {
-  const existingHasTenant =
-    "tenant_id" in (params || {}) ||
-    (typeof pathOrUrl === "string" && /([?&])tenant_id=/.test(pathOrUrl));
-  if (existingHasTenant) return params;
-  const tenantId = getTenantId();
-  if (!tenantId) return params;
-  return { ...params, tenant_id: tenantId };
+function ensureOrgQueryParams(pathOrUrl, params = {}) {
+  const existingHasOrg =
+    "organization_id" in (params || {}) ||
+    (typeof pathOrUrl === "string" && /([?&])organization_id=/.test(pathOrUrl));
+  if (existingHasOrg) return params;
+  const orgId = getOrganizationId();
+  if (!orgId) return params;
+  return { ...params, organization_id: orgId };
 }
 
 /**
@@ -85,7 +85,7 @@ async function parseResponse(res) {
  * Axios-like "get" returning { data }.
  */
 async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
-  const effParams = ensureTenantQueryParams(pathOrUrl, params);
+  const effParams = ensureOrgQueryParams(pathOrUrl, params);
   const url = buildUrl(`${pathOrUrl}${toQuery(effParams)}`);
   const res = await fetch(url, {
     method: "GET",
@@ -110,8 +110,8 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
 }
 
 async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {}) {
-  // Append tenant_id to query if not already present
-  const effParams = ensureTenantQueryParams(pathOrUrl, params);
+  // Append organization_id to query if not already present
+  const effParams = ensureOrgQueryParams(pathOrUrl, params);
   const urlWithParams =
     typeof pathOrUrl === "string" && (effParams && Object.keys(effParams).length > 0)
       ? `${pathOrUrl}${toQuery(effParams)}`

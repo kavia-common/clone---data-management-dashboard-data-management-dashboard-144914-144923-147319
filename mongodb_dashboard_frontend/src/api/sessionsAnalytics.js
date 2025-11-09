@@ -43,6 +43,7 @@ export async function getDurationHistogram({
   binSizeMinutes = 10,
   // Backwards-compat alternative keys the UI might pass:
   tenant_id,
+  organization_id,
   user_id,
   from,
   to,
@@ -71,7 +72,7 @@ export async function getDurationHistogram({
   };
 
   // Normalize potential alternate inputs from UI
-  const effTenant = tenantId ?? tenant_id;
+  const effOrg = organization_id ?? tenantId ?? tenant_id;
   const effUser = (scope === 'user' ? (userId ?? user_id) : undefined);
   const effStart = toIso(startDate) || (from ? toIso(from) : undefined) || defaultStart;
   const effEnd = toIso(endDate) || (to ? toIso(to) : undefined) || defaultEnd;
@@ -79,7 +80,7 @@ export async function getDurationHistogram({
 
   const params = {
     scope,
-    tenant_id: effTenant, // follow snake_case commonly used in backend params
+    organization_id: effOrg,
     user_id: effUser,
     start: effStart,
     end: effEnd,

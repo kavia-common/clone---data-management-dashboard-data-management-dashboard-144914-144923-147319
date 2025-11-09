@@ -4,7 +4,7 @@ import { getApiClient } from "./index";
  * PUBLIC_INTERFACE
  * getUserProjects
  * Fetches a user's projects from session tracking using the backend endpoint:
- * GET /api/users/:userId/projects?tenant_id={tenantId}&from={fromISO?}&to={toISO?}
+ * GET /api/users/:userId/projects?organization_id={organizationId}&from={fromISO?}&to={toISO?}
  *
  * @param {string} userId - The user identifier.
  * @param {{ tenantId: string, from?: string|Date|null, to?: string|Date|null }} params - Query parameters.
@@ -15,11 +15,12 @@ export async function getUserProjects(userId, params = {}) {
   if (!userId) {
     throw new Error("userId is required");
   }
-  const { tenantId, from, to } = params || {};
-  // tenantId is optional now since the shared client appends tenant_id automatically,
+  const { tenantId, organizationId, from, to } = params || {};
+  // organizationId is optional now since the shared client appends organization_id automatically,
   // but if provided we still include it explicitly to override.
   const query = {};
-  if (tenantId) query.tenant_id = tenantId;
+  const effOrg = organizationId || tenantId;
+  if (effOrg) query.organization_id = effOrg;
   // Normalize from/to to ISO if Date provided
   if (from) {
     try {
@@ -42,7 +43,7 @@ export async function getUserProjects(userId, params = {}) {
     console.debug("[UsersAPI] GET /users/:id/projects", { userId, query });
   }
   const res = await api.get(`/users/${encodeURIComponent(userId)}/projects`, { params: query });
-  // Response shape: { user_id, tenant_id, projects: [{ project_id, project_name?, last_activity? }]}
+  // Response shape: { user_id, organization_id?, tenant_id?, projects: [{ project_id, project_name?, last_activity? }]}
   return res.data?.data ?? res.data;
 }
 
