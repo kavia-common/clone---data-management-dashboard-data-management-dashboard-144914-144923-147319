@@ -36,6 +36,7 @@ function buildUrl(pathOrUrl) {
 
 /**
  * Internal helper: build query string from params.
+ * Merges existing querystring in a safe way if caller passes a URL containing ? already.
  */
 function toQuery(params = {}) {
   const usp = new URLSearchParams();
@@ -54,60 +55,106 @@ function toQuery(params = {}) {
 }
 
 /**
+ * Determine if the requested path is the session-tracking collection root.
+ */
+function isSessionTrackingRoot(pathOrUrl) {
+  return (
+    typeof pathOrUrl === "string" &&
+    /\/api\/session-tracking(?:$|[?&#/])/.test(pathOrUrl) &&
+    !/\/api\/session-tracking\/[A-Za-z0-9_-]/.test(pathOrUrl)
+  );
+}
+
+/**
  * For endpoint-specific rules, sanitize query params before building the request.
- * Current rule: for "/api/users" GET, allow only { organization_id }.
+ * - For "/api/users" GET: allow only { organization_id }.
+ * - For "/api/session-tracking" root: strip organization_id, allow tenant_id only (appended later).
  */
 function sanitizeEndpointParams(pathOrUrl, params = {}) {
   const path = String(pathOrUrl || "");
-  // Normalize detection for /api/users (no sub-paths)
   const isUsersRoot =
     /\/api\/users(?:$|\?)/.test(path) && !/\/api\/users\/[A-Za-z0-9_-]/.test(path);
+
   if (isUsersRoot) {
-    // Keep only organization_id. Strip 'limit' and any other extraneous params.
     const out = {};
     if (params && typeof params === "object" && "organization_id" in params) {
       out.organization_id = params.organization_id;
     }
     return out;
   }
+
+  if (isSessionTrackingRoot(pathOrUrl)) {
+    // Remove any organization_id remnants; keep others like page, limit, q, sort, filter.
+    const { organization_id, ...rest } = params || {};
+    return rest || {};
+  }
+
   return params || {};
 }
 
 /**
- * Ensure organization scoping on query params by appending organization_id when not present.
- * We no longer use tenant headers; organization must be carried via query parameter.
+ * Ensure query scoping parameters.
+ * - For users endpoints: append organization_id (and only that for certain paths).
+ * - For session-tracking root: append tenant_id instead of organization_id.
+ * - Default: append organization_id if missing.
  */
-function ensureOrgQueryParams(pathOrUrl, params = {}) {
-  // Special-case: /api/users/tenant-summary must only include organization_id (no extra params)
+function ensureScopedQueryParams(pathOrUrl, params = {}) {
   const isTenantSummary =
     typeof pathOrUrl === "string" &&
     /\/api\/users\/tenant-summary(?:$|[?&#/])/.test(pathOrUrl);
 
-  // Special-case: /api/users root must include ONLY organization_id.
   const isUsersRoot =
     typeof pathOrUrl === "string" &&
     /\/api\/users(?:$|[?&#/])/.test(pathOrUrl) &&
     !/\/api\/users\/[A-Za-z0-9_-]/.test(pathOrUrl);
 
   const orgId = getOrganizationId();
-  const baseParams = {};
 
-  if (orgId) {
-    baseParams.organization_id = orgId;
+  if (isSessionTrackingRoot(pathOrUrl)) {
+    // For session tracking, enforce tenant_id in query. We use stored organization id as tenant_id value.
+    const existingHasTenant =
+      "tenant_id" in (params || {}) ||
+      (typeof pathOrUrl === "string" && /([?&])tenant_id=/.test(pathOrUrl));
+    if (existingHasTenant) return params || {};
+    if (!orgId) return params || {};
+    return { ...(params || {}), tenant_id: orgId };
   }
+
+  const baseParams = {};
+  if (orgId) baseParams.organization_id = orgId;
 
   if (isTenantSummary || isUsersRoot) {
-    // Enforce strict query: only organization_id is allowed
-    return baseParams;
+    return baseParams; // strictly only organization_id
   }
 
-  // Default behavior: preserve provided params and append organization_id if missing
   const existingHasOrg =
     "organization_id" in (params || {}) ||
     (typeof pathOrUrl === "string" && /([?&])organization_id=/.test(pathOrUrl));
   if (existingHasOrg) return params || {};
   if (!orgId) return params || {};
   return { ...(params || {}), ...baseParams };
+}
+
+/**
+ * Merge a possibly pre-queried pathOrUrl with an extra params object safely.
+ */
+function buildUrlWithParams(pathOrUrl, effParams) {
+  if (!effParams || Object.keys(effParams).length === 0) {
+    return buildUrl(pathOrUrl);
+  }
+  // If pathOrUrl already has its own query, merge them
+  if (typeof pathOrUrl === "string" && pathOrUrl.includes("?")) {
+    const [base, existingQs] = pathOrUrl.split("?");
+    const usp = new URLSearchParams(existingQs);
+    Object.entries(effParams).forEach(([k, v]) => {
+      if (v === undefined || v === null || v === "") return;
+      // Overwrite existing key to ensure scoping param wins
+      usp.set(k, String(v));
+    });
+    return buildUrl(`${base}?${usp.toString()}`);
+  }
+  // Normal path
+  return buildUrl(`${pathOrUrl}${toQuery(effParams)}`);
 }
 
 /**
@@ -130,9 +177,9 @@ async function parseResponse(res) {
 async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
   const effParams = sanitizeEndpointParams(
     pathOrUrl,
-    ensureOrgQueryParams(pathOrUrl, params)
+    ensureScopedQueryParams(pathOrUrl, params)
   );
-  const url = buildUrl(`${pathOrUrl}${toQuery(effParams)}`);
+  const url = buildUrlWithParams(pathOrUrl, effParams);
   const res = await fetch(url, {
     method: "GET",
     headers: buildAuthHeaders({
@@ -156,16 +203,12 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
 }
 
 async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {}) {
-  // Append organization_id to query if not already present and sanitize per-endpoint
+  // Append scoped params depending on endpoint and sanitize per-endpoint
   const effParams = sanitizeEndpointParams(
     pathOrUrl,
-    ensureOrgQueryParams(pathOrUrl, params)
+    ensureScopedQueryParams(pathOrUrl, params)
   );
-  const urlWithParams =
-    typeof pathOrUrl === "string" && (effParams && Object.keys(effParams).length > 0)
-      ? `${pathOrUrl}${toQuery(effParams)}`
-      : pathOrUrl;
-  const url = buildUrl(urlWithParams);
+  const url = buildUrlWithParams(pathOrUrl, effParams);
   const res = await fetch(url, {
     method,
     headers: buildAuthHeaders({
@@ -232,7 +275,9 @@ export async function listUsers(params = {}) {
 
 // PUBLIC_INTERFACE
 export async function listSessions(params = {}) {
-  /** Lists session tracking records normalized to { items, total, meta }. */
+  /** Lists session tracking records normalized to { items, total, meta }.
+   * Tenant scoping is enforced via tenant_id in the query.
+   */
   const res = await httpGet("/api/session-tracking", { params });
   return normalizeListPayload(res.data);
 }

@@ -207,7 +207,7 @@ export default function Sessions() {
       try {
         const keys = Object.keys(row || {});
         // eslint-disable-next-line no-console
-        console.debug("[Sessions] Row clicked -> opening details modal with keys:", keys);
+        console.debug("[Sessions] Row clicked (tenant_id scoped) -> opening details modal with keys:", keys);
       } catch {
         // ignore logging errors
       }

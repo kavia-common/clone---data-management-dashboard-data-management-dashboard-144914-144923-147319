@@ -259,6 +259,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         console.log('[SessionDetailsModal:debug]', {
           user_id: userIdRef,
           last_updated: lastUpdatedAt,
+          scope: 'tenant_id',
         });
       } catch {
         // ignore logging errors
