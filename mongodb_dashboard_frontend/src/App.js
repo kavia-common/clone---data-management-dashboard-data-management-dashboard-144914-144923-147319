@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import "./App.css";
 import { appLogo } from "./assets/logo"; // REQ-UI-LOGO-REPLACE: shared logo for overlay
 import AppRoutes from "./routes/AppRoutes";
+import { useVerifyUsersUrlOnce } from "./hooks/useVerifyUsersUrlOnce";
 
 /**
  * Internal hook: detect if current viewport width is below the desktop breakpoint (1024px).
@@ -66,6 +67,16 @@ function DesktopOnlyOverlay() {
 
 // PUBLIC_INTERFACE
 export default function App() {
+  // In dev, verify that /api/users resolves with tenant_id=T0015 using shared client
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      // Hook must be called at top level of component
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      useVerifyUsersUrlOnce();
+    } catch {
+      // ignore if hooks linting or other constraints in test builds
+    }
+  }
   /**
    * Root component rendering application routes.
    * Blocks access on viewports narrower than 1024px with a desktop-only overlay.

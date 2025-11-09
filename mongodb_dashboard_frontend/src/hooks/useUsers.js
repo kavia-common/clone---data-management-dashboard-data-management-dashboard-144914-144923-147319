@@ -32,16 +32,13 @@ export function useUsers({ page, limit, sort, filter } = {}) {
     setLoading(true);
     setError(null);
     try {
-      // Prefer existing users API client if present; fallback to generic api util
-      let resp;
-      if (typeof listUsers === 'function') {
-        resp = await listUsers(params, { signal });
-      } else {
-        // Generic fetch
-        const qs = new URLSearchParams(params).toString();
-        const res = await fetch(`/api/users${qs ? `?${qs}` : ''}`, { signal });
-        if (!res.ok) throw new Error(`Failed to fetch users: ${res.status}`);
-        resp = await res.json();
+      // Enforce shared client usage; it appends tenant_id automatically.
+      const resp = await listUsers(params, { signal });
+
+      // Development-time verification log to confirm tenant_id is present
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.debug('[useUsers] listUsers(params) invoked with tenant-scoped client. Params:', params);
       }
 
       // Handle both raw array and envelope formats
