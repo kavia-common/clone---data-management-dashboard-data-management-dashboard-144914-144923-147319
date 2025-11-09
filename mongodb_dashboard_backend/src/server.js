@@ -1,60 +1,57 @@
-'use strict';
+const app = require('./app');
+const mongoose = require('mongoose');
 
-require('dotenv').config();
-
-const http = require('http');
-const { createApp } = require('./app');
-const { connect } = require('./config/db');
-
+// Default to 3001 to match container deployment and docs URL
+const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
-const PORT = parseInt(process.env.PORT || '3001', 10);
 
-/**
- * PUBLIC_INTERFACE
- * start
- * Bootstraps the HTTP server and attempts a non-blocking DB connection.
- */
-async function start() {
-  const app = createApp();
-
-  // Attempt DB connection asynchronously; expose db in app.locals if available.
-  (async () => {
+const server = app
+  .listen(PORT, HOST, () => {
+    // eslint-disable-next-line no-console
+    console.log("CURRENTDB",mongoose.connection.db.databaseName);
+    console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+  })
+  .on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      // eslint-disable-next-line no-console
+      console.error(`[startup] Port ${PORT} is already in use. Ensure no other process is running on this port.`);
+    } else {
+      // eslint-disable-next-line no-console
+      console.error('[startup] Server failed to start:', err);
+    }
+    // Exit so orchestrator/CI can restart
+    process.exit(1);
+  });
+// Graceful shutdown
+const shutdown = (signal) => {
+  // eslint-disable-next-line no-console
+  console.log(`${signal} signal received: closing HTTP server`);
+  server.close(async () => {
+    // eslint-disable-next-line no-console
+    console.log('HTTP server closed');
     try {
-      const { db } = await connect(console);
-      if (db) {
-        app.locals.db = db;
-      }
+      await mongoose.connection.close();
+      // eslint-disable-next-line no-console
+      console.log('MongoDB connection closed');
     } catch (e) {
-      console.error('[Server] DB connect error (non-fatal for readiness):', e && e.message ? e.message : e);
+      // eslint-disable-next-line no-console
+      console.error('Error closing MongoDB connection', e);
     }
-  })();
-
-  const server = http.createServer(app);
-  server.listen(PORT, HOST, () => {
-    // Clear, stable readiness log for preview detectors
-    console.log(`Server listening on http://0.0.0.0:${PORT}`);
-    console.log('[Server] Ready. Health endpoints: GET /health and GET /api/health');
+    process.exit(0);
   });
+};
 
-  // Handle server errors without exiting; keep process alive and log the issue
-  server.on('error', (err) => {
-    console.error('[Server] Error event:', err && err.message ? err.message : err);
-  });
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
-  return server;
-}
+// Log unexpected errors to avoid silent crashes during startup/runtime
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('[uncaughtException]', err);
+});
 
-if (require.main === module) {
-  // Wrap top-level start in try/catch to avoid unhandled rejection causing process exit
-  (async () => {
-    try {
-      await start();
-    } catch (err) {
-      console.error('[Server] Failed to start:', err && err.message ? err.message : err);
-      // Do not exit; allow process to stay up so health endpoint can be probed
-      // A subsequent hot-reload or environment fix can recover without killing the container.
-    }
-  })();
-}
-
-module.exports = { start };
+module.exports = server;
