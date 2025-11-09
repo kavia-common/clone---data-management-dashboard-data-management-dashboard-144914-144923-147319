@@ -7,6 +7,7 @@ const SessionTracking = require('../models/sessionTracking.model');
 const Tenant = require('../models/tenant.model');
 const { getReferralSources } = require('../controllers/users.analytics.controller');
 const mongoose = require('mongoose');
+const { extractOrganization } = require('../middleware/extractOrganization');
 
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
@@ -159,6 +160,11 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
  *         name: includeInactive
  *         schema: { type: boolean, default: false }
  *         description: When true, includes tenants from tenants/users collections even if no activity is found.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *         required: true
+ *         description: Organization (tenant) identifier to scope the aggregation. Also accepted via header x-organization-id.
  *     responses:
  *       200:
  *         description: Aggregated tenant user counts
@@ -182,6 +188,7 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
 // PUBLIC_INTERFACE
 router.get(
   '/tenant-summary',
+  extractOrganization(),
   asyncHandler(async (req, res) => {
     const { from, to } = req.query || {};
     const includeInactive = String(req.query.includeInactive || 'false') === 'true';
@@ -231,10 +238,13 @@ router.get(
       timeClauses.push(makeRange('last_updated'));
     }
 
+    // Always scope to current organization (tenant_id)
+    const orgMatch = { tenant_id: req.organizationId };
+
     const matchStage =
       timeClauses.length > 0
-        ? { $match: { ...match, $or: timeClauses } }
-        : { $match: match };
+        ? { $match: { ...match, ...orgMatch, $or: timeClauses } }
+        : { $match: { ...match, ...orgMatch } };
 
     // Aggregate distinct user count per tenant_id; compute last_activity per tenant
     const pipeline = [
@@ -356,6 +366,12 @@ router.get(
  *         schema:
  *           type: string
  *         description: JSON string filter (e.g., {"referral_code":"ABC"})
+ *       - in: query
+ *         name: organization_id
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Organization (tenant) identifier to scope results. Also accepted via header x-organization-id.
  *     responses:
  *       200:
  *         description: List of users (array or envelope based on pagination params)
@@ -391,6 +407,7 @@ router.get(
  */
 router.get(
   '/',
+  extractOrganization(),
   asyncHandler(async (req, res) => {
     // Determine pagination intent and parse filter/sort similar to controller logic
     const explicit =
@@ -411,6 +428,14 @@ router.get(
     } catch {
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
+
+    // Enforce organization scope: map organization_id to tenant_id field used in DB.
+    // Never allow client-provided tenant/organization to override the scoped org.
+    if (filter && typeof filter === 'object') {
+      delete filter.organization_id;
+      delete filter.tenant_id;
+    }
+    filter = { ...filter, tenant_id: req.organizationId };
 
     // First pass: check data presence without sending a response
     let items = [];
@@ -932,12 +957,18 @@ router.get(
 // PUBLIC_INTERFACE
 router.get(
   '/:userId/projects',
+  extractOrganization(),
   asyncHandler(async (req, res) => {
     const { userId } = req.params;
     const { tenant_id: tenantId, from, to } = req.query || {};
 
+    const effectiveTenantId = req.organizationId;
     if (!tenantId) {
-      return res.status(400).json({ success: false, message: 'tenant_id is required' });
+      // keep backwards compatible message but enforce
+      // eslint-disable-next-line no-param-reassign
+      req.query.tenant_id = effectiveTenantId;
+    } else if (String(tenantId) !== String(effectiveTenantId)) {
+      return res.status(400).json({ success: false, message: 'tenant_id mismatch with organization scope' });
     }
 
     // Basic ISO date validation if provided
@@ -950,7 +981,7 @@ router.get(
     const toIso = parseMaybe(to);
 
     const payload = await getUserProjectsFromSessions({
-      tenantId,
+      tenantId: effectiveTenantId,
       userId,
       from: fromIso,
       to: toIso,

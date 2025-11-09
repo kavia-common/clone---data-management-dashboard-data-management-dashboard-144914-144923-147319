@@ -10,4 +10,7 @@ module.exports = {
 
   // New tenant JWT middleware and utilities
   ...require('./authTenant'),
+
+  // Organization scoping
+  extractOrganization: require('./extractOrganization').extractOrganization,
 };

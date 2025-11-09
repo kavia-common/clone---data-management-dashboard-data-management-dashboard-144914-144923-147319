@@ -8,7 +8,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const server = app
   .listen(PORT, HOST, () => {
     // eslint-disable-next-line no-console
-    console.log("CURRENTDB",mongoose.connection.db.databaseName);
+    console.log('CURRENTDB',mongoose.connection.db.databaseName);
     console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
   })
   .on('error', (err) => {

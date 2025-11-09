@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const { asyncHandler } = require('../utils/http');
 const { getUsersTenantSummary } = require('../controllers/users.analytics.summary.controller');
+const { extractOrganization } = require('../middleware/extractOrganization');
 
 /**
  * PUBLIC_INTERFACE
@@ -52,7 +53,7 @@ const { getUsersTenantSummary } = require('../controllers/users.analytics.summar
  *       500:
  *         description: Internal server error
  */
-router.get('/tenant-summary', asyncHandler(async (req, res) => {
+router.get('/tenant-summary', extractOrganization(), asyncHandler(async (req, res) => {
   // Call controller to compute items, then map to array for frontend compatibility
   const fakeRes = {
     _status: 200,
@@ -60,7 +61,14 @@ router.get('/tenant-summary', asyncHandler(async (req, res) => {
     status(code) { this._status = code; return this; },
     json(payload) { this._sent = true; this._payload = payload; return this; }
   };
+  // Inject organization scope hint for controller (if it reads req.organizationId)
+  req.scopedTenantId = req.organizationId;
+
   await getUsersTenantSummary(req, fakeRes);
+  // Reduce payload strictly to the same organization to prevent cross-org leaks
+  if (fakeRes._status === 200 && fakeRes._payload && Array.isArray(fakeRes._payload.items)) {
+    fakeRes._payload.items = fakeRes._payload.items.filter((it) => String(it.tenant_id) === String(req.organizationId));
+  }
   if (!fakeRes._sent) {
     return res.status(500).json({ success: false, message: 'Controller did not respond' });
   }

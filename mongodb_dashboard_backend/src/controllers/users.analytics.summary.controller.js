@@ -65,6 +65,17 @@ async function getUsersTenantSummary(req, res) {
 
     // Build match stage for users collection
     const match = {};
+    // Enforce organization scoping if provided (maps to tenant_id)
+    const scopedTenant = req.scopedTenantId || req.organizationId || req.tenantId;
+    if (scopedTenant) {
+      // We will compute a _tenant_key field later; here restrict candidate docs to those having the scoped id
+      // across known fields for performance.
+      match.$or = (match.$or || []).concat([
+        { tenant_id: String(scopedTenant) },
+        { organization_id: String(scopedTenant) },
+        { 'tenant.tenant_id': String(scopedTenant) },
+      ]);
+    }
     // Date range: consider created_at or updated_at. Use $or to be permissive.
     if (from || to) {
       const dateRange = {};
@@ -99,6 +110,16 @@ async function getUsersTenantSummary(req, res) {
           _tenant_key: { $nin: [null, ''] },
         },
       },
+      // If scoped, filter by computed key as well to be 100% safe
+      ...(scopedTenant
+        ? [
+            {
+              $match: {
+                _tenant_key: String(scopedTenant),
+              },
+            },
+          ]
+        : []),
       {
         $group: {
           _id: '$_tenant_key',
