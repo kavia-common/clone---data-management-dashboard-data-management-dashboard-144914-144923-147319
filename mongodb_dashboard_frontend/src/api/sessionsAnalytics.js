@@ -72,7 +72,7 @@ export async function getDurationHistogram({
   };
 
   // Normalize potential alternate inputs from UI
-  const effOrg = organization_id ?? tenantId ?? tenant_id;
+  const effTenant = tenantId ?? tenant_id;
   const effUser = (scope === 'user' ? (userId ?? user_id) : undefined);
   const effStart = toIso(startDate) || (from ? toIso(from) : undefined) || defaultStart;
   const effEnd = toIso(endDate) || (to ? toIso(to) : undefined) || defaultEnd;
@@ -80,7 +80,7 @@ export async function getDurationHistogram({
 
   const params = {
     scope,
-    organization_id: effOrg,
+    tenant_id: effTenant, // follow snake_case commonly used in backend params
     user_id: effUser,
     start: effStart,
     end: effEnd,

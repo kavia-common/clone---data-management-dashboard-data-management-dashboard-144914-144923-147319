@@ -54,6 +54,26 @@ function toQuery(params = {}) {
 }
 
 /**
+ * For endpoint-specific rules, sanitize query params before building the request.
+ * Current rule: for "/api/users" GET, allow only { organization_id }.
+ */
+function sanitizeEndpointParams(pathOrUrl, params = {}) {
+  const path = String(pathOrUrl || "");
+  // Normalize detection for /api/users (no sub-paths)
+  const isUsersRoot =
+    /\/api\/users(?:$|\?)/.test(path) && !/\/api\/users\/[A-Za-z0-9_-]/.test(path);
+  if (isUsersRoot) {
+    // Keep only organization_id. Strip 'limit' and any other extraneous params.
+    const out = {};
+    if (params && typeof params === "object" && "organization_id" in params) {
+      out.organization_id = params.organization_id;
+    }
+    return out;
+  }
+  return params || {};
+}
+
+/**
  * Ensure organization scoping on query params by appending organization_id when not present.
  * We no longer use tenant headers; organization must be carried via query parameter.
  */
@@ -63,6 +83,12 @@ function ensureOrgQueryParams(pathOrUrl, params = {}) {
     typeof pathOrUrl === "string" &&
     /\/api\/users\/tenant-summary(?:$|[?&#/])/.test(pathOrUrl);
 
+  // Special-case: /api/users root must include ONLY organization_id.
+  const isUsersRoot =
+    typeof pathOrUrl === "string" &&
+    /\/api\/users(?:$|[?&#/])/.test(pathOrUrl) &&
+    !/\/api\/users\/[A-Za-z0-9_-]/.test(pathOrUrl);
+
   const orgId = getOrganizationId();
   const baseParams = {};
 
@@ -70,7 +96,7 @@ function ensureOrgQueryParams(pathOrUrl, params = {}) {
     baseParams.organization_id = orgId;
   }
 
-  if (isTenantSummary) {
+  if (isTenantSummary || isUsersRoot) {
     // Enforce strict query: only organization_id is allowed
     return baseParams;
   }
@@ -102,7 +128,10 @@ async function parseResponse(res) {
  * Axios-like "get" returning { data }.
  */
 async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
-  const effParams = ensureOrgQueryParams(pathOrUrl, params);
+  const effParams = sanitizeEndpointParams(
+    pathOrUrl,
+    ensureOrgQueryParams(pathOrUrl, params)
+  );
   const url = buildUrl(`${pathOrUrl}${toQuery(effParams)}`);
   const res = await fetch(url, {
     method: "GET",
@@ -127,8 +156,11 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
 }
 
 async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {}) {
-  // Append organization_id to query if not already present
-  const effParams = ensureOrgQueryParams(pathOrUrl, params);
+  // Append organization_id to query if not already present and sanitize per-endpoint
+  const effParams = sanitizeEndpointParams(
+    pathOrUrl,
+    ensureOrgQueryParams(pathOrUrl, params)
+  );
   const urlWithParams =
     typeof pathOrUrl === "string" && (effParams && Object.keys(effParams).length > 0)
       ? `${pathOrUrl}${toQuery(effParams)}`
@@ -193,7 +225,7 @@ export async function health() {
 
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
-  /** Lists users with optional pagination/filter/sort, normalized to { items, total, meta }. */
+  /** Lists users; for /api/users only organization_id is sent. All other params (e.g., limit, page, sort, filter) are ignored for this endpoint by design. Returns normalized { items, total, meta }. */
   const res = await httpGet("/api/users", { params });
   return normalizeListPayload(res.data);
 }

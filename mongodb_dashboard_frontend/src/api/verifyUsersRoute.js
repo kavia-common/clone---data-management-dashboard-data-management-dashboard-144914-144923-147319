@@ -29,6 +29,21 @@ export function verifyUsersUrlResolution(organizationIdOverride = null) {
   if (process.env.NODE_ENV !== "production") {
     // eslint-disable-next-line no-console
     console.log("[Verify] /api/users resolved to:", finalUrl);
+    try {
+      const q = finalUrl.split("?")[1] || "";
+      const usp = new URLSearchParams(q);
+      const allowedKeys = new Set(["organization_id"]);
+      const badKeys = [];
+      for (const k of usp.keys()) {
+        if (!allowedKeys.has(k)) badKeys.push(k);
+      }
+      if (badKeys.length > 0) {
+        // eslint-disable-next-line no-console
+        console.warn("[Verify] Unexpected query params present for /api/users:", badKeys);
+      }
+    } catch {
+      // ignore parse issues
+    }
   }
 
   // restore original organization if we changed it

@@ -80,6 +80,7 @@ export default function UsersList({ title = "Users", subtitle = "All users", sho
     setLoading(true);
     setError("");
     try {
+      // listUsers routes through shared client enforcing /api/users?organization_id=<ORG_ID> only.
       const res = await listUsers({});
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);

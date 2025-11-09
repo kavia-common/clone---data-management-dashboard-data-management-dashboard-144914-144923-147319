@@ -21,12 +21,12 @@ export function useUsers({ page, limit, sort, filter } = {}) {
 
   const params = useMemo(() => {
     const out = {};
+    // Note: limit is intentionally excluded for /api/users (stripped by client rule)
     if (page) out.page = page;
-    if (limit) out.limit = limit;
     if (sort) out.sort = sort;
     if (filter) out.filter = typeof filter === 'string' ? filter : JSON.stringify(filter);
     return out;
-  }, [page, limit, sort, filter]);
+  }, [page, sort, filter]);
 
   const fetchUsers = async (signal) => {
     setLoading(true);
