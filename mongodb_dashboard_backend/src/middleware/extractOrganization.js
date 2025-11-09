@@ -4,8 +4,7 @@
  * PUBLIC_INTERFACE
  * extractOrganization
  * Express middleware that extracts the organization identifier from request and attaches it to req.organizationId.
- * - Prefers req.query.organization_id (new behavior, aligns with frontend)
- * - Backward compatibility: also checks headers x-organization-id, x-org-id, x-tenant-id, x-tenant
+ * - Prefer req.query.tenant_id. Backward compatibility: also checks req.query.organization_id and headers x-organization-id, x-org-id, x-tenant-id, x-tenant.
  * - If not found, returns 400 with a helpful message
  * - Optionally maps to tenant_id semantics for code that uses tenant naming
  *
@@ -17,6 +16,7 @@
  */
 function extractOrganization() {
   return function (req, res, next) {
+    const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
     const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
     const hdrOrg =
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
@@ -25,7 +25,7 @@ function extractOrganization() {
       (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
       '';
 
-    const organizationId = qOrg || hdrOrg;
+    const organizationId = qTenant || qOrg || hdrOrg;
 
     if (!organizationId) {
       return res.status(400).json({

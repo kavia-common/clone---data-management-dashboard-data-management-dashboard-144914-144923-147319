@@ -106,7 +106,7 @@ function normalizeSessionDoc(doc) {
  *       - in: query
  *         name: filter
  *         schema: { type: string }
- *         description: JSON filter (e.g., {"tenant_id":"org1","status":"active"})
+ *         description: JSON filter (e.g., {"tenant_id":"org1","status":"active"}). Any tenant_id/organization_id keys are ignored server-side; tenant is enforced from ?tenant_id or fallbacks.
  *       - in: query
  *         name: q
  *         schema: { type: string }
@@ -149,16 +149,28 @@ function slSet(key, payload) {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Enforce organization/tenant scope if provided via query or upper-layer middleware
-    // Prefer x-organization-id / ?organization_id semantics when available from upstream routes
-    const orgHeader =
-      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
+    // Enforce tenant scope strictly via ?tenant_id=... query param
+    // Accept legacy fallbacks only if tenant_id is not provided
+    const tenantFromQuery = typeof req.query.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
+    const legacyHeaderTenant =
       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
       (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
       '';
-    const orgQuery = typeof req.query.organization_id === 'string' ? req.query.organization_id.trim() : '';
-    const enforcedOrg = orgQuery || orgHeader || null;
+    const tenantFromLegacyQuery =
+      (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) || '';
+    const enforcedTenant = tenantFromQuery || tenantFromLegacyQuery || legacyHeaderTenant || null;
+
+    // If a tenant is required for this endpoint, validate presence
+    if (!enforcedTenant) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'tenant_id is required. Provide ?tenant_id=... (legacy fallbacks: header x-tenant-id/x-organization-id or ?organization_id=...)',
+      });
+    }
+
     // Parse pagination and filter (support pageSize alias for limit)
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
@@ -207,13 +219,13 @@ router.get(
       if (Array.isArray(filter.$or)) delete filter.$or;
     }
 
-    // Build enforced org scope across alternate schema fields
-    const enforcedScope = enforcedOrg
+    // Build enforced tenant scope across alternate schema fields
+    const enforcedScope = enforcedTenant
       ? {
           $or: [
-            { tenant_id: enforcedOrg },
-            { organization_id: enforcedOrg },
-            { organizationId: enforcedOrg },
+            { tenant_id: enforcedTenant },
+            { organization_id: enforcedTenant },
+            { organizationId: enforcedTenant },
           ],
         }
       : {};
