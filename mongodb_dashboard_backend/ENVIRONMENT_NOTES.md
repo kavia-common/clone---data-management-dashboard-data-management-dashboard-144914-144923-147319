@@ -1,7 +1,7 @@
 # Runtime notes for preview/CI
 
 - Start command: npm start (ensures dotenv is loaded) or node src/server.js (dotenv is auto-loaded now).
-- Default bind: HOST=0.0.0.0 PORT=3001 (overridable via PORT env; previews may set 3010).
+- Default bind: HOST=0.0.0.0 PORT=3010 (overridable via PORT env; set PORT to align with your environment).
 - Health endpoints:
   - GET /api/health returns 200 and includes db: connected|connecting|disconnected (DB may be disconnected and still 200 for readiness).
   - GET /health returns `{ status: "ok", ... }` and is safe for readiness checks.

@@ -1,19 +1,19 @@
 # Backend (Express) - Dashboard API
 
-- Default port: 3001 (configurable via PORT in .env; previews may expect 3010 — use `npm run preview` or set PORT=3010)
+- Default port: 3010 (configurable via PORT in .env; if your environment expects a specific port, set PORT accordingly)
 - Host bind: 0.0.0.0 by default (configurable via HOST)
-- Docs (Swagger UI): http://localhost:3001/docs (alias: http://localhost:3001/api-docs)
-- OpenAPI JSON: http://localhost:3001/openapi.json (alias: http://localhost:3001/api-docs.json)
+- Docs (Swagger UI): http://localhost:3010/docs (alias: http://localhost:3010/api-docs)
+- OpenAPI JSON: http://localhost:3010/openapi.json (alias: http://localhost:3010/api-docs.json)
 
 Quick start (development)
 - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
 - npm install
 - npm run dev   # binds to 0.0.0.0:3001 with nodemon; dotenv is loaded programmatically (script provided in package.json)
-- curl http://localhost:3001/health  # fast 200
-- curl http://localhost:3001/api/health  # includes db state
+- curl http://localhost:3010/health  # fast 200
+- curl http://localhost:3010/api/health  # includes db state
 
-Troubleshooting: "Port 3001 is already in use"
-- The server logs: "[startup] Port 3001 is already in use." This means another instance is already running and listening on 0.0.0.0:3001.
+Troubleshooting: "Port 3010 is already in use"
+- The server logs: "[startup] Port 3010 is already in use." This means another instance is already running and listening on 0.0.0.0:3010.
 - To confirm which process: 
   - macOS/Linux: lsof -i :3001 -sTCP:LISTEN -Pn
   - Or: ss -ltnp | grep :3001
