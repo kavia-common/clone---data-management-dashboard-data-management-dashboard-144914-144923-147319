@@ -58,13 +58,30 @@ function toQuery(params = {}) {
  * We no longer use tenant headers; organization must be carried via query parameter.
  */
 function ensureOrgQueryParams(pathOrUrl, params = {}) {
+  // Special-case: /api/users/tenant-summary must only include organization_id (no extra params)
+  const isTenantSummary =
+    typeof pathOrUrl === "string" &&
+    /\/api\/users\/tenant-summary(?:$|[?&#/])/.test(pathOrUrl);
+
+  const orgId = getOrganizationId();
+  const baseParams = {};
+
+  if (orgId) {
+    baseParams.organization_id = orgId;
+  }
+
+  if (isTenantSummary) {
+    // Enforce strict query: only organization_id is allowed
+    return baseParams;
+  }
+
+  // Default behavior: preserve provided params and append organization_id if missing
   const existingHasOrg =
     "organization_id" in (params || {}) ||
     (typeof pathOrUrl === "string" && /([?&])organization_id=/.test(pathOrUrl));
-  if (existingHasOrg) return params;
-  const orgId = getOrganizationId();
-  if (!orgId) return params;
-  return { ...params, organization_id: orgId };
+  if (existingHasOrg) return params || {};
+  if (!orgId) return params || {};
+  return { ...(params || {}), ...baseParams };
 }
 
 /**
@@ -202,6 +219,17 @@ export async function listLlmCosts(params = {}) {
   return normalizeListPayload(res.data);
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * getTenantUsersSummaryStrict
+ * Calls /api/users/tenant-summary ensuring only organization_id is sent as a query param.
+ * Any additional params provided are ignored to prevent accidental leakage of unsupported params.
+ */
+export async function getTenantUsersSummaryStrict() {
+  const res = await httpGet("/api/users/tenant-summary", { params: {} });
+  return res.data;
+}
+
 export default {
   getApiClient,
   listUsers,
@@ -209,4 +237,5 @@ export default {
   listDeployments,
   listLlmCosts,
   health,
+  getTenantUsersSummaryStrict,
 };

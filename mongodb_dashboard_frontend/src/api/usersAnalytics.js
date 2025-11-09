@@ -1,15 +1,12 @@
-import { getApiClient } from "./index";
+import { getTenantUsersSummaryStrict } from "./index";
 
 /**
  * PUBLIC_INTERFACE
  * getTenantUsersSummary
  * Fetch aggregated users by tenant summary.
  *
- * Parameters:
- * - from?: string (ISO) - optional start date-time
- * - to?: string (ISO) - optional end date-time
- * - status?: string - optional status filter (default handled by backend)
- * - includeInactive?: boolean - whether to include inactive tenants
+ * Important: Only organization_id must be sent as a query param.
+ * Any provided filter-like params (from, to, status, includeInactive) will be ignored on purpose.
  *
  * Returns a normalized payload:
  * - { items: Array<{ tenant_id: string, tenant_name?: string|null, user_count: number }>, total?: number }
@@ -18,11 +15,9 @@ import { getApiClient } from "./index";
  * Notes:
  * - Backend endpoint: GET /api/users/tenant-summary
  */
-export async function getTenantUsersSummary(params = {}) {
-  const api = getApiClient();
+export async function getTenantUsersSummary() {
   try {
-    const res = await api.get("/api/users/tenant-summary", { params });
-    const data = res?.data ?? res;
+    const data = await getTenantUsersSummaryStrict();
 
     // Normalize shapes:
     if (data && Array.isArray(data.items)) {

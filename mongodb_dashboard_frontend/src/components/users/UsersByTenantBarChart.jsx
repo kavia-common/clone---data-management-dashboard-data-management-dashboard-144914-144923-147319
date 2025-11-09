@@ -37,9 +37,8 @@ const UsersByTenantBarChart = ({
       setLoading(true);
       setError(null);
       try {
-        const params = { from, to, status, includeInactive };
-        // getTenantUsersSummary expected to return { items: [{ tenant_id, tenant_name, user_count }], total }
-        const res = await getTenantUsersSummary(params);
+        // getTenantUsersSummary will construct a strict request containing only organization_id
+        const res = await getTenantUsersSummary();
         if (!mounted) return;
         const data = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
         // Sort by user_count desc by default

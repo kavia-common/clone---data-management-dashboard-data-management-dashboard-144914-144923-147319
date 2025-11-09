@@ -52,12 +52,7 @@ export default function UsersByTenantChart({
       setLoading(true);
       setErr("");
       try {
-        const res = await getTenantUsersSummary({
-          from,
-          to,
-          status,
-          includeInactive,
-        });
+        const res = await getTenantUsersSummary();
         if (!mounted) return;
         const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
         // Sort desc by count
