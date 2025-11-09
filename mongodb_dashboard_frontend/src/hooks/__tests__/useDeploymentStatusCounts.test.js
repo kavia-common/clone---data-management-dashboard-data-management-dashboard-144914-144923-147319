@@ -2,7 +2,7 @@ import { renderHook } from "@testing-library/react";
 import useDeploymentStatusCounts from "../useDeploymentStatusCounts";
 
 describe("useDeploymentStatusCounts", () => {
-  test("returns default mock structure", async () => {
+  test("returns default structure (no mock)", async () => {
     const { result } = renderHook(() => useDeploymentStatusCounts({ strategy: "mock", useServer: false }));
     const { data, loading, error } = result.current;
     expect(Array.isArray(data)).toBe(true);

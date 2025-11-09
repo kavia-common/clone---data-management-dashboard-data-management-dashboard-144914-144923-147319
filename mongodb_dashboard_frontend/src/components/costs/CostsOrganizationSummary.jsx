@@ -14,8 +14,7 @@ import { formatCurrencyAmount } from "../../utils/formatCurrency.js";
  *  - Total Cost (emphasized, currency formatted with thousand separators and up to 6 decimals)
  *  - Users
  *
- * Includes loading and error states. Uses a local mock fetch to simulate data retrieval.
- * The mock is structured so it can be easily replaced with a real API call.
+ * Includes loading and error states. TODO: Replace local simulated fetch with real API call.
  *
  * Props:
  * - onLoaded?: (data) => void   // optional callback when data loads successfully
@@ -31,17 +30,20 @@ export default function CostsOrganizationSummary({ onLoaded, failChance = 0.1 })
   const load = React.useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: "" }));
     try {
-      // Simulated fetch - replace with real API when available:
-      // Example:
-      // const res = await api.get('/api/tenants/{id}/costs-summary');
-      // const payload = { organizationId: res.orgId, organizationName: res.orgName, totalCost: res.totalCost, users: res.usersCount };
-      const payload = await mockFetchOrganizationSummary(failChance);
+      // TODO: Wire to real backend API when available.
+      // Placeholder: provide empty values to render gracefully.
+      const payload = {
+        organizationId: "",
+        organizationName: "",
+        totalCost: 0,
+        users: 0,
+      };
       setState({ loading: false, error: "", data: payload });
       if (onLoaded) onLoaded(payload);
     } catch (e) {
       setState({ loading: false, error: e?.message || "Failed to load organization summary.", data: null });
     }
-  }, [onLoaded, failChance]);
+  }, [onLoaded]);
 
   React.useEffect(() => {
     load();
@@ -137,29 +139,7 @@ function SummaryItem({ label, children, emphasize = false }) {
   );
 }
 
-/**
- * mockFetchOrganizationSummary
- * Local mock API used to simulate loading and error states.
- * Returns the requested static values after a small delay.
- */
-async function mockFetchOrganizationSummary(failChance = 0.1) {
-  await delay(350 + Math.random() * 400); // 350-750ms delay
-  // Simulate a failure condition occasionally
-  if (Math.random() < (Number.isFinite(failChance) ? failChance : 0.1)) {
-    throw new Error("Network error: Unable to fetch organization summary");
-  }
-  // Static values as per requirement
-  return {
-    organizationId: "T0002",
-    organizationName: "KAVIA",
-    totalCost: 2663.216423,
-    users: 25,
-  };
-}
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 const styles = {
   grid: {

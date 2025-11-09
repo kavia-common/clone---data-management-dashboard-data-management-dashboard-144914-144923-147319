@@ -1,16 +1,14 @@
 import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
-import KPIChart from "../../components/charts/KPIChart.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
 
 
 // PUBLIC_INTERFACE
 export default function Overview() {
-  /** Overview page with basic metrics and activity trends. */
+  /** Overview page with basic metrics. */
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
-  const [trend, setTrend] = useState([]);
   const [error, setError] = useState("");
   const [apiStatus, setApiStatus] = useState("checking");
 
@@ -29,16 +27,6 @@ export default function Overview() {
           sessions: (sessions?.total || sessions?.length || 0),
           deployments: (deployments?.total || deployments?.length || 0),
         });
-        const t = [
-          { label: "Mon", value: (users?.length || 1) * 1 },
-          { label: "Tue", value: (sessions?.length || 2) * 2 },
-          { label: "Wed", value: (deployments?.length || 3) * 3 },
-          { label: "Thu", value: (users?.length || 2) * 2 },
-          { label: "Fri", value: (sessions?.length || 1) * 1 },
-          { label: "Sat", value: (deployments?.length || 1) * 1 },
-          { label: "Sun", value: (users?.length || 1) + (sessions?.length || 1) },
-        ];
-        setTrend(t);
       } catch (e) {
         setError(e?.response?.data?.message || e?.message || "Failed to load overview data.");
       } finally {
@@ -94,23 +82,12 @@ export default function Overview() {
         </div>
       </Card>
 
-
-      {/* Full-width trend row aligned to the right by spanning all columns */}
-      <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
-        <Card title="Activity trend" subtitle="Weekly activity overview" className="w-full">
-          {error && <div className="error" role="alert">{error}</div>}
-          {loading ? (
-            <div style={{ width: "100%", height: 280 }}>
-              <Skeleton width="100%" height="100%" aria-label="Loading activity trend" />
-            </div>
-          ) : (
-            <KPIChart data={trend} xKey="label" yKey="value" />
-          )}
-        </Card>
-      </div>
-
-
-
+      {/* Removed Activity Trend chart per requirement; layout stays clean with KPI cards only */}
+      {error && (
+        <div className="block-full" role="alert" style={{ alignSelf: "start" }}>
+          <div className="error">{error}</div>
+        </div>
+      )}
     </div>
   );
 }

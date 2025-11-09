@@ -16,7 +16,6 @@ describe("CostsGroupedBarChart", () => {
         groupBy="cost_category"
         height={240}
         showSelector={false}
-        useMockOnEmpty={false}
         title="Test Grouped Chart"
       />
     );
@@ -40,8 +39,8 @@ describe("CostsGroupedBarChart", () => {
     expect(screen.getByLabelText(/Loading grouped cost chart/i)).toBeInTheDocument();
   });
 
-  test("shows no-data message when no records and mock disabled", () => {
-    render(<CostsGroupedBarChart records={[]} height={200} useMockOnEmpty={false} />);
+  test("shows no-data message when no records provided", () => {
+    render(<CostsGroupedBarChart records={[]} height={200} />);
     expect(screen.getByLabelText(/No grouped cost data available/i)).toBeInTheDocument();
   });
 });

@@ -49,7 +49,6 @@ export default function CostsGroupedBarChart({
   showSelector = false,
   onGroupByChange,
   ariaLabel,
-  useMockOnEmpty = true, // When true, renders fallback mock to aid development/demos when no data is provided
 }) {
   // Lightweight runtime input validation with warnings (no prop-types dependency).
   if (process.env.NODE_ENV !== "production") {
@@ -60,17 +59,6 @@ export default function CostsGroupedBarChart({
     }
   }
 
-  const mockRecords = React.useMemo(
-    () => [
-      { agent_name: "Agent Alpha", environment: "prod", cost_category: "compute", total_cost: 3.4 },
-      { agent_name: "Agent Alpha", environment: "staging", cost_category: "compute", total_cost: 1.1 },
-      { agent_name: "Agent Beta", environment: "prod", cost_category: "storage", total_cost: 2.2 },
-      { agent_name: "Agent Beta", environment: "dev", cost_category: "egress", total_cost: 0.4 },
-      { agent_name: "Agent Gamma", environment: "prod", cost_category: "compute", total_cost: 1.2 },
-    ],
-    []
-  );
-
   const safeRecords = Array.isArray(records)
     ? records.map((r) => ({
         agent_name: r?.agent_name ?? "Unknown",
@@ -80,8 +68,7 @@ export default function CostsGroupedBarChart({
       }))
     : [];
 
-  const effectiveRecords =
-    safeRecords.length === 0 && useMockOnEmpty && !loading && !error ? mockRecords : safeRecords;
+  const effectiveRecords = safeRecords;
 
   const shaped = React.useMemo(() => {
     const base = shapeAgentGroupedSeries(effectiveRecords, groupBy);
