@@ -1,4 +1,5 @@
 import { getApiBase } from "./config";
+import { buildAuthHeaders, getTenantId } from "./authTokenProvider";
 
 /**
  * Internal helper: detect absolute URLs.
@@ -53,6 +54,22 @@ function toQuery(params = {}) {
 }
 
 /**
+ * Ensure tenant scoping on query params if header can't be used.
+ * By default we always add X-Tenant-Id header. If a caller needs the query
+ * param for specific endpoints, they can still pass it; this helper only
+ * augments when not already present.
+ */
+function ensureTenantQueryParams(pathOrUrl, params = {}) {
+  const existingHasTenant =
+    "tenant_id" in (params || {}) ||
+    (typeof pathOrUrl === "string" && /([?&])tenant_id=/.test(pathOrUrl));
+  if (existingHasTenant) return params;
+  const tenantId = getTenantId();
+  if (!tenantId) return params;
+  return { ...params, tenant_id: tenantId };
+}
+
+/**
  * Internal helper: parse response and return { ok, status, data|text }.
  */
 async function parseResponse(res) {
@@ -70,13 +87,14 @@ async function parseResponse(res) {
  * Axios-like "get" returning { data }.
  */
 async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
-  const url = buildUrl(`${pathOrUrl}${toQuery(params)}`);
+  const effParams = ensureTenantQueryParams(pathOrUrl, params);
+  const url = buildUrl(`${pathOrUrl}${toQuery(effParams)}`);
   const res = await fetch(url, {
     method: "GET",
-    headers: {
+    headers: buildAuthHeaders({
       Accept: "application/json",
       ...(headers || {}),
-    },
+    }),
     signal,
     credentials: "omit",
   });
@@ -97,11 +115,11 @@ async function httpJson(method, pathOrUrl, body, { headers, signal } = {}) {
   const url = buildUrl(pathOrUrl);
   const res = await fetch(url, {
     method,
-    headers: {
+    headers: buildAuthHeaders({
       "Content-Type": "application/json",
       Accept: "application/json",
       ...(headers || {}),
-    },
+    }),
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
     credentials: "omit",

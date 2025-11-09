@@ -1,5 +1,4 @@
-import axios from "axios";
-import { getApiBase } from "./config";
+import { getApiClient } from "./index";
 
 /**
  * PUBLIC_INTERFACE
@@ -20,10 +19,9 @@ import { getApiBase } from "./config";
  * - Backend endpoint: GET /api/users/tenant-summary
  */
 export async function getTenantUsersSummary(params = {}) {
-  const base = getApiBase();
-  const url = `${base}/users/tenant-summary`;
+  const api = getApiClient();
   try {
-    const res = await axios.get(url, { params });
+    const res = await api.get("/api/users/tenant-summary", { params });
     const data = res?.data ?? res;
 
     // Normalize shapes:

@@ -1,16 +1,24 @@
-Authentication setup notes:
+# Auth and Tenant Token Handling
 
-- Public login page: /login
-- API base URL is read from environment variable REACT_APP_API_BASE_URL
-  Example:
-    REACT_APP_API_BASE_URL=https://kaviaqa-worktool.cloud.kavia.ai
+This frontend uses a centralized token provider at src/api/authTokenProvider.js to:
+- Read the JWT set after login (localStorage key "auth")
+- Read and set active tenant_id (localStorage key "activeTenant")
+- Build Authorization and X-Tenant-Id headers for all API requests
 
-- Optional encryption salt for organization id:
-    REACT_APP_TENANT_ENCRYPTION_SALT=<your-salt-here>
-  For production, do not hardcode salts in code. Provide via environment.
+How it works:
+- AuthContext.login now accepts either a string token or an object { token, tenant_id }
+- On login, token is persisted and tenant_id (if available) is mirrored to activeTenant
+- The shared API client (src/api/baseClient.js) automatically attaches:
+  - Authorization: Bearer <token>
+  - X-Tenant-Id: <tenant_id> (when available)
+  - Optionally appends ?tenant_id=... when header is unsupported by the endpoint
 
-- Session storage:
-  localStorage.setItem('auth', JSON.stringify({ loggedIn: true, token? }))
+Guidelines:
+- Do not handcraft fetch or axios headers; always use:
+  - getApiClient() for requests (preferred)
+  - buildAuthHeaders() only when absolutely necessary (e.g., legacy utils)
+- Never hardcode tenant_id. Always derive via getTenantId() or rely on the interceptor.
 
-- Protected routes are gated via <ProtectedRoute> wrapper in src/routes/AppRoutes.jsx
-- On successful login, user is redirected to the intended route (location.state.from) or /dashboard by default.
+Environment:
+- REACT_APP_API_BASE_URL sets the base API URL when present
+- No secrets are stored in code; JWT is read from localStorage "auth"

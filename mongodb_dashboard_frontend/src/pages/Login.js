@@ -92,12 +92,14 @@ export default function Login() {
     }
     setLoadingLogin(true);
     try {
-      const { token } = await loginWithOrgEmailPassword({
+      const { token, payload } = await loginWithOrgEmailPassword({
         organizationId: selectedOrgId,
         email,
         password,
       });
-      login(token || null);
+      // Persist token and any tenant info provided by backend (if present)
+      const maybeTenant = (payload && (payload.tenant_id || payload.tenantId)) || null;
+      login({ token: token || null, tenant_id: maybeTenant });
       const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
       navigate(from, { replace: true });
     } catch (e) {

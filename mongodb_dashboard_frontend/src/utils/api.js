@@ -1,15 +1,15 @@
-//
+import { buildAuthHeaders, getTenantId } from '../api/authTokenProvider';
+
 // PUBLIC_INTERFACE
 // apiGet (JS wrapper)
-// Wrapper delegating to the TypeScript implementation when available.
-// Duplicates the small fetch logic to remain resilient if TS module resolution is not active.
-//
+// Centralized GET helper that automatically injects Authorization and X-Tenant-Id.
+// Also appends tenant_id as query param if the endpoint expects it.
 function isAbsoluteUrl(url) {
   return /^https?:\/\//i.test(url);
 }
 
 function joinUrl(base, path) {
-  if (!base) return path;
+  if (!base) return path || '';
   const b = base.endsWith('/') ? base.slice(0, -1) : base;
   if (!path) return b;
   const p = path.startsWith('/') ? path : `/${path}`;
@@ -26,12 +26,22 @@ export async function apiGet(url, options = {}) {
       ? url
       : joinUrl(base, url);
 
-  const res = await fetch(finalUrl, {
+  const headers = buildAuthHeaders({
+    Accept: 'application/json',
+    ...(options.headers || {}),
+  });
+
+  // Append tenant_id query if not present (some endpoints require query param)
+  let effUrl = finalUrl;
+  const tid = getTenantId();
+  if (tid && !/[?&]tenant_id=/.test(finalUrl)) {
+    const sep = finalUrl.includes('?') ? '&' : '?';
+    effUrl = `${finalUrl}${sep}tenant_id=${encodeURIComponent(tid)}`;
+  }
+
+  const res = await fetch(effUrl, {
     method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      ...(options.headers || {}),
-    },
+    headers,
     signal: options.signal,
   });
 
