@@ -149,6 +149,16 @@ function slSet(key, payload) {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
+    // Enforce organization/tenant scope if provided via query or upper-layer middleware
+    // Prefer x-organization-id / ?organization_id semantics when available from upstream routes
+    const orgHeader =
+      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
+      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+      '';
+    const orgQuery = typeof req.query.organization_id === 'string' ? req.query.organization_id.trim() : '';
+    const enforcedOrg = orgQuery || orgHeader || null;
     // Parse pagination and filter (support pageSize alias for limit)
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
@@ -189,9 +199,31 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
-    // Combine filters
+    // Remove any attempt to bypass org scoping
+    if (filter && typeof filter === 'object') {
+      delete filter.organization_id;
+      delete filter.tenant_id;
+      delete filter.organizationId;
+      if (Array.isArray(filter.$or)) delete filter.$or;
+    }
+
+    // Build enforced org scope across alternate schema fields
+    const enforcedScope = enforcedOrg
+      ? {
+          $or: [
+            { tenant_id: enforcedOrg },
+            { organization_id: enforcedOrg },
+            { organizationId: enforcedOrg },
+          ],
+        }
+      : {};
+
+    // Combine filters and full text query
+    const combined = q && qFilter.$or && qFilter.$or.length > 0 ? { $and: [filter, qFilter] } : filter;
     const finalFilter =
-      q && qFilter.$or && qFilter.$or.length > 0 ? { $and: [filter, qFilter] } : filter;
+      Object.keys(enforcedScope).length > 0 ? { $and: [combined, enforcedScope] } : combined;
+
+    const debugEnabled = String(req.query.debug || 'false') === 'true';
 
     try {
       if (explicit) {
@@ -212,13 +244,18 @@ router.get(
           SessionTracking.countDocuments(finalFilter),
         ]);
         const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
-        const payload = { success: true, data: items, meta: { page, limit, total } };
+        const meta = { page, limit, total };
+        if (debugEnabled) meta.debug = { finalFilter, sort, skip, limit };
+        const payload = { success: true, data: items, meta };
         slSet(cacheKey, payload);
         return res.status(200).json(payload);
       }
 
       const docs = await SessionTracking.find(finalFilter).sort(sort);
       const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
+      if (debugEnabled) {
+        res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort }));
+      }
       return res.status(200).json(items);
     } catch (err) {
       // Map common cast errors to 400 to avoid 500

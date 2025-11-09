@@ -86,7 +86,11 @@ router.get('/tenant-summary', extractOrganization(), asyncHandler(async (req, re
   if (debugEnabled) {
     res.setHeader('X-Debug-Tenant-Filter', JSON.stringify({ tenant_id: req.organizationId }));
   }
-  return res.status(200).json(mapped);
+  return res.status(200).json({
+    items: mapped,
+    total: mapped.length,
+    meta: debugEnabled ? { debug: { tenant_id: req.organizationId } } : undefined,
+  });
 }));
 
 

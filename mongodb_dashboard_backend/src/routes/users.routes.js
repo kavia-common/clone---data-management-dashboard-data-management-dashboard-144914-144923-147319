@@ -466,6 +466,10 @@ router.get(
     // Optional debug output
     const debugEnabled = String(req.query.debug || 'false') === 'true';
 
+    // Log final filter for verification (temporary)
+    // eslint-disable-next-line no-console
+    console.log('[GET /api/users] organization_id=%s finalFilter=%s', req.organizationId, JSON.stringify(finalFilter));
+
     // Execute scoped query
     let items = [];
     let total = 0;
@@ -771,7 +775,31 @@ router.put(
  *       400:
  *         description: Invalid id
  */
-router.delete('/:id', asyncHandler(controller.remove));
+router.delete(
+  '/:id',
+  extractOrganization(),
+  asyncHandler(async (req, res) => {
+    // Enforce that deletion targets only a document within the scoped organization
+    const { id } = req.params;
+    const org = req.organizationId;
+
+    // Build org scope that cannot be bypassed
+    const orgScope = {
+      $or: [
+        { organization_id: org },
+        { tenant_id: org },
+        { organizationId: org },
+      ],
+    };
+
+    // Attempt to delete only if matches scope; otherwise 404 to avoid leaking existence
+    const doc = await User.findOneAndDelete({ _id: id, ...orgScope }).lean();
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Not found' });
+    }
+    return res.status(200).json({ _id: id, success: true });
+  })
+);
 
 /**
  * @swagger
@@ -1095,6 +1123,29 @@ router.get(
  *                   type: integer
  */
 // PUBLIC_INTERFACE
-router.get('/referral-sources', asyncHandler(getReferralSources));
+router.get(
+  '/referral-sources',
+  extractOrganization(),
+  asyncHandler(async (req, res) => {
+    if (typeof getReferralSources !== 'function') {
+      return res.status(404).json({ success: false, message: 'Referral sources not implemented' });
+    }
+    // Attach forced filter to request for downstream handler
+    req.query = { ...(req.query || {}) };
+    // Strip any client-provided org fields
+    delete req.query.organization_id;
+    delete req.query.tenant_id;
+    delete req.query.organizationId;
+    // Provide enforced filter via req for controller to use
+    req.enforcedOrgFilter = {
+      $or: [
+        { organization_id: req.organizationId },
+        { tenant_id: req.organizationId },
+        { organizationId: req.organizationId },
+      ],
+    };
+    return getReferralSources(req, res);
+  })
+);
 
 module.exports = router;
