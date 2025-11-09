@@ -115,7 +115,16 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
   }
 
   const after = await User.countDocuments({});
-  const sample = await User.findOne({}).sort({ _id: -1 }).lean();
+  // Ensure any sample we return is within the scoped organization when available
+  const sample = await User.findOne({
+    $or: [
+      { organization_id: req?.organizationId },
+      { tenant_id: req?.organizationId },
+      { organizationId: req?.organizationId },
+    ],
+  })
+    .sort({ _id: -1 })
+    .lean();
 
   return res.status(200).json({
     success: true,
@@ -434,16 +443,18 @@ router.get(
     if (filter && typeof filter === 'object') {
       delete filter.organization_id;
       delete filter.tenant_id;
+      delete filter.organizationId;
       if (Array.isArray(filter.$or)) {
         delete filter.$or;
       }
     }
 
-    // Build enforced org scope: either organization_id or tenant_id must equal req.organizationId
+    // Build enforced org scope: either organization_id, tenant_id, or organizationId must equal req.organizationId
     const enforcedOrgScope = {
       $or: [
         { organization_id: req.organizationId },
         { tenant_id: req.organizationId },
+        { organizationId: req.organizationId },
       ],
     };
 

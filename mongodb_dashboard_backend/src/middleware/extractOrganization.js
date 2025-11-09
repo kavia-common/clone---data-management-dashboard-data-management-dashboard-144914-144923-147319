@@ -40,6 +40,7 @@ function extractOrganization() {
 
     // Build common helpers for filtering/stamping to avoid cross-organization data leakage.
     // These helpers mirror tenantScopeEnforcer style, but keyed on tenant_id field at DB level.
+    // Note: Some collections may use organization_id or organizationId; callers should OR-match those if needed.
     req.orgFilter = { tenant_id: req.organizationId };
     req.withOrgFilter = (obj) => {
       const o = obj && typeof obj === 'object' ? { ...obj } : {};
