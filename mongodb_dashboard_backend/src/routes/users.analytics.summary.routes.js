@@ -54,6 +54,8 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  *         description: Internal server error
  */
 router.get('/tenant-summary', extractOrganization(), asyncHandler(async (req, res) => {
+  const debugEnabled = String(req.query.debug || 'false') === 'true';
+
   // Call controller to compute items, then map to array for frontend compatibility
   const fakeRes = {
     _status: 200,
@@ -80,6 +82,10 @@ router.get('/tenant-summary', extractOrganization(), asyncHandler(async (req, re
     tenant: it.tenant_name || it.tenant_id || '',
     count: typeof it.user_count === 'number' ? it.user_count : 0,
   }));
+
+  if (debugEnabled) {
+    res.setHeader('X-Debug-Tenant-Filter', JSON.stringify({ tenant_id: req.organizationId }));
+  }
   return res.status(200).json(mapped);
 }));
 

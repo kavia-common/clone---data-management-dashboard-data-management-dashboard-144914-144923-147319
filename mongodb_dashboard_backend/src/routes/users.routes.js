@@ -91,8 +91,12 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
 
   if (before === 0) {
     const now = new Date();
+    const org = req?.organizationId || 'demo-org';
     const demoUsers = [
       {
+        tenant_id: org,
+        organization_id: org,
+        organizationId: org,
         referral_code: 'REF-ALPHA',
         referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
         referral_history: [
@@ -103,6 +107,9 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
         updated_at: now,
       },
       {
+        tenant_id: org,
+        organization_id: org,
+        organizationId: org,
         referral_code: 'REF-BETA',
         referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
         referral_history: [],
@@ -115,16 +122,12 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
   }
 
   const after = await User.countDocuments({});
-  // Ensure any sample we return is within the scoped organization when available
-  const sample = await User.findOne({
-    $or: [
-      { organization_id: req?.organizationId },
-      { tenant_id: req?.organizationId },
-      { organizationId: req?.organizationId },
-    ],
-  })
-    .sort({ _id: -1 })
-    .lean();
+  // Return sample constrained to the current org when available
+  const org = req?.organizationId;
+  const sampleFilter = org
+    ? { $or: [{ organization_id: org }, { tenant_id: org }, { organizationId: org }] }
+    : {};
+  const sample = await User.findOne(sampleFilter).sort({ _id: -1 }).lean();
 
   return res.status(200).json({
     success: true,
@@ -418,7 +421,7 @@ router.get(
   '/',
   extractOrganization(),
   asyncHandler(async (req, res) => {
-    // Determine pagination intent and parse filter/sort similar to controller logic
+    // Determine pagination intent
     const explicit =
       Object.prototype.hasOwnProperty.call(req.query, 'page') ||
       Object.prototype.hasOwnProperty.call(req.query, 'limit');
@@ -438,7 +441,6 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
-    // Enforce organization scope for users collection.
     // Remove any client-provided org hints and strip any $or attempting to bypass scoping.
     if (filter && typeof filter === 'object') {
       delete filter.organization_id;
@@ -449,7 +451,7 @@ router.get(
       }
     }
 
-    // Build enforced org scope: either organization_id, tenant_id, or organizationId must equal req.organizationId
+    // Build enforced org scope across alternate schema fields
     const enforcedOrgScope = {
       $or: [
         { organization_id: req.organizationId },
@@ -458,13 +460,11 @@ router.get(
       ],
     };
 
-    // Merge user filter with enforced org scope using $and to prevent overrides
+    // Merge with AND to guarantee scope application
     const finalFilter = Object.keys(filter).length > 0 ? { $and: [filter, enforcedOrgScope] } : enforcedOrgScope;
 
-    // Temporary debug: expose the final filter when debug=true
-    if (String(req.query.debug || 'false') === 'true') {
-      res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort, page, limit, skip }));
-    }
+    // Optional debug output
+    const debugEnabled = String(req.query.debug || 'false') === 'true';
 
     // Execute scoped query
     let items = [];
@@ -488,7 +488,7 @@ router.get(
       return res.status(400).json({ success: false, message: 'Request failed', details: message });
     }
 
-    // If empty and collection itself is empty, optionally seed scoped demo users then re-run once
+    // If collection empty, seed demo users scoped to this org and rerun once
     if (total === 0) {
       try {
         const beforeAll = await User.countDocuments({});
@@ -498,6 +498,7 @@ router.get(
             {
               tenant_id: req.organizationId,
               organization_id: req.organizationId,
+              organizationId: req.organizationId,
               referral_code: 'REF-ALPHA',
               referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
               referral_history: [
@@ -510,6 +511,7 @@ router.get(
             {
               tenant_id: req.organizationId,
               organization_id: req.organizationId,
+              organizationId: req.organizationId,
               referral_code: 'REF-BETA',
               referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
               referral_history: [],
@@ -538,8 +540,8 @@ router.get(
     // Final response
     if (explicit) {
       const meta = { page, limit, total };
-      if (String(req.query.debug || 'false') === 'true') {
-        meta.debug = { finalFilter: finalFilter, sort, skip, limit };
+      if (debugEnabled) {
+        meta.debug = { finalFilter, sort, skip, limit };
       }
       return res.status(200).json({
         success: true,
@@ -548,6 +550,10 @@ router.get(
       });
     }
 
+    // Non-paginated: include debug via header if requested
+    if (debugEnabled) {
+      res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort }));
+    }
     return res.status(200).json(items);
   })
 );
@@ -582,15 +588,23 @@ router.get(
  */
 router.get(
   '/:id',
+  extractOrganization(),
   asyncHandler(async (req, res) => {
     const { id } = req.params;
     const idStr = String(id);
+    const orgFilter = {
+      $or: [
+        { organization_id: req.organizationId },
+        { tenant_id: req.organizationId },
+        { organizationId: req.organizationId },
+      ],
+    };
 
-    // Helper: resolve a user document by flexible id (ObjectId or denormalized fields)
+    // Helper: resolve a user document by flexible id (ObjectId or denormalized fields) WITH org scope
     async function findUserByFlexibleId(candidate) {
       // Try ObjectId lookup first when valid
       if (mongoose.Types.ObjectId.isValid(candidate)) {
-        const byId = await User.findById(candidate).lean();
+        const byId = await User.findOne({ _id: candidate, ...orgFilter }).lean();
         if (byId) return byId;
       }
 
@@ -605,16 +619,12 @@ router.get(
         { 'referral_history.user_id': candidate }, // direct match when stored as string
       ];
 
-      const direct = await User.findOne({ $or: orFields }).lean();
+      const direct = await User.findOne({ $and: [{ $or: orFields }, orgFilter] }).lean();
       if (direct) return direct;
 
       // Final fallback: match referral_history.user_id after string coercion (covers ObjectId/number)
       const agg = await User.aggregate([
-        {
-          $match: {
-            referral_history: { $exists: true, $type: 'array', $ne: [] },
-          },
-        },
+        { $match: { ...orgFilter, referral_history: { $exists: true, $type: 'array', $ne: [] } } },
         {
           $addFields: {
             _rh_ids: {
@@ -636,11 +646,9 @@ router.get(
 
     const doc = await findUserByFlexibleId(idStr);
     if (!doc) {
-      // Align with existing behavior for not-found
       return res.status(404).json({ success: false, message: 'Not found' });
     }
 
-    // Try to resolve a friendly name from common fields or fallback structures
     const nameCandidates = [
       doc.name,
       doc.displayName,
@@ -656,7 +664,6 @@ router.get(
 
     let name = nameCandidates.length > 0 ? nameCandidates[0] : null;
 
-    // Fallback: look into referral_history if present
     if (!name && Array.isArray(doc?.referral_history)) {
       const rh = doc.referral_history.find(
         (it) => typeof it?.user_name === 'string' && it.user_name.trim()
@@ -691,7 +698,19 @@ router.get(
  *       400:
  *         description: Bad request
  */
-router.post('/', asyncHandler(controller.create));
+router.post(
+  '/',
+  extractOrganization(),
+  asyncHandler(async (req, res) => {
+    // Force-stamp organization identifiers on create to prevent cross-tenant writes
+    const org = req.organizationId;
+    req.body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+    req.body.tenant_id = org;
+    req.body.organization_id = org;
+    req.body.organizationId = org;
+    return controller.create(req, res);
+  })
+);
 
 /**
  * @swagger
@@ -719,7 +738,19 @@ router.post('/', asyncHandler(controller.create));
  *       422:
  *         description: Validation failed
  */
-router.put('/:id', asyncHandler(controller.update));
+router.put(
+  '/:id',
+  extractOrganization(),
+  asyncHandler(async (req, res) => {
+    const org = req.organizationId;
+    req.body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+    // Only set if absent to avoid clobbering intentional same-org values
+    if (!req.body.tenant_id) req.body.tenant_id = org;
+    if (!req.body.organization_id) req.body.organization_id = org;
+    if (!req.body.organizationId) req.body.organizationId = org;
+    return controller.update(req, res);
+  })
+);
 
 /**
  * @swagger
