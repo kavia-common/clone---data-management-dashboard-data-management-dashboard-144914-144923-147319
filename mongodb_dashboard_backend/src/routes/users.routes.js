@@ -429,13 +429,20 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
-    // Enforce organization scope: map organization_id to tenant_id field used in DB.
-    // Never allow client-provided tenant/organization to override the scoped org.
+    // Enforce organization scope for users collection.
+    // Remove any client-provided org hints and apply a strict scope that matches either tenant_id or organization_id,
+    // since datasets may use either field naming convention.
     if (filter && typeof filter === 'object') {
       delete filter.organization_id;
       delete filter.tenant_id;
     }
-    filter = { ...filter, tenant_id: req.organizationId };
+    const orgScope = {
+      $or: [
+        { tenant_id: req.organizationId },
+        { organization_id: req.organizationId },
+      ],
+    };
+    filter = { ...filter, ...orgScope };
 
     // First pass: check data presence without sending a response
     let items = [];
@@ -469,6 +476,8 @@ router.get(
           const now = new Date();
           const demoUsers = [
             {
+              tenant_id: req.organizationId,
+              organization_id: req.organizationId,
               referral_code: 'REF-ALPHA',
               referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
               referral_history: [
@@ -479,6 +488,8 @@ router.get(
               updated_at: now,
             },
             {
+              tenant_id: req.organizationId,
+              organization_id: req.organizationId,
               referral_code: 'REF-BETA',
               referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
               referral_history: [],
@@ -508,11 +519,18 @@ router.get(
 
     // Final response (single send): match controller behavior and Swagger
     if (explicit) {
+      const meta = { page, limit, total };
+      if (String(req.query.debug || 'false') === 'true') {
+        meta.debug = { finalFilter: filter, sort, skip, limit };
+      }
       return res.status(200).json({
         success: true,
         data: items,
-        meta: { page, limit, total },
+        meta,
       });
+    }
+    if (String(req.query.debug || 'false') === 'true') {
+      res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter, sort }));
     }
     return res.status(200).json(items);
   })
