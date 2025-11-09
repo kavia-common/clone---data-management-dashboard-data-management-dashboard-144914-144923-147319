@@ -1,4 +1,13 @@
-// This file will export middleware as the application grows
+'use strict';
+/**
+ * PUBLIC_INTERFACE
+ * Middleware registry: export common middlewares for centralized imports if desired.
+ */
 module.exports = {
-  // Add your middleware here
+  // Legacy/Existing
+  verifyAuth: require('./verifyAuth').verifyAuth,
+  requireTenant: require('./requireTenant').requireTenant,
+
+  // New tenant JWT middleware and utilities
+  ...require('./authTenant'),
 };
