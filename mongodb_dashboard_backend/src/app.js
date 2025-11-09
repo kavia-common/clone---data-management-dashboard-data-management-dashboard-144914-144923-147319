@@ -76,6 +76,16 @@ const swaggerUiHandler = swaggerUi.setup(null, {
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
+// PUBLIC_INTERFACE
+// Simple docs help route to guide to /api-docs
+app.get('/api-docs-help', (req, res) => {
+  res.status(200).json({
+    message: 'Swagger UI available at /api-docs',
+    spec: '/openapi.json',
+    ready: true,
+  });
+});
+
 // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
@@ -101,6 +111,12 @@ app.get('/api/health', healthHandler);
  * Fast readiness check that does not depend on MongoDB. Returns 200 with status ok and db state.
  */
 app.get('/health', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return healthHandler(req, res);
+});
+// PUBLIC_INTERFACE
+// GET /ready - readiness alias for health checks
+app.get('/ready', (req, res) => {
   res.set('Cache-Control', 'no-store');
   return healthHandler(req, res);
 });
