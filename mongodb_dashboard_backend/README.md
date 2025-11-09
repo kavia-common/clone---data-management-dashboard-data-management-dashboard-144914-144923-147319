@@ -12,6 +12,18 @@ Quick start (development)
 - curl http://localhost:3001/health  # fast 200
 - curl http://localhost:3001/api/health  # includes db state
 
+Troubleshooting: "Port 3001 is already in use"
+- The server logs: "[startup] Port 3001 is already in use." This means another instance is already running and listening on 0.0.0.0:3001.
+- To confirm which process: 
+  - macOS/Linux: lsof -i :3001 -sTCP:LISTEN -Pn
+  - Or: ss -ltnp | grep :3001
+- Stop the stale process or change PORT in your .env to another value (e.g., 3101) and re-run.
+
+Environment defaults and .env
+- The server defaults to HOST=0.0.0.0 and PORT=3001 when not set.
+- MongoDB is optional for boot; DB-backed endpoints will report db=disconnected until MONGODB_URI is provided.
+- See .env.example for all variables you can set locally/CI.
+
 Important
 - Do NOT run `npm run dev` from the frontend folder; it has no dev script and CI logs will show "Missing script: dev".
 - Avoid `-r dotenv/config` in scripts; dotenv is required in src/server.js.
