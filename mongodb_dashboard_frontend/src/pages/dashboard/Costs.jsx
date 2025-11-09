@@ -3,7 +3,6 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import TreeView from "../../components/TreeView.jsx";
-import CostsOrganizationSummary from "../../components/costs/CostsOrganizationSummary.jsx";
 
 import { renderCreditsWithUsd } from "../../utils/currency";
 import { listLlmCosts } from "../../api";
@@ -334,9 +333,6 @@ export default function Costs() {
 
   return (
     <div>
-      {/* Organization Summary section (standalone, after agent chart removal) */}
-      <CostsOrganizationSummary />
-
       {/* Table section */}
       <Card
         title="Costs"
