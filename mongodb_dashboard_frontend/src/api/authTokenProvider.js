@@ -81,12 +81,13 @@ export function clearAuth() {
   }
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * buildAuthHeaders
+ * Builds headers with Authorization when available. Intentionally does NOT include any tenant header.
+ * Tenant scoping must be provided via the tenant_id query parameter which is appended by the shared API clients.
+ */
 export function buildAuthHeaders(baseHeaders = {}) {
-  /**
-   * Build headers with Authorization and X-Tenant-Id if available.
-   * This is used by the shared API client and any ad-hoc fetch utilities.
-   */
   const headers = { ...(baseHeaders || {}) };
 
   const token = getToken();
@@ -94,10 +95,7 @@ export function buildAuthHeaders(baseHeaders = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const tenantId = getTenantId();
-  if (tenantId && !headers['X-Tenant-Id']) {
-    headers['X-Tenant-Id'] = String(tenantId);
-  }
+  // Note: We no longer set 'X-Tenant-Id'. Tenant is appended as a query param elsewhere.
 
   return headers;
 }

@@ -16,13 +16,10 @@ export async function getUserProjects(userId, params = {}) {
     throw new Error("userId is required");
   }
   const { tenantId, from, to } = params || {};
-  if (!tenantId) {
-    throw new Error("tenantId is required");
-  }
-
-  const query = {
-    tenant_id: tenantId,
-  };
+  // tenantId is optional now since the shared client appends tenant_id automatically,
+  // but if provided we still include it explicitly to override.
+  const query = {};
+  if (tenantId) query.tenant_id = tenantId;
   // Normalize from/to to ISO if Date provided
   if (from) {
     try {

@@ -50,7 +50,7 @@ export async function getDurationHistogram({
   unit,
 } = {}) {
   /** This function builds a GET request to /api/session-tracking/duration-histogram
-   *  using existing api client utilities for base URL handling and GET.
+   *  using the shared api client (which appends tenant_id automatically).
    *  It applies defaults and minimal error handling.
    */
 

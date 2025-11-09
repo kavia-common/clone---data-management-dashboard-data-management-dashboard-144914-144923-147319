@@ -1,9 +1,10 @@
 import { buildAuthHeaders, getTenantId } from '../api/authTokenProvider';
 
-// PUBLIC_INTERFACE
-// apiGet (JS wrapper)
-// Centralized GET helper that automatically injects Authorization and X-Tenant-Id.
-// Also appends tenant_id as query param if the endpoint expects it.
+/**
+ * PUBLIC_INTERFACE
+ * apiGet (JS wrapper)
+ * Centralized GET helper that automatically injects Authorization and appends tenant_id as a query parameter.
+ */
 function isAbsoluteUrl(url) {
   return /^https?:\/\//i.test(url);
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { buildAuthHeaders, getTenantId } from '../api/authTokenProvider';
+import { getApiClient } from '../api';
 
 /**
  * PUBLIC_INTERFACE
@@ -19,23 +19,9 @@ export function useProjectUsage(projectId, options = {}) {
     setLoading(true);
     setError(null);
     try {
-      const base = process.env.REACT_APP_API_BASE_URL || '';
-      const tid = getTenantId();
-      let url = `${base}/api/projects/${encodeURIComponent(projectId)}/usage`;
-      if (tid && !/[?&]tenant_id=/.test(url)) {
-        const sep = url.includes('?') ? '&' : '?';
-        url = `${url}${sep}tenant_id=${encodeURIComponent(tid)}`;
-      }
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: buildAuthHeaders({ Accept: 'application/json' }),
-      });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Failed to load usage (${res.status}): ${txt || res.statusText}`);
-      }
-      const json = await res.json();
-      setData(json);
+      const api = getApiClient();
+      const res = await api.get(`/api/projects/${encodeURIComponent(projectId)}/usage`);
+      setData(res?.data ?? res);
     } catch (e) {
       setError(e.message || 'Failed to load usage');
     } finally {

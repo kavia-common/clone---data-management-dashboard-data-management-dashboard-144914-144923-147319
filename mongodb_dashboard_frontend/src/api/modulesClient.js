@@ -23,6 +23,7 @@ function resolveBase() {
 
 async function fetchJson(url, { credentials = 'omit' } = {}) {
   const tid = getTenantId();
+  // Authorization only; tenant is appended as query param by this utility
   const headers = buildAuthHeaders({ Accept: 'application/json' });
 
   // If endpoint expects tenant in query param, append when not present

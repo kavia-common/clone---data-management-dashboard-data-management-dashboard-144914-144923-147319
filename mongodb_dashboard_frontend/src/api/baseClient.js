@@ -54,10 +54,8 @@ function toQuery(params = {}) {
 }
 
 /**
- * Ensure tenant scoping on query params if header can't be used.
- * By default we always add X-Tenant-Id header. If a caller needs the query
- * param for specific endpoints, they can still pass it; this helper only
- * augments when not already present.
+ * Ensure tenant scoping on query params by appending tenant_id when not present.
+ * We no longer use tenant headers; tenant must be carried via query parameter.
  */
 function ensureTenantQueryParams(pathOrUrl, params = {}) {
   const existingHasTenant =
@@ -111,8 +109,14 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
   return { data: payload };
 }
 
-async function httpJson(method, pathOrUrl, body, { headers, signal } = {}) {
-  const url = buildUrl(pathOrUrl);
+async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {}) {
+  // Append tenant_id to query if not already present
+  const effParams = ensureTenantQueryParams(pathOrUrl, params);
+  const urlWithParams =
+    typeof pathOrUrl === "string" && (effParams && Object.keys(effParams).length > 0)
+      ? `${pathOrUrl}${toQuery(effParams)}`
+      : pathOrUrl;
+  const url = buildUrl(urlWithParams);
   const res = await fetch(url, {
     method,
     headers: buildAuthHeaders({
