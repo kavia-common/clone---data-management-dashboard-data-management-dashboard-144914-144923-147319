@@ -3,7 +3,7 @@
 const express = require('express');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
-const { tryRequireRoute, buildStubRouter } = require('../utils/app');
+const { tryRequireRoute } = require('../utils/app');
 
 const router = express.Router();
 
