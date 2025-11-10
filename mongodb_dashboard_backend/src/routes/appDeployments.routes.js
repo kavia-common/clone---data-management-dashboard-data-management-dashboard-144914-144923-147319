@@ -290,7 +290,7 @@ router.post(
 router.put(
   '/:id',
   verifyAuth,
-  requireTenantMw,
+  requireTenant,
   validateAppDeployment,
   asyncHandler(async (req, res) => {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
@@ -336,7 +336,7 @@ router.put(
 router.delete(
   '/:id',
   verifyAuth,
-  requireTenantMw,
+  requireTenant,
   asyncHandler(async (req, res) => {
     // Try to fetch tenant-scoped record to invalidate cache appropriately
     const existing = await AppDeployment.findOne(
