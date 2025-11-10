@@ -39,17 +39,36 @@ function buildListKey(req, filter, sort, page, limit, skip, explicit) {
 }
 
 /**
- * Build a REST controller for a Mongoose model.
- * Supports list with basic filtering, get by id, create, update, delete.
- * This implementation adds robust error handling to avoid runtime 500s for:
- * - CastError (e.g., invalid _id, invalid filter value types)
- * - ValidationError (create/update schema validations)
- *
- * Response format change:
- * - If pagination is NOT explicitly requested (no page/limit query), return RAW MongoDB data:
- *   - list: returns an array of documents directly (no {success,data,meta})
- *   - getById/create/update/remove: return the document or result object directly
- * - If pagination IS explicitly requested, keep envelope { success, data, meta } for backward compatibility.
+ * Sanitize the incoming payload for create/update:
+ * - Ensure it's an object
+ * - Strip client-provided tenant_id and inject from req.tenantId when available
+ */
+function sanitizePayloadWithTenant(req) {
+  if (!req || typeof req !== 'object') return null;
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const clean = { ...body };
+  if ('tenant_id' in clean) delete clean.tenant_id;
+  if (req.tenantId) clean.tenant_id = String(req.tenantId);
+  return clean;
+}
+
+/**
+ * Merge filter safely with enforced tenant_id, ignoring any client-provided tenant keys.
+ */
+function mergeFilterWithTenant(filter, tenantId) {
+  const f = filter && typeof filter === 'object' ? { ...filter } : {};
+  // strip possible client-supplied tenant hints
+  delete f.tenant_id;
+  delete f.tenantId;
+  delete f.organization_id;
+  if (!tenantId) return f;
+  // enforce tenant filter
+  return Object.keys(f).length > 0 ? { $and: [f, { tenant_id: String(tenantId) }] } : { tenant_id: String(tenantId) };
+}
+
+/**
+ * Build a REST controller for a Mongoose model with tenant enforcement.
  */
 function buildCrudController(Model, listDefaultSort = '-_id') {
   // Map known Mongoose errors to user-friendly responses
@@ -57,24 +76,18 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
     const name = err?.name || '';
     const message = err?.message || 'Unknown error';
 
-    // Invalid _id or filter casting issues
     if (name === 'CastError' || /Cast to/.test(message)) {
       return failure(res, `Invalid value provided (${context})`, 400, { error: message });
     }
-
-    // Schema validation issues when creating/updating
     if (name === 'ValidationError') {
       return failure(res, 'Validation failed', 422, { error: message, details: err?.errors || undefined });
     }
-
-    // Fallback: avoid 500 leaks but still communicate failure
     return failure(res, 'Request failed', 400, { error: message });
   }
 
   return {
     // PUBLIC_INTERFACE
     async list(req, res) {
-      /** List documents with basic JSON filter, pagination, and sort */
       const { page, limit, skip, explicit } = parsePagination(req.query);
       const filterRaw = req.query.filter ? req.query.filter : '{}';
       let filter = {};
@@ -84,21 +97,15 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         return failure(res, 'Invalid filter JSON', 400);
       }
 
+      // enforce tenant
+      const appliedFilter = mergeFilterWithTenant(filter, req.tenantId);
       const sort = req.query.sort || listDefaultSort;
 
       try {
-        // Micro-cache only explicit (paginated) GET list responses
         if (req.method === 'GET' && explicit) {
-          const key = buildListKey(req, filter, sort, page, limit, skip, explicit);
+          const key = buildListKey(req, appliedFilter, sort, page, limit, skip, explicit);
           const cached = microGet(key);
-          if (cached) {
-            return res.status(200).json(cached);
-          }
-
-          // Apply optional org filter if provided by middleware (defensive: AND existing filters)
-          const appliedFilter = req.orgFilter
-            ? (Object.keys(filter).length > 0 ? { $and: [filter, req.orgFilter] } : req.orgFilter)
-            : filter;
+          if (cached) return res.status(200).json(cached);
 
           const [items, total] = await Promise.all([
             Model.find(appliedFilter).sort(sort).skip(skip).limit(limit).lean(),
@@ -109,10 +116,6 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
           return res.status(200).json(payload);
         }
 
-        // No explicit pagination: return the raw array of documents (no envelope)
-        const appliedFilter = req.orgFilter
-          ? (Object.keys(filter).length > 0 ? { $and: [filter, req.orgFilter] } : req.orgFilter)
-          : filter;
         const items = await Model.find(appliedFilter).sort(sort).lean();
         return res.status(200).json(items);
       } catch (err) {
@@ -122,12 +125,10 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
     // PUBLIC_INTERFACE
     async getById(req, res) {
-      /** Get a single document by Mongo _id */
       const { id } = req.params;
       try {
-        const doc = await Model.findById(id).lean();
+        const doc = await Model.findOne({ _id: id, tenant_id: String(req.tenantId) }).lean();
         if (!doc) return failure(res, 'Not found', 404);
-        // Return raw doc
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'getById');
@@ -136,11 +137,10 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
     // PUBLIC_INTERFACE
     async create(req, res) {
-      /** Create a new document */
-      const data = req.body;
+      const clean = sanitizePayloadWithTenant(req);
+      if (!clean) return failure(res, 'Bad request: payload must be an object', 400);
       try {
-        const doc = await Model.create(data);
-        // Return raw created doc
+        const doc = await Model.create(clean);
         return res.status(201).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'create');
@@ -149,13 +149,16 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
     // PUBLIC_INTERFACE
     async update(req, res) {
-      /** Update a document by _id with provided data */
       const { id } = req.params;
-      const data = req.body;
+      const clean = sanitizePayloadWithTenant(req);
+      if (!clean) return failure(res, 'Bad request: payload must be an object', 400);
       try {
-        const doc = await Model.findByIdAndUpdate(id, data, { new: true }).lean();
+        const doc = await Model.findOneAndUpdate(
+          { _id: id, tenant_id: String(req.tenantId) },
+          clean,
+          { new: true }
+        ).lean();
         if (!doc) return failure(res, 'Not found', 404);
-        // Return raw updated doc
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'update');
@@ -164,12 +167,10 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
 
     // PUBLIC_INTERFACE
     async remove(req, res) {
-      /** Delete a document by _id */
       const { id } = req.params;
       try {
-        const doc = await Model.findByIdAndDelete(id).lean();
+        const doc = await Model.findOneAndDelete({ _id: id, tenant_id: String(req.tenantId) }).lean();
         if (!doc) return failure(res, 'Not found', 404);
-        // Return minimal raw response indicating deleted id
         return res.status(200).json({ _id: id });
       } catch (err) {
         return mapAndReplyError(res, err, 'remove');

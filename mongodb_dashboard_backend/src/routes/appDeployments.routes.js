@@ -1,11 +1,17 @@
 const express = require('express');
-const { asyncHandler } = require('../utils/http');
+const { asyncHandler, failure } = require('../utils/http');
 const AppDeployment = require('../models/appDeployments.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 const { validateAppDeployment } = require('../middleware/validators');
 const { normalizeProjectId } = require('../services/enrichment.util');
+const { verifyAuth } = require('../middleware/verifyAuth');
+const { requireTenant } = require('../middleware/requireTenant');
+const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 
 const router = express.Router();
+// Enforce auth + tenant on all app-deployments routes
+router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
+
 const controller = buildCrudController(AppDeployment, '-created_at');
 
 /**
@@ -139,19 +145,17 @@ router.get(
     const pid = normalizeProjectId(originalId) || String(originalId || '').trim();
 
     if (!pid) {
-      // Keep response shape intact
       return res.status(200).json({ projectId: originalId || '', projectName: null });
     }
 
-    // Cache check: return cached value if present and not expired
-    // TTL behavior: entries expire after 5 minutes; stale entries are purged on access.
     const cached = cacheGet(pid);
     if (cached !== null && cached !== undefined) {
       return res.status(200).json({ projectId: pid, projectName: cached });
     }
 
-    // Build OR query across possible id fields in deployments
+    // Build OR query across possible id fields in deployments and enforce tenant
     const idQuery = {
+      tenant_id: String(req.tenantId),
       $or: [
         { projectId: pid },
         { project_id: pid },
@@ -160,7 +164,6 @@ router.get(
       ],
     };
 
-    // Project only known name fields
     const projection = {
       projectName: 1,
       project_name: 1,
@@ -172,7 +175,6 @@ router.get(
       created_at: 1,
     };
 
-    // Prefer the latest record if multiple exist (fallback across common timestamp fields)
     const dep = await AppDeployment.findOne(idQuery, projection)
       .sort({ updatedAt: -1, updated_at: -1, createdAt: -1, created_at: -1 })
       .lean();
@@ -184,7 +186,6 @@ router.get(
       dep?.project?.name ||
       null;
 
-    // Populate cache only after successful resolution attempt (even if null)
     cacheSet(pid, name);
 
     return res.status(200).json({ projectId: pid, projectName: name ? String(name) : null });
@@ -229,15 +230,16 @@ router.post(
   '/',
   validateAppDeployment,
   asyncHandler(async (req, res) => {
-    // Invalidation note:
-    // We proactively invalidate cache entries for any projectId found in the incoming payload
-    // because a create may introduce a new projectName or update known fields.
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ success: false, message: 'Bad request: payload must be an object' });
+    }
+    // strip any client-provided tenant_id and let controller stamp it
+    if ('tenant_id' in req.body) delete req.body.tenant_id;
+
     const pid = extractNormalizedProjectId(req.body);
     if (pid) {
       projectNameCache.delete(pid);
     }
-
-    // Delegate to existing controller (do not change response shape)
     return controller.create(req, res);
   })
 );
@@ -268,12 +270,15 @@ router.put(
   '/:id',
   validateAppDeployment,
   asyncHandler(async (req, res) => {
-    // Invalidate for projectId present in payload
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      return res.status(400).json({ success: false, message: 'Bad request: payload must be an object' });
+    }
+    if ('tenant_id' in req.body) delete req.body.tenant_id;
+
     const pidFromBody = extractNormalizedProjectId(req.body);
     if (pidFromBody) {
       projectNameCache.delete(pidFromBody);
     } else {
-      // If not present, try to find existing record to infer its project id
       const existing = await AppDeployment.findById(req.params.id, {
         projectId: 1,
         project_id: 1,
@@ -283,8 +288,6 @@ router.put(
       const inferred = extractNormalizedProjectId(existing || {});
       if (inferred) projectNameCache.delete(inferred);
     }
-
-    // Delegate to existing controller (response shape unchanged)
     return controller.update(req, res);
   })
 );
@@ -308,19 +311,19 @@ router.put(
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
-    // Before delete, try to load the record to determine project id for invalidation
-    const existing = await AppDeployment.findById(req.params.id, {
-      projectId: 1,
-      project_id: 1,
-      'metadata.projectId': 1,
-      'project.id': 1,
-    }).lean();
+    // Try to fetch tenant-scoped record to invalidate cache appropriately
+    const existing = await AppDeployment.findOne(
+      { _id: req.params.id, tenant_id: String(req.tenantId) },
+      {
+        projectId: 1,
+        project_id: 1,
+        'metadata.projectId': 1,
+        'project.id': 1,
+      }
+    ).lean();
     const inferred = extractNormalizedProjectId(existing || {});
-    if (inferred) {
-      projectNameCache.delete(inferred);
-    }
+    if (inferred) projectNameCache.delete(inferred);
 
-    // Delegate to existing controller (response shape unchanged)
     return controller.remove(req, res);
   })
 );

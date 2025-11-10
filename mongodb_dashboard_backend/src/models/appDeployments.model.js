@@ -19,7 +19,7 @@ const AppDeploymentsSchema = new mongoose.Schema(
     status: { type: String, enum: ['success', 'failed', 'in-progress'], index: true },
     subdomain: { type: String },
     task_id: { type: String },
-    tenant_id: { type: String, index: true },
+    tenant_id: { type: String, required: true, index: true },
     tenant_name: { type: String },
     updated_at: { type: Date, index: true },
     artifact_count: { type: Number },
@@ -29,8 +29,10 @@ const AppDeploymentsSchema = new mongoose.Schema(
   { timestamps: false, collection: 'app_deployments' }
 );
 
-// Suggested indexes from schema
+// Suggested and enforced indexes
 AppDeploymentsSchema.index({ project_id: 1, created_at: -1 });
+AppDeploymentsSchema.index({ tenant_id: 1 });
+AppDeploymentsSchema.index({ tenant_id: 1, project_id: 1 });
 AppDeploymentsSchema.index({ tenant_id: 1, status: 1, updated_at: -1 });
 AppDeploymentsSchema.index({ app_id: 1, updated_at: -1 });
 AppDeploymentsSchema.index({ branch_name: 1, created_at: -1 });
