@@ -26,24 +26,21 @@ function extractOrganization() {
       (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
       '';
 
-    const organizationId = qTenant || qOrg || bOrg || hdrOrg;
+    // Prefer header, then query, then body to minimize client influence via URL tampering
+    const organizationId = hdrOrg || qTenant || qOrg || bOrg;
 
     if (!organizationId) {
       return res.status(400).json({
         success: false,
-        message: 'organization_id is required (provide as ?organization_id=... or header x-organization-id).',
+        message: 'organization_id is required (provide via header x-organization-id or ?organization_id=...)',
       });
     }
 
     req.organizationId = String(organizationId);
-    // For compatibility with existing tenant-named helpers
     req.tenantId = String(organizationId);
 
-    // Build common helpers for filtering/stamping to avoid cross-organization data leakage.
-    // These helpers mirror tenantScopeEnforcer style, but keyed on tenant_id field at DB level.
-    // Note: Some collections may use organization_id or organizationId; callers should OR-match those if needed.
+    // Helpers to enforce server-side scoping
     req.orgFilter = { tenant_id: req.organizationId };
-    // Helper to build an $or filter across common organization fields
     req.buildOrgFilter = (orgId) => ({
       $or: [
         { tenant_id: orgId },
@@ -60,10 +57,19 @@ function extractOrganization() {
     };
     req.stampOrg = (doc) => {
       if (!doc || typeof doc !== 'object') return doc;
-      // Always enforce stamp to prevent cross-tenant writes
       doc.tenant_id = req.organizationId;
+      doc.organization_id = req.organizationId;
+      doc.organizationId = req.organizationId;
       return doc;
     };
+
+    // Dev logging for traceability
+    if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+      try {
+        // eslint-disable-next-line no-console
+        console.debug(`[extractOrganization] org=${req.organizationId} method=${req.method} url=${req.originalUrl}`);
+      } catch {}
+    }
 
     return next();
   };

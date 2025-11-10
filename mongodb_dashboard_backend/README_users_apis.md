@@ -1,33 +1,18 @@
-# Users API quick test guide
+# Users API scoping notes
 
-Base URL: http://localhost:${PORT:-3001}
+- All list endpoints under /api/users are now strictly scoped by organization on the server.
+- Organization is read from trusted locations via middleware (headers preferred): 
+  - X-Organization-Id, X-Org-Id, X-Tenant-Id, X-Tenant
+  - Fallbacks: query ?tenant_id or ?organization_id, or body.organization_id for POST endpoints.
 
-Ensure you have MONGODB_URI configured in .env and the server running: `npm run dev`.
+Verification commands:
 
-1) List users
-curl -sS 'http://localhost:3001/api/users' | jq .
+- Should return only users for org \"orgA\":
+  curl -s 'http://localhost:3001/api/users?limit=5' -H 'X-Organization-Id: orgA' | jq
 
-With pagination envelope:
-curl -sS 'http://localhost:3001/api/users?page=1&limit=10&sort=-created_at' | jq .
+- Should not be influenced by client-provided filter orgs (server strips and enforces):
+  curl -s 'http://localhost:3001/api/users?filter={"tenant_id":"orgB"}' -H 'X-Organization-Id: orgA' | jq
 
-With filter:
-curl -sS 'http://localhost:3001/api/users?filter={"email":"user@example.com"}' | jq .
+- Debug logs:
+  append ?debug=true to see final filter in response meta or header X-Debug-Final-Filter (for unpaginated lists).
 
-2) Seed demo users if collection empty
-curl -sS 'http://localhost:3001/api/users/seed-if-empty' | jq .
-
-3) Create user
-curl -sS -X POST 'http://localhost:3001/api/users' \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"new.user@example.com","name":"New User","organization_id":"org_demo"}' | jq .
-
-4) Get by id
-curl -sS 'http://localhost:3001/api/users/<_id>' | jq .
-
-5) Update user
-curl -sS -X PUT 'http://localhost:3001/api/users/<_id>' \
-  -H 'Content-Type: application/json' \
-  -d '{"department":"Engineering"}' | jq .
-
-6) Delete user
-curl -sS -X DELETE 'http://localhost:3001/api/users/<_id>' | jq .

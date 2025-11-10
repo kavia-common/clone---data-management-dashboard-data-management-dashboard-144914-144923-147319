@@ -432,30 +432,27 @@ router.get(
 
     const sort = req.query.sort || '-created_at';
 
-    // Resolve organization from payload or query (middleware already validated and set req.organizationId)
-    const payloadOrg = typeof req.body?.organization_id === 'string' ? req.body.organization_id : null;
-    const queryOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : null;
-    if (!req.organizationId && (payloadOrg || queryOrg)) {
-      // Should not generally happen since middleware enforces, but keep a safe fallback
-      req.organizationId = String(payloadOrg || queryOrg);
+    // Resolve organization from trusted middleware (headers/body/query parsed in extractOrganization)
+    if (!req.organizationId) {
+      return res.status(400).json({ success: false, message: 'organization_id is required' });
     }
 
     // Parse filter safely
     const filterRaw = req.query.filter ? req.query.filter : '{}';
-    let filter = {};
+    let clientFilter = {};
     try {
-      filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
+      clientFilter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
     } catch {
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
-    // Remove any client-provided org hints and strip any $or attempting to bypass scoping.
-    if (filter && typeof filter === 'object') {
-      delete filter.organization_id;
-      delete filter.tenant_id;
-      delete filter.organizationId;
-      if (Array.isArray(filter.$or)) {
-        delete filter.$or;
+    // Strip any client-provided org hints and dangerous operators attempting to bypass scoping
+    const scrubbedFilter = {};
+    if (clientFilter && typeof clientFilter === 'object') {
+      for (const [k, v] of Object.entries(clientFilter)) {
+        if (k === 'organization_id' || k === 'tenant_id' || k === 'organizationId') continue;
+        if (k === '$or' || k === '$and') continue;
+        scrubbedFilter[k] = v;
       }
     }
 
@@ -470,30 +467,41 @@ router.get(
           ],
         };
 
-    // Merge with AND to guarantee scope application
-    const finalFilter = Object.keys(filter).length > 0 ? { $and: [filter, enforcedOrgScope] } : enforcedOrgScope;
+    // Compose final query: AND the user filter with org scope (if user filter empty, just org scope)
+    const finalFilter =
+      Object.keys(scrubbedFilter).length > 0 ? { $and: [scrubbedFilter, enforcedOrgScope] } : enforcedOrgScope;
 
-    // Optional debug output
     const debugEnabled = String(req.query.debug || 'false') === 'true';
-
-    // Log final filter for verification (temporary)
-    // eslint-disable-next-line no-console
-    console.log('[GET /api/users] organization_id=%s finalFilter=%s', req.organizationId, JSON.stringify(finalFilter));
-
-    // Execute scoped query
-    let items = [];
-    let total = 0;
+    if (debugEnabled || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[GET /api/users] org=%s finalFilter=%s sort=%s page=%s limit=%s',
+        req.organizationId,
+        JSON.stringify(finalFilter),
+        sort,
+        explicit ? page : 'n/a',
+        explicit ? limit : 'n/a'
+      );
+    }
 
     try {
       if (explicit) {
-        [items, total] = await Promise.all([
+        const [items, total] = await Promise.all([
           User.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
           User.countDocuments(finalFilter),
         ]);
-      } else {
-        items = await User.find(finalFilter).sort(sort).lean();
-        total = items.length;
+        const meta = { page, limit, total };
+        if (debugEnabled) {
+          meta.debug = { finalFilter, sort, skip, limit };
+        }
+        return res.status(200).json({ success: true, data: items, meta });
       }
+
+      const items = await User.find(finalFilter).sort(sort).lean();
+      if (debugEnabled) {
+        res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort }));
+      }
+      return res.status(200).json(items);
     } catch (err) {
       const message = err?.message || 'Request failed';
       if (err?.name === 'CastError' || /Cast to/.test(message)) {
@@ -501,74 +509,6 @@ router.get(
       }
       return res.status(400).json({ success: false, message: 'Request failed', details: message });
     }
-
-    // If collection empty, seed demo users scoped to this org and rerun once
-    if (total === 0) {
-      try {
-        const beforeAll = await User.countDocuments({});
-        if (beforeAll === 0) {
-          const now = new Date();
-          const demoUsers = [
-            {
-              tenant_id: req.organizationId,
-              organization_id: req.organizationId,
-              organizationId: req.organizationId,
-              referral_code: 'REF-ALPHA',
-              referral_stats: { total_referrals: 2, verified_referrals: 1, last_referral_date: now },
-              referral_history: [
-                { user_id: 'u-101', user_email: 'alpha1@example.com', user_name: 'Alpha One', referred_at: now, status: 'verified' },
-                { user_id: 'u-102', user_email: 'alpha2@example.com', user_name: 'Alpha Two', referred_at: now, status: 'pending' },
-              ],
-              created_at: now,
-              updated_at: now,
-            },
-            {
-              tenant_id: req.organizationId,
-              organization_id: req.organizationId,
-              organizationId: req.organizationId,
-              referral_code: 'REF-BETA',
-              referral_stats: [{ total_referrals: 1, verified_referrals: 0, last_referral_date: now }],
-              referral_history: [],
-              created_at: now,
-              updated_at: now,
-            },
-          ];
-          await User.insertMany(demoUsers);
-        }
-        // Re-run list after potential seed
-        if (explicit) {
-          [items, total] = await Promise.all([
-            User.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
-            User.countDocuments(finalFilter),
-          ]);
-        } else {
-          items = await User.find(finalFilter).sort(sort).lean();
-          total = items.length;
-        }
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('Auto-seed on empty /api/users failed:', err?.message || err);
-      }
-    }
-
-    // Final response
-    if (explicit) {
-      const meta = { page, limit, total };
-      if (debugEnabled) {
-        meta.debug = { finalFilter, sort, skip, limit };
-      }
-      return res.status(200).json({
-        success: true,
-        data: items,
-        meta,
-      });
-    }
-
-    // Non-paginated: include debug via header if requested
-    if (debugEnabled) {
-      res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort }));
-    }
-    return res.status(200).json(items);
   })
 );
 
