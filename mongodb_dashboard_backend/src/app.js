@@ -215,8 +215,10 @@ app.get('/api/docs/headers', (req, res) => {
   });
 });
 
-// Dev utilities
-app.use('/api/dev', require('./routes/dev.routes'));
+const { tryRequireRoute, buildStubRouter } = require('./utils/app');
+
+// Dev utilities (guard require)
+app.use('/api/dev', tryRequireRoute('./routes/dev.routes', { mountPath: '/api/dev', label: 'dev.routes' }));
 
 /**
  * Public API routes
@@ -226,13 +228,15 @@ try {
   // eslint-disable-next-line no-console
   console.log('[startup] Mounting /api/users routes...');
 } catch { }
-app.use('/api/users', require('./routes/users.routes'));
+// Guarded user routes
+app.use('/api/users', tryRequireRoute('./routes/users.routes', { mountPath: '/api/users', label: 'users.routes' }));
 
 try {
   // eslint-disable-next-line no-console
   console.log('[startup] Mounting /api/users tenant-summary routes...');
 } catch { }
-const usersAnalyticsSummaryRouter = require('./routes/users.analytics.summary.routes');
+// Guarded users.analytics.summary routes
+const usersAnalyticsSummaryRouter = tryRequireRoute('./routes/users.analytics.summary.routes', { mountPath: '/api/users', label: 'users.analytics.summary.routes' });
 if (usersAnalyticsSummaryRouter && usersAnalyticsSummaryRouter.stack) {
   try {
     // eslint-disable-next-line no-console
@@ -247,8 +251,17 @@ try {
   // eslint-disable-next-line no-console
   console.log('[startup] Registering inline fallback for GET /api/users/tenant-summary');
 } catch { }
-const { getUsersTenantSummary } = require('./controllers/users.analytics.summary.controller');
+let getUsersTenantSummarySafe = null;
+try {
+  ({ getUsersTenantSummary: getUsersTenantSummarySafe } = require('./controllers/users.analytics.summary.controller'));
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.error('[startup] users.analytics.summary.controller failed to load, keeping inline fallback stub only:', e?.message || e);
+}
 app.get('/api/users/tenant-summary', async (req, res) => {
+  if (typeof getUsersTenantSummarySafe !== 'function') {
+    return res.status(200).json([]);
+  }
   try {
     // Reuse controller but capture its response to map shape
     const fakeRes = {
@@ -257,7 +270,7 @@ app.get('/api/users/tenant-summary', async (req, res) => {
       status(code) { this._status = code; return this; },
       json(payload) { this._sent = true; this._payload = payload; return this; }
     };
-    await getUsersTenantSummary(req, fakeRes);
+    await getUsersTenantSummarySafe(req, fakeRes);
     if (!fakeRes._sent) {
       return res.status(500).json({ success: false, message: 'Controller did not respond' });
     }
@@ -277,7 +290,7 @@ app.get('/api/users/tenant-summary', async (req, res) => {
   }
 });
 
-const analyticsAgentsRoutes = require('./routes/analyticsAgents');
+const analyticsAgentsRoutes = tryRequireRoute('./routes/analyticsAgents', { mountPath: '/api/analytics/agents', label: 'analyticsAgents' });
 
 const { verifyAuth } = require('./middleware/verifyAuth');
 const { requireTenant } = require('./middleware/requireTenant');
@@ -298,9 +311,11 @@ const devHeadersLogger = (req, res, next) => {
 };
 app.use(devHeadersLogger);
 
-// Provide both kebab and camelCase aliases for session tracking and deployments
-app.use('/api/session-tracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
-app.use('/api/sessionTracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
+/**
+ * Provide both kebab and camelCase aliases for session tracking and deployments (guarded)
+ */
+app.use('/api/session-tracking', verifyAuth, requireTenant, tryRequireRoute('./routes/sessionTracking.routes', { mountPath: '/api/session-tracking', label: 'sessionTracking.routes' }));
+app.use('/api/sessionTracking', verifyAuth, requireTenant, tryRequireRoute('./routes/sessionTracking.routes', { mountPath: '/api/sessionTracking', label: 'sessionTracking.routes' }));
 
 /**
  * Analytics endpoints
@@ -308,10 +323,10 @@ app.use('/api/sessionTracking', verifyAuth, requireTenant, require('./routes/ses
  * - Overview time-bucketed metrics
  */
 app.use('/api/analytics/agents', verifyAuth, requireTenant, analyticsAgentsRoutes);
-app.use('/api/analytics', verifyAuth, requireTenant, require('./routes/analytics.overview.routes'));
+app.use('/api/analytics', verifyAuth, requireTenant, tryRequireRoute('./routes/analytics.overview.routes', { mountPath: '/api/analytics', label: 'analytics.overview.routes' }));
 
-app.use('/api/app-deployments', verifyAuth, requireTenant, require('./routes/appDeployments.routes'));
-app.use('/api/appDeployments', verifyAuth, requireTenant, require('./routes/appDeployments.routes'));
+app.use('/api/app-deployments', verifyAuth, requireTenant, tryRequireRoute('./routes/appDeployments.routes', { mountPath: '/api/app-deployments', label: 'appDeployments.routes' }));
+app.use('/api/appDeployments', verifyAuth, requireTenant, tryRequireRoute('./routes/appDeployments.routes', { mountPath: '/api/appDeployments', label: 'appDeployments.routes' }));
 
 /**
  * Sample data route removed. The application now only exposes real MongoDB-backed APIs.
@@ -319,21 +334,21 @@ app.use('/api/appDeployments', verifyAuth, requireTenant, require('./routes/appD
  */
 
 // Costs aggregate endpoints (non-users analytics)
-app.use('/api/costs', verifyAuth, requireTenant, require('./routes/costs.byAgent.routes'));
+app.use('/api/costs', verifyAuth, requireTenant, tryRequireRoute('./routes/costs.byAgent.routes', { mountPath: '/api/costs', label: 'costs.byAgent.routes' }));
 
 /* LLM costs endpoints */
-app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
-app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
+app.use('/api/llm-costs', tryRequireRoute('./routes/llmCosts.routes', { mountPath: '/api/llm-costs', label: 'llmCosts.routes' }));
+app.use('/api/llmCosts', tryRequireRoute('./routes/llmCosts.routes', { mountPath: '/api/llmCosts', label: 'llmCosts.routes' }));
 // Hierarchy analytics for LLM costs
-app.use('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
+app.use('/api/llm-costs', tryRequireRoute('./routes/llmCosts.hierarchy.routes', { mountPath: '/api/llm-costs', label: 'llmCosts.hierarchy.routes' }));
 
 // Tenants, Projects, Auth, Session
-app.use('/api/tenants', verifyAuth, requireTenant, require('./routes/tenants.routes'));
-app.use('/api/projects', verifyAuth, requireTenant, require('./routes/projects.routes'));
-app.use('/api/session', verifyAuth, requireTenant, require('./routes/session.routes'));
-app.use('/api/dashboard', verifyAuth, requireTenant, require('./routes/dashboard.routes'));
-app.use('/api/dashboard/overview', verifyAuth, requireTenant, require('./routes/dashboard.modules.routes'));
-app.use('/api/auth', require('./routes/auth.routes'));
+app.use('/api/tenants', verifyAuth, requireTenant, tryRequireRoute('./routes/tenants.routes', { mountPath: '/api/tenants', label: 'tenants.routes' }));
+app.use('/api/projects', verifyAuth, requireTenant, tryRequireRoute('./routes/projects.routes', { mountPath: '/api/projects', label: 'projects.routes' }));
+app.use('/api/session', verifyAuth, requireTenant, tryRequireRoute('./routes/session.routes', { mountPath: '/api/session', label: 'session.routes' }));
+app.use('/api/dashboard', verifyAuth, requireTenant, tryRequireRoute('./routes/dashboard.routes', { mountPath: '/api/dashboard', label: 'dashboard.routes' }));
+app.use('/api/dashboard/overview', verifyAuth, requireTenant, tryRequireRoute('./routes/dashboard.modules.routes', { mountPath: '/api/dashboard/overview', label: 'dashboard.modules.routes' }));
+app.use('/api/auth', tryRequireRoute('./routes/auth.routes', { mountPath: '/api/auth', label: 'auth.routes' }));
 
 /* Users analytics routes have been fully removed to avoid dangling references */
 
