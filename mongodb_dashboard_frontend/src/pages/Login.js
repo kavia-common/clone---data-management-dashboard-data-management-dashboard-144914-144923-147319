@@ -11,7 +11,6 @@ import appLogo from '../assets/logo/app-logo-2025.png'; // REQ-UI-LOGO-REPLACE: 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [orgResponse, setOrgResponse] = useState(null);
-  const [orgResponse, setOrgResponse] = useState(null);
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [password, setPassword] = useState('');
   const [loadingOrgs, setLoadingOrgs] = useState(false);
@@ -30,7 +29,6 @@ export default function Login() {
 
   const SUCCESS_REDIRECT = '/dashboard/overview';
 
-  // 🔹 Fetch organizations for given email
   // 🔹 Fetch organizations for given email
   async function handleFindOrgs() {
     setError('');
@@ -53,14 +51,6 @@ export default function Login() {
         const kaviaOrg = items.find(
           (org) => org.name?.toLowerCase() === 'kavia b2c'
         );
-
-        // ✅ If found, auto-select it, else keep empty
-        setSelectedOrgId(kaviaOrg?.id || '');
-        // ✅ Try to auto-select "Kavia B2C"
-        const kaviaOrg = items.find(
-          (org) => org.name?.toLowerCase() === 'kavia b2c'
-        );
-
         // ✅ If found, auto-select it, else keep empty
         setSelectedOrgId(kaviaOrg?.id || '');
       }
@@ -72,25 +62,6 @@ export default function Login() {
     } finally {
       setLoadingOrgs(false);
     }
-  }
-
-  // 🔹 Trigger when user selects organization manually
-  function handleOrganizationSelect(e) {
-    const selectedId = e.target.value;
-    setSelectedOrgId(selectedId);
-
-    // ✅ Add your custom logic here
-    console.log('✅ Selected Organization ID:', selectedId);
-
-    // Example: If you want to also log org name or send event
-    const selectedOrg = orgResponse?.organizations?.find((o) => o.id === selectedId);
-    if (selectedOrg) {
-      console.log('✅ Selected Organization Name:', selectedOrg.name);
-    }
-
-    // You could also trigger something like:
-    // triggerEncryption(selectedId);
-    // or storeOrganization(selectedId);
   }
 
   // 🔹 Trigger when user selects organization manually
@@ -198,7 +169,6 @@ export default function Login() {
             <select
               className="ui-input"
               value={selectedOrgId}
-              onChange={handleOrganizationSelect} // 🔹 updated here
               onChange={handleOrganizationSelect} // 🔹 updated here
               aria-label="Organization"
             >
