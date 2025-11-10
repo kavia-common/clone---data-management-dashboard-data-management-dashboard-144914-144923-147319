@@ -346,6 +346,7 @@ async function aggregateHierarchy({ filter = {}, tenantId } = {}) {
     finalProjectStage(),
   ];
 
+  // Enable disk use for large aggregations that may sort/group sizeable datasets to avoid 32MB memory limit
   const results = await col.aggregate(pipeline, { allowDiskUse: true }).toArray();
 
   // Format currency with leading $ and two decimals

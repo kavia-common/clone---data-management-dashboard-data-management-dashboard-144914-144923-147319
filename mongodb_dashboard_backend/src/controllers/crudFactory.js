@@ -70,7 +70,7 @@ function mergeFilterWithTenant(filter, tenantId) {
 /**
  * Build a REST controller for a Mongoose model with tenant enforcement.
  */
-function buildCrudController(Model, listDefaultSort = '-_id') {
+function buildCrudController(Model, listDefaultSort = '-timestamp') {
   // Map known Mongoose errors to user-friendly responses
   function mapAndReplyError(res, err, context = 'operation') {
     const name = err?.name || '';
@@ -108,7 +108,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
           if (cached) return res.status(200).json(cached);
 
           const [items, total] = await Promise.all([
-            Model.find(appliedFilter).sort(sort).skip(skip).limit(limit).lean(),
+            Model.find(appliedFilter).allowDiskUse(true).sort(sort).skip(skip).limit(limit).lean(),
             Model.countDocuments(appliedFilter),
           ]);
           const payload = { success: true, data: items, meta: { page, limit, total } };
@@ -116,7 +116,7 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
           return res.status(200).json(payload);
         }
 
-        const items = await Model.find(appliedFilter).sort(sort).lean();
+        const items = await Model.find(appliedFilter).allowDiskUse(true).sort(sort).lean();
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');

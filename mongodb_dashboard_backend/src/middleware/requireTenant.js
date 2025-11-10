@@ -63,10 +63,10 @@ function requireTenant(req, res, next) {
     return next();
   }
 
-  return res.status(403).json({
+  return res.status(400).json({
     success: false,
     message:
-      'Tenant required: provide via JWT, header x-organization-id/x-tenant-id, or query ?tenant_id=... (legacy: ?organization_id=...)',
+      'Missing tenant scope: include header x-organization-id (preferred) or query ?tenant_id (legacy: ?organization_id).',
   });
 }
 

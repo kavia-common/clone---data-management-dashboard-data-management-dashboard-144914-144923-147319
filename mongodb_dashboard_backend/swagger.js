@@ -38,7 +38,7 @@ function buildJsDocSpec() {
             required: true,
             schema: { type: 'string' },
             description:
-              'Required tenant identifier for all tenant-scoped endpoints. You can also use query ?tenant_id or ?organization_id, but the header takes precedence.',
+              'Required tenant identifier for all tenant-scoped endpoints. Use header x-organization-id (preferred). Aliases: query ?tenant_id or ?organization_id when header is not provided. Requests missing tenant will return 400.',
           },
         },
         schemas: {

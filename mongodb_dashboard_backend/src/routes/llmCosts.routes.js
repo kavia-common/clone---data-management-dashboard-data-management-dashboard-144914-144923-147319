@@ -13,7 +13,10 @@ const LLMCost = require('../models/llmCosts.model');
  * Exposes CRUD endpoints with tenant enforcement.
  */
 const router = express.Router();
-// Default sort by most recent cost first
+/**
+ * Use safe default sort on indexed field 'timestamp' in descending order.
+ * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } on the model.
+ */
 const controller = buildCrudController(LLMCost, '-timestamp');
 
 // Resolve tenantId from header/query/payload (organization_id alias) and enforce on queries
@@ -37,6 +40,7 @@ router.use(requireTenant, tenantScopeEnforcer());
  *       Otherwise a raw array is returned.
  *       Tenant scoping is ALWAYS enforced by the server from the required `x-organization-id` header.
  *       Query aliases (?tenant_id or ?organization_id) are optional and ignored when the header is present.
+ *       Safe defaults: server sorts by '-timestamp' (indexed) to avoid large in-memory sorts; large sorts use allowDiskUse(true).
  *     tags: [LLMCosts]
  *     operationId: listLlmCosts
  *     parameters:
@@ -87,8 +91,8 @@ router.use(requireTenant, tenantScopeEnforcer());
  *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400:
  *         description: Invalid filter
- *       403:
- *         description: Missing or invalid tenant header (x-organization-id)
+ *       400:
+ *         description: Missing tenant (x-organization-id) or invalid filter
  */
 router.get('/', asyncHandler(controller.list));
 
@@ -165,10 +169,8 @@ router.get('/:id', asyncHandler(controller.getById));
  *         description: Created
  *       422:
  *         description: Validation failed
- *       403:
- *         description: Missing or invalid tenant header (x-organization-id)
  *       400:
- *         description: Bad request
+ *         description: Missing tenant (x-organization-id) or bad request
  */
 router.post('/', asyncHandler(controller.create));
 
