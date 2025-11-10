@@ -4,7 +4,8 @@
  * PUBLIC_INTERFACE
  * extractOrganization
  * Express middleware that extracts the organization identifier from request and attaches it to req.organizationId.
- * - Prefer req.query.tenant_id. Backward compatibility: also checks req.body.organization_id, req.query.organization_id and headers x-organization-id, x-org-id, x-tenant-id, x-tenant.
+ * - Prefer header x-organization-id when present, then req.query.organization_id, then req.query.tenant_id, and fallback to req.body.organization_id.
+ *   This supports GET /api/users?organization_id=T0015 scoping via query string.
  * - If not found, returns 400 with a helpful message
  * - Optionally maps to tenant_id semantics for code that uses tenant naming
  *

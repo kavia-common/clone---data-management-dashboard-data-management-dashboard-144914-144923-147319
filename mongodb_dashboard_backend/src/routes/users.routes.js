@@ -434,7 +434,11 @@ router.get(
 
     // Resolve organization from trusted middleware (headers/body/query parsed in extractOrganization)
     if (!req.organizationId) {
-      return res.status(400).json({ success: false, message: 'organization_id is required' });
+      // Scoping is required for this endpoint. Reject when missing.
+      return res.status(400).json({
+        success: false,
+        message: 'organization_id is required (provide via header x-organization-id or ?organization_id=...)',
+      });
     }
 
     // Parse filter safely
@@ -451,7 +455,7 @@ router.get(
     if (clientFilter && typeof clientFilter === 'object') {
       for (const [k, v] of Object.entries(clientFilter)) {
         if (k === 'organization_id' || k === 'tenant_id' || k === 'organizationId') continue;
-        if (k === '$or' || k === '$and') continue;
+        if (k === '$or' || k === '$and') continue; // prevent logical operator bypass
         scrubbedFilter[k] = v;
       }
     }
@@ -471,17 +475,20 @@ router.get(
     const finalFilter =
       Object.keys(scrubbedFilter).length > 0 ? { $and: [scrubbedFilter, enforcedOrgScope] } : enforcedOrgScope;
 
+    // Debug logs to confirm applied filter
     const debugEnabled = String(req.query.debug || 'false') === 'true';
     if (debugEnabled || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-      // eslint-disable-next-line no-console
-      console.log(
-        '[GET /api/users] org=%s finalFilter=%s sort=%s page=%s limit=%s',
-        req.organizationId,
-        JSON.stringify(finalFilter),
-        sort,
-        explicit ? page : 'n/a',
-        explicit ? limit : 'n/a'
-      );
+      try {
+        // eslint-disable-next-line no-console
+        console.debug(
+          '[GET /api/users] organization_id=%s finalFilter=%s sort=%s page=%s limit=%s',
+          req.organizationId,
+          JSON.stringify(finalFilter),
+          sort,
+          explicit ? page : 'n/a',
+          explicit ? limit : 'n/a'
+        );
+      } catch {}
     }
 
     try {
