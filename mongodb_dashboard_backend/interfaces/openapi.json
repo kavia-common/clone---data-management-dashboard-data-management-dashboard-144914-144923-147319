@@ -6,6 +6,29 @@
     "description": "REST API for Data Management Dashboard with MongoDB and Express"
   },
   "components": {
+    "parameters": {
+      "xOrganizationId": {
+        "name": "x-organization-id",
+        "in": "header",
+        "required": false,
+        "schema": { "type": "string", "example": "org_123" },
+        "description": "Preferred tenant identifier for tenant-scoped endpoints. When provided, this header determines the active organization scope. If omitted, the server may fall back to JWT/session context or accept query parameters tenant_id/organization_id where applicable."
+      },
+      "organizationIdQuery": {
+        "name": "organization_id",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string", "example": "org_123" },
+        "description": "Optional organization identifier used to filter and scope results. Prefer the x-organization-id header; this parameter is accepted when the header is not provided. Not part of request bodies."
+      },
+      "tenantIdQuery": {
+        "name": "tenant_id",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string", "example": "org_123" },
+        "description": "Optional synonym for organization_id accepted for filtering/scoping when header x-organization-id is not provided. Not part of request bodies."
+      }
+    },
     "schemas": {
       "GenericDocument": {
         "type": "object",
@@ -1313,11 +1336,14 @@
     "/api/users/tenant-summary": {
       "get": {
         "summary": "Tenant-wise users summary",
-        "description": "Aggregates distinct active users per tenant primarily from the session_tracking collection. Accepts optional time range and status filters. If includeInactive=true, falls back to the users collection joined with known tenants to include tenants without recent activity.\n",
+        "description": "Aggregates distinct active users per tenant primarily from the session_tracking collection. Accepts optional time range and status filters. Prefer x-organization-id header for scoping; organization_id or tenant_id query parameters are accepted when the header is not provided. If includeInactive=true, falls back to users + tenants to include tenants without recent activity.",
         "tags": [
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/xOrganizationId" },
+          { "$ref": "#/components/parameters/organizationIdQuery" },
+          { "$ref": "#/components/parameters/tenantIdQuery" },
           {
             "in": "query",
             "name": "from",
@@ -1404,11 +1430,14 @@
     "/api/users": {
       "get": {
         "summary": "List users",
-        "description": "Retrieve a paginated list of users with optional JSON filtering and sorting.",
+        "description": "Retrieve a paginated list of users with optional JSON filtering and sorting. Tenant scoping is preferred via header x-organization-id, but organization_id or tenant_id query parameters are also accepted for filtering when the header is absent.",
         "tags": [
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/xOrganizationId" },
+          { "$ref": "#/components/parameters/organizationIdQuery" },
+          { "$ref": "#/components/parameters/tenantIdQuery" },
           {
             "in": "query",
             "name": "page",
@@ -1476,6 +1505,11 @@
         "tags": [
           "Users"
         ],
+        "parameters": [
+          { "$ref": "#/components/parameters/xOrganizationId" },
+          { "$ref": "#/components/parameters/organizationIdQuery" },
+          { "$ref": "#/components/parameters/tenantIdQuery" }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1503,9 +1537,14 @@
     "/api/users/seed-if-empty": {
       "get": {
         "summary": "Seed demo users if collection is empty",
-        "description": "Inserts a small set of demo users only when the collection is empty, then returns counts and one sample document.",
+        "description": "Inserts a small set of demo users only when the collection is empty, then returns counts and one sample document. Seeding is scoped to the active organization (prefer x-organization-id header).",
         "tags": [
           "Users"
+        ],
+        "parameters": [
+          { "$ref": "#/components/parameters/xOrganizationId" },
+          { "$ref": "#/components/parameters/organizationIdQuery" },
+          { "$ref": "#/components/parameters/tenantIdQuery" }
         ],
         "responses": {
           "200": {
@@ -1545,10 +1584,14 @@
     "/api/users/{id}": {
       "get": {
         "summary": "Get user by ID",
+        "description": "Fetches a user document within the active organization scope. Prefer x-organization-id header; organization_id or tenant_id query parameters may be used when header is absent.",
         "tags": [
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/xOrganizationId" },
+          { "$ref": "#/components/parameters/organizationIdQuery" },
+          { "$ref": "#/components/parameters/tenantIdQuery" },
           {
             "in": "path",
             "name": "id",
@@ -1573,10 +1616,14 @@
       },
       "put": {
         "summary": "Update user",
+        "description": "Updates a user document within the active organization scope. The server stamps organization_id/tenant_id from the scope; these are not request body fields.",
         "tags": [
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/xOrganizationId" },
+          { "$ref": "#/components/parameters/organizationIdQuery" },
+          { "$ref": "#/components/parameters/tenantIdQuery" },
           {
             "in": "path",
             "name": "id",
@@ -1613,10 +1660,14 @@
       },
       "delete": {
         "summary": "Delete user",
+        "description": "Deletes a user document within the active organization scope. Prefer x-organization-id header; organization_id or tenant_id query parameters may be used when header is absent.",
         "tags": [
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/xOrganizationId" },
+          { "$ref": "#/components/parameters/organizationIdQuery" },
+          { "$ref": "#/components/parameters/tenantIdQuery" },
           {
             "in": "path",
             "name": "id",
@@ -1642,11 +1693,14 @@
     "/api/users/active-trend": {
       "get": {
         "summary": "Active users trend (time series)",
-        "description": "Returns time-bucketed counts of distinct active users based on session_tracking. Prefers `last_updated` if present; falls back to `session_start`. Supports optional tenant scope, status filter (pipe-separated), and granularity day|week. Default granularity=day and status=completed|active.\n",
+        "description": "Returns time-bucketed counts of distinct active users based on session_tracking. Prefers last_updated if present; falls back to session_start. Supports optional tenant scoping. Prefer the x-organization-id header; organization_id or tenant_id query parameters may be used when the header is absent.",
         "tags": [
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/xOrganizationId" },
+          { "$ref": "#/components/parameters/organizationIdQuery" },
+          { "$ref": "#/components/parameters/tenantIdQuery" },
           {
             "in": "query",
             "name": "from",
@@ -1745,11 +1799,14 @@
     "/api/users/{userId}/projects": {
       "get": {
         "summary": "Get projects associated with a user (from session tracking)",
-        "description": "Returns distinct projects the user has activity in, based on the session_tracking collection. Optional time range can be provided using \"from\" and \"to\" query parameters. Note: This endpoint excludes cost aggregation.\n",
+        "description": "Returns distinct projects the user has activity in, based on the session_tracking collection. Requires scoping to the active organization. Prefer x-organization-id header; organization_id/tenant_id query parameters may be used when header is absent. Optional time range can be provided using from and to query parameters.",
         "tags": [
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/xOrganizationId" },
+          { "$ref": "#/components/parameters/organizationIdQuery" },
+          { "$ref": "#/components/parameters/tenantIdQuery" },
           {
             "in": "path",
             "name": "userId",
@@ -1835,11 +1892,14 @@
     "/api/users/referral-sources": {
       "get": {
         "summary": "Top referral sources",
-        "description": "Aggregates users.referral_history by source (or infers from referral_code) and returns top N sources by count.",
+        "description": "Aggregates users.referral_history by source (or infers from referral_code) and returns top N sources by count. Results are filtered to the active organization scope, preferably via x-organization-id header.",
         "tags": [
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/xOrganizationId" },
+          { "$ref": "#/components/parameters/organizationIdQuery" },
+          { "$ref": "#/components/parameters/tenantIdQuery" },
           {
             "in": "query",
             "name": "limit",

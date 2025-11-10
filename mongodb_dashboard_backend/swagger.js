@@ -26,10 +26,35 @@ function buildCommonComponents() {
       xOrganizationId: {
         name: 'x-organization-id',
         in: 'header',
-        required: true,
-        schema: { type: 'string' },
+        required: false,
+        schema: {
+          type: 'string',
+          example: 'org_123',
+        },
         description:
-          'Tenant identifier for tenant-scoped endpoints. Prefer header x-organization-id. As fallback, query ?tenant_id or ?organization_id are accepted when header is not provided (and no JWT tenant). The server normalizes the value and injects it into filters.',
+          'Preferred tenant identifier for tenant-scoped endpoints, supplied via request header. When present, this header determines the active organization scope for the request. If not provided, the server may fall back to JWT/session context or query parameters tenant_id/organization_id when supported.',
+      },
+      organizationIdQuery: {
+        name: 'organization_id',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+          example: 'org_123',
+        },
+        description:
+          'Optional organization identifier used to filter and scope results. Preferred via header x-organization-id; this query parameter is accepted for filtering when header is absent. Not part of request bodies.',
+      },
+      tenantIdQuery: {
+        name: 'tenant_id',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'string',
+          example: 'org_123',
+        },
+        description:
+          'Optional tenant identifier synonym for organization_id, accepted for filtering/scoping when header x-organization-id is not provided. Not part of request bodies.',
       },
     },
     schemas: {
