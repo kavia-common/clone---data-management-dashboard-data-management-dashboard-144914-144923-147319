@@ -17,7 +17,10 @@ const router = express.Router();
 // Create controller using existing factory
 const controller = buildCrudController(User, '-created_at');
 
-// Enforce JWT + Tenant at router level
+/**
+ * Enforce authentication and permissive tenant resolution.
+ * requireTenant now accepts organization_id from headers or query, so this will not 400 when only ?organization_id is provided.
+ */
 router.use(verifyAuth, requireTenant);
 
 // Simple in-memory cache for tenant summary (5 minutes TTL)

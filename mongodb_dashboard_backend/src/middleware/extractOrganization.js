@@ -11,10 +11,31 @@ const { resolveTenantOrOrganization, applyResolvedTenant } = require('../utils/t
  *  - Query: organization_id, tenant_id
  *  - Body: organization_id
  * If auth JWT includes a tenant claim, that is preferred and cannot be overridden.
+ *
+ * Behavior: Do not return 400 when organization_id is provided in the query; resolve and continue.
  */
 function extractOrganization() {
   return function (req, res, next) {
-    const resolved = resolveTenantOrOrganization(req, { allowJwtOverride: true });
+    let resolved = resolveTenantOrOrganization(req, { allowJwtOverride: true });
+
+    // If still not resolved, try to read from query or headers permissively
+    if (!resolved.tenantId) {
+      const qOrg =
+        (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+        (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+        '';
+      const hOrg =
+        (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+        (typeof req.headers?.['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
+        (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+        (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+        (typeof req.headers?.['organization_id'] === 'string' && req.headers['organization_id'].trim()) ||
+        '';
+      const val = hOrg || qOrg;
+      if (val) {
+        resolved = { tenantId: String(val), organizationId: String(val), source: hOrg ? 'header' : 'query' };
+      }
+    }
 
     if (!resolved.tenantId) {
       return res.status(400).json({

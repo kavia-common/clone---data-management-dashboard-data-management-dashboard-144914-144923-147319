@@ -19,7 +19,11 @@ router.get('/', (req, res) => {
 // Public auth routes remain unprotected
 router.use('/auth', tryRequireRoute('./auth.routes', { mountPath: '/api/auth', label: 'auth.routes' }));
 
-// Protected core routes behind auth + tenant
+/**
+ * Protected core routes behind auth + tenant.
+ * Note: requireTenant accepts organization_id from header or query, enabling requests like:
+ * GET /api/users?organization_id=ORG123
+ */
 router.use('/users', verifyAuth, requireTenant, tryRequireRoute('./users.routes', { mountPath: '/api/users', label: 'users.routes' }));
 router.use('/tenants', verifyAuth, requireTenant, tryRequireRoute('./tenants.routes', { mountPath: '/api/tenants', label: 'tenants.routes' }));
 
