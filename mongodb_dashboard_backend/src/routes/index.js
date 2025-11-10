@@ -1,7 +1,6 @@
 'use strict';
 
 const express = require('express');
-const healthController = require('../controllers/health');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 
@@ -31,13 +30,6 @@ const router = express.Router();
 router.get('/', (req, res) => {
   return res.status(200).json({ status: 'ok', message: 'Dashboard API backend' });
 });
-
-/**
- * PUBLIC_INTERFACE
- * GET /healthz
- * Liveness check that does not depend on MongoDB state.
- */
-router.get('/healthz', healthController.check.bind(healthController));
 
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);
