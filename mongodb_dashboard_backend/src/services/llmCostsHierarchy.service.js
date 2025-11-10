@@ -290,7 +290,7 @@ function finalProjectStage() {
 }
 
 // PUBLIC_INTERFACE
-async function aggregateHierarchy({ filter = {} } = {}) {
+async function aggregateHierarchy({ filter = {}, tenantId } = {}) {
   /**
    * Aggregates hierarchical cost data from the llm_costs collection.
    * PUBLIC_INTERFACE
@@ -320,8 +320,20 @@ async function aggregateHierarchy({ filter = {} } = {}) {
   const db = await getDb();
   const col = db.collection('llm_costs');
 
+  // Build enforced filter with tenant
+  const enforcedFilter = (() => {
+    const f = filter && typeof filter === 'object' ? { ...filter } : {};
+    delete f.tenant_id;
+    delete f.tenantId;
+    delete f.organization_id;
+    if (tenantId) {
+      return Object.keys(f).length ? { $and: [f, { tenant_id: String(tenantId) }] } : { tenant_id: String(tenantId) };
+    }
+    return f;
+  })();
+
   const pipeline = [
-    { $match: filter || {} },
+    { $match: enforcedFilter || {} },
     projectionStage(),
     addDateKeyStage(),
     projectDateKeyStage(),
@@ -389,6 +401,18 @@ async function ensureLlmCostsIndexes() {
    */
   const db = await getDb();
   const col = db.collection('llm_costs');
+  try {
+    await col.createIndex({ tenant_id: 1, user_id: 1 });
+  } catch (e) {}
+  try {
+    await col.createIndex({ tenant_id: 1, project_id: 1 });
+  } catch (e) {}
+  try {
+    await col.createIndex({ tenant_id: 1, agent_name: 1 });
+  } catch (e) {}
+  try {
+    await col.createIndex({ tenant_id: 1, date: 1 });
+  } catch (e) {}
   try {
     await col.createIndex({ user_id: 1 });
   } catch (e) {}

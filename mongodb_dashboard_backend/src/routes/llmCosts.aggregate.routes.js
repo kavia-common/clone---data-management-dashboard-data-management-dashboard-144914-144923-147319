@@ -1,7 +1,12 @@
 const express = require('express');
 const { getAggregatedCosts } = require('../controllers/llmCostsAggregate.controller');
+const { requireTenant } = require('../middleware/requireTenant');
+const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 
 const router = express.Router();
+
+// Enforce tenant scoping for aggregate endpoint
+router.use(requireTenant, tenantScopeEnforcer());
 
 /**
  * @swagger

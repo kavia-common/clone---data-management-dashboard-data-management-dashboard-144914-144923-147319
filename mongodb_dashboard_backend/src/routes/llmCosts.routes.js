@@ -1,11 +1,16 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
+const { requireTenant } = require('../middleware/requireTenant');
+const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
 
 const router = express.Router();
 // Default sort by most recent cost first
 const controller = buildCrudController(LLMCost, '-timestamp');
+
+// Resolve tenantId from header/query/payload (organization_id alias) and enforce on queries
+router.use(requireTenant, tenantScopeEnforcer());
 
 
 

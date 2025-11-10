@@ -4,6 +4,8 @@ const express = require('express');
 const router = express.Router();
 const { asyncHandler } = require('../utils/http');
 const { getCollection } = require('../config/db');
+const { requireTenant } = require('../middleware/requireTenant');
+const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 
 /**
  * Safely parse ISO date-like values
@@ -18,10 +20,10 @@ function safeParseDate(v) {
  * PUBLIC_INTERFACE
  * GET /api/costs/by-agent
  *
- * Minimal, safe aggregation to compute Top agents by total cost.
+ * Tenant-scoped aggregation to compute Top agents by total cost.
  *
  * Query params:
- * - tenant_id: optional string filter
+ * - tenant_id | organization_id: accepted but ignored for filtering; tenant is enforced from resolved context.
  * - start: optional ISO date string (inclusive lower bound)
  * - end: optional ISO date string (inclusive upper bound)
  * - limit: optional integer, default 20, clamped to [1..100]
@@ -35,12 +37,14 @@ function safeParseDate(v) {
  */
 router.get(
   '/by-agent',
+  requireTenant,
+  tenantScopeEnforcer(),
   asyncHandler(async (req, res) => {
     // Clamp limit 1..100, default 20
     const limitRaw = parseInt(req.query?.limit, 10);
     const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 20, 1), 100);
 
-    const tenantId = req.query?.tenant_id;
+    const tenantId = req.tenantId;
     const startRaw = req.query?.start;
     const endRaw = req.query?.end;
 
@@ -51,11 +55,12 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid ISO date in start/end query params' });
     }
 
-    // Build a minimal $match (only tenant_id and date window if provided)
-    const andConditions = [];
-    if (tenantId != null && String(tenantId).trim() !== '') {
-      andConditions.push({ tenant_id: String(tenantId) });
+    if (!tenantId) {
+      return res.status(403).json({ success: false, message: 'Tenant required' });
     }
+
+    // Build a minimal $match (enforce tenant_id and date window if provided)
+    const andConditions = [{ tenant_id: String(tenantId) }];
     if (start || end) {
       const range = {};
       if (start) range.$gte = start;
@@ -71,11 +76,7 @@ router.get(
       });
     }
 
-    const pipeline = [];
-
-    if (andConditions.length > 0) {
-      pipeline.push({ $match: { $and: andConditions } });
-    }
+    const pipeline = [{ $match: { $and: andConditions } }];
 
     // Derive normalized agent name and numeric cost safely
     pipeline.push(

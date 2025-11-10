@@ -10,7 +10,7 @@ async function getHierarchy(req, res) {
    * Handler: GET /api/llm-costs/hierarchy
    * Aggregates hierarchical costs per user -> projects -> agents with per-date breakdown.
    * Query:
-   *  - filter: optional JSON string to pre-filter the llm_costs collection
+   *  - filter: optional JSON string to pre-filter the llm_costs collection (tenant keys ignored)
    * Returns: Array of:
    *   { user_id, type: 'llm_interaction', user_cost: '$X.XX', projects: [ { project_id, project_cost: '$Y.YY', agents: [ { agent_name, total_cost: '$..', costs_by_date: { 'YYYY-MM-DD': '$..' }, tokens_by_date: { 'YYYY-MM-DD': { input_tokens, output_tokens } } } ] } ] }
    */
@@ -25,10 +25,21 @@ async function getHierarchy(req, res) {
       }
     }
 
+    // Enforce tenant scoping: drop any tenant keys from client filter and inject resolved tenant
+    delete filter.tenant_id;
+    delete filter.tenantId;
+    delete filter.organization_id;
+    const resolvedTenant = req?.tenantId || req?.organizationId;
+    if (resolvedTenant) {
+      filter = Object.keys(filter).length
+        ? { $and: [filter, { tenant_id: String(resolvedTenant) }] }
+        : { tenant_id: String(resolvedTenant) };
+    }
+
     // Best-effort index creation (non-blocking); ignore errors
     ensureLlmCostsIndexes().catch(() => {});
 
-    const data = await aggregateHierarchy({ filter });
+    const data = await aggregateHierarchy({ filter, tenantId: resolvedTenant });
     return success(res, data);
   } catch (err) {
     return handleError(res, err);

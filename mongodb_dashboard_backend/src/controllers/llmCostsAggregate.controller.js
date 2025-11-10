@@ -32,11 +32,13 @@ function toNumber(val) {
  */
 async function getAggregatedCosts(req, res) {
   try {
+    const tenantId = req?.tenantId || req?.organizationId || null;
+
     // Fetch minimal set of fields but include fallbacks; schema is strict:false so extra fields may exist.
     const [rawUsers, rawProjects] = await Promise.all([
       // Try to include typical identity fields if they exist; relying on permissive model
-      User.find({}, { name: 1, email: 1, user_cost: 1, organization_name: 1, tenant_id: 1 }).lean(),
-      Project.find({}, { project_name: 1, name: 1, project_cost: 1, owner_user_id: 1, ownerUserId: 1, project_id: 1 }).lean(),
+      User.find(tenantId ? { tenant_id: String(tenantId) } : {}, { name: 1, email: 1, user_cost: 1, organization_name: 1, tenant_id: 1 }).lean(),
+      Project.find(tenantId ? { tenant_id: String(tenantId) } : {}, { project_name: 1, name: 1, project_cost: 1, owner_user_id: 1, ownerUserId: 1, project_id: 1, tenant_id: 1 }).lean(),
     ]);
 
     const users = (rawUsers || []).map((u) => {
