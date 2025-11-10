@@ -7,14 +7,28 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 const server = app
   .listen(PORT, HOST, () => {
+    try {
+      // Guard: mongoose.connection.db may be undefined before initial connection
+      const dbName =
+        mongoose?.connection?.db?.databaseName ||
+        process.env.MONGODB_DB ||
+        '(not connected)';
+      // eslint-disable-next-line no-console
+      console.log('[startup] Express is starting with DB:', dbName);
+    } catch {
+      // ignore logging failure
+    }
     // eslint-disable-next-line no-console
-    console.log('CURRENTDB',mongoose.connection.db.databaseName);
-    console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+    console.log(
+      `[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
+    );
   })
   .on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
       // eslint-disable-next-line no-console
-      console.error(`[startup] Port ${PORT} is already in use. Ensure no other process is running on this port.`);
+      console.error(
+        `[startup] Port ${PORT} is already in use. Ensure no other process is running on this port.`
+      );
     } else {
       // eslint-disable-next-line no-console
       console.error('[startup] Server failed to start:', err);
@@ -22,6 +36,7 @@ const server = app
     // Exit so orchestrator/CI can restart
     process.exit(1);
   });
+
 // Graceful shutdown
 const shutdown = (signal) => {
   // eslint-disable-next-line no-console
