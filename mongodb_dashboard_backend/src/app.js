@@ -359,4 +359,10 @@ if (process.env.NODE_ENV !== 'test') {
   try { mongoose.set('bufferCommands', false); } catch { }
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Express application instance for the Dashboard API.
+ * This app mounts all middleware, routes, and documentation endpoints.
+ * It is imported by src/server.js, which is responsible for binding to a port.
+ */
 module.exports = app;

@@ -43,6 +43,11 @@ const server = app
     console.log(
       `[ready] Server listening on http://${HOST}:${normalizedPort} (ENV=${process.env.NODE_ENV || 'development'})`
     );
+    // Emit an explicit readiness banner the preview system can scrape
+    try {
+      console.log(`[ready] Health endpoint: http://${HOST}:${normalizedPort}/health`);
+      console.log(`[ready] Docs endpoint:   http://${HOST}:${normalizedPort}/api-docs`);
+    } catch {}
     try {
       // Helpful hint: echo how to curl health and docs
       console.log(`[startup] Health: curl http://127.0.0.1:${normalizedPort}/health`);
