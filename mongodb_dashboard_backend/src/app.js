@@ -213,18 +213,20 @@ if (process.env.NODE_ENV === 'test') {
  */
 app.get('/api/docs/headers', (req, res) => {
   return res.status(200).json({
-    title: 'Tenant Header Usage',
-    requiredHeader: 'x-organization-id',
+    title: 'Tenant Scope Usage',
+    header: 'x-organization-id',
     description:
-      'For tenant-scoped endpoints such as /api/llm-costs, you must include the x-organization-id header. In Swagger UI, click "Try it out", then add the header under "Headers".',
+      'Tenant scope can be provided via header x-organization-id (recommended). As a fallback, use query ?organization_id or ?tenant_id. If a JWT includes a tenant claim, that value is used and cannot be overridden by client hints.',
     examples: [
       {
-        endpoint: 'GET /api/llm-costs',
-        headers: { 'x-organization-id': 'org_demo' },
+        endpoint: 'GET /api/users',
+        headers: { 'x-organization-id': 'ORG_123' },
+        alt: '/api/users?organization_id=ORG_123',
       },
       {
-        endpoint: 'GET /api/llm-costs/{id}',
-        headers: { 'x-organization-id': 'org_demo' },
+        endpoint: 'GET /api/llm-costs',
+        headers: { 'x-organization-id': 'ORG_123' },
+        alt: '/api/llm-costs?tenant_id=ORG_123',
       },
     ],
   });

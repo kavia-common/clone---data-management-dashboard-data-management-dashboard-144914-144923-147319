@@ -788,6 +788,7 @@ router.delete(
 // PUBLIC_INTERFACE
 router.get(
   '/active-trend',
+  extractOrganization(),
   asyncHandler(async (req, res) => {
     const now = new Date();
     const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -796,7 +797,9 @@ router.get(
     const toStr = req.query.to || now.toISOString();
     const granularity = (req.query.granularity || 'day').toLowerCase() === 'week' ? 'week' : 'day';
     const statusParam = (req.query.status || 'completed|active').trim();
-    const tenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
+
+    // Use normalized org/tenant from middleware; allow optional query override for backward compatibility
+    const tenantId = req.organizationId || req.tenantId || null;
 
     // Validate dates
     const fromDate = new Date(fromStr);

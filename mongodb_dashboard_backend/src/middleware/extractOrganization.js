@@ -1,53 +1,35 @@
 'use strict';
 
+const { resolveTenantOrOrganization, applyResolvedTenant } = require('../utils/tenantResolution');
+
 /**
  * PUBLIC_INTERFACE
  * extractOrganization
  * Express middleware that extracts the organization identifier from request and attaches it to req.organizationId.
- * - Prefer header x-organization-id when present, then req.query.organization_id, then req.query.tenant_id, and fallback to req.body.organization_id.
- *   This supports GET /api/users?organization_id=T0015 scoping via query string.
- * - If not found, returns 400 with a helpful message
- * - Optionally maps to tenant_id semantics for code that uses tenant naming
- *
- * Exposes:
- *  - req.organizationId: string
- *  - req.tenantId: string (alias to organizationId for consistency with existing code)
- * Notes:
- *  - Downstream routes must enforce scoping using req.organizationId. Any client-provided organization_id/tenant_id must be ignored in filters.
+ * Accepts:
+ *  - Headers: x-organization-id, x-org-id, x-tenant-id, x-tenant
+ *  - Query: organization_id, tenant_id
+ *  - Body: organization_id
+ * If auth JWT includes a tenant claim, that is preferred and cannot be overridden.
  */
 function extractOrganization() {
   return function (req, res, next) {
-    const bOrg = typeof req.body?.organization_id === 'string' ? req.body.organization_id.trim() : '';
-    const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
-    const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
-    const hdrOrg =
-      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
-      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
-      '';
+    const resolved = resolveTenantOrOrganization(req, { allowJwtOverride: true });
 
-    // Prefer header, then query, then body to minimize client influence via URL tampering
-    const organizationId = hdrOrg || qTenant || qOrg || bOrg;
-
-    if (!organizationId) {
+    if (!resolved.tenantId) {
       return res.status(400).json({
         success: false,
-        message: 'organization_id is required (provide via header x-organization-id or ?organization_id=...)',
+        message:
+          'organization_id is required (via header x-organization-id or query ?organization_id / ?tenant_id).',
       });
     }
 
-    req.organizationId = String(organizationId);
-    req.tenantId = String(organizationId);
+    applyResolvedTenant(req, resolved);
 
     // Helpers to enforce server-side scoping
     req.orgFilter = { tenant_id: req.organizationId };
     req.buildOrgFilter = (orgId) => ({
-      $or: [
-        { tenant_id: orgId },
-        { organization_id: orgId },
-        { organizationId: orgId },
-      ],
+      $or: [{ tenant_id: orgId }, { organization_id: orgId }, { organizationId: orgId }],
     });
     req.withOrgFilter = (obj) => {
       const o = obj && typeof obj === 'object' ? { ...obj } : {};
@@ -68,7 +50,9 @@ function extractOrganization() {
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
       try {
         // eslint-disable-next-line no-console
-        console.debug(`[extractOrganization] org=${req.organizationId} method=${req.method} url=${req.originalUrl}`);
+        console.debug(
+          `[extractOrganization] org=${req.organizationId} source=${resolved.source} ${req.method} ${req.originalUrl}`
+        );
       } catch {}
     }
 

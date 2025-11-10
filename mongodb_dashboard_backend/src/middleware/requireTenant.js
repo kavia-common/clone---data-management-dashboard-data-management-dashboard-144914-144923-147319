@@ -1,72 +1,54 @@
 'use strict';
 
+const { resolveTenantOrOrganization, applyResolvedTenant } = require('../utils/tenantResolution');
+
 /**
  * PUBLIC_INTERFACE
  * requireTenant
- * Ensures a tenantId is present from one of the allowed sources and attaches it to req.tenantId.
+ * Ensures a tenantId is present from one of the allowed sources and attaches it to req.tenantId and req.organizationId.
  * Precedence:
  *   1) JWT (req.auth.tenantId) when present — cannot be overridden.
- *   2) Header x-organization-id | x-tenant-id | x-tenant (also accepts organization_id header)
- *   3) Query ?tenant_id=... or legacy ?organization_id=...
- *   4) Demo fallback (non-prod with ALLOW_DEMO_AUTH=true) may accept header or query.
+ *   2) Header x-organization-id | x-org-id | x-tenant-id | x-tenant | organization_id
+ *   3) Query ?tenant_id=... or ?organization_id=...
+ *   4) Body organization_id (writes)
  * On failure, responds with 400.
  *
  * Notes:
- * - The resolved tenant is mirrored to req.auth.tenantId and req.tenantId for downstream usage.
+ * - The resolved tenant is mirrored to req.auth.tenantId, req.tenantId, and req.organizationId for downstream usage.
  * - Controllers/services MUST ignore any client-sent tenant_id/organization_id in the payload and trust req.tenantId.
  * - Header takes precedence over query aliases when both are provided.
  */
 function requireTenant(req, res, next) {
-  // Prefer JWT tenantId if present (cannot be overridden)
-  const jwtTenant = req?.auth?.tenantId;
-  if (jwtTenant) {
-    req.tenantId = String(jwtTenant);
-    return next();
-  }
-
-  // Extract tenant from headers and query for non-JWT flows
-  const hdrTenant =
-    (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-    (typeof req.headers['organization_id'] === 'string' && req.headers['organization_id'].trim()) ||
-    (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-    (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
-    '';
-
-  // Accept query parameters for tenant resolution (new: tenant_id; legacy: organization_id)
-  const qTenant = (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) || '';
-  const qOrg = (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) || '';
-
-  // Precedence: header > query(tenant_id) > query(organization_id)
-  const resolved = hdrTenant || qTenant || qOrg;
+  const resolved = resolveTenantOrOrganization(req, { allowJwtOverride: true });
 
   const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
   const allowDemo = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
 
-  if (resolved) {
-    // If no JWT, accept header/query provided tenant
-    req.auth = req.auth || {};
-    req.auth.tenantId = String(resolved);
-    req.tenantId = String(resolved);
+  if (resolved.tenantId) {
+    applyResolvedTenant(req, resolved);
     return next();
   }
 
-  // Demo fallback (no JWT, no header/query). Allow using default or block based on settings.
+  // Demo fallback (no auth and no explicit scope)
   if (!isProd && allowDemo) {
-    const demoTenant =
-      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
-      (process.env.AUTH_DEFAULT_TENANT || 'DEMO');
-    req.auth = req.auth || {};
-    req.auth.tenantId = String(demoTenant);
-    req.tenantId = String(demoTenant);
+    const fallback = {
+      tenantId:
+        (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+        (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+        (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+        (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
+      organizationId: null,
+      source: 'demo',
+    };
+    fallback.organizationId = fallback.tenantId;
+    applyResolvedTenant(req, fallback);
     return next();
   }
 
   return res.status(400).json({
     success: false,
     message:
-      'Missing tenant scope: include header x-organization-id (preferred) or query ?tenant_id (legacy: ?organization_id).',
+      'Missing tenant scope: include header x-organization-id (preferred) or query ?tenant_id / ?organization_id.',
   });
 }
 

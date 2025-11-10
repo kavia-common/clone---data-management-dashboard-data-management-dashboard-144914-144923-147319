@@ -116,6 +116,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       if (req?.tenantId) {
         try {
           res.set('x-organization-id', String(req.tenantId));
+          if (!req.organizationId) req.organizationId = String(req.tenantId);
         } catch (_) {}
       }
 
