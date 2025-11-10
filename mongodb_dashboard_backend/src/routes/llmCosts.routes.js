@@ -32,6 +32,19 @@ router.use(requireTenant, tenantScopeEnforcer());
  *       Otherwise a raw array is returned.
  *     tags: [LLMCosts]
  *     parameters:
+ *       - in: header
+ *         name: x-organization-id
+ *         required: false
+ *         schema: { type: string }
+ *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping regardless of client-provided filters.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *         description: Optional tenant (alias); will be overridden by header when provided.
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
+ *         description: Optional tenant; will be overridden by header when provided.
  *       - in: query
  *         name: page
  *         schema: { type: integer, minimum: 1 }
@@ -70,6 +83,17 @@ router.get('/', asyncHandler(controller.list));
  *     summary: Get an LLM cost record by ID
  *     tags: [LLMCosts]
  *     parameters:
+ *       - in: header
+ *         name: x-organization-id
+ *         required: false
+ *         schema: { type: string }
+ *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). The server overrides payload.tenant_id/organization_id with the resolved tenant.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
  *       - in: path
  *         name: id
  *         required: true
@@ -87,6 +111,20 @@ router.get('/:id', asyncHandler(controller.getById));
  *   post:
  *     summary: Create LLM cost record
  *     tags: [LLMCosts]
+ *     parameters:
+ *       - in: header
+ *         name: x-organization-id
+ *         required: false
+ *         schema: { type: string }
+ *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). The server overrides payload.tenant_id/organization_id with the resolved tenant.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *         description: Optional tenant (alias); will be overridden by header when provided.
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
+ *         description: Optional tenant; will be overridden by header when provided.
  *     requestBody:
  *       required: true
  *       content:
@@ -106,6 +144,17 @@ router.post('/', asyncHandler(controller.create));
  *     summary: Update LLM cost record
  *     tags: [LLMCosts]
  *     parameters:
+ *       - in: header
+ *         name: x-organization-id
+ *         required: false
+ *         schema: { type: string }
+ *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping on delete.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
  *       - in: path
  *         name: id
  *         required: true
@@ -130,6 +179,17 @@ router.put('/:id', asyncHandler(controller.update));
  *     summary: Delete LLM cost record
  *     tags: [LLMCosts]
  *     parameters:
+ *       - in: header
+ *         name: x-organization-id
+ *         required: false
+ *         schema: { type: string }
+ *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping on delete.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
  *       - in: path
  *         name: id
  *         required: true

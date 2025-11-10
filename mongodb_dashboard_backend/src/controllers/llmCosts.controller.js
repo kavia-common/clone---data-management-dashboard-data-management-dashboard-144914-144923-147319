@@ -12,6 +12,7 @@ async function getHierarchy(req, res) {
    * Query:
    *  - filter: optional JSON string to pre-filter the llm_costs collection (tenant keys ignored)
    * Returns: Array of:
+   * Tenant scoping: server enforces tenant from header x-organization-id (preferred) or query ?tenant_id/?organization_id; any client-provided tenant keys in filter are ignored.
    *   { user_id, type: 'llm_interaction', user_cost: '$X.XX', projects: [ { project_id, project_cost: '$Y.YY', agents: [ { agent_name, total_cost: '$..', costs_by_date: { 'YYYY-MM-DD': '$..' }, tokens_by_date: { 'YYYY-MM-DD': { input_tokens, output_tokens } } } ] } ] }
    */
   try {

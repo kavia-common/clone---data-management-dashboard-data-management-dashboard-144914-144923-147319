@@ -9,6 +9,19 @@
  *       Otherwise a raw array is returned. All fields present in the database are returned (no projection).
  *     tags: [LLMCosts]
  *     parameters:
+ *       - in: header
+ *         name: x-organization-id
+ *         required: false
+ *         schema: { type: string }
+ *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping regardless of client-provided filters.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *         description: Optional tenant alias; overridden by header when provided.
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
+ *         description: Optional tenant; overridden by header when provided.
  *       - in: query
  *         name: page
  *         schema: { type: integer, minimum: 1 }
@@ -45,6 +58,17 @@
  *       Deprecated alias that forwards to /api/llm-costs (list-all). This path no longer applies project-based filtering.
  *     tags: [LLMCosts]
  *     parameters:
+ *       - in: header
+ *         name: x-organization-id
+ *         required: false
+ *         schema: { type: string }
+ *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping and does not apply project-based filter.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
  *       - in: path
  *         name: projectId
  *         required: true

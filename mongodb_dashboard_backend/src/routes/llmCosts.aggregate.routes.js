@@ -17,6 +17,18 @@ router.use(requireTenant, tenantScopeEnforcer());
  *       Returns arrays of users and projects with cost fields populated from their respective collections.
  *       Defaults to 0 for missing user_cost/project_cost fields.
  *     tags: [LLMCosts]
+ *     parameters:
+ *       - in: header
+ *         name: x-organization-id
+ *         required: false
+ *         schema: { type: string }
+ *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping on aggregation.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
  *     responses:
  *       200:
  *         description: Aggregated users and projects with cost fields

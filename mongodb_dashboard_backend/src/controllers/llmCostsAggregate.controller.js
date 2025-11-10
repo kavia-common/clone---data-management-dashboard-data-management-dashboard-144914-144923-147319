@@ -16,6 +16,9 @@ function toNumber(val) {
  * getAggregatedCosts
  * Controller for GET /api/llm-costs
  * Returns aggregated users and projects arrays that include cost fields.
+ * Tenant scoping:
+ * - The server enforces tenant scoping using req.tenantId resolved via (in order): header x-organization-id, query ?tenant_id or ?organization_id, or JWT.
+ * - Any client-provided tenant_id/organization_id in payloads/filters are ignored in favor of the resolved tenant.
  *
  * Shape:
  *  {
