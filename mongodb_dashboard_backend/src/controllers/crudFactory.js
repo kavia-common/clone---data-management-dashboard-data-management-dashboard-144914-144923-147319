@@ -95,9 +95,14 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
             return res.status(200).json(cached);
           }
 
+          // Apply optional org filter if provided by middleware (defensive: AND existing filters)
+          const appliedFilter = req.orgFilter
+            ? (Object.keys(filter).length > 0 ? { $and: [filter, req.orgFilter] } : req.orgFilter)
+            : filter;
+
           const [items, total] = await Promise.all([
-            Model.find(filter).sort(sort).skip(skip).limit(limit).lean(),
-            Model.countDocuments(filter),
+            Model.find(appliedFilter).sort(sort).skip(skip).limit(limit).lean(),
+            Model.countDocuments(appliedFilter),
           ]);
           const payload = { success: true, data: items, meta: { page, limit, total } };
           microSet(key, payload);
@@ -105,7 +110,10 @@ function buildCrudController(Model, listDefaultSort = '-_id') {
         }
 
         // No explicit pagination: return the raw array of documents (no envelope)
-        const items = await Model.find(filter).sort(sort).lean();
+        const appliedFilter = req.orgFilter
+          ? (Object.keys(filter).length > 0 ? { $and: [filter, req.orgFilter] } : req.orgFilter)
+          : filter;
+        const items = await Model.find(appliedFilter).sort(sort).lean();
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');

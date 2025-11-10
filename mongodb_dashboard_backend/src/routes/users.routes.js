@@ -432,6 +432,14 @@ router.get(
 
     const sort = req.query.sort || '-created_at';
 
+    // Resolve organization from payload or query (middleware already validated and set req.organizationId)
+    const payloadOrg = typeof req.body?.organization_id === 'string' ? req.body.organization_id : null;
+    const queryOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : null;
+    if (!req.organizationId && (payloadOrg || queryOrg)) {
+      // Should not generally happen since middleware enforces, but keep a safe fallback
+      req.organizationId = String(payloadOrg || queryOrg);
+    }
+
     // Parse filter safely
     const filterRaw = req.query.filter ? req.query.filter : '{}';
     let filter = {};
@@ -452,13 +460,15 @@ router.get(
     }
 
     // Build enforced org scope across alternate schema fields
-    const enforcedOrgScope = {
-      $or: [
-        { organization_id: req.organizationId },
-        { tenant_id: req.organizationId },
-        { organizationId: req.organizationId },
-      ],
-    };
+    const enforcedOrgScope = req.buildOrgFilter
+      ? req.buildOrgFilter(req.organizationId)
+      : {
+          $or: [
+            { organization_id: req.organizationId },
+            { tenant_id: req.organizationId },
+            { organizationId: req.organizationId },
+          ],
+        };
 
     // Merge with AND to guarantee scope application
     const finalFilter = Object.keys(filter).length > 0 ? { $and: [filter, enforcedOrgScope] } : enforcedOrgScope;

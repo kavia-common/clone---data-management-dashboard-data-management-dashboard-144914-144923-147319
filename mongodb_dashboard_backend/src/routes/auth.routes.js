@@ -239,7 +239,15 @@ router.post('/login', async (req, res) => {
     }
     await ensureTenantOrgSalt(tenant);
 
-    const user = await User.findOne({ email }).lean();
+    // Enforce tenant scoping on user lookup: treat tenantId as organization_id in heterogeneous schemas
+    const orgOrFilter = {
+      $or: [
+        { tenant_id: tenantId },
+        { organization_id: tenantId },
+        { organizationId: tenantId },
+      ],
+    };
+    const user = await User.findOne({ email, ...orgOrFilter }).lean();
     if (!user) {
       // Preserve previous "ok" behaviors minimally: do not disclose if email exists
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
@@ -340,16 +348,24 @@ router.post('/reset-password', async (req, res) => {
     if (!tenant) return res.status(400).json({ success: false, message: 'Tenant does not exist' });
     await ensureTenantOrgSalt(tenant);
 
-    const user = await User.findOne({ email });
+    const orgOrFilter = {
+      $or: [
+        { tenant_id: tenantId },
+        { organization_id: tenantId },
+        { organizationId: tenantId },
+      ],
+    };
+    const user = await User.findOne({ email, ...orgOrFilter });
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
 
-    const { hash, version } = await hashPasswordV2(password, tenant);
+    // Use unified hashPassword helper with explicit version=2
+    const { hash, version } = await hashPassword({ password, tenant, version: 2 });
     user.password_hash = hash;
     user.hashVersion = version;
     user.updated_at = new Date();
     await user.save();
 
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, tenant_id: tenantId });
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error('[auth.reset-password] failed', e?.message || e);
