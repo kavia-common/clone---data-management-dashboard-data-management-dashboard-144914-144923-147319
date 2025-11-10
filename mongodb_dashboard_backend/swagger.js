@@ -160,7 +160,13 @@ function getBaseOpenApiSpec() {
 
   // Attempt to load interfaces/openapi.json (preferred)
   try {
-    const filePath = path.resolve(__dirname, 'interfaces', 'openapi.json');
+    // Resolve interfaces/openapi.json relative to repo root or this file dir to be robust
+    let filePath = path.resolve(__dirname, 'interfaces', 'openapi.json');
+    if (!fs.existsSync(filePath)) {
+      // Try project root -> container root -> interfaces
+      const alt = path.resolve(process.cwd(), 'interfaces', 'openapi.json');
+      if (fs.existsSync(alt)) filePath = alt;
+    }
     const raw = fs.readFileSync(filePath, 'utf8');
     const parsed = JSON.parse(raw);
     const sanitized = sanitizeOpenApiDoc(parsed);
