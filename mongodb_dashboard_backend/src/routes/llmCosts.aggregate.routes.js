@@ -10,30 +10,35 @@ router.use(requireTenant, tenantScopeEnforcer());
 
 /**
  * @swagger
- * /api/llm-costs:
+ * /api/analytics/llm-cost-by-agent:
  *   get:
- *     summary: Aggregated LLM cost data (users and projects)
- *     description: >
- *       Returns arrays of users and projects with cost fields populated from their respective collections.
- *       Defaults to 0 for missing user_cost/project_cost fields.
- *     tags: [LLMCosts]
+ *     summary: LLM cost distribution by agent
+ *     description: |
+ *       Aggregates the llm_cost/llm_costs collection by Agents[0]."Agent Name" (or equivalent field), summing numeric values parsed from cost fields.
+ *       Returns an array sorted in descending order of total_cost.
+ *       Tenant scoping is resolved from the required header `x-organization-id`.
+ *       Optional query aliases (?tenant_id or ?organization_id) are ignored when the header is present.
+ *     tags: [Analytics]
  *     parameters:
  *       - in: header
  *         name: x-organization-id
  *         required: true
- *         schema: { type: string }
- *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping on aggregation and overrides any payload tenant fields.
+ *         schema:
+ *           type: string
+ *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id).
  *       - in: query
  *         name: organization_id
- *         schema: { type: string }
- *         description: Optional alternative to header; ignored if header is provided.
+ *         schema:
+ *           type: string
+ *         description: Optional alias for tenant; ignored if header is provided.
  *       - in: query
  *         name: tenant_id
- *         schema: { type: string }
- *         description: Optional alternative to header; ignored if header is provided.
+ *         schema:
+ *           type: string
+ *         description: Optional alias for tenant; ignored if header is provided.
  *     responses:
  *       200:
- *         description: Aggregated users and projects with cost fields
+ *         description: Aggregated cost by agent (descending)
  *       500:
  *         description: Internal server error
  */

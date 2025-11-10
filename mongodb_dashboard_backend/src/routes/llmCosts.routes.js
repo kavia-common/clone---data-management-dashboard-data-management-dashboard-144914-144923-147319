@@ -19,8 +19,6 @@ const controller = buildCrudController(LLMCost, '-timestamp');
 // Resolve tenantId from header/query/payload (organization_id alias) and enforce on queries
 router.use(requireTenant, tenantScopeEnforcer());
 
-
-
 /**
  * @swagger
  * tags:
@@ -33,38 +31,52 @@ router.use(requireTenant, tenantScopeEnforcer());
  * /api/llm-costs:
  *   get:
  *     summary: List LLM cost records
- *     description: >
+ *     description: |
  *       Returns a list of LLM cost documents. Supports optional JSON filter, sorting and pagination.
  *       If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }.
  *       Otherwise a raw array is returned.
+ *       Tenant scoping is ALWAYS enforced by the server from the required `x-organization-id` header.
+ *       Query aliases (?tenant_id or ?organization_id) are optional and ignored when the header is present.
  *     tags: [LLMCosts]
  *     parameters:
  *       - in: header
  *         name: x-organization-id
  *         required: true
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping regardless of client-provided filters and overrides payload.tenant_id/organization_id.
  *       - in: query
  *         name: organization_id
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Optional tenant (alias). Alternative to header; ignored if header is provided. Payload.tenant_id will be overridden by resolved tenant.
  *       - in: query
  *         name: tenant_id
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Optional tenant. Alternative to header; ignored if header is provided. Payload.tenant_id will be overridden by resolved tenant.
  *       - in: query
  *         name: page
- *         schema: { type: integer, minimum: 1 }
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         description: Optional page number to enable envelope response
  *       - in: query
  *         name: limit
- *         schema: { type: integer, minimum: 1, maximum: 200 }
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 200
+ *         description: Optional page size to enable envelope response
  *       - in: query
  *         name: sort
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Sort string (e.g., -timestamp or total_cost)
  *       - in: query
  *         name: filter
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: JSON filter (e.g., {"tenant_id":"org1","llm_model":"gpt-4o"})
  *     responses:
  *       200:
@@ -74,14 +86,13 @@ router.use(requireTenant, tenantScopeEnforcer());
  *             schema:
  *               oneOf:
  *                 - type: array
- *                   items: { $ref: '#/components/schemas/GenericDocument' }
+ *                   items:
+ *                     $ref: '#/components/schemas/GenericDocument'
  *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400:
  *         description: Invalid filter
  */
 router.get('/', asyncHandler(controller.list));
-
-
 
 /**
  * @swagger
@@ -93,24 +104,31 @@ router.get('/', asyncHandler(controller.list));
  *       - in: header
  *         name: x-organization-id
  *         required: true
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). The server overrides payload.tenant_id/organization_id with the resolved tenant.
  *       - in: query
  *         name: organization_id
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Optional alternative to header; ignored if header is provided.
  *       - in: query
  *         name: tenant_id
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Optional alternative to header; ignored if header is provided.
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *     responses:
- *       200: { description: OK }
- *       404: { description: Not found }
- *       400: { description: Invalid id }
+ *       200:
+ *         description: OK
+ *       404:
+ *         description: Not found
+ *       400:
+ *         description: Invalid id
  */
 router.get('/:id', asyncHandler(controller.getById));
 
@@ -119,30 +137,44 @@ router.get('/:id', asyncHandler(controller.getById));
  * /api/llm-costs:
  *   post:
  *     summary: Create LLM cost record
+ *     description: |
+ *       Creates a new LLM cost record scoped to the tenant resolved from `x-organization-id`.
+ *       Client may include `tenant_id` in payload based on user login, but it will be overridden by the resolved tenant.
  *     tags: [LLMCosts]
  *     parameters:
  *       - in: header
  *         name: x-organization-id
  *         required: true
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). The server overrides payload.tenant_id/organization_id with the resolved tenant.
  *       - in: query
  *         name: organization_id
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Optional alternative to header; ignored if header is provided. Payload tenant fields are overridden.
  *       - in: query
  *         name: tenant_id
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Optional alternative to header; ignored if header is provided. Payload tenant fields are overridden.
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
- *           schema: { type: object }
+ *           schema:
+ *             type: object
+ *           example:
+ *             tenant_id: org_123
+ *             llm_model: gpt-4o
+ *             total_cost: 0.23
  *     responses:
- *       201: { description: Created }
- *       422: { description: Validation failed }
- *       400: { description: Bad request }
+ *       201:
+ *         description: Created
+ *       422:
+ *         description: Validation failed
+ *       400:
+ *         description: Bad request
  */
 router.post('/', asyncHandler(controller.create));
 
@@ -151,35 +183,47 @@ router.post('/', asyncHandler(controller.create));
  * /api/llm-costs/{id}:
  *   put:
  *     summary: Update LLM cost record
+ *     description: |
+ *       Updates an LLM cost record. Server enforces tenant scoping from `x-organization-id`.
+ *       Client may include tenant fields in payload, but they are overridden by the resolved tenant.
  *     tags: [LLMCosts]
  *     parameters:
  *       - in: header
  *         name: x-organization-id
  *         required: true
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping and overrides any payload tenant fields.
  *       - in: query
  *         name: organization_id
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Optional alternative to header; ignored if header is provided.
  *       - in: query
  *         name: tenant_id
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Optional alternative to header; ignored if header is provided.
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
- *           schema: { type: object }
+ *           schema:
+ *             type: object
  *     responses:
- *       200: { description: Updated }
- *       404: { description: Not found }
- *       400: { description: Invalid id or payload }
- *       422: { description: Validation failed }
+ *       200:
+ *         description: Updated
+ *       404:
+ *         description: Not found
+ *       400:
+ *         description: Invalid id or payload
+ *       422:
+ *         description: Validation failed
  */
 router.put('/:id', asyncHandler(controller.update));
 
@@ -193,24 +237,31 @@ router.put('/:id', asyncHandler(controller.update));
  *       - in: header
  *         name: x-organization-id
  *         required: true
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping on delete.
  *       - in: query
  *         name: organization_id
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Optional alternative to header; ignored if header is provided.
  *       - in: query
  *         name: tenant_id
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *         description: Optional alternative to header; ignored if header is provided.
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema:
+ *           type: string
  *     responses:
- *       200: { description: Deleted }
- *       404: { description: Not found }
- *       400: { description: Invalid id }
+ *       200:
+ *         description: Deleted
+ *       404:
+ *         description: Not found
+ *       400:
+ *         description: Invalid id
  */
 router.delete('/:id', asyncHandler(controller.remove));
 

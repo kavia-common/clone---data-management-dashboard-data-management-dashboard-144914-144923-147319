@@ -13,7 +13,8 @@
  *
  * Notes:
  * - The resolved tenant is mirrored to req.auth.tenantId and req.tenantId for downstream usage.
- * - Controllers/services should ignore any client-sent tenant_id/organization_id and trust req.tenantId.
+ * - Controllers/services MUST ignore any client-sent tenant_id/organization_id in the payload and trust req.tenantId.
+ * - Header takes precedence over query aliases when both are provided.
  */
 function requireTenant(req, res, next) {
   // Prefer JWT tenantId if present (cannot be overridden)
