@@ -1,11 +1,16 @@
 'use strict';
 
 const express = require('express');
-const router = express.Router();
 const { asyncHandler } = require('../utils/http');
 const { getCollection } = require('../config/db');
 const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
+
+/**
+ * Create a single Router instance for this module.
+ * Avoid multiple router declarations or duplicate exports.
+ */
+const router = express.Router();
 
 /**
  * Safely parse ISO date-like values
@@ -131,4 +136,8 @@ router.get(
   })
 );
 
+/**
+ * PUBLIC_INTERFACE
+ * Exports a single router instance.
+ */
 module.exports = router;

@@ -1,3 +1,5 @@
+'use strict';
+
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
@@ -5,6 +7,11 @@ const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
 
+/**
+ * PUBLIC_INTERFACE
+ * LLMCosts Router
+ * Exposes CRUD endpoints with tenant enforcement.
+ */
 const router = express.Router();
 // Default sort by most recent cost first
 const controller = buildCrudController(LLMCost, '-timestamp');
