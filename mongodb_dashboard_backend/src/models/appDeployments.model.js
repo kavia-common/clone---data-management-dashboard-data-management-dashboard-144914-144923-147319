@@ -11,7 +11,7 @@ const { Schema, model } = mongoose;
  */
 const appDeploymentSchema = new Schema(
   {
-    tenant_id: { type: String, index: true },
+    tenant_id: { type: String, required: true, index: true },
     tenant_name: { type: String },
     project_id: { type: String, index: true },
     projectName: { type: String },
@@ -27,30 +27,27 @@ const appDeploymentSchema = new Schema(
     deployment_id: { type: String },
     job_id: { type: String },
     message: { type: String },
-    status: { type: String, default: 'success' },
+    status: { type: String, enum: ['success', 'failed', 'in-progress'], index: true, default: 'success' },
     subdomain: { type: String },
     root_path: { type: String },
-    status: { type: String, enum: ['success', 'failed', 'in-progress'], index: true },
-    subdomain: { type: String },
     task_id: { type: String },
-    tenant_id: { type: String, required: true, index: true },
-    tenant_name: { type: String },
     updated_at: { type: Date, index: true },
     artifact_count: { type: Number },
     domain_status: { type: String, enum: ['verified', 'pending', 'failed'] },
     domain_checked_at: { type: Date, default: null },
+    created_at: { type: Date },
   },
   { timestamps: false, collection: 'app_deployments' }
 );
 
 // Suggested and enforced indexes
-AppDeploymentsSchema.index({ project_id: 1, created_at: -1 });
-AppDeploymentsSchema.index({ tenant_id: 1 });
-AppDeploymentsSchema.index({ tenant_id: 1, project_id: 1 });
-AppDeploymentsSchema.index({ tenant_id: 1, status: 1, updated_at: -1 });
-AppDeploymentsSchema.index({ app_id: 1, updated_at: -1 });
-AppDeploymentsSchema.index({ branch_name: 1, created_at: -1 });
-AppDeploymentsSchema.index(
+appDeploymentSchema.index({ project_id: 1, created_at: -1 });
+appDeploymentSchema.index({ tenant_id: 1 });
+appDeploymentSchema.index({ tenant_id: 1, project_id: 1 });
+appDeploymentSchema.index({ tenant_id: 1, status: 1, updated_at: -1 });
+appDeploymentSchema.index({ app_id: 1, updated_at: -1 });
+appDeploymentSchema.index({ branch_name: 1, created_at: -1 });
+appDeploymentSchema.index(
   { custom_domain: 1 },
   { partialFilterExpression: { custom_domain: { $exists: true, $ne: null } } }
 );
