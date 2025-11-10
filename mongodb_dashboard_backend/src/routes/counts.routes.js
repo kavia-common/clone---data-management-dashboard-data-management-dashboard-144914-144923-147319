@@ -1,6 +1,9 @@
 'use strict';
 
 const express = require('express');
+const { asyncHandler } = require('../utils/http');
+const User = require('../models/user.model');
+const SessionTracking = require('../models/sessionTracking.model');
 const router = express.Router();
 
 /**
@@ -28,7 +31,12 @@ router.get(
       ? { $or: [{ tenant_id: enforcedOrg }, { organization_id: enforcedOrg }, { organizationId: enforcedOrg }] }
       : {};
 
-    let usersCount = await User.countDocuments(enforcedScope).catch(() => 0);
+    let usersCount = 0;
+    try {
+      usersCount = await User.countDocuments(enforcedScope);
+    } catch {
+      usersCount = 0;
+    }
 
     if ((!usersCount || Number(usersCount) === 0) && enforcedOrg) {
       try {
@@ -56,11 +64,8 @@ router.get(
 
 /**
  * PUBLIC_INTERFACE
- * GET /api/deployments/count
- * Returns total number of app deployments across all tenants.
- *
- * Response:
- *  { success: true, total: number }
+ * GET /health
+ * Simple health on this router, used by base router as lightweight readiness.
  */
 router.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
