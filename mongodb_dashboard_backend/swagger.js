@@ -31,6 +31,16 @@ function buildJsDocSpec() {
           'REST API for Data Management Dashboard with MongoDB and Express',
       },
       components: {
+        parameters: {
+          xOrganizationId: {
+            name: 'x-organization-id',
+            in: 'header',
+            required: true,
+            schema: { type: 'string' },
+            description:
+              'Required tenant identifier for all tenant-scoped endpoints. You can also use query ?tenant_id or ?organization_id, but the header takes precedence.',
+          },
+        },
         schemas: {
           // A flexible document to represent MongoDB documents without strict typing
           GenericDocument: {

@@ -72,6 +72,7 @@ const swaggerUiHandler = swaggerUi.setup(null, {
     docExpansion: 'none',
   },
   customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
+  customCss: '.topbar-wrapper .link:after { content: " | Use x-organization-id header for tenant-scoped endpoints"; font-size: 12px; color: #666; }',
 });
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
@@ -114,6 +115,30 @@ if (process.env.NODE_ENV === 'test') {
     return next();
   });
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/docs/headers
+ * Provides documentation about required headers (x-organization-id) for tenant-scoped endpoints and examples.
+ */
+app.get('/api/docs/headers', (req, res) => {
+  return res.status(200).json({
+    title: 'Tenant Header Usage',
+    requiredHeader: 'x-organization-id',
+    description:
+      'For tenant-scoped endpoints such as /api/llm-costs, you must include the x-organization-id header. In Swagger UI, click "Try it out", then add the header under "Headers".',
+    examples: [
+      {
+        endpoint: 'GET /api/llm-costs',
+        headers: { 'x-organization-id': 'org_demo' },
+      },
+      {
+        endpoint: 'GET /api/llm-costs/{id}',
+        headers: { 'x-organization-id': 'org_demo' },
+      },
+    ],
+  });
+});
 
 // Dev utilities
 app.use('/api/dev', require('./routes/dev.routes'));
