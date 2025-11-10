@@ -2,9 +2,11 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
-const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
+// Use the existing generic CRUD factory with tenant enforcement
+const { buildCrudController } = require('../controllers/crudFactory');
 
 const router = express.Router();
+// Build controller for SessionTracking with default sort by -session_start
 const controller = buildCrudController(SessionTracking, '-session_start');
 
 /**
