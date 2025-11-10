@@ -1,183 +1,234 @@
 'use strict';
 
 const express = require('express');
-const morgan = require('morgan');
-const cors = require('cors');
-const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
-const helmet = require('helmet');
-const cookieParser = require('cookie-parser');
-const fs = require('fs');
-const path = require('path');
 const swaggerUi = require('swagger-ui-express');
-const routes = require('./routes');
+const { getBaseOpenApiSpec } = require('../swagger');
+const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
+const { connectDB } = require('./config/db');
+const mongoose = require('mongoose');
+const { errorHandler } = require('./middleware/standardHandlers');
+const cors = require('cors');
+
+const app = express();
+
+// TEMP STARTUP LOGS to trace route mounting (will be removed after verification)
+try {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Initializing Express app for Dashboard API');
+} catch {}
+
+app.set('trust proxy', true); // only trust local proxies
+app.use(helmetMiddleware());
+// app.use(corsMiddleware());
+app.use(cors({
+  origin: '*'
+}));
+app.use(rateLimiter());
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+const buildDynamicSpec = (req) => {
+  const host = req.get('host');
+  let protocol = req.secure ? 'https' : req.protocol;
+  const actualPort = req.socket?.localPort;
+  const hasPort = host.includes(':');
+  const needsPort =
+    !hasPort &&
+    ((protocol === 'http' && actualPort !== 80) ||
+      (protocol === 'https' && actualPort !== 443));
+  const fullHost = needsPort ? `${host}:${actualPort}` : host;
+
+  const baseSpec = getBaseOpenApiSpec();
+  return {
+    ...baseSpec,
+    info: {
+      ...baseSpec.info,
+      title: process.env.SWAGGER_TITLE || baseSpec.info?.title || 'Dashboard API',
+      version: process.env.SWAGGER_VERSION || baseSpec.info?.version || '1.0.0',
+      description:
+        process.env.SWAGGER_DESCRIPTION ||
+        baseSpec.info?.description ||
+        'REST API for Data Management Dashboard with MongoDB and Express',
+    },
+    // servers: [{ url: `${protocol}://${fullHost}` }],
+    servers: [
+  {
+    url:
+      
+      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+  },
+],
+
+  };
+};
+
+app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
+app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
+
+const swaggerUiHandler = swaggerUi.setup(null, {
+  swaggerOptions: {
+    url: '/openapi.json',
+    displayRequestDuration: true,
+    docExpansion: 'none',
+  },
+  customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
+});
+app.use('/docs', swaggerUi.serve, swaggerUiHandler);
+app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
+
+// Base router (non-/api) for health and overview
+const baseRouter = require('./routes');
+app.use('/', baseRouter);
 
 /**
- * PUBLIC_INTERFACE
- * createApp
- * Returns an Express app with basic security, logging, health route and the main /api router.
+ * Simple health with DB status
  */
-function createApp() {
-  const app = express();
+app.get('/api/health', (req, res) => {
+  const ready = mongoose.connection.readyState;
+  const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+  const payload = { status: 'ok', db };
+  if (db !== 'connected') {
+    payload.hint = 'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
+  }
+  return res.status(200).json(payload);
+});
 
-  // Ensure correct protocol/host behind reverse proxies (needed for accurate OpenAPI server URL)
-  app.set('trust proxy', true);
-
-  // Security headers
-  app.use(helmet({
-    contentSecurityPolicy: false,
-    crossOriginResourcePolicy: { policy: 'cross-origin' },
-  }));
-
-  // CORS
-  // For development and Swagger UI usage, enable permissive CORS for API and docs.
-  // Note: We intentionally do NOT use credentials with '*' origin to comply with CORS spec.
-  // Apply earliest possible to ensure preflight and 4xx/5xx also include headers.
-  app.use('/api', permissiveCorsMiddleware);
-  app.use('/docs', permissiveCorsMiddleware);
-  app.use('/openapi.json', permissiveCorsMiddleware);
-
-  // Explicit OPTIONS handlers for preflight on key mounts to guarantee 204
-  app.options('/api/*', permissiveCorsMiddleware, (req, res) => res.status(204).send());
-  app.options('/docs', permissiveCorsMiddleware, (req, res) => res.status(204).send());
-  app.options('/openapi.json', permissiveCorsMiddleware, (req, res) => res.status(204).send());
-  // Fallback catch-all OPTIONS
-  app.options('*', cors());
-
-  // Logging
-  app.use(morgan('dev'));
-
-  // Body parsing
-  app.use(express.json({ limit: '1mb' }));
-  app.use(express.urlencoded({ extended: true }));
-  app.use(cookieParser());
-
-  // PUBLIC_INTERFACE
-  // Health endpoint that does not require DB or any auth/tenant middleware; fast 200 response
-  app.get('/health', (req, res) => {
-    res.status(200).json({ ok: true, db: !!req.app.locals.db });
-  });
-
-  // PUBLIC_INTERFACE
-  // Serve OpenAPI JSON with dynamic servers computed from the request and a stable spec from interfaces/openapi.json
-  app.get('/openapi.json', (req, res) => {
-    try {
-      const specPath = path.join(__dirname, '..', 'interfaces', 'openapi.json');
-      const raw = fs.readFileSync(specPath, 'utf8');
-      const spec = JSON.parse(raw);
-
-      // Compute server URL dynamically to match preview URL and include /api base for paths
-      const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').toString();
-      const hostHeader = (req.headers['x-forwarded-host'] || req.get('host') || '').toString();
-      // Some proxies may pass comma-separated hosts; pick the first
-      const host = hostHeader.split(',')[0].trim();
-      // Our paths in spec already start with /api; keep server as origin without trailing slash
-      const origin = `${proto}://${host}`;
-      // Ensure swagger uses the same scheme/host as the current request
-      spec.servers = [{ url: origin, description: 'Current host (derived)' }];
-
-      // Ensure minimal tags array exists
-      if (!spec.tags) spec.tags = [];
-      // Add a Docs tag if not present
-      if (!spec.tags.find(t => t.name === 'Docs')) {
-        spec.tags.push({ name: 'Docs', description: 'Documentation and service metadata' });
-      }
-
-      return res.status(200).json(spec);
-    } catch (e) {
-      // Fallback minimal spec so docs still render
-      const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').toString();
-      const hostHeader = (req.headers['x-forwarded-host'] || req.get('host') || '').toString();
-      const host = hostHeader.split(',')[0].trim();
-      const origin = `${proto}://${host}`;
-      return res.status(200).json({
-        openapi: '3.0.3',
-        info: { title: 'Dashboard API', version: '1.0.0' },
-        servers: [{ url: origin }],
-        paths: {
-          '/health': {
-            get: { summary: 'Readiness', responses: { 200: { description: 'OK' } } }
-          },
-          '/api/health': {
-            get: { summary: 'API health', responses: { 200: { description: 'OK' } } }
-          }
-        }
-      });
+if (process.env.NODE_ENV === 'test') {
+  try { mongoose.set('bufferCommands', false); } catch {}
+  app.use((req, res, next) => {
+    const p = req.path || req.originalUrl || '';
+    const bypass =
+      p === '/' ||
+      p.startsWith('/health') ||
+      p.startsWith('/openapi.json') ||
+      p.startsWith('/api-docs.json') ||
+      p.startsWith('/docs') ||
+      p.startsWith('/api-docs') ||
+      p.startsWith('/api/dev');
+    if (bypass) return next();
+    if (mongoose.connection.readyState !== 1) {
+      return res
+        .status(503)
+        .json({ success: false, message: 'Service unavailable: database not connected (test mode)' });
     }
+    return next();
   });
-
-  // PUBLIC_INTERFACE
-  // Mount Swagger UI at /docs using the /openapi.json endpoint
-  app.use(
-    '/docs',
-    swaggerUi.serve,
-    swaggerUi.setup(null, {
-      // Use relative swaggerUrl so it matches current origin and scheme
-      swaggerUrl: '/openapi.json',
-      explorer: true,
-      customSiteTitle: 'Dashboard API Docs',
-    })
-  );
-
-  // PUBLIC_INTERFACE
-  // Web docs usage note for CORS/proxy behavior
-  app.get('/docs/usage', (req, res) => {
-    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').toString();
-    const hostHeader = (req.headers['x-forwarded-host'] || req.get('host') || '').toString();
-    const host = hostHeader.split(',')[0].trim();
-    const origin = `${proto}://${host}`;
-    res.status(200).json({
-      success: true,
-      message: 'Swagger UI is configured to use a dynamic server URL based on the request origin.',
-      origin,
-      notes: [
-        'CORS is configured as non-credentialed with Access-Control-Allow-Origin: * for API and docs.',
-        'Preflight OPTIONS requests return 204 with appropriate Allow-Methods and Allow-Headers.',
-        'If served behind HTTPS proxy, trust proxy is enabled to preserve scheme for OpenAPI servers.',
-      ],
-    });
-  });
-
-  // Simple root redirect/help so backend preview shows backend info, not frontend
-  app.get('/', (req, res) => {
-    res.status(200).json({
-      message: 'MongoDB Dashboard Backend',
-      docs: '/docs',
-      openapi: '/openapi.json',
-      health: '/health',
-      apiHealth: '/api/health',
-      cors: {
-        mode: 'permissive',
-        origin: '*',
-        credentials: false,
-        appliedTo: ['/api/*', '/docs', '/openapi.json']
-      }
-    });
-  });
-
-  // Main API router
-  app.use('/api', routes);
-
-  // Also expose a lightweight health check at /api/health that does not require DB
-  app.get('/api/health', (req, res) => {
-    res.json({ ok: true, db: !!req.app.locals.db });
-  });
-
-  // Basic not found handler (ensure CORS headers already set by route-level middleware)
-  app.use((req, res) => {
-    if (req.method === 'OPTIONS') {
-      return res.status(204).send();
-    }
-    res.status(404).json({ error: 'Not found' });
-  });
-
-  // Basic error handler
-  // eslint-disable-next-line no-unused-vars
-  app.use((err, req, res, next) => {
-    const status = err.status || 500;
-    res.status(status).json({ error: err.message || 'Internal Server Error' });
-  });
-
-  return app;
 }
 
-module.exports = { createApp };
+// Dev utilities
+app.use('/api/dev', require('./routes/dev.routes'));
+
+/**
+ * Public API routes
+ * Users CRUD and analytics summary
+ */
+try {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Mounting /api/users routes...');
+} catch {}
+app.use('/api/users', require('./routes/users.routes'));
+
+try {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Mounting /api/users tenant-summary routes...');
+} catch {}
+const usersAnalyticsSummaryRouter = require('./routes/users.analytics.summary.routes');
+if (usersAnalyticsSummaryRouter && usersAnalyticsSummaryRouter.stack) {
+  try {
+    // eslint-disable-next-line no-console
+    console.log('[startup] users.analytics.summary router loaded with', usersAnalyticsSummaryRouter.stack.length, 'layers');
+  } catch {}
+}
+app.use('/api/users', usersAnalyticsSummaryRouter);
+
+// Inline fallback handler for tenant-summary to avoid 404s if router wiring changes.
+// It maps controller output to array [{ tenant, count }] which the frontend expects.
+try {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Registering inline fallback for GET /api/users/tenant-summary');
+} catch {}
+const { getUsersTenantSummary } = require('./controllers/users.analytics.summary.controller');
+app.get('/api/users/tenant-summary', async (req, res) => {
+  try {
+    // Reuse controller but capture its response to map shape
+    const fakeRes = {
+      _status: 200,
+      _sent: false,
+      status(code) { this._status = code; return this; },
+      json(payload) { this._sent = true; this._payload = payload; return this; }
+    };
+    await getUsersTenantSummary(req, fakeRes);
+    if (!fakeRes._sent) {
+      return res.status(500).json({ success: false, message: 'Controller did not respond' });
+    }
+    if (fakeRes._status !== 200) {
+      return res.status(fakeRes._status).json(fakeRes._payload);
+    }
+    const items = Array.isArray(fakeRes._payload?.items) ? fakeRes._payload.items : [];
+    const mapped = items.map((it) => ({
+      tenant: it.tenant_name || it.tenant_id || '',
+      count: typeof it.user_count === 'number' ? it.user_count : 0,
+    }));
+    return res.status(200).json(mapped);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[tenant-summary.inline] error:', err?.message || err);
+    return res.status(500).json({ success: false, message: 'Internal Server Error' });
+  }
+});
+
+const analyticsAgentsRoutes = require('./routes/analyticsAgents');
+
+// Provide both kebab and camelCase aliases for session tracking and deployments
+app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
+app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
+
+// New analytics by agents endpoint
+app.use('/api/analytics/agents', analyticsAgentsRoutes);
+
+app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
+app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
+
+// Sample data
+app.use('/api/data', require('./routes/data.routes'));
+
+// Costs aggregate endpoints (non-users analytics)
+app.use('/api/costs', require('./routes/costs.byAgent.routes'));
+
+// LLM costs endpoints
+app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
+app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
+
+// Tenants, Projects, Auth, Session
+app.use('/api/tenants', require('./routes/tenants.routes'));
+app.use('/api/projects', require('./routes/projects.routes'));
+app.use('/api/session', require('./routes/session.routes'));
+app.use('/api/dashboard', require('./routes/dashboard.routes'));
+app.use('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
+app.use('/api/auth', require('./routes/auth.routes'));
+
+/* Users analytics routes have been fully removed to avoid dangling references */
+
+// 404 JSON
+app.use((req, res) => {
+  return res.status(404).json({
+    success: false,
+    message: 'Not Found',
+    path: req.originalUrl,
+  });
+});
+
+app.use(errorHandler);
+
+if (process.env.NODE_ENV !== 'test') {
+  connectDB().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error('Failed to connect to MongoDB on startup:', err.message);
+  });
+} else {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Skipping MongoDB connection in test environment');
+  try { mongoose.set('bufferCommands', false); } catch {}
+}
+
+module.exports = app;

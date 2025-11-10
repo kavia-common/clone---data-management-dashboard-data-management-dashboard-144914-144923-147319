@@ -1,35 +1,15 @@
-'use strict';
-
-const { createApp } = require('./app');
+const app = require('./app');
 const mongoose = require('mongoose');
-const { connectDB, db } = require('./config/db');
 
 // Default to 3001 to match container deployment and docs URL
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
-// Create express app instance
-const app = createApp();
-
-// Attempt non-blocking DB connection; failures should not crash startup
-(async () => {
-  try {
-    const { db: database } = await connectDB(console);
-    // Attach db to app locals for health endpoints
-    if (database) app.locals.db = database;
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.warn('[startup] DB connect attempt failed (non-fatal):', e?.message || e);
-  }
-})();
-
 const server = app
   .listen(PORT, HOST, () => {
     // eslint-disable-next-line no-console
-    const dbConn = db && db();
-    const dbName = dbConn?.databaseName || 'disconnected';
+    console.log('CURRENTDB',mongoose.connection.db.databaseName);
     console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
-    console.log(`[startup] DB: ${dbName}`);
   })
   .on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
@@ -42,7 +22,6 @@ const server = app
     // Exit so orchestrator/CI can restart
     process.exit(1);
   });
-
 // Graceful shutdown
 const shutdown = (signal) => {
   // eslint-disable-next-line no-console
@@ -51,20 +30,12 @@ const shutdown = (signal) => {
     // eslint-disable-next-line no-console
     console.log('HTTP server closed');
     try {
-      // Close mongoose if used elsewhere
-      if (mongoose?.connection?.readyState === 1) {
-        await mongoose.connection.close();
-        // eslint-disable-next-line no-console
-        console.log('Mongoose connection closed');
-      }
-      // Close native client via config/db close if available
-      const { close } = require('./config/db'); // lazy require to avoid cycles
-      if (typeof close === 'function') {
-        await close(console);
-      }
+      await mongoose.connection.close();
+      // eslint-disable-next-line no-console
+      console.log('MongoDB connection closed');
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.error('Error during shutdown', e);
+      console.error('Error closing MongoDB connection', e);
     }
     process.exit(0);
   });
