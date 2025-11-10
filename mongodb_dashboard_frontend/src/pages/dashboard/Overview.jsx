@@ -1,8 +1,8 @@
+
 import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
-
 
 // PUBLIC_INTERFACE
 export default function Overview() {
@@ -23,9 +23,9 @@ export default function Overview() {
           listDeployments({ limit: 5 }),
         ]);
         setMetrics({
-          users: (users?.total || users?.length || 0),
-          sessions: (sessions?.total || sessions?.length || 0),
-          deployments: (deployments?.total || deployments?.length || 0),
+          users: users?.total || users?.length || 0,
+          sessions: sessions?.total || sessions?.length || 0,
+          deployments: deployments?.total || deployments?.length || 0,
         });
       } catch (e) {
         setError(e?.response?.data?.message || e?.message || "Failed to load overview data.");
@@ -56,27 +56,41 @@ export default function Overview() {
 
   return (
     <div className="grid">
-      {/* KPI cards row — responsive spans handled by .kpi-card rules in App.css */}
+      {/* KPI cards row */}
       <Card title="Users" subtitle="Total referral users" className="kpi-card">
         <div className="kpi">
           <div className="kpi-value">
-            {loading ? <Skeleton width={72} height={28} aria-label="Loading users metric" /> : metrics.users}
+            {loading ? (
+              <Skeleton width={72} height={28} aria-label="Loading users metric" />
+            ) : (
+              metrics.users
+            )}
           </div>
           <div className="kpi-label">Users</div>
         </div>
       </Card>
+
       <Card title="Sessions" subtitle="Active and historical sessions" className="kpi-card">
         <div className="kpi">
           <div className="kpi-value">
-            {loading ? <Skeleton width={72} height={28} aria-label="Loading sessions metric" /> : metrics.sessions}
+            {loading ? (
+              <Skeleton width={72} height={28} aria-label="Loading sessions metric" />
+            ) : (
+              metrics.sessions
+            )}
           </div>
           <div className="kpi-label">Sessions</div>
         </div>
       </Card>
+
       <Card title="Deployments" subtitle="Recent app deployments" className="kpi-card">
         <div className="kpi">
           <div className="kpi-value">
-            {loading ? <Skeleton width={72} height={28} aria-label="Loading deployments metric" /> : metrics.deployments}
+            {loading ? (
+              <Skeleton width={72} height={28} aria-label="Loading deployments metric" />
+            ) : (
+              metrics.deployments
+            )}
           </div>
           <div className="kpi-label">Deployments</div>
         </div>

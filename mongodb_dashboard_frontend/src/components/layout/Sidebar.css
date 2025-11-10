@@ -93,6 +93,11 @@
   color: #ffffff;
 }
 
+/* Avoid white flash on active clicks in both themes */
+.sidebar .nav-link:active {
+  background: transparent;
+}
+
 /* Active state: keep orange left rail and subtle accent tint */
 :root[data-theme="dark"] .sidebar .nav-link.active,
 :root[data-theme="dark"] .sidebar .nav-link[aria-current="page"] {

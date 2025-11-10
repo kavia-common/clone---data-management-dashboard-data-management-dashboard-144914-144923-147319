@@ -44,6 +44,10 @@
   grid-template-rows: var(--topbar-h) 1fr;
   overflow: hidden; /* prevent page-level scroll; inner regions manage their own overflow */
 }
+/* Avoid white flash on app wrapper clicks (transparent active) */
+.app-shell:active {
+  background: var(--bg-canvas);
+}
 
 .topbar {
   position: sticky;

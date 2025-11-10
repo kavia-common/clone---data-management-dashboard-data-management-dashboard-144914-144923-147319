@@ -1,49 +1,47 @@
+import { useEffect, useState } from 'react';
+import api from '../utils/api';
+
 /**
  * PUBLIC_INTERFACE
- * useCostAggregatesByAgent (JS)
- * Returns aggregated cost records for grouped-by-agent visualization.
- * This hook no longer provides mock data; integrate with a real backend endpoint when available.
- *
- * Parameters:
- * - options?: { tenantId?: string; from?: string; to?: string }
- * - groupBy?: "environment" | "cost_category"
- *
- * Returns:
- * - { data: Array<{ agent_name: string; environment?: string; cost_category?: string; total_cost: number }>, loading: boolean, error?: string }
+ * useCostAggregatesByAgent
+ * Fetches agent cost distribution from backend and returns { data, loading, error }.
+ * Uses GET /api/analytics/llm-cost-by-agent from backend OpenAPI.
+ * Optional from/to currently unused by backend endpoint; kept for future compatibility.
  */
-import { useEffect, useState } from "react";
-
-export default function useCostAggregatesByAgent(options, groupBy = "environment") {
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+export default function useCostAggregatesByAgent({ from, to } = {}) {
+  const [data, setData] = useState({ items: [], meta: null });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      setError("");
+      setError(null);
       try {
-        // TODO: Replace with backend aggregate endpoint when available.
-        // Example: GET /api/llm-costs/aggregates?dimensions=agent_name,${groupBy}&metrics=SUM(total_cost)
-        await Promise.resolve();
+        const res = await api.get('/api/analytics/llm-cost-by-agent');
+        const arr = Array.isArray(res?.data) ? res.data : [];
+        const items = arr.map((row) => ({
+          agent: row.agent ?? 'unknown',
+          total_cost: typeof row.total_cost === 'number' ? row.total_cost : 0,
+        }));
         if (!cancelled) {
-          setData([]);
+          setData({ items, meta: { from: from || null, to: to || null } });
+          setLoading(false);
         }
       } catch (e) {
         if (!cancelled) {
-          setError(e?.message || "Failed to load cost aggregates by agent.");
-          setData([]);
+          setError(e);
+          setData({ items: [], meta: { from: from || null, to: to || null } });
+          setLoading(false);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     }
     load();
     return () => {
       cancelled = true;
     };
-  }, [options, groupBy]);
+  }, [from, to]);
 
   return { data, loading, error };
 }

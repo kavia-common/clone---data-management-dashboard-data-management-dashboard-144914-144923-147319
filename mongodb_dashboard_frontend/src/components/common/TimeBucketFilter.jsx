@@ -49,7 +49,11 @@ export default function TimeBucketFilter({ value, onChange, options, disabled = 
           <button
             key={opt.value}
             type="button"
-            onClick={() => !disabled && onChange(opt.value)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!disabled) onChange(opt.value);
+            }}
             disabled={disabled}
             style={{
               ...baseBtn,

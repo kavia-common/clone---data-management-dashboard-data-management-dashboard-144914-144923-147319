@@ -23,6 +23,17 @@
   --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
 }
 
+/* SessionsByType spacing helper */
+.sessions-by-type-container {
+  /* default already applied inline; keep class for future utility overrides */
+}
+@media (min-width: 768px) {
+  .sessions-by-type-container {
+    margin-bottom: 32px; /* md:mb-8 */
+    padding-bottom: 12px; /* md:pb-4 */
+  }
+}
+
 /* Map light theme CSS variables used across components to Ocean tokens */
 :root {
   --bg-canvas: var(--ocean-bg);
@@ -185,6 +196,10 @@ body {
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-subtle, var(--ocean-border));
+}
+.card:active {
+  /* Avoid white flash on press; keep surface/color consistent and rely on transform if any */
+  background: inherit;
 }
 
 /* Dark theme card surface override:

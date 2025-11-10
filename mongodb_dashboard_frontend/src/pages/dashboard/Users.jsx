@@ -4,18 +4,20 @@ import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
 
-/**
- * PUBLIC_INTERFACE
- * Users page
- * Shows Users by Tenant chart and Users list with modal details.
- */
+
 export default function Users() {
-  // Existing state (from prior implementation) retained
   const [open, setOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [defaultTab, setDefaultTab] = useState("details"); // 'details' | 'projects'
-
+  const [defaultTab, setDefaultTab] = useState("details");
   const [rangeDays, setRangeDays] = useState(30);
+
+  // Compute quick range for charts (no URL dates)
+  const { fromIso, toIso } = useMemo(() => {
+    const now = new Date();
+    const from = new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000);
+    return { fromIso: from.toISOString(), toIso: now.toISOString() };
+  }, [rangeDays]);
+
   const selectedTenantId = useMemo(() => {
     const u = selectedUser || {};
     return (
@@ -27,12 +29,6 @@ export default function Users() {
     );
   }, [selectedUser]);
 
-  const { fromIso, toIso } = useMemo(() => {
-    const now = new Date();
-    const from = new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000);
-    return { fromIso: from.toISOString(), toIso: now.toISOString() };
-  }, [rangeDays]);
-
   function handleUserSelect(user) {
     setSelectedUser(user);
     setDefaultTab("details");
@@ -43,41 +39,25 @@ export default function Users() {
     setOpen(false);
   }
 
+  // ✅ Accessibility toggle for modal overlay
   useEffect(() => {
-    const body = document?.body;
-    if (!body) return;
-
-    const CLASS = "modal-open--dim-header";
-    const apply = () => {
-      if (open) {
-        body.classList.add(CLASS);
-        const headerEl = document.querySelector(".app-headbar, .topbar");
-        if (headerEl) {
-          headerEl.setAttribute("aria-hidden", "true");
-        }
-      } else {
-        body.classList.remove(CLASS);
-        const headerEl = document.querySelector(".app-headbar, .topbar");
-        if (headerEl) {
-          headerEl.removeAttribute("aria-hidden");
-        }
-      }
-    };
-
-    apply();
-    return () => {
-      body.classList.remove(CLASS);
-      const headerEl = document.querySelector(".app-headbar, .topbar");
-      if (headerEl) {
-        headerEl.removeAttribute("aria-hidden");
-      }
-    };
+    document.body.classList.toggle("modal-open--dim-header", open);
+    const headerEl = document.querySelector(".app-headbar, .topbar");
+    if (headerEl) {
+      if (open) headerEl.setAttribute("aria-hidden", "true");
+      else headerEl.removeAttribute("aria-hidden");
+    }
   }, [open]);
 
   const chartToolbar = (
-    <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8 }}>
+    <div
+      className="toolbar"
+      style={{ marginBottom: 8, gap: 8, display: "flex", alignItems: "center" }}
+    >
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Date range</span>
+        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+          Quick range
+        </span>
         <select
           aria-label="Date range"
           value={rangeDays}
@@ -91,21 +71,18 @@ export default function Users() {
           <option value={90}>Last 90 days</option>
         </select>
       </label>
-      <div className="spacer" />
     </div>
   );
 
   return (
     <div>
-
-      {/* Users by Tenant chart above the table */}
+      {/* Users by Tenant Chart */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
           <div className="card-header" style={{ paddingBottom: 0 }}>
             <div>
               <h3 className="card-title">Users by Tenant</h3>
               <div className="card-subtitle">Distinct active users by tenant</div>
-
             </div>
             <div className="card-actions">{chartToolbar}</div>
           </div>
@@ -116,38 +93,31 @@ export default function Users() {
               status={"completed|active"}
               includeInactive={false}
               maxBars={12}
-              onBarClick={(item) => {
-                // eslint-disable-next-line no-console
-                console.debug("Tenant bar clicked:", item);
-              }}
             />
           </div>
         </div>
       </div>
 
-      {/* Users by Department distribution chart */}
+      {/* Users by Department Chart */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
           <div className="card-header" style={{ paddingBottom: 0 }}>
-            <div>
-              <h3 className="card-title">Users by Department</h3>
-              <div className="card-subtitle">Count of users per department</div>
-            </div>
+            <h3 className="card-title">Users by Department</h3>
+            <div className="card-subtitle">Count of users per department</div>
           </div>
-          <div className="card-content" aria-label="Departments section">
+          <div className="card-content">
             <UsersDepartmentChart variant="bar" height={340} />
           </div>
         </div>
       </div>
 
+      {/* Users List */}
       <UsersList
         title="Users"
         subtitle="All users"
         showActions={false}
         onUserSelect={handleUserSelect}
       />
-
-      <div style={{ marginTop: 12 }} aria-hidden="true" />
 
       <TabbedUserModal
         open={open}

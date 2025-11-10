@@ -209,7 +209,16 @@ export default function UsersByTenantChart({
                 }}
               />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: t.axisTick }} width={80} />
-              <Tooltip content={<CustomTooltip />} wrapperStyle={{ outline: "none" }} />
+              <Tooltip
+                content={<CustomTooltip />}
+                wrapperStyle={{ outline: "none" }}
+                contentStyle={{
+                  background: "transparent",
+                  border: "none",
+                  boxShadow: "none",
+                }}
+                cursor={{ fill: "transparent" }}
+              />
               <Legend
                 verticalAlign="top"
                 height={24}

@@ -95,6 +95,28 @@ a, button, .btn, input, select, textarea, .nav-link, .card {
               border-color var(--motion-duration-250) var(--motion-ease),
               box-shadow var(--motion-duration-250) var(--motion-ease),
               transform 50ms ease; /* small tap/press affordance */
+  -webkit-tap-highlight-color: transparent; /* prevent white tap flash */
+}
+
+/* Do not force white background on :active states globally */
+button:active,
+.btn:active,
+a:active,
+.nav-link:active,
+[role="button"]:active,
+input:active,
+select:active,
+textarea:active {
+  background-color: transparent;
+}
+
+/* Accessible focus ring without background fill (keyboard only) */
+:where(a, button, .btn, input, select, textarea, .nav-link):focus:not(:focus-visible) {
+  outline: none;
+}
+:where(a, button, .btn, input, select, textarea, .nav-link):focus-visible {
+  outline: 2px solid var(--focus-ring-color, var(--color-accent, #2563EB));
+  outline-offset: 2px;
 }
 
 /* Brown card helpers (applies to any element using these classes) */
@@ -150,17 +172,18 @@ a, button, .btn, input, select, textarea, .nav-link, .card {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+/* Fix: Prevent white flash during skeleton load/re-render */
 .skeleton {
-  --sk-bg: var(--color-surface, #2B2723);
-  --sk-shimmer: var(--color-border, #3C3532);
-  background: linear-gradient(90deg,
-    var(--sk-bg) 25%,
-    var(--sk-shimmer) 37%,
-    var(--sk-bg) 63%
-  );
+  background-color: #2B2723 !important; /* fallback solid surface tone */
+  background-image: linear-gradient(
+    90deg,
+    #2B2723 25%,
+    #3C3532 37%,
+    #2B2723 63%
+  ) !important;
   background-size: 400% 100%;
-  border-radius: 8px;
 }
+
 @media (prefers-reduced-motion: no-preference) {
   .skeleton {
     animation: skeleton-shimmer 1200ms var(--motion-ease) infinite;
@@ -421,4 +444,52 @@ html[data-theme="dark"] .project-id-pill:focus-visible {
 .tv-badge {
   background: transparent !important;
   background-color: transparent !important;
+}
+
+/* Recharts: eliminate default grey hover backgrounds for cursor/tooltip wrappers */
+.recharts-tooltip-wrapper,
+.recharts-tooltip-wrapper:focus,
+.recharts-tooltip-wrapper:active,
+.recharts-tooltip-wrapper:hover {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Transparent hover rectangle drawn by Recharts 'cursor' */
+.recharts-tooltip-cursor,
+.recharts-tooltip-cursor:hover {
+  fill: transparent !important;
+  stroke: transparent !important;
+}
+
+/* Prevent bar hover state from dimming to grey by ensuring same opacity */
+.recharts-bar-rectangle path {
+  opacity: 1 !important;
+}
+
+/* Ensure table empty states never pick up a white background from resets or component overrides */
+.table-empty,
+.table-empty:hover,
+.table-empty:focus,
+.table-empty:active {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* Filler rows: enforce transparent background across all states and themes without affecting other table cells */
+:where(.tr--filler) :where(.td),
+:where(.tr--filler):hover :where(.td),
+:where(.tr--filler):active :where(.td),
+:where(.tr--filler):focus :where(.td),
+:where(.tr--filler) :where(.td):hover,
+:where(.tr--filler) :where(.td):active,
+:where(.tr--filler) :where(.td):focus {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: inherit; /* preserve readable text color if any text appears */
+  /* Keep subtle borders readable but unobtrusive */
+  border-bottom-color: color-mix(in oklab, currentColor 12%, transparent);
 }

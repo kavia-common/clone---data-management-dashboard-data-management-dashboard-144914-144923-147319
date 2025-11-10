@@ -6,6 +6,8 @@ import DeploymentsOverTime from "../../components/charts/DeploymentsOverTime.jsx
 import DeploymentStatusBarChart from "../../components/charts/DeploymentStatusBarChart.jsx";
 import useDeploymentStatusCounts from "../../hooks/useDeploymentStatusCounts";
 
+
+
 /**
  * PUBLIC_INTERFACE
  * Deployments page
@@ -88,6 +90,8 @@ export default function Deployments() {
   const [columns, setColumns] = useState(buildColumns([]));
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
+
+
   // PUBLIC_INTERFACE
   async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
     /**
@@ -139,6 +143,8 @@ export default function Deployments() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+
+
   // Hook to show status counts in a bar chart (unchanged)
   const { data: statusData, loading: statusLoading, error: statusError } = useDeploymentStatusCounts({
     strategy: "clientAggregate",
@@ -169,6 +175,7 @@ export default function Deployments() {
       {/* Table card */}
       <div className="block-full">
         <Card title="App Deployments" subtitle="Deployments list">
+
           {error && <div className="error" role="alert">{error}</div>}
           <DataTable
             columns={columns}

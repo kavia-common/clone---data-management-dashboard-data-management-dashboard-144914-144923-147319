@@ -7,6 +7,18 @@ import SessionsByOrganization from "../../components/charts/SessionsByOrganizati
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
 
+
+
+// Simple helper to get distinct, sorted, non-empty values
+function distinctSorted(arr) {
+  const set = new Set();
+  (arr || []).forEach((v) => {
+    const s = String(v ?? "").trim();
+    if (s) set.add(s);
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
@@ -16,10 +28,42 @@ export default function Sessions() {
    * - Minimal loading and error states shown within the table and above toolbar.
    */
   const [items, setItems] = useState([]);
+
+
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+
+  // New UI filters
+  const [filterUserName, setFilterUserName] = useState("");
+  const [filterTenantId, setFilterTenantId] = useState("");
+
+  // Dropdown options populated from fetched session data (distinct lists)
+  const [userNameOptions, setUserNameOptions] = useState([]);
+  const [tenantIdOptions, setTenantIdOptions] = useState([]);
+
+  // Keep URL query params in sync for dropdowns (so back/forward works)
+  useEffect(() => {
+    const usp = new URLSearchParams(window.location.search);
+    if (filterUserName) usp.set("user_name", filterUserName);
+    else usp.delete("user_name");
+    if (filterTenantId) usp.set("tenant_id", filterTenantId);
+    else usp.delete("tenant_id");
+    const next = `${window.location.pathname}?${usp.toString()}`;
+    window.history.replaceState({}, "", next);
+  }, [filterUserName, filterTenantId]);
+
+  // Initialize dropdown selections from URL on first mount
+  useEffect(() => {
+    const usp = new URLSearchParams(window.location.search);
+    const initialUser = usp.get("user_name") || "";
+    const initialTenant = usp.get("tenant_id") || "";
+    if (initialUser) setFilterUserName(initialUser);
+    if (initialTenant) setFilterTenantId(initialTenant);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Details modal state (session details; unrelated to deprecated "View All" costs modal)
   const [selectedSession, setSelectedSession] = useState(null);
@@ -31,8 +75,9 @@ export default function Sessions() {
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
   // Allowed and ordered fields (column visibility)
+  // Replace Task Id column with User name per requirements
   const allowedOrdered = useMemo(
-    () => ["task_id", "tenant_id", "organization_name", "service_type"],
+    () => ["User_name", "tenant_id", "organization_name", "service_type"],
     []
   );
 
@@ -51,10 +96,30 @@ export default function Sessions() {
     (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
 
     return allowedOrdered.map((k) => {
+      // Special case: display-friendly label for the capitalized schema alias
+      const label =
+        k === "User_name" ? "User name" : toLabel(k);
+
+      // Render function that can resolve alias to underlying values if API returns different casing
+      const render = (v, row) => {
+        if (k === "User_name") {
+          // Prefer explicit field if present; fall back to user_name or reasonable user references
+          const val =
+            row?.User_name ??
+            row?.user_name ??
+            row?.user?.name ??
+            row?.username ??
+            row?.email ??
+            v;
+          return val == null || val === "" ? "—" : String(val);
+        }
+        return v == null || v === "" ? "—" : String(v);
+      };
+
       return {
         key: k,
-        label: toLabel(k),
-        render: (v) => (v == null || v === "" ? "—" : String(v)),
+        label,
+        render,
         priority: 2,
       };
     });
@@ -118,6 +183,41 @@ export default function Sessions() {
 
       setByOrg(orgArr);
       setByType(typeArr);
+
+      // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+      // Keep pairs of { id, name } for filtering
+      // ✅ Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+
+      // Build unique user list with IDs and names
+      const userPairs = all
+        .map((it) => ({
+          id: it?.user_id,
+          name:
+            it?.User_name ??
+            it?.user_name ??
+            it?.user?.name ??
+            it?.username ??
+            it?.email ??
+            "",
+        }))
+        .filter((u) => u.id && u.name);
+
+      const uniqueUsers = [];
+      const seen = new Set();
+      userPairs.forEach((u) => {
+        if (!seen.has(u.id)) {
+          seen.add(u.id);
+          uniqueUsers.push(u);
+        }
+      });
+
+      // Build distinct tenant IDs
+      const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
+
+      // Update dropdown options
+      setUserNameOptions(uniqueUsers);
+      setTenantIdOptions(tenantIds);
+
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -140,12 +240,29 @@ export default function Sessions() {
     setError("");
     try {
       const sortFieldMap = {
-        task_id: "task_id",
+        // Map UI column keys to backend fields
+        User_name: "user_name", // prefer lowercase field in DB
         tenant_id: "tenant_id",
         organization_name: "organization_name",
         service_type: "service_type",
+        task_id: "task_id", // legacy, not used in current allowedOrdered
       };
+      // include optional date range as both from/to and start/end
       const params = { page, limit, q: qStr };
+
+      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
+      const filter = {};
+      if (filterTenantId && filterTenantId.trim()) {
+        filter.tenant_id = filterTenantId.trim();
+      }
+      if (filterUserName && filterUserName.trim()) {
+        filter.user_id = filterUserName.trim();
+      }
+
+      if (Object.keys(filter).length > 0) {
+        params.filter = filter;
+      }
+
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
@@ -179,10 +296,11 @@ export default function Sessions() {
     load(1, meta.limit || 10, "", key, dir);
     loadAggregates("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // initial mount only
 
   // Debounced server-side search on query change (250ms default)
   const debouncedQuery = useDebouncedValue(query, 250);
+  // Debounced text search only
   useEffect(() => {
     const q = (debouncedQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
@@ -190,6 +308,17 @@ export default function Sessions() {
     loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
+
+  // Immediate refetch when dropdown filters change (no debounce)
+  useEffect(() => {
+    const q = (query || "").trim();
+    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    load(1, meta.limit || 10, q, key, dir);
+    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterUserName, filterTenantId]);
+
+
 
   // Toggle global dimming class while modal is open (align with user modal UX)
   useEffect(() => {
@@ -228,12 +357,17 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts stacked vertically */}
+      {/* Charts stacked vertically (normal flow, with spacing below so table doesn't overlap) */}
       <div
         className="sessions-charts"
         role="region"
         aria-label="Session insights"
-        style={{ display: "flex", flexDirection: "column", gap: 24 }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 24,
+          marginBottom: 32, // ensure spacing before the table card
+        }}
       >
         <Card
           className="chart-card"
@@ -248,23 +382,26 @@ export default function Sessions() {
             />
           </div>
         </Card>
+
         <Card
           className="chart-card"
           title="Sessions by Type"
           subtitle="Count of sessions per type"
         >
-          <div className="chart-wrapper" style={{ height: 320 }}>
+          {/* Wrapper participates in normal flow; no absolute positioning */}
+          <div className="chart-wrapper" style={{ minHeight: 320 }}>
             <SessionsByType
               data={byType}
               loading={aggLoading}
               error={aggError}
+              maxItems={5}
             />
           </div>
         </Card>
       </div>
 
       {/* Existing table card remains below charts */}
-      <Card title="Session Tracking" subtitle="Search across the full dataset">
+      <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
             className="input-search"
@@ -273,6 +410,37 @@ export default function Sessions() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          <label htmlFor="filter-user" className="sr-only">Filter by User name</label>
+          <select
+            id="filter-user"
+            className="input-filter"
+            aria-label="Filter by User"
+            value={filterUserName}
+            onChange={(e) => setFilterUserName(e.target.value)}
+            style={{ marginLeft: 8, minWidth: 220 }}
+          >
+            <option value="">All users</option>
+            {userNameOptions.map((u) => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+
+
+          <label htmlFor="filter-tenant" className="sr-only">Filter by Tenant ID</label>
+          <select
+            id="filter-tenant"
+            className="input-filter"
+            aria-label="Filter by Tenant ID"
+            value={filterTenantId}
+            onChange={(e) => setFilterTenantId(e.target.value)}
+            style={{ marginLeft: 8, minWidth: 180 }}
+          >
+            <option value="">All tenants</option>
+            {tenantIdOptions.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+
           <div className="spacer" />
         </div>
         {error && (

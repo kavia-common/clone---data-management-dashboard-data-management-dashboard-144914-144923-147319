@@ -8,6 +8,36 @@ html, body {
   /* Allow page to scroll when needed; modal overlay uses position: fixed to stay centered */
   overflow-x: hidden;
   overflow-y: auto;
+
+  /* Prevent mobile tap highlight flash */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Themed selection color: subtle brand tint without forcing white */
+::selection {
+  background: rgba(37, 99, 235, 0.18); /* Ocean primary @ ~18% */
+  color: inherit;
+}
+::-moz-selection {
+  background: rgba(37, 99, 235, 0.18);
+  color: inherit;
+}
+
+/* Ensure interactive elements don't flash white on active */
+a:active,
+button:active,
+[role="button"]:active,
+input:active,
+select:active,
+textarea:active {
+  background-color: transparent;
+}
+
+/* Respect accessible focus without background fill */
+*:focus { outline: none; }
+*:focus-visible {
+  outline: 2px solid var(--focus-ring-color, var(--color-accent, #2563EB));
+  outline-offset: 2px;
 }
 
 /* Utility: lock body scroll when an app-level modal policy wants it */
@@ -93,7 +123,8 @@ body.modal-open--dim-header .topbar {
 /* Small utility classes used by components */
 .table-empty {
   color: var(--text-subtle);
-  background: var(--brand-50);
+  background: transparent !important; /* ensure no white fill; inherit theme */
+  background-color: transparent !important;
   border: 1px dashed var(--border-subtle);
   padding: 12px;
   border-radius: 8px;

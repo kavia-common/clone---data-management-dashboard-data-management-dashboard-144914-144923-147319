@@ -15,7 +15,13 @@
   box-shadow: var(--focus-shadow);
 }
 
+/* Prevent active state from forcing a white background in any ui element */
+:where(a, button, .btn, [role="button"], .nav-link):active {
+  background: transparent;
+}
+
 /* Ensure no layout shift; outline does not consume layout space. */
 :where(.btn, .nav-link, input, select, textarea) {
   border-radius: 8px;
 }
+
