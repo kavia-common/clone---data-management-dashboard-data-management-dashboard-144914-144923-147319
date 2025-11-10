@@ -12,8 +12,11 @@ const { extractOrganization } = require('../middleware/extractOrganization');
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
 
-// Enforce JWT + Tenant at router level
-router.use(verifyAuth, requireTenantMw);
+/**
+ * JWT and tenant scoping are enforced at the app level where this router is mounted:
+ *   app.use('/api/users', verifyAuth, requireTenant, require('./routes/users.routes'))
+ * Avoid re-declaring middleware here to prevent boot errors and double-enforcement.
+ */
 
 // Simple in-memory cache for tenant summary (5 minutes TTL)
 const TENANT_SUMMARY_CACHE = new Map();
