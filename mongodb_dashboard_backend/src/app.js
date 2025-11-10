@@ -8,6 +8,7 @@ const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
+const cors = require('cors');
 
 const app = express();
 
@@ -17,12 +18,12 @@ try {
   console.log('[startup] Initializing Express app for Dashboard API');
 } catch { }
 
-app.set('trust proxy', true); // only trust local proxies
+app.set('trust proxy', 1); // only trust local proxies
 app.use(helmetMiddleware());
-// app.use(corsMiddleware());
-app.use(cors({
-  origin: '*'
-}));
+// Configure CORS with allowlist and credentials support via our middleware
+app.use(corsMiddleware());
+// Handle preflight across API routes explicitly to avoid 404 on OPTIONS
+app.options('/api/*', cors()); // uses default which will be overridden by corsMiddleware above
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -84,14 +85,26 @@ app.use('/', baseRouter);
 /**
  * Simple health with DB status
  */
-app.get('/api/health', (req, res) => {
+try { console.log('[startup] Registering GET /api/health and GET /health'); } catch {}
+const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
-  const payload = { status: 'ok', db };
+  const payload = { status: 'ok', db, timestamp: new Date().toISOString() };
   if (db !== 'connected') {
     payload.hint = 'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
   }
+  res.set('Cache-Control', 'no-store');
   return res.status(200).json(payload);
+};
+app.get('/api/health', healthHandler);
+/**
+ * PUBLIC_INTERFACE
+ * GET /health
+ * Fast readiness check that does not depend on MongoDB. Returns 200 with status ok and db state.
+ */
+app.get('/health', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return healthHandler(req, res);
 });
 
 if (process.env.NODE_ENV === 'test') {
@@ -204,21 +217,47 @@ app.get('/api/users/tenant-summary', async (req, res) => {
 
 const analyticsAgentsRoutes = require('./routes/analyticsAgents');
 
+const { verifyAuth } = require('./middleware/verifyAuth');
+const { requireTenant } = require('./middleware/requireTenant');
+
+/**
+ * Add a thin logger to confirm headers for protected API calls in development.
+ */
+const devHeadersLogger = (req, res, next) => {
+  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+    if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
+      const authPresent = !!(req.headers?.authorization || req.headers?.Authorization);
+      const xtenant = req.headers?.['x-tenant-id'] || req.headers?.['x-tenant'] || null;
+      // eslint-disable-next-line no-console
+      console.debug(`[api] ${req.method} ${req.path} Authorization=${authPresent ? 'yes' : 'no'} x-tenant-id=${xtenant || 'n/a'}`);
+    }
+  }
+  next();
+};
+app.use(devHeadersLogger);
+
 // Provide both kebab and camelCase aliases for session tracking and deployments
-app.use('/api/session-tracking', require('./routes/sessionTracking.routes'));
-app.use('/api/sessionTracking', require('./routes/sessionTracking.routes'));
+app.use('/api/session-tracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
+app.use('/api/sessionTracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
 
-// New analytics by agents endpoint
-app.use('/api/analytics/agents', analyticsAgentsRoutes);
+/**
+ * Analytics endpoints
+ * - Agents cost/usage aggregation
+ * - Overview time-bucketed metrics
+ */
+app.use('/api/analytics/agents', verifyAuth, requireTenant, analyticsAgentsRoutes);
+app.use('/api/analytics', verifyAuth, requireTenant, require('./routes/analytics.overview.routes'));
 
-app.use('/api/app-deployments', require('./routes/appDeployments.routes'));
-app.use('/api/appDeployments', require('./routes/appDeployments.routes'));
+app.use('/api/app-deployments', verifyAuth, requireTenant, require('./routes/appDeployments.routes'));
+app.use('/api/appDeployments', verifyAuth, requireTenant, require('./routes/appDeployments.routes'));
 
-// Sample data
-app.use('/api/data', require('./routes/data.routes'));
+/**
+ * Sample data route removed. The application now only exposes real MongoDB-backed APIs.
+ * If needed in the future, reintroduce at /api/data with an actual collection.
+ */
 
 // Costs aggregate endpoints (non-users analytics)
-app.use('/api/costs', require('./routes/costs.byAgent.routes'));
+app.use('/api/costs', verifyAuth, requireTenant, require('./routes/costs.byAgent.routes'));
 
 /* LLM costs endpoints */
 app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
@@ -227,11 +266,11 @@ app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
 app.use('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 
 // Tenants, Projects, Auth, Session
-app.use('/api/tenants', require('./routes/tenants.routes'));
-app.use('/api/projects', require('./routes/projects.routes'));
-app.use('/api/session', require('./routes/session.routes'));
-app.use('/api/dashboard', require('./routes/dashboard.routes'));
-app.use('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
+app.use('/api/tenants', verifyAuth, requireTenant, require('./routes/tenants.routes'));
+app.use('/api/projects', verifyAuth, requireTenant, require('./routes/projects.routes'));
+app.use('/api/session', verifyAuth, requireTenant, require('./routes/session.routes'));
+app.use('/api/dashboard', verifyAuth, requireTenant, require('./routes/dashboard.routes'));
+app.use('/api/dashboard/overview', verifyAuth, requireTenant, require('./routes/dashboard.modules.routes'));
 app.use('/api/auth', require('./routes/auth.routes'));
 
 /* Users analytics routes have been fully removed to avoid dangling references */

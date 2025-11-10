@@ -1,3 +1,5 @@
+'use strict';
+
 const express = require('express');
 const { getAggregatedCosts } = require('../controllers/llmCostsAggregate.controller');
 const { requireTenant } = require('../middleware/requireTenant');

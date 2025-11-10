@@ -1,10 +1,23 @@
+/* Ensure environment variables from .env are loaded even if the process
+ * is started without "-r dotenv/config" (e.g., by external orchestrators).
+ * This guarantees preview/CI can boot without special node flags.
+ */
+try { require('dotenv').config(); } catch {}
+
 const app = require('./app');
 const mongoose = require('mongoose');
 
 // Default to 3001 to match container deployment and docs URL
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
+// Early startup banner to aid diagnostics
+try {
+  // eslint-disable-next-line no-console
+  console.log(`[startup] Initializing server on ${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+} catch {}
+
+// Start listening unconditionally; Mongo connection is handled inside app.js and must not block server startup.
 const server = app
   .listen(PORT, HOST, () => {
     try {
@@ -40,6 +53,7 @@ const server = app
     // Exit so orchestrator/CI can restart
     process.exit(1);
   });
+
 
 // Graceful shutdown
 const shutdown = (signal) => {

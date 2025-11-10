@@ -1,6 +1,6 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
-const { buildCrudController } = require('../controllers/crudFactory');
+const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
 const User = require('../models/user.model');
 const { getUserProjectsFromSessions } = require('../services/users.service');
 const SessionTracking = require('../models/sessionTracking.model');
@@ -10,7 +10,10 @@ const mongoose = require('mongoose');
 const { extractOrganization } = require('../middleware/extractOrganization');
 
 const router = express.Router();
-const controller = buildCrudController(User, '-created_at');
+const controller = buildTenantCrudController(User, '-created_at');
+
+// Enforce JWT + Tenant at router level
+router.use(verifyAuth, requireTenantMw);
 
 // Simple in-memory cache for tenant summary (5 minutes TTL)
 const TENANT_SUMMARY_CACHE = new Map();
@@ -19,6 +22,10 @@ const TENANT_SUMMARY_TTL_MS = 5 * 60 * 1000;
 // Simple in-memory cache for active trend (5 minutes TTL)
 const ACTIVE_TREND_CACHE = new Map();
 const ACTIVE_TREND_TTL_MS = 5 * 60 * 1000;
+
+// Simple in-memory cache for most-active (5 minutes TTL)
+const MOST_ACTIVE_CACHE = new Map();
+const MOST_ACTIVE_TTL_MS = 5 * 60 * 1000;
 
 function buildTenantSummaryCacheKey(q) {
   // Normalize known params
@@ -55,6 +62,29 @@ function getActiveTrendCache(key) {
 }
 function setActiveTrendCache(key, value) {
   ACTIVE_TREND_CACHE.set(key, { value, expiresAt: Date.now() + ACTIVE_TREND_TTL_MS });
+}
+
+/** Helpers for Most Active cache */
+function buildMostActiveCacheKey(q) {
+  const key = {
+    range: q.range || '30d',
+    granularity: q.granularity || 'daily',
+    topN: Number.isFinite(q.topN) ? q.topN : 5,
+    tenant_id: q.tenant_id || null,
+  };
+  return `most-active:${JSON.stringify(key)}`;
+}
+function getMostActiveCache(key) {
+  const hit = MOST_ACTIVE_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    MOST_ACTIVE_CACHE.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+function setMostActiveCache(key, value) {
+  MOST_ACTIVE_CACHE.set(key, { value, expiresAt: Date.now() + MOST_ACTIVE_TTL_MS });
 }
 
 function getCache(key) {
@@ -105,6 +135,7 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
         ],
         created_at: now,
         updated_at: now,
+        tenant_id: req.auth.tenantId,
       },
       {
         tenant_id: org,
@@ -115,6 +146,7 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
         referral_history: [],
         created_at: now,
         updated_at: now,
+        tenant_id: req.auth.tenantId,
       },
     ];
     const result = await User.insertMany(demoUsers);
@@ -353,27 +385,36 @@ router.get(
  * /api/users:
  *   get:
  *     summary: List users
- *     description: Retrieve a paginated list of users with optional JSON filtering and sorting.
- *     tags: [Users]
+ *     description: |
+ *       Returns a list of users from the users collection. Supports optional text search, sorting, and pagination.
+ *       - If pagination parameters (page and/or limit) are provided, the response is wrapped in an envelope with meta.
+ *       - Without pagination, a raw array of user documents is returned.
+ *     tags:
+ *       - Users
  *     parameters:
  *       - in: query
  *         name: page
  *         schema:
  *           type: integer
  *           minimum: 1
- *         description: Page number (default 1)
+ *         description: Page number to enable envelope response
  *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
  *           minimum: 1
  *           maximum: 200
- *         description: Page size (default 20, max 200)
+ *         description: Page size to enable envelope response
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Case-insensitive text search on common user fields (e.g., name, email)
  *       - in: query
  *         name: sort
  *         schema:
  *           type: string
- *         description: Sort string (e.g., -created_at)
+ *         description: Sort string (e.g., -created_at or email)
  *       - in: query
  *         name: filter
  *         schema:
@@ -386,37 +427,8 @@ router.get(
  *         required: true
  *         description: Organization (tenant) identifier to scope results. Also accepted via header x-organization-id.
  *     responses:
- *       200:
- *         description: List of users (array or envelope based on pagination params)
- *         content:
- *           application/json:
- *             schema:
- *               oneOf:
- *                 - type: array
- *                   items: { $ref: '#/components/schemas/GenericDocument' }
- *                 - $ref: '#/components/schemas/ListEnvelope'
- *       400:
- *         description: Invalid filter
- *
- * /api/users/seed-if-empty:
- *   get:
- *     summary: Seed demo users if collection is empty
- *     description: Inserts a small set of demo users only when the collection is empty, then returns counts and one sample document.
- *     tags: [Users]
- *     responses:
- *       200:
- *         description: Seeding summary and a sample document
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean, example: true }
- *                 before: { type: integer, example: 0 }
- *                 inserted: { type: integer, example: 2 }
- *                 after: { type: integer, example: 2 }
- *                 sample:
- *                   $ref: '#/components/schemas/GenericDocument'
+ *       '200':
+ *         description: Successful response containing users
  */
 router.get(
   '/',
@@ -520,34 +532,7 @@ router.get(
   })
 );
 
-/**
- * @swagger
- * /api/users/{id}:
- *   get:
- *     summary: Get user by ID
- *     tags: [Users]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *         description: MongoDB document _id
- *     responses:
- *       200:
- *         description: User document
- *       404:
- *         description: Not found
- *       400:
- *         description: Invalid id
- */
-/**
- * PUBLIC_INTERFACE
- * GET /api/users/:id
- * Returns a minimal user payload with just { id, name }.
- * - 400 for invalid ObjectId
- * - 404 when not found
- * - 200 with { id, name } when found (name may be null if not available)
- */
+// Get user by id
 router.get(
   '/:id',
   extractOrganization(),

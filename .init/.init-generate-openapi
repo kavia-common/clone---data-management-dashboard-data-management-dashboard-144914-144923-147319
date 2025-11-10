@@ -1,4 +1,4 @@
 {
-    "command": "npm install && node generate_openapi.js",
-    "working_directory": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144923/mongodb_dashboard_backend"
+    "command": "",
+    "working_directory": ""
 }

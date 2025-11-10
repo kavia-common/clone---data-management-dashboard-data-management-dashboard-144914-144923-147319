@@ -2,202 +2,95 @@
 
 /**
  * PUBLIC_INTERFACE
- * Auth configuration helper.
- * Reads authentication-related secrets/salts from environment variables and provides
- * safe accessors and validation helpers without crashing the server when missing.
- *
- * Environment variables considered:
- * - AUTH_JWT_SECRET: Secret used for signing JWTs (if/when JWT is implemented).
- * - AUTH_PASSWORD_SALT: Salt used for hashing passwords (if backend performs hashing).
- * - AUTH_TENANT_SALT: Salt used for encrypting/validating tenant/organization identifiers.
- * - AUTH_DEFAULT_TENANT: Default tenant id/name used when none can be derived.
- * - AUTH_TENANT_STRATEGY: How to resolve tenant (one of: 'body', 'host', 'body-or-host', 'host-or-body'; default 'body-or-host').
- * - AUTH_TENANT_MAPPING: JSON object mapping tenant identifiers to credentials info or a simple allowlist mapping.
- * - AUTH_EXPECTED_TENANTS: Comma-separated list of allowed tenant identifiers (allowlist).
- *
- * Notes:
- * - In development, these can be set to dummy values, but production should use strong secrets.
- * - This module does not throw; it returns state that callers can use to respond with 4xx errors.
+ * getTenantSaltConfig
+ * Returns status flags about the SECRET_SALT (legacy static salt) without exposing the secret.
+ * - isMissing: true if not provided
+ * - isPlaceholder: true if it looks like a weak/placeholder value
+ * - looksValid: true if it resembles a URL-safe base64 (rough heuristic)
+ * - salt: length only is used by callers; actual value is not logged or returned externally
  */
-
-const PLACEHOLDER_VALUES = new Set([
-  '',
-  'changeme',
-  'placeholder',
-  'qa_salt',
-  'qa-placeholder',
-  'demo',
-  'default',
-  'insecure',
-]);
-
-function normalize(value) {
-  if (value === undefined || value === null) return '';
-  return String(value).trim();
-}
-
-
-function isUrlSafeShortBase64(s) {
-  if (!s || typeof s !== 'string') return false;
-  const v = s.trim();
-  if (!v) return false;
-  if (PLACEHOLDER_VALUES.has(v.toLowerCase())) return false;
-  // 20-32 len guard, expected typically 22-24 for 16 bytes base64url without padding
-  if (v.length < 20 || v.length > 44) return false;
-  // url-safe chars only
-  if (!/^[A-Za-z0-9\-_]+$/.test(v)) return false;
-  // no padding '='
-  if (v.includes('=')) return false;
-  return true;
-}
-
-// PUBLIC_INTERFACE
 function getTenantSaltConfig() {
-  // Single source of truth
-  const raw =
-    normalize(process.env.SECRET_SALT) ||
-    normalize(process.env.AUTH_TENANT_SALT) ||
-    normalize(process.env.QA_SALT) ||
-    normalize(process.env.PASSWORD_SALT);
+  const salt = process.env.SECRET_SALT || process.env.AUTH_TENANT_SALT || process.env.PASSWORD_SALT || '';
+  const isMissing = !salt || String(salt).trim() === '';
+  const isPlaceholder =
+    !!salt &&
+    ['changeme', 'placeholder', 'secret', 'password', 'default'].some((w) =>
+      String(salt).toLowerCase().includes(w)
+    );
 
-  const isMissing = raw.length === 0;
-  const isPlaceholder = PLACEHOLDER_VALUES.has(raw.toLowerCase());
-  // Normalize: if provided in classic base64 with padding, convert to base64url and strip padding
-  let normalized = raw
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
+  // Heuristic: URL-safe base64 (no '='), 22-44 chars typical for salts
+  const urlSafeBase64Like = /^[A-Za-z0-9\-_]+$/.test(String(salt)) && !String(salt).includes('=');
+  const looksValid = !isMissing && urlSafeBase64Like && String(salt).length >= 16;
 
-  const looksValid = isUrlSafeShortBase64(normalized);
-
-  return {
-    // The url-safe short salt to be used across backend
-    salt: normalized,
-    isMissing,
-    isPlaceholder: isPlaceholder || !looksValid,
-    looksValid,
-  };
-}
-
-// PUBLIC_INTERFACE
-function getJwtSecretConfig() {
-  const secret = normalize(process.env.AUTH_JWT_SECRET) || normalize(process.env.JWT_SECRET);
-  const isMissing = secret.length === 0;
-  const isWeak = secret.length > 0 && secret.length < 16;
-  return { secret, isMissing, isWeak };
-}
-
-// PUBLIC_INTERFACE
-function getPasswordSaltConfig() {
-  const salt = normalize(process.env.AUTH_PASSWORD_SALT) || normalize(process.env.PASSWORD_SALT);
-  const isMissing = salt.length === 0;
-  const isPlaceholder = PLACEHOLDER_VALUES.has(salt.toLowerCase()) || salt.length < 12;
-  return { salt, isMissing, isPlaceholder };
+  return { isMissing, isPlaceholder, looksValid, salt };
 }
 
 /**
- * Extract tenant fragment from a host like subdomain.example.com.
- * If host is kaviaqa-worktool.cloud.kavia.ai we can derive 'qa' or 'kaviaqa-worktool' depending on convention.
- * This implementation returns the left-most label (before first dot).
- */
-function tenantFromHost(hostHeader) {
-  const host = normalize(hostHeader);
-  if (!host) return '';
-  const first = host.split('.')[0];
-  return first || '';
-}
-
-/**
- * PUBLIC_INTERFACE
- * Returns tenant config including resolver and allowlist/mapping checks.
+ * Resolve tenant id from request or explicit input, with a small, configurable strategy.
+ * Strategy precedence:
+ * - explicit argument (organization_id)
+ * - header: x-tenant-id or x-tenant
+ * - req.auth.tenantId (from auth middleware)
+ * - default tenant (AUTH_DEFAULT_TENANT or DEMO)
  */
 function getTenantConfig() {
-  const defaultTenant = normalize(process.env.AUTH_DEFAULT_TENANT) || 'default';
-  const strategy = (normalize(process.env.AUTH_TENANT_STRATEGY) || 'body-or-host').toLowerCase();
+  const defaultTenant = process.env.AUTH_DEFAULT_TENANT || 'DEMO';
+  const allowed = new Set(
+    String(process.env.ALLOWED_TENANTS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
 
-  // Parse allowlist from CSV
-  const expectedCSV = normalize(process.env.AUTH_EXPECTED_TENANTS);
-  const allowlist = expectedCSV
-    ? expectedCSV
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
-
-  // Parse mapping JSON if present
-  let mapping = {};
-  const mappingRaw = normalize(process.env.AUTH_TENANT_MAPPING);
-  if (mappingRaw) {
-    try {
-      mapping = JSON.parse(mappingRaw);
-    } catch (e) {
-      // Ignore parse errors; treat as no mapping
-      mapping = {};
-    }
-  }
+  const strategy = 'explicit|header|auth|default';
 
   // PUBLIC_INTERFACE
-  function resolveTenant(req, bodyOrgId) {
-    const orgFromBody = normalize(bodyOrgId);
-    const orgFromHost = tenantFromHost(req?.headers?.host);
-
-    let resolved = '';
-    switch (strategy) {
-      case 'body':
-        resolved = orgFromBody;
-        break;
-      case 'host':
-        resolved = orgFromHost;
-        break;
-      case 'host-or-body':
-        resolved = orgFromHost || orgFromBody;
-        break;
-      case 'body-or-host':
-      default:
-        resolved = orgFromBody || orgFromHost;
-        break;
+  function resolveTenant(req, organizationId) {
+    if (organizationId && typeof organizationId === 'string' && organizationId.trim() !== '') {
+      return organizationId.trim();
     }
-
-    if (!resolved) {
-      resolved = defaultTenant;
+    const headerTid = req?.headers?.['x-tenant-id'] || req?.headers?.['x-tenant'];
+    if (headerTid && typeof headerTid === 'string' && headerTid.trim() !== '') {
+      return String(headerTid).trim();
     }
-
-    return resolved;
+    if (req?.auth?.tenantId && typeof req.auth.tenantId === 'string') {
+      return String(req.auth.tenantId).trim();
+    }
+    return defaultTenant;
   }
 
   // PUBLIC_INTERFACE
   function isTenantAllowed(tenantId) {
-    const t = normalize(tenantId);
-    if (!t) return false;
-
-    // If mapping exists, require presence in mapping
-    const mappingKeys = Object.keys(mapping || {});
-    if (mappingKeys.length > 0) {
-      return mappingKeys.includes(t);
+    if (!tenantId || typeof tenantId !== 'string') return false;
+    if (allowed.size === 0) {
+      // Permissive when not specified; safe for preview environments
+      return true;
     }
-
-    // Else if allowlist defined, require membership
-    if (allowlist.length > 0) {
-      return allowlist.includes(t);
-    }
-
-    // If neither mapping nor allowlist is configured, allow any non-empty tenant
-    return true;
+    return allowed.has(tenantId);
   }
 
+  return { resolveTenant, isTenantAllowed, strategy, defaultTenant };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getJwtConfig
+ * Provides JWT configuration from environment, with safe fallback behavior.
+ * - secret: HS256 secret; when missing, tokens may still be issued as opaque "ok" by the route logic.
+ * - issuer, audience, expiresIn: standard JWT fields
+ */
+function getJwtConfig() {
   return {
-    defaultTenant,
-    strategy,
-    allowlist,
-    mapping,
-    resolveTenant,
-    isTenantAllowed,
+    secret: process.env.JWT_SECRET || process.env.JWT_HS256_SECRET || '',
+    issuer: process.env.JWT_ISSUER || 'local-issuer',
+    audience: process.env.JWT_AUDIENCE || 'local-audience',
+    expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+    algorithm: (process.env.JWT_ALG || 'HS256'),
   };
 }
 
 module.exports = {
   getTenantSaltConfig,
-  getJwtSecretConfig,
-  getPasswordSaltConfig,
   getTenantConfig,
+  getJwtConfig,
 };

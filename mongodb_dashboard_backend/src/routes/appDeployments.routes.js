@@ -1,7 +1,7 @@
 const express = require('express');
 const { asyncHandler, failure } = require('../utils/http');
 const AppDeployment = require('../models/appDeployments.model');
-const { buildCrudController } = require('../controllers/crudFactory');
+const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
 const { validateAppDeployment } = require('../middleware/validators');
 const { normalizeProjectId } = require('../services/enrichment.util');
 const { verifyAuth } = require('../middleware/verifyAuth');
@@ -116,7 +116,7 @@ function extractNormalizedProjectId(payload) {
  *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400: { description: Invalid filter }
  */
-router.get('/', asyncHandler(controller.list));
+router.get('/', verifyAuth, requireTenantMw, asyncHandler(controller.list));
 
 /**
  * @swagger
@@ -223,7 +223,7 @@ router.get(
  *       404: { description: Not found }
  *       400: { description: Invalid id }
  */
-router.get('/:id', asyncHandler(controller.getById));
+router.get('/:id', verifyAuth, requireTenantMw, asyncHandler(controller.getById));
 
 /**
  * @swagger
@@ -245,6 +245,8 @@ router.get('/:id', asyncHandler(controller.getById));
  */
 router.post(
   '/',
+  verifyAuth,
+  requireTenantMw,
   validateAppDeployment,
   asyncHandler(async (req, res) => {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
@@ -287,6 +289,8 @@ router.post(
  */
 router.put(
   '/:id',
+  verifyAuth,
+  requireTenantMw,
   validateAppDeployment,
   asyncHandler(async (req, res) => {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
@@ -331,6 +335,8 @@ router.put(
  */
 router.delete(
   '/:id',
+  verifyAuth,
+  requireTenantMw,
   asyncHandler(async (req, res) => {
     // Try to fetch tenant-scoped record to invalidate cache appropriately
     const existing = await AppDeployment.findOne(

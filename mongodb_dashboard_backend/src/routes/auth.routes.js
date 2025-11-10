@@ -1,4 +1,5 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const { getTenantSaltConfig, getTenantConfig } = require('../config/auth');
 const User = require('../models/user.model');
 const Tenant = require('../models/tenant.model');
@@ -84,12 +85,6 @@ router.get('/health', (req, res) => {
  *         description: Bad request or invalid tenant
  *       422:
  *         description: Validation Error
- *
- * Inline notes on hashing scheme and migration:
- * - v1 (legacy): static salt from environment (SECRET_SALT/AUTH_TENANT_SALT); verification-only.
- * - v2 (current): tenant.orgSalt (+ optional global pepper from env) concatenated with password, hashed using
- *                 argon2id when available, then bcrypt, then scrypt as a fallback. New accounts use v2.
- * - If tenant.orgSalt is missing (legacy tenants), it is auto-generated and persisted on-demand.
  */
 router.post('/signup', async (req, res) => {
   const { organization_id, email, password } = req.body || {};
@@ -188,9 +183,8 @@ router.post('/signup', async (req, res) => {
 PUBLIC_INTERFACE
 Route: POST /auth/login
 - Accepts JSON body only: { organization_id: string, email: string, password: string }
-- Verifies credentials using user.password_hash and hashVersion when present.
-- If v1 (legacy) verifies, rehashes with v2 immediately and updates the user doc (online migration).
-- Backward compatible behavior: if user has no password_hash (legacy placeholder accounts), returns success to avoid breaking existing users.
+- Verifies credentials and returns id_token (JWT, HS256 by default) with Cognito-like custom:tenant_id.
+- Backward compatibility: also returns { token, tenant_id } fields for existing clients.
 */
 router.post('/login', async (req, res) => {
   const { organization_id, email, password } = req.body || {};
@@ -249,15 +243,39 @@ router.post('/login', async (req, res) => {
     };
     const user = await User.findOne({ email, ...orgOrFilter }).lean();
     if (!user) {
-      // Preserve previous "ok" behaviors minimally: do not disclose if email exists
+      // do not disclose email existence
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    // If user has no password hash (legacy or analytics-only user), do not break existing flows
+    // If user has no password hash (legacy/placeholder), issue token to avoid breaking flows
+    const issueToken = () => {
+      const payload = {
+        sub: String(user._id || ''),
+        email: user.email,
+        'custom:tenant_id': tenantId,
+        tenant_id: tenantId,
+        token_use: 'id',
+        iss: process.env.JWT_ISSUER || 'local-issuer',
+        aud: process.env.JWT_AUDIENCE || 'local-audience',
+      };
+      const secret = process.env.JWT_SECRET || process.env.JWT_HS256_SECRET;
+      let idToken = 'ok';
+      if (secret) {
+        idToken = jwt.sign(payload, secret, { algorithm: 'HS256', expiresIn: process.env.JWT_EXPIRES_IN || '1h' });
+      }
+      return idToken;
+    };
+
     if (!user.password_hash) {
-      // eslint-disable-next-line no-console
-      console.info('[auth.login] user has no password_hash; returning success for backward compatibility');
-      return res.status(200).json({ success: true, tenant_id: tenantId, token: 'ok' });
+      const idToken = issueToken();
+      return res.status(200).json({
+        success: true,
+        tenant_id: tenantId,
+        token: idToken,
+        id_token: idToken,
+        token_type: 'Bearer',
+        user: { id: String(user._id || ''), email: user.email },
+      });
     }
 
     const { valid, migrated, newHash, newVersion } = await verifyAndMigrate({ candidate: password, user, tenant });
@@ -265,23 +283,26 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    // On-login migration: if legacy verified, rehash with v2 and update
     if (migrated && newHash && newVersion) {
       try {
         await User.updateOne(
           { _id: user._id },
           { $set: { password_hash: newHash, hashVersion: newVersion, updated_at: new Date() } }
         );
-        // eslint-disable-next-line no-console
-        console.info('[auth.login] migrated user hash to v2', { user_id: String(user._id) });
       } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error('[auth.login] migration failed (continuing auth)', { message: e?.message });
+        // continue even if migration update fails
       }
     }
 
-    // Placeholder token; in production sign a JWT using AUTH_JWT_SECRET
-    return res.status(200).json({ success: true, tenant_id: tenantId, token: 'ok' });
+    const idToken = issueToken();
+    return res.status(200).json({
+      success: true,
+      tenant_id: tenantId,
+      token: idToken,
+      id_token: idToken,
+      token_type: 'Bearer',
+      user: { id: String(user._id || ''), email: user.email },
+    });
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error('[auth.login] failed', e?.message || e);

@@ -2,7 +2,6 @@
 
 const express = require('express');
 const router = express.Router();
-const { asyncHandler } = require('../utils/http');
 const { getUsersTenantSummary } = require('../controllers/users.analytics.summary.controller');
 const { extractOrganization } = require('../middleware/extractOrganization');
 
@@ -97,4 +96,3 @@ router.get('/tenant-summary', extractOrganization(), asyncHandler(async (req, re
 
 /** Explicit router export for clarity */
 module.exports = router;
-module.exports.router = router;

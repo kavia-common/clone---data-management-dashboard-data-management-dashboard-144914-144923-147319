@@ -1,19 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { asyncHandler } = require('../utils/http');
-const User = require('../models/user.model');
-const AppDeployment = require('../models/appDeployments.model');
-const SessionTracking = require('../models/sessionTracking.model');
-
 const router = express.Router();
-
-/**
- * @swagger
- * tags:
- *   name: Counts
- *   description: Lightweight count endpoints for totals
- */
 
 /**
  * PUBLIC_INTERFACE
@@ -74,16 +62,6 @@ router.get(
  * Response:
  *  { success: true, total: number }
  */
-router.get(
-  '/deployments/count',
-  asyncHandler(async (_req, res) => {
-    const deploymentsCount = await AppDeployment.countDocuments({}).catch(() => 0);
-
-    return res.status(200).json({
-      success: true,
-      total: Number.isFinite(Number(deploymentsCount)) ? Number(deploymentsCount) : 0,
-    });
-  })
-);
+router.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
 module.exports = router;

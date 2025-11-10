@@ -1,19 +1,17 @@
-# Data Management Dashboard (Fullstack)
+# data-management-dashboard-144914-144924
 
-This repository contains:
-- Backend (Express + MongoDB) at ./mongodb_dashboard_backend
-- Frontend (React) at ../data-management-dashboard-144914-144924/mongodb_dashboard_frontend
+Frontend environment setup:
+- Navigate to mongodb_dashboard_frontend
+- Copy .env.example to .env
+- Ensure REACT_APP_API_BASE_URL points to your backend (e.g., http://localhost:3001 or your deployed URL)
 
-## New: Agents Analytics (Group by Agents)
-
-- Backend: `GET /api/analytics/agents` aggregates agent usage/cost from session_tracking and llm_costs with optional filters (tenant_id, project_id, from, to) and pagination (limit, offset).
-- Frontend: New page at `/agents` showing a bar chart (cost by agent) and a sortable table (usage, sessions).
-- Filters: tenant_id and project_id fields available; date filters default to last 30 days on backend.
-
-Run:
-- Backend: `npm start` (port 3001)
-- Frontend: `npm start` (port 3000)
-
-Docs:
-- Swagger UI: http://localhost:3001/docs
-- OpenAPI JSON: http://localhost:3001/openapi.json
+Backend preview/startup
+- IMPORTANT: Do not run `npm run dev` from the frontend folder. It will fail with "Missing script: dev".
+- To start the backend preview:
+  1) cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
+  2) npm install
+  3) npm run dev   # binds to 0.0.0.0:3001 with nodemon
+- Health/readiness checks:
+  - GET http://localhost:3001/health (fast, 200)
+  - GET http://localhost:3001/api/health (includes db state)
+- No need to use "-r dotenv/config"; dotenv is loaded programmatically in src/server.js.

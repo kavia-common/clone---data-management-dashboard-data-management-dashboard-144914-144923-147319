@@ -1,20 +1,34 @@
-const mongoose = require('mongoose');
+'use strict';
 
-const AppDeploymentsSchema = new mongoose.Schema(
+const mongoose = require('mongoose');
+const { Schema, model } = mongoose;
+
+/**
+ * PUBLIC_INTERFACE
+ * Minimal AppDeployment model
+ * - Supports project name resolution and CRUD.
+ * - Collection: 'app_deployments'
+ */
+const appDeploymentSchema = new Schema(
   {
-    app_id: { type: String, index: true },
+    tenant_id: { type: String, index: true },
+    tenant_name: { type: String },
+    project_id: { type: String, index: true },
+    projectName: { type: String },
+    project_name: { type: String },
+    metadata: Schema.Types.Mixed,
+    project: Schema.Types.Mixed, // may contain { id, name }
+    app_id: { type: String },
     app_url: { type: String },
     artifact_path: { type: String },
-    branch_name: { type: String, index: true },
+    branch_name: { type: String },
     build_path: { type: String },
     command: { type: String },
-    created_at: { type: Date, required: true, index: true },
-    custom_domain: { type: String, default: null },
-    deployment_id: { type: String, required: true, unique: true, index: true },
+    deployment_id: { type: String },
     job_id: { type: String },
     message: { type: String },
-    project_id: { type: String, required: true, index: true },
-    project_name: { type: String },
+    status: { type: String, default: 'success' },
+    subdomain: { type: String },
     root_path: { type: String },
     status: { type: String, enum: ['success', 'failed', 'in-progress'], index: true },
     subdomain: { type: String },
@@ -41,4 +55,4 @@ AppDeploymentsSchema.index(
   { partialFilterExpression: { custom_domain: { $exists: true, $ne: null } } }
 );
 
-module.exports = mongoose.model('AppDeployment', AppDeploymentsSchema);
+module.exports = model('AppDeployment', appDeploymentSchema);
