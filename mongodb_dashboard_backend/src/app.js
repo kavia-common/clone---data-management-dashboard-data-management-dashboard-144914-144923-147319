@@ -59,8 +59,40 @@ const buildDynamicSpec = (req) => {
   };
 };
 
-app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
-app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
+app.get('/openapi.json', (req, res) => {
+  try {
+    return res.json(buildDynamicSpec(req));
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[swagger] Failed to build dynamic spec:', e?.message || e);
+    return res.status(200).json({
+      openapi: '3.0.0',
+      info: {
+        title: 'Dashboard API',
+        version: '1.0.0',
+        description: 'Temporary minimal spec due to spec generation error',
+      },
+      paths: {},
+    });
+  }
+});
+app.get('/api-docs.json', (req, res) => {
+  try {
+    return res.json(buildDynamicSpec(req));
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[swagger] Failed to build dynamic spec:', e?.message || e);
+    return res.status(200).json({
+      openapi: '3.0.0',
+      info: {
+        title: 'Dashboard API',
+        version: '1.0.0',
+        description: 'Temporary minimal spec due to spec generation error',
+      },
+      paths: {},
+    });
+  }
+});
 
 const swaggerUiHandler = swaggerUi.setup(null, {
   swaggerOptions: {
@@ -71,8 +103,25 @@ const swaggerUiHandler = swaggerUi.setup(null, {
   customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
   customCss: '.topbar-wrapper .link:after { content: " | Use x-organization-id header for tenant-scoped endpoints"; font-size: 12px; color: #666; }',
 });
+try { console.log('[startup] Mounting Swagger UI at /docs and /api-docs'); } catch {}
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /
+ * Minimal root route for quick readiness checks; returns a small JSON payload without DB requirement.
+ */
+app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json({
+    status: 'ok',
+    service: 'mongodb_dashboard_backend',
+    docs: '/api-docs',
+    health: '/health',
+    time: new Date().toISOString(),
+  });
+});
 
 // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');
