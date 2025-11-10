@@ -22,6 +22,10 @@ const server = app
     console.log(
       `[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
     );
+    try {
+      // Helpful hint: echo how to curl health
+      console.log(`[startup] Health: curl http://127.0.0.1:${PORT}/api/health`);
+    } catch {}
   })
   .on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
