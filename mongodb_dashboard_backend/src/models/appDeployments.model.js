@@ -43,14 +43,14 @@ const appDeploymentSchema = new Schema(
   { timestamps: false, collection: 'app_deployments' }
 );
 
-// Suggested and enforced indexes
-AppDeploymentsSchema.index({ project_id: 1, created_at: -1 });
-AppDeploymentsSchema.index({ tenant_id: 1 });
-AppDeploymentsSchema.index({ tenant_id: 1, project_id: 1 });
-AppDeploymentsSchema.index({ tenant_id: 1, status: 1, updated_at: -1 });
-AppDeploymentsSchema.index({ app_id: 1, updated_at: -1 });
-AppDeploymentsSchema.index({ branch_name: 1, created_at: -1 });
-AppDeploymentsSchema.index(
+ // Suggested and enforced indexes
+appDeploymentSchema.index({ project_id: 1, created_at: -1 });
+appDeploymentSchema.index({ tenant_id: 1 });
+appDeploymentSchema.index({ tenant_id: 1, project_id: 1 });
+appDeploymentSchema.index({ tenant_id: 1, status: 1, updated_at: -1 });
+appDeploymentSchema.index({ app_id: 1, updated_at: -1 });
+appDeploymentSchema.index({ branch_name: 1, created_at: -1 });
+appDeploymentSchema.index(
   { custom_domain: 1 },
   { partialFilterExpression: { custom_domain: { $exists: true, $ne: null } } }
 );
