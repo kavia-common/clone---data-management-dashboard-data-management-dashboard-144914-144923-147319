@@ -53,7 +53,7 @@ const buildDynamicSpec = (req) => {
     servers: [
       {
         url: `${protocol}://${fullHost}`,
-       
+
       },
     ],
   };
@@ -101,12 +101,14 @@ try {
       url: '/openapi.json',
       displayRequestDuration: true,
       docExpansion: 'none',
+      persistAuthorization: true,          // 🟢 keeps token + x-organization-id
+      defaultModelsExpandDepth: -1,
     },
     customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
     customCss:
       '.topbar-wrapper .link:after { content: " | Use x-organization-id header for tenant-scoped endpoints"; font-size: 12px; color: #666; }',
   });
-  try { console.log('[startup] Mounting Swagger UI at /docs and /api-docs'); } catch {}
+  try { console.log('[startup] Mounting Swagger UI at /docs and /api-docs'); } catch { }
   app.use('/docs', swaggerUi.serve, swaggerUiHandler);
   app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 } catch (e) {
@@ -147,7 +149,7 @@ app.use('/api', baseRouter);
 /**
  * Simple health with DB status
  */
-try { console.log('[startup] Registering GET /api/health and GET /health'); } catch {}
+try { console.log('[startup] Registering GET /api/health and GET /health'); } catch { }
 const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
@@ -320,8 +322,9 @@ const devHeadersLogger = (req, res, next) => {
     if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
       const authPresent = !!(req.headers?.authorization || req.headers?.Authorization);
       const xtenant = req.headers?.['x-tenant-id'] || req.headers?.['x-tenant'] || null;
-      // eslint-disable-next-line no-console
-      console.debug(`[api] ${req.method} ${req.path} Authorization=${authPresent ? 'yes' : 'no'} x-tenant-id=${xtenant || 'n/a'}`);
+      const xorg = req.headers?.['x-organization-id'] || null;
+      console.debug(`[api] ${req.method} ${req.path} Authorization=${authPresent ? 'yes' : 'no'} x-organization-id=${xorg || 'n/a'} x-tenant-id=${xtenant || 'n/a'}`);
+
     }
   }
   next();
@@ -354,10 +357,9 @@ app.use('/api/appDeployments', verifyAuth, requireTenant, tryRequireRoute('./rou
 app.use('/api/costs', verifyAuth, requireTenant, tryRequireRoute('./routes/costs.byAgent.routes', { mountPath: '/api/costs', label: 'costs.byAgent.routes' }));
 
 /* LLM costs endpoints */
-app.use('/api/llm-costs', tryRequireRoute('./routes/llmCosts.routes', { mountPath: '/api/llm-costs', label: 'llmCosts.routes' }));
-app.use('/api/llmCosts', tryRequireRoute('./routes/llmCosts.routes', { mountPath: '/api/llmCosts', label: 'llmCosts.routes' }));
-// Hierarchy analytics for LLM costs
-app.use('/api/llm-costs', tryRequireRoute('./routes/llmCosts.hierarchy.routes', { mountPath: '/api/llm-costs', label: 'llmCosts.hierarchy.routes' }));
+app.use('/api/llapp.use(' / api / llm - costs', verifyAuth, requireTenant, tryRequireRoute('./ routes / llmCosts.routes', { mountPath: ' / api / llm - costs', label: 'llmCosts.routes' }));
+app.use('/api/llmCosts', verifyAuth, requireTenant, tryRequireRoute('./routes/llmCosts.routes', { mountPath: '/api/llmCosts', label: 'llmCosts.routes' }));
+app.use('/api/llm-costs', verifyAuth, requireTenant, tryRequireRoute('./routes/llmCosts.hierarchy.routes', { mountPath: '/api/llm-costs', label: 'llmCosts.hierarchy.routes' }));
 
 // Tenants, Projects, Auth, Session
 app.use('/api/tenants', verifyAuth, requireTenant, tryRequireRoute('./routes/tenants.routes', { mountPath: '/api/tenants', label: 'tenants.routes' }));

@@ -3,7 +3,6 @@
 - Default port: 3001 (configurable via PORT in .env)
 - Host bind: 0.0.0.0 by default (configurable via HOST)
 - Docs (Swagger UI): http://localhost:3001/api-docs (alias: http://localhost:3001/docs)
-- Preview note: the preview runner may call `npm run start` or `npm run dev`; both are supported. The server binds to 0.0.0.0:3001 and serves Swagger UI at /api-docs and JSON at /openapi.json.
 - OpenAPI JSON: http://localhost:3001/openapi.json (alias: http://localhost:3001/api-docs.json)
 
 Quick start (development)
@@ -38,35 +37,45 @@ Key route to verify:
 - GET /api/users/active-trend (e.g., http://localhost:3001/api/users/active-trend)
 
 Multi-tenant enforcement:
-- All protected routes should use verifyAuth and requireTenant middlewares.
-- For Mongoose-based CRUD, prefer buildTenantCrudController(Model) from src/controllers/crudFactory.tenant.js.
-- For custom queries/aggregations, ensure every filter/pipeline starts with tenant_id from req.auth.tenantId.
-- Sample endpoints: see src/routes/tenantSample.routes.js.
+- All protected routes use verifyAuth (JWT) then requireTenant. Tenant is derived from JWT by default.
+- For Mongoose-based CRUD, use buildCrudController(Model) which enforces tenant via req.tenantId.
+- For custom queries/aggregations, ensure every filter/pipeline starts with tenant_id = req.tenantId (or org aliases via req.buildOrgFilter).
 
-## Authentication and Password Hashing (v1 → v2 migration)
+## Authentication (JWT) and Password Hashing (v1 → v2)
 
-This backend implements a versioned password hashing strategy with per-organization salts.
+This backend implements a versioned password hashing strategy with per-organization salts, and JWT for API auth.
 
-- v1 (legacy): static salt from environment (SECRET_SALT/AUTH_TENANT_SALT/PASSWORD_SALT). Used only for verification of existing hashes.
-- v2 (current): per-organization dynamic salt stored on each Tenant document (`orgSalt`), plus optional global pepper (`AUTH_PASSWORD_PEPPER` or `AUTH_PEPPER`). Preferred algorithm is Argon2id if the `argon2` package is available, falling back to `bcrypt` if available, then to Node.js `scrypt` as a last resort.
+- v1 (legacy): static salt from environment (SECRET_SALT/AUTH_TENANT_SALT/PASSWORD_SALT). Verification-only.
+- v2 (current): per-organization dynamic salt stored on each Tenant document (`orgSalt`), plus optional global pepper (`AUTH_PASSWORD_PEPPER` or `AUTH_PEPPER`). Preferred algorithm is Argon2id if the `argon2` package is available, falling back to `bcrypt`, then Node.js `scrypt`.
 
 On-Login Migration:
-- When a user with a v1 hash logs in successfully, their password will be re-hashed immediately with v2 and updated in the database (online migration).
-- If a user document has no `password_hash`, we preserve backward compatibility and allow login (placeholder token), so existing users are not broken.
+- When a user with a v1 hash logs in successfully, their password is re-hashed with v2 and updated (online migration).
+- If a user document has no `password_hash`, we allow login (placeholder) for compatibility.
 
 Tenant Salt:
-- New tenants automatically receive an `orgSalt` (base64) on creation.
-- If a legacy tenant is missing `orgSalt`, it is generated automatically upon signup/login/reset operations.
+- New tenants automatically receive an `orgSalt` (base64). Missing orgSalt is generated on signup/login/reset.
 
-New endpoints:
+Auth endpoints:
 - POST /api/auth/signup { organization_id, email, password } → creates/updates a user with v2 hash.
-- POST /api/auth/login { organization_id, email, password } → verifies and migrates v1→v2 when needed.
+- POST /api/auth/login { organization_id, email, password } → verifies and migrates v1→v2 when needed. Returns a JWT.
 - POST /api/auth/reset-password { organization_id, email, password } → sets a new v2 hash (demo only; add token validation for production).
 
+How to obtain a JWT and use it in Swagger UI:
+1) Create or ensure a user exists for your tenant, then login:
+   curl -s -X POST http://localhost:3001/api/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"organization_id":"org_123","email":"user@example.com","password":"secret"}'
+   The response will include a field like { "token": "<JWT>" } (or similar based on implementation).
+2) Open http://localhost:3001/api-docs, click the "Authorize" button (lock icon).
+3) In the BearerAuth field, paste: Bearer <your-jwt-token>
+4) Now "Try it out" on protected endpoints (e.g., GET /api/users) without passing x-organization-id; the tenant will be taken from your JWT.
+
+Note:
+- Protected endpoints in Swagger are annotated with the bearerAuth security scheme. Public endpoints under /api/auth/* do not require Authorization.
+
 Security notes:
+- Use a strong JWT secret in production: set JWT_SECRET or AUTH_JWT_SECRET.
 - Do not expose salts/peppers or any secrets in logs.
-- Use strong values for SECRET_SALT and AUTH_PASSWORD_PEPPER in production.
-- For production, implement JWTs signed with `AUTH_JWT_SECRET` and proper RBAC checks.
 
 ## Analytics: LLM cost distribution by agent
 
@@ -82,12 +91,6 @@ Sample curl:
 ```bash
 # Basic request
 curl -s http://localhost:3001/api/analytics/llm-cost-by-agent | jq .
-
-# Example response:
-# [
-#   { "agent": "GenerateDescriptionAgent", "total_cost": 1.234567 },
-#   { "agent": "SummarizeAgent", "total_cost": 0.447605 }
-# ]
 ```
 
 Response example (200):
@@ -98,10 +101,6 @@ Response example (200):
 
 Notes:
 - The service auto-detects plausible collections (llm-costs, llm_costs, llm_cost, logs, events, interactions, agentLogs) and supports both a flat schema (agent_name|agent|tool + total_cost|cost) and an Agents[] array schema with fields "Agent Name" and "Total Cost".
-- Missing/empty agent names fall back to "Unknown".
-- The aggregation strips leading '$' and commas from cost values and safely parses them to numbers.
-- The implementation handles malformed or missing values safely and returns [] when no data.
-- See /docs for OpenAPI details.
 
 ## Analytics: Group by Agents (usage & costs)
 
@@ -109,46 +108,7 @@ GET /api/analytics/agents
 
 Description:
 Aggregates agent usage and costs across:
-- session_tracking.agent_costs (embedded under session_tracking documents)
-- llm_costs.agents (embedded under llm_costs documents)
+- session_tracking.agent_costs
+- llm_costs.agents
 
-It computes per-agent:
-- total_cost
-- total_usage (based on available usage/tokens/calls fields)
-- session_count (distinct sessions from session_tracking)
-- source_breakdown:
-  - session_tracking: { cost, usage }
-  - llm_costs: { cost, usage }
-
-Query params:
-- tenant_id: string (optional)
-- project_id: string (optional)
-- from: ISO date (optional; default last 30 days if neither from/to provided)
-- to: ISO date (optional)
-- limit: integer (default 50, max 200)
-- offset: integer (default 0)
-
-Response:
-```
-{
-  "items": [
-    {
-      "agent_name": "Agent A",
-      "total_cost": 12.345678,
-      "total_usage": 1234,
-      "session_count": 8,
-      "source_breakdown": {
-        "session_tracking": { "cost": 4.5, "usage": 500 },
-        "llm_costs": { "cost": 7.845678, "usage": 734 }
-      }
-    }
-  ],
-  "total": 1,
-  "meta": { "limit": 50, "offset": 0, "from": "...", "to": "...", "tenant_id": null, "project_id": null }
-}
-```
-
-Notes:
-- Date filters are applied defensively against multiple possible timestamp fields (last_updated, updatedAt, createdAt, session_start, timestamp, date).
-- Costs parsed from strings with `$` prefix when necessary.
-- Results sorted by total_cost desc before pagination.
+Outputs totals and per-source breakdowns. See /api-docs for details.

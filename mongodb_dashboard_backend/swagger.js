@@ -8,20 +8,24 @@ const swaggerJSDoc = require('swagger-jsdoc');
  * PUBLIC_INTERFACE
  * Builds the base Swagger/OpenAPI specification for the Express app.
  *
- * Strategy:
- * 1) Try to load a prebuilt OpenAPI spec from interfaces/openapi.json (preferred)
- *    - Sanitize invalid path keys (must start with '/')
- *    - Ensure required fields exist (openapi, info)
- *    - Ensure common components (xOrganizationId header) are available
- * 2) Fallback to JSDoc extraction from ./src/routes/*.js
- *    - Provide shared component schemas so responses render correctly
- *
- * This module exports a function getBaseOpenApiSpec() to retrieve the base spec.
+ * Enhancements:
+ * - Adds reusable x-organization-id header + tenant_id and organization_id query parameters globally.
+ * - Adds bearerAuth security scheme for JWT Authorization header and applies it to protected endpoints.
+ * - Cleans invalid paths and ensures valid structure.
+ * - Falls back to JSDoc-generated spec when openapi.json is unavailable.
  */
 
-/** Build the reusable components injected into any loaded spec */
+/** Build reusable components for tenant/organization scope */
 function buildCommonComponents() {
   return {
+    securitySchemes: {
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Provide a Bearer token obtained from POST /api/auth/login',
+      },
+    },
     parameters: {
       xOrganizationId: {
         name: 'x-organization-id',
@@ -32,7 +36,7 @@ function buildCommonComponents() {
           example: 'org_123',
         },
         description:
-          'Preferred tenant identifier for tenant-scoped endpoints, supplied via request header. When present, this header determines the active organization scope for the request. If not provided, the server may fall back to JWT/session context or query parameters tenant_id/organization_id when supported.',
+          'Preferred tenant identifier for tenant-scoped endpoints, supplied via request header. When present, this header determines the active organization scope for the request. If not provided, the server may fall back to JWT/session context or query parameters tenant_id/organization_id.',
       },
       organizationIdQuery: {
         name: 'organization_id',
@@ -54,7 +58,7 @@ function buildCommonComponents() {
           example: 'org_123',
         },
         description:
-          'Optional tenant identifier synonym for organization_id, accepted for filtering/scoping when header x-organization-id is not provided. Not part of request bodies.',
+          'Optional tenant identifier synonym for organization_id, accepted for filtering/scoping when header x-organization-id is not provided.',
       },
     },
     schemas: {
@@ -88,7 +92,7 @@ function buildCommonComponents() {
   };
 }
 
-/** Create a Swagger spec from JSDoc annotations as a fallback. */
+/** Build Swagger spec from JSDoc comments */
 function buildJsDocSpec() {
   const options = {
     definition: {
@@ -107,88 +111,87 @@ function buildJsDocSpec() {
   return swaggerJSDoc(options);
 }
 
-/**
- * Sanitize an OpenAPI document object:
- * - Ensure "paths" contains only keys that start with '/'
- * - Ensure "openapi" and "info" are present
- * - Ensure reusable parameters/schemas are present
- */
+/** Clean and normalize a loaded OpenAPI document */
 function sanitizeOpenApiDoc(doc) {
   if (!doc || typeof doc !== 'object') return null;
 
-  // Remove invalid path keys (Swagger UI will break on these)
-  let hasAnyValidPath = false;
+  // Keep only valid path keys
   if (doc.paths && typeof doc.paths === 'object') {
     const validPaths = {};
-    Object.entries(doc.paths).forEach(([key, val]) => {
-      if (typeof key === 'string' && key.startsWith('/')) {
-        validPaths[key] = val;
-        hasAnyValidPath = true;
-      }
-      // Drop invalid keys silently
-    });
+    for (const [key, val] of Object.entries(doc.paths)) {
+      if (key.startsWith('/')) validPaths[key] = val;
+    }
     doc.paths = validPaths;
   } else {
     doc.paths = {};
   }
 
-  if (!hasAnyValidPath) {
-    return null;
-  }
+  doc.openapi ||= '3.0.0';
+  doc.info ||= {
+    title: process.env.SWAGGER_TITLE || 'Dashboard API',
+    version: process.env.SWAGGER_VERSION || '1.0.0',
+    description:
+      process.env.SWAGGER_DESCRIPTION ||
+      'REST API for Data Management Dashboard with MongoDB and Express',
+  };
 
-  if (!doc.openapi) {
-    doc.openapi = '3.0.0';
-  }
-  if (!doc.info) {
-    doc.info = {
-      title: process.env.SWAGGER_TITLE || 'Dashboard API',
-      version: process.env.SWAGGER_VERSION || '1.0.0',
-      description:
-        process.env.SWAGGER_DESCRIPTION ||
-        'REST API for Data Management Dashboard with MongoDB and Express',
-    };
-  }
-
-  // Inject common components if absent
-  doc.components = doc.components || {};
-  doc.components.parameters = { ...(doc.components.parameters || {}) };
-  doc.components.schemas = { ...(doc.components.schemas || {}) };
+  // Merge common components
   const commons = buildCommonComponents();
-  doc.components.parameters.xOrganizationId =
-    doc.components.parameters.xOrganizationId || commons.parameters.xOrganizationId;
-  doc.components.schemas.GenericDocument =
-    doc.components.schemas.GenericDocument || commons.schemas.GenericDocument;
-  doc.components.schemas.ListEnvelope =
-    doc.components.schemas.ListEnvelope || commons.schemas.ListEnvelope;
+  doc.components = doc.components || {};
+  doc.components.securitySchemes = { ...commons.securitySchemes, ...doc.components.securitySchemes };
+  doc.components.parameters = { ...commons.parameters, ...doc.components.parameters };
+  doc.components.schemas = { ...commons.schemas, ...doc.components.schemas };
 
-  // Validate it serializes
+  // ✅ Inject global parameters and security (applies to all non-auth endpoints)
+  for (const pathKey of Object.keys(doc.paths)) {
+    const pathItem = doc.paths[pathKey];
+    for (const methodKey of Object.keys(pathItem || {})) {
+      const op = pathItem[methodKey];
+      if (['get', 'post', 'put', 'patch', 'delete'].includes(methodKey)) {
+        op.parameters = op.parameters || [];
+        const refs = [
+          { $ref: '#/components/parameters/xOrganizationId' },
+          { $ref: '#/components/parameters/organizationIdQuery' },
+          { $ref: '#/components/parameters/tenantIdQuery' },
+        ];
+        // Prevent duplicates
+        refs.forEach((ref) => {
+          if (!op.parameters.some((p) => p.$ref === ref.$ref)) {
+            op.parameters.push(ref);
+          }
+        });
+
+        // Apply bearerAuth to protected endpoints; skip obvious public ones like /api/auth/*
+        // Simple heuristic: if path includes '/api/auth/' and method is post/get for login/signup, do not secure.
+        const isAuthPath = /^\/api\/auth(\/|$)/.test(pathKey);
+        if (!isAuthPath) {
+          op.security = op.security || [{ bearerAuth: [] }];
+          if (!op.security.some((s) => Object.prototype.hasOwnProperty.call(s, 'bearerAuth'))) {
+            op.security.push({ bearerAuth: [] });
+          }
+        }
+      }
+    }
+  }
+
   try {
     JSON.stringify(doc);
+    return doc;
   } catch {
     return null;
   }
-
-  return doc;
 }
 
-// Cache result to avoid re-reading on every request
 let cachedSpec = null;
 
-/**
- * PUBLIC_INTERFACE
- * getBaseOpenApiSpec
- * Returns a valid OpenAPI document. Prefers interfaces/openapi.json (sanitized)
- * and falls back to the JSDoc-generated spec if necessary.
- */
+/** PUBLIC_INTERFACE - getBaseOpenApiSpec() */
 function getBaseOpenApiSpec() {
   if (cachedSpec) return cachedSpec;
 
-  // Attempt to load interfaces/openapi.json (preferred)
   try {
-    // Resolve interfaces/openapi.json relative to repo root or this file dir to be robust
+    // Try to load interfaces/openapi.json
     let filePath = path.resolve(__dirname, 'interfaces', 'openapi.json');
     if (!fs.existsSync(filePath)) {
-      // Try project root -> container root -> interfaces
       const alt = path.resolve(process.cwd(), 'interfaces', 'openapi.json');
       if (fs.existsSync(alt)) filePath = alt;
     }
@@ -200,26 +203,19 @@ function getBaseOpenApiSpec() {
       return cachedSpec;
     }
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[swagger] Could not load interfaces/openapi.json, falling back to JSDoc.', err?.message);
+    console.warn('[swagger] Could not load openapi.json, falling back to JSDoc:', err.message);
   }
 
-  // Fallback to JSDoc-generated spec
   try {
-    cachedSpec = buildJsDocSpec();
+    cachedSpec = sanitizeOpenApiDoc(buildJsDocSpec());
     return cachedSpec;
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[swagger] Failed to build JSDoc spec:', err);
-    // Final fallback: minimal valid spec to avoid blank UI
+    console.error('[swagger] Failed to build spec:', err.message);
     cachedSpec = {
       openapi: '3.0.0',
       info: {
-        title: process.env.SWAGGER_TITLE || 'Dashboard API',
-        version: process.env.SWAGGER_VERSION || '1.0.0',
-        description:
-          process.env.SWAGGER_DESCRIPTION ||
-          'REST API for Data Management Dashboard with MongoDB and Express',
+        title: 'Dashboard API',
+        version: '1.0.0',
       },
       paths: {},
       components: buildCommonComponents(),
@@ -228,7 +224,4 @@ function getBaseOpenApiSpec() {
   }
 }
 
-module.exports = {
-  // PUBLIC_INTERFACE
-  getBaseOpenApiSpec,
-};
+module.exports = { getBaseOpenApiSpec };

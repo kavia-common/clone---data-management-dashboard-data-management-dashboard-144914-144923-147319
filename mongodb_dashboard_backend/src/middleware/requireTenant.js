@@ -23,17 +23,18 @@ const { resolveTenantOrOrganization, applyResolvedTenant } = require('../utils/t
  */
 function requireTenant(req, res, next) {
   // Attempt to resolve from JWT, headers or query (including organization_id alias)
-  const resolved = resolveTenantOrOrganization(req, { allowJwtOverride: true });
+  let resolved = resolveTenantOrOrganization(req, { allowJwtOverride: true });
 
   const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
   const allowDemo = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
 
+  // If JWT is present and contains tenant, prefer it and continue
   if (resolved.tenantId) {
     applyResolvedTenant(req, resolved);
     return next();
   }
 
-  // If not resolved yet, attempt a direct permissive query/header check to avoid 400s when organization_id is provided
+  // If not resolved yet, attempt a direct permissive query/header/body check
   const qOrg =
     (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
     (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
@@ -45,10 +46,18 @@ function requireTenant(req, res, next) {
     (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
     (typeof req.headers?.['organization_id'] === 'string' && req.headers['organization_id'].trim()) ||
     '';
+  const bOrg =
+    (typeof req.body?.organization_id === 'string' && req.body.organization_id.trim()) ||
+    (typeof req.body?.tenant_id === 'string' && req.body.tenant_id.trim()) ||
+    '';
 
-  const fallbackId = hOrg || qOrg;
+  const fallbackId = hOrg || qOrg || bOrg;
   if (fallbackId) {
-    applyResolvedTenant(req, { tenantId: String(fallbackId), organizationId: String(fallbackId), source: hOrg ? 'header' : 'query' });
+    applyResolvedTenant(req, {
+      tenantId: String(fallbackId),
+      organizationId: String(fallbackId),
+      source: hOrg ? 'header' : qOrg ? 'query' : 'body',
+    });
     return next();
   }
 

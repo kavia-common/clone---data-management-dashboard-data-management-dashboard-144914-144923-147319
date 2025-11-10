@@ -34,7 +34,7 @@ function verifyAuth(req, res, next) {
     const header = String(rawHeader || '').trim();
     const token = header.startsWith('Bearer ') ? header.slice(7).trim() : (header || '');
 
-    const secret = process.env.JWT_SECRET || process.env.JWT_HS256_SECRET || '';
+    const secret = process.env.JWT_SECRET || process.env.JWT_HS256_SECRET || process.env.AUTH_JWT_SECRET || '';
     const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     const allowDemoFlag = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
 
