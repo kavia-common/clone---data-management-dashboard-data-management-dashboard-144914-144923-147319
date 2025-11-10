@@ -12,6 +12,10 @@ Quick start (development)
 - curl http://localhost:3001/health  # fast 200
 - curl http://localhost:3001/api/health  # includes db state
 
+Preview runner (CI)
+- CI=true PORT=3001 HOST=0.0.0.0 npm run dev
+- or use: npm run preview
+
 Important
 - Do NOT run `npm run dev` from the frontend folder; it has no dev script and CI logs will show "Missing script: dev".
 - Avoid `-r dotenv/config` in scripts; dotenv is required in src/server.js.

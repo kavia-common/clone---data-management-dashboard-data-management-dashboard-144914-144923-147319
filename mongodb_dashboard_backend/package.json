@@ -7,6 +7,7 @@
     "start": "node src/server.js",
     "start:ci": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-production} node src/server.js",
     "dev": "HOST=0.0.0.0 PORT=3001 NODE_ENV=development nodemon src/server.js",
+    "preview": "CI=true HOST=0.0.0.0 PORT=3001 npm run dev",
     "test": "jest",
     "lint": "eslint .",
     "gen:openapi": "node generate_openapi.js"
@@ -20,8 +21,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^7.8.0",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1",
-    "jsonwebtoken": "^9.0.2"
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "eslint": "^9.24.0",
