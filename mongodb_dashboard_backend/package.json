@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:ci": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-production} node src/server.js",
     "dev": "HOST=0.0.0.0 PORT=3001 NODE_ENV=development nodemon src/server.js",
     "test": "jest",
     "lint": "eslint .",
