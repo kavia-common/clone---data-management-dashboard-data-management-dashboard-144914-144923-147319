@@ -480,6 +480,10 @@ router.get(
         scrubbedFilter[k] = v;
       }
     }
+    // Always remove tenant fields at root if passed directly
+    delete scrubbedFilter.organization_id;
+    delete scrubbedFilter.tenant_id;
+    delete scrubbedFilter.organizationId;
 
     // Build enforced org scope across alternate schema fields
     const enforcedOrgScope = req.buildOrgFilter

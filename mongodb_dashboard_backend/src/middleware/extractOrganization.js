@@ -47,20 +47,31 @@ function extractOrganization() {
 
     applyResolvedTenant(req, resolved);
 
+    // Mirror to req.tenantId as an alias for consistency across code
+    if (!req.tenantId) {
+      req.tenantId = req.organizationId;
+    }
+
     // Helpers to enforce server-side scoping
     req.orgFilter = { tenant_id: req.organizationId };
+    // PUBLIC_INTERFACE
     req.buildOrgFilter = (orgId) => ({
       $or: [{ tenant_id: orgId }, { organization_id: orgId }, { organizationId: orgId }],
     });
+    // PUBLIC_INTERFACE
     req.withOrgFilter = (obj) => {
       const o = obj && typeof obj === 'object' ? { ...obj } : {};
-      if (!Object.prototype.hasOwnProperty.call(o, 'tenant_id')) {
-        o.tenant_id = req.organizationId;
-      }
+      // Strip any client-provided tenant keys and stamp trusted value
+      delete o.tenant_id;
+      delete o.organization_id;
+      delete o.organizationId;
+      o.tenant_id = req.organizationId;
       return o;
     };
+    // PUBLIC_INTERFACE
     req.stampOrg = (doc) => {
       if (!doc || typeof doc !== 'object') return doc;
+      // Overwrite any client-provided tenant hints with trusted scope
       doc.tenant_id = req.organizationId;
       doc.organization_id = req.organizationId;
       doc.organizationId = req.organizationId;
