@@ -90,8 +90,6 @@ router.use(requireTenant, tenantScopeEnforcer());
  *                     $ref: '#/components/schemas/GenericDocument'
  *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400:
- *         description: Invalid filter
- *       400:
  *         description: Missing tenant (x-organization-id) or invalid filter
  */
 router.get('/', asyncHandler(controller.list));

@@ -9,7 +9,7 @@
  *   2) Header x-organization-id | x-tenant-id | x-tenant (also accepts organization_id header)
  *   3) Query ?tenant_id=... or legacy ?organization_id=...
  *   4) Demo fallback (non-prod with ALLOW_DEMO_AUTH=true) may accept header or query.
- * On failure, responds with 403.
+ * On failure, responds with 400.
  *
  * Notes:
  * - The resolved tenant is mirrored to req.auth.tenantId and req.tenantId for downstream usage.
