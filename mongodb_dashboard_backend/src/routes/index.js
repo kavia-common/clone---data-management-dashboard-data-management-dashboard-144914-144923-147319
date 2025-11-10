@@ -18,7 +18,7 @@ const appDeploymentsRoutes = require('./appDeployments.routes');
 const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
 const countsRoutes = require('./counts.routes');
-const analyticsOverviewRoutes = require('./analytics.overview.routes');
+const analyticsOverviewRoutes = require('./analytics.overview.routes'); // provides /overview under /analytics
 
 const router = express.Router();
 
