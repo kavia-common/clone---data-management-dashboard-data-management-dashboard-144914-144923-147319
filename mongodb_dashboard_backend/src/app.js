@@ -169,6 +169,21 @@ app.get('/health', (req, res) => {
   return healthHandler(req, res);
 });
 
+/**
+ * PUBLIC_INTERFACE
+ * GET /ready
+ * Lightweight readiness probe that always returns HTTP 200 to signal the process is alive and bound.
+ * This must not depend on any external system (DB, cache, etc.).
+ */
+app.get('/ready', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json({
+    status: 'ready',
+    service: 'mongodb_dashboard_backend',
+    time: new Date().toISOString(),
+  });
+});
+
 if (process.env.NODE_ENV === 'test') {
   try { mongoose.set('bufferCommands', false); } catch { }
   app.use((req, res, next) => {
