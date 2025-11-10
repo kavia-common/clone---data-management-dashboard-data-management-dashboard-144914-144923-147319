@@ -1,18 +1,9 @@
-# Runtime notes for preview/CI
+# Backend runtime notes
 
-- Start command: npm start (ensures dotenv is loaded) or node src/server.js (dotenv is auto-loaded now).
-- Default bind: HOST=0.0.0.0 PORT=3001
-- Health endpoint: 
-  - GET /api/health returns 200 regardless of DB connection; payload includes db: connected|connecting|disconnected.
-  - GET /health is also available and returns `{ status: "ok", ... }`.
-- MongoDB: If MONGODB_URI is unset, the server still starts. Logs a warning and health shows db=disconnected.
-
-Troubleshooting
-- If port 3001 is reported unavailable, check logs for [startup] and EADDRINUSE.
-- Dev routes are disabled in production unless ALLOW_DEV_ROUTES=true.
-
-Local development quick check
-- npm install
-- npm run dev  (binds to 0.0.0.0:3001 with nodemon)
-- curl http://localhost:3001/health  (or /api/health) should return 200 JSON.
-- No need for `-r dotenv/config`; dotenv is programmatically loaded in src/server.js.
+- Backend binds to HOST 0.0.0.0 and PORT 3001 by default. You can override via environment variables.
+- `npm run dev` runs only the Express backend via `node src/server.js`. It does not start the frontend and does not use any workspace commands.
+- Swagger UI is mounted at `/docs` and `/api-docs`, with the OpenAPI spec at `/openapi.json`.
+- Health endpoints:
+  - `/health` (simple readiness; independent of DB)
+  - `/api/health` (includes DB status)
+- Frontend runs in its own container (port 3000). No backend scripts reference it.
