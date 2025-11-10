@@ -8,7 +8,6 @@ const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
-const cors = require('cors');
 
 const app = express();
 

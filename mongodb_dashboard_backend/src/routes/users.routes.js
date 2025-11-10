@@ -1,6 +1,6 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
-const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
+const { buildCrudController } = require('../controllers/crudFactory');
 const User = require('../models/user.model');
 const { getUserProjectsFromSessions } = require('../services/users.service');
 const SessionTracking = require('../models/sessionTracking.model');
@@ -8,12 +8,14 @@ const Tenant = require('../models/tenant.model');
 const { getReferralSources } = require('../controllers/users.analytics.controller');
 const mongoose = require('mongoose');
 const { extractOrganization } = require('../middleware/extractOrganization');
+const { verifyAuth } = require('../middleware/verifyAuth');
+const { requireTenant } = require('../middleware/requireTenant');
 
 const router = express.Router();
-const controller = buildTenantCrudController(User, '-created_at');
+const controller = buildCrudController(User, '-created_at');
 
 // Enforce JWT + Tenant at router level
-router.use(verifyAuth, requireTenantMw);
+router.use(verifyAuth, requireTenant);
 
 // Simple in-memory cache for tenant summary (5 minutes TTL)
 const TENANT_SUMMARY_CACHE = new Map();
