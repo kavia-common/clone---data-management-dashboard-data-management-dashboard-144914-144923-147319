@@ -17,7 +17,7 @@ const router = express.Router();
  * Use safe default sort on indexed field 'timestamp' in descending order.
  * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } on the model.
  */
-const controller = buildCrudController(LLMCost, '-timestamp');
+const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
 
 // Resolve tenantId from header/query/payload (organization_id alias) and enforce on queries
 router.use(requireTenant, tenantScopeEnforcer());
@@ -72,7 +72,7 @@ router.use(requireTenant, tenantScopeEnforcer());
  *         name: sort
  *         schema:
  *           type: string
- *         description: Sort string (e.g., -timestamp or total_cost)
+ *         description: Sort string (whitelist: timestamp, created_at, _id). Default -timestamp.
  *       - in: query
  *         name: filter
  *         schema:

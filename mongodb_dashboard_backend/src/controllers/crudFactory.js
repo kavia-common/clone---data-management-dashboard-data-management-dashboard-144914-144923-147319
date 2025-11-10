@@ -1,6 +1,30 @@
 const { parsePagination, success, failure } = require('../utils/http');
 
 /**
+ * Validate sort string against a whitelist to prevent unindexed/in-memory heavy sorts.
+ * Supports formats: "field" or "-field". Returns a safe sort string.
+ */
+function validateSort(sort, allowed = ['timestamp', 'created_at', '_id']) {
+  if (!sort || typeof sort !== 'string') return '-timestamp';
+  const trimmed = sort.trim();
+  const desc = trimmed.startsWith('-');
+  const field = desc ? trimmed.slice(1) : trimmed;
+  if (!allowed.includes(field)) {
+    return '-timestamp';
+  }
+  return desc ? `-${field}` : field;
+}
+
+/**
+ * Enforce a maximum page size limit for safety.
+ */
+function clampLimit(limit, max = 500) {
+  const n = parseInt(limit, 10);
+  if (!Number.isFinite(n)) return Math.min(20, max);
+  return Math.max(1, Math.min(n, max));
+}
+
+/**
  * Lightweight micro-cache for list endpoints to coalesce identical rapid requests.
  * Default TTL: 2000ms. Intended to mitigate bursts from quick sort/page toggles.
  * Note: In-memory and per-process only.
@@ -88,7 +112,18 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
   return {
     // PUBLIC_INTERFACE
     async list(req, res) {
-      const { page, limit, skip, explicit } = parsePagination(req.query);
+      // Mirror tenant header into response for observability
+      if (req?.tenantId) {
+        try {
+          res.set('x-organization-id', String(req.tenantId));
+        } catch (_) {}
+      }
+
+      // Parse pagination but hard-cap the limit to prevent heavy responses.
+      const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
+      const hardCappedLimit = clampLimit(parsedLimit, 500);
+
+      // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
       let filter = {};
       try {
@@ -97,26 +132,31 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         return failure(res, 'Invalid filter JSON', 400);
       }
 
-      // enforce tenant
+      // Enforce tenant BEFORE any sort to promote index usage.
       const appliedFilter = mergeFilterWithTenant(filter, req.tenantId);
-      const sort = req.query.sort || listDefaultSort;
+
+      // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
+      const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
 
       try {
         if (req.method === 'GET' && explicit) {
-          const key = buildListKey(req, appliedFilter, sort, page, limit, skip, explicit);
+          const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
           if (cached) return res.status(200).json(cached);
 
+          // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           const [items, total] = await Promise.all([
-            Model.find(appliedFilter).allowDiskUse(true).sort(sort).skip(skip).limit(limit).lean(),
+            Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean(),
             Model.countDocuments(appliedFilter),
           ]);
-          const payload = { success: true, data: items, meta: { page, limit, total } };
+
+          const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
         }
 
-        const items = await Model.find(appliedFilter).allowDiskUse(true).sort(sort).lean();
+        // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
+        const items = await Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');

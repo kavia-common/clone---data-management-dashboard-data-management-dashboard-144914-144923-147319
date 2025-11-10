@@ -5,7 +5,7 @@ function parsePagination(query) {
     Object.prototype.hasOwnProperty.call(query, 'limit');
 
   const page = Math.max(parseInt(query.page, 10) || 1, 1);
-  const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 200);
+  const limit = Math.min(Math.max(parseInt(query.limit, 10) || 20, 1), 500);
   const skip = (page - 1) * limit;
   return { page, limit, skip, explicit };
 }
