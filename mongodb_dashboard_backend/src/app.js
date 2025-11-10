@@ -8,7 +8,6 @@ const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
-const cors = require('cors');
 
 const app = express();
 
@@ -51,14 +50,14 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    // servers: [{ url: `${protocol}://${fullHost}` }],
-        servers: [
-      {
-        url:
+    servers: [{ url: `${protocol}://${fullHost}` }],
+    //     servers: [
+    //   {
+    //     url:
 
-          'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-      },
-    ],
+    //       'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //   },
+    // ],
 
   };
 };
@@ -85,7 +84,7 @@ app.use('/', baseRouter);
 /**
  * Simple health with DB status
  */
-try { console.log('[startup] Registering GET /api/health and GET /health'); } catch {}
+try { console.log('[startup] Registering GET /api/health and GET /health'); } catch { }
 const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
