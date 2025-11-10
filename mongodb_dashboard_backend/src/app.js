@@ -220,9 +220,11 @@ app.use('/api/data', require('./routes/data.routes'));
 // Costs aggregate endpoints (non-users analytics)
 app.use('/api/costs', require('./routes/costs.byAgent.routes'));
 
-// LLM costs endpoints
+/* LLM costs endpoints */
 app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
 app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
+// Hierarchy analytics for LLM costs
+app.use('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 
 // Tenants, Projects, Auth, Session
 app.use('/api/tenants', require('./routes/tenants.routes'));

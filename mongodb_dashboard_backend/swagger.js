@@ -10,15 +10,58 @@ const swaggerJSDoc = require('swagger-jsdoc');
  * 1) Try to load a prebuilt OpenAPI spec from interfaces/openapi.json (preferred)
  *    - Sanitize invalid path keys (must start with '/')
  *    - Ensure required fields exist (openapi, info)
+ *    - Ensure common components (xOrganizationId header) are available
  * 2) Fallback to JSDoc extraction from ./src/routes/*.js
  *    - Provide shared component schemas so responses render correctly
  *
  * This module exports a function getBaseOpenApiSpec() to retrieve the base spec.
  */
 
-/**
- * Create a Swagger spec from JSDoc annotations as a fallback.
- */
+/** Build the reusable components injected into any loaded spec */
+function buildCommonComponents() {
+  return {
+    parameters: {
+      xOrganizationId: {
+        name: 'x-organization-id',
+        in: 'header',
+        required: true,
+        schema: { type: 'string' },
+        description:
+          'Required tenant identifier for tenant-scoped endpoints. Header takes precedence over query aliases (?tenant_id or ?organization_id). 400 is returned when tenant is missing.',
+      },
+    },
+    schemas: {
+      GenericDocument: {
+        type: 'object',
+        description: 'A generic MongoDB document with flexible fields',
+        additionalProperties: true,
+        properties: {
+          _id: { type: 'string', description: 'MongoDB ObjectId as string' },
+        },
+      },
+      ListEnvelope: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          data: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/GenericDocument' },
+          },
+          meta: {
+            type: 'object',
+            properties: {
+              page: { type: 'integer', example: 1 },
+              limit: { type: 'integer', example: 20 },
+              total: { type: 'integer', example: 42 },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+/** Create a Swagger spec from JSDoc annotations as a fallback. */
 function buildJsDocSpec() {
   const options = {
     definition: {
@@ -30,49 +73,7 @@ function buildJsDocSpec() {
           process.env.SWAGGER_DESCRIPTION ||
           'REST API for Data Management Dashboard with MongoDB and Express',
       },
-      components: {
-        parameters: {
-          xOrganizationId: {
-            name: 'x-organization-id',
-            in: 'header',
-            required: true,
-            schema: { type: 'string' },
-            description:
-              'Required tenant identifier for all tenant-scoped endpoints. Use header x-organization-id (preferred). Aliases: query ?tenant_id or ?organization_id when header is not provided. Requests missing tenant will return 400.',
-          },
-        },
-        schemas: {
-          // A flexible document to represent MongoDB documents without strict typing
-          GenericDocument: {
-            type: 'object',
-            description: 'A generic MongoDB document with flexible fields',
-            additionalProperties: true,
-            properties: {
-              _id: { type: 'string', description: 'MongoDB ObjectId as string' },
-            },
-          },
-          // Envelope for paginated list responses
-          ListEnvelope: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean', example: true },
-              data: {
-                type: 'array',
-                items: { $ref: '#/components/schemas/GenericDocument' },
-              },
-              meta: {
-                type: 'object',
-                properties: {
-                  page: { type: 'integer', example: 1 },
-                  limit: { type: 'integer', example: 20 },
-                  total: { type: 'integer', example: 42 },
-                },
-              },
-            },
-          },
-        },
-      },
-      // Endpoints are public; no global security
+      components: buildCommonComponents(),
     },
     apis: ['./src/routes/*.js'],
   };
@@ -83,6 +84,7 @@ function buildJsDocSpec() {
  * Sanitize an OpenAPI document object:
  * - Ensure "paths" contains only keys that start with '/'
  * - Ensure "openapi" and "info" are present
+ * - Ensure reusable parameters/schemas are present
  */
 function sanitizeOpenApiDoc(doc) {
   if (!doc || typeof doc !== 'object') return null;
@@ -96,14 +98,13 @@ function sanitizeOpenApiDoc(doc) {
         validPaths[key] = val;
         hasAnyValidPath = true;
       }
-      // Drop keys that are not valid path templates
+      // Drop invalid keys silently
     });
     doc.paths = validPaths;
   } else {
     doc.paths = {};
   }
 
-  // If there are no valid paths after sanitization, treat as invalid to trigger JSDoc fallback
   if (!hasAnyValidPath) {
     return null;
   }
@@ -121,7 +122,19 @@ function sanitizeOpenApiDoc(doc) {
     };
   }
 
-  // Minimal validation by serializing to JSON
+  // Inject common components if absent
+  doc.components = doc.components || {};
+  doc.components.parameters = { ...(doc.components.parameters || {}) };
+  doc.components.schemas = { ...(doc.components.schemas || {}) };
+  const commons = buildCommonComponents();
+  doc.components.parameters.xOrganizationId =
+    doc.components.parameters.xOrganizationId || commons.parameters.xOrganizationId;
+  doc.components.schemas.GenericDocument =
+    doc.components.schemas.GenericDocument || commons.schemas.GenericDocument;
+  doc.components.schemas.ListEnvelope =
+    doc.components.schemas.ListEnvelope || commons.schemas.ListEnvelope;
+
+  // Validate it serializes
   try {
     JSON.stringify(doc);
   } catch {
@@ -176,6 +189,7 @@ function getBaseOpenApiSpec() {
           'REST API for Data Management Dashboard with MongoDB and Express',
       },
       paths: {},
+      components: buildCommonComponents(),
     };
     return cachedSpec;
   }

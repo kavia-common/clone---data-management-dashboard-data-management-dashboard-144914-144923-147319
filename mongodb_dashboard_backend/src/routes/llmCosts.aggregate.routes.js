@@ -5,7 +5,11 @@ const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 
 const router = express.Router();
 
-// Enforce tenant scoping for aggregate endpoint
+/**
+ * Enforce tenant scoping for aggregate endpoint.
+ * Aggregations should always begin with a $match on tenant_id (middleware helpers provide req.tenantId),
+ * then perform $group/$sort. For large pipelines ensure allowDiskUse(true) is enabled.
+ */
 router.use(requireTenant, tenantScopeEnforcer());
 
 /**
