@@ -137,9 +137,12 @@ app.get('/', (req, res) => {
   });
 });
 
-// Base router (non-/api) for health and overview
+/**
+ * Mount base router
+ * Includes lightweight counts and sample routes. Mount under /api to align with OpenAPI tags.
+ */
 const baseRouter = require('./routes');
-app.use('/', baseRouter);
+app.use('/api', baseRouter);
 
 /**
  * Simple health with DB status

@@ -76,9 +76,11 @@ const swaggerUiHandler = swaggerUi.setup(null, {
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-// Base router (non-/api) for health and overview
+/**
+ * Mount base router under /api for consistency with docs
+ */
 const baseRouter = require('./routes');
-app.use('/', baseRouter);
+app.use('/api', baseRouter);
 
 /**
  * Simple health with DB status

@@ -2,6 +2,11 @@
 
 const express = require('express');
 const router = express.Router();
+const { asyncHandler } = require('../utils/http');
+
+// Import models used for counting
+const User = require('../models/user.model');
+const SessionTracking = require('../models/sessionTracking.model');
 
 /**
  * PUBLIC_INTERFACE
@@ -28,15 +33,14 @@ router.get(
       ? { $or: [{ tenant_id: enforcedOrg }, { organization_id: enforcedOrg }, { organizationId: enforcedOrg }] }
       : {};
 
+    // Count users; if collection missing or error, treat as 0
     let usersCount = await User.countDocuments(enforcedScope).catch(() => 0);
 
     if ((!usersCount || Number(usersCount) === 0) && enforcedOrg) {
       try {
         const distinctUsers = await SessionTracking.distinct('user_id', { tenant_id: enforcedOrg }).catch(() => []);
         usersCount = Array.isArray(distinctUsers)
-          ? distinctUsers.filter(
-              (u) => u !== null && u !== undefined && String(u).trim() !== ''
-            ).length
+          ? distinctUsers.filter((u) => u !== null && u !== undefined && String(u).trim() !== '').length
           : 0;
       } catch {
         usersCount = 0;
@@ -56,11 +60,8 @@ router.get(
 
 /**
  * PUBLIC_INTERFACE
- * GET /api/deployments/count
- * Returns total number of app deployments across all tenants.
- *
- * Response:
- *  { success: true, total: number }
+ * GET /health
+ * Lightweight health for this router namespace
  */
 router.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
