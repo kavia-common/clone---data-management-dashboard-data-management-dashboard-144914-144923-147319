@@ -94,18 +94,32 @@ app.get('/api-docs.json', (req, res) => {
   }
 });
 
-const swaggerUiHandler = swaggerUi.setup(null, {
-  swaggerOptions: {
-    url: '/openapi.json',
-    displayRequestDuration: true,
-    docExpansion: 'none',
-  },
-  customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
-  customCss: '.topbar-wrapper .link:after { content: " | Use x-organization-id header for tenant-scoped endpoints"; font-size: 12px; color: #666; }',
-});
-try { console.log('[startup] Mounting Swagger UI at /docs and /api-docs'); } catch {}
-app.use('/docs', swaggerUi.serve, swaggerUiHandler);
-app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
+let swaggerUiHandler;
+try {
+  swaggerUiHandler = swaggerUi.setup(null, {
+    swaggerOptions: {
+      url: '/openapi.json',
+      displayRequestDuration: true,
+      docExpansion: 'none',
+    },
+    customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
+    customCss:
+      '.topbar-wrapper .link:after { content: " | Use x-organization-id header for tenant-scoped endpoints"; font-size: 12px; color: #666; }',
+  });
+  try { console.log('[startup] Mounting Swagger UI at /docs and /api-docs'); } catch {}
+  app.use('/docs', swaggerUi.serve, swaggerUiHandler);
+  app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.error('[startup] Swagger UI registration failed, continuing without UI:', e?.message || e);
+  // Provide a plain-text fallback so route still responds
+  app.get(['/docs', '/api-docs'], (req, res) => {
+    res
+      .status(200)
+      .type('text/plain')
+      .send('Swagger UI failed to initialize. OpenAPI is still available at /openapi.json');
+  });
+}
 
 /**
  * PUBLIC_INTERFACE
