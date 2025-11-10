@@ -1,5 +1,9 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+const swaggerJSDoc = require('swagger-jsdoc');
+
 /**
  * PUBLIC_INTERFACE
  * Builds the base Swagger/OpenAPI specification for the Express app.
