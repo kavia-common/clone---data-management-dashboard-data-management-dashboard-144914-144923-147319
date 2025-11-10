@@ -3,6 +3,7 @@
 - Default port: 3001 (configurable via PORT in .env)
 - Host bind: 0.0.0.0 by default (configurable via HOST)
 - Docs (Swagger UI): http://localhost:3001/docs (alias: http://localhost:3001/api-docs)
+- Preview note: the preview runner may call `npm run start` or `npm run dev`; both are supported. The server binds to 0.0.0.0:3001 and serves Swagger UI at /api-docs and JSON at /openapi.json.
 - OpenAPI JSON: http://localhost:3001/openapi.json (alias: http://localhost:3001/api-docs.json)
 
 Quick start (development)
