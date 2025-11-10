@@ -11,22 +11,17 @@ const { isValidISODate } = require('../utils/date');
  * Controller for GET /api/users/tenant-summary
  * 
  * Aggregates users grouped by tenant (organization) with optional date range and status filters.
- * - Accepts query params:
- *    - from: ISO datetime (inclusive) -> applies to created_at or updated_at (whichever exists)
- *    - to: ISO datetime (inclusive)
- *    - status: pipe-delimited statuses, e.g., "active|completed"
- *    - includeInactive: boolean; when false (default) filters out tenants with status !== 'active'
- * - Groups users by tenant identifier (organization_id or tenant_id). Tries to resolve tenant_name from tenants collection.
+ * Accepts query params:
+ *  - from: ISO datetime (inclusive)
+ *  - to: ISO datetime (inclusive)
+ *  - status: pipe-delimited statuses, e.g., "active|completed"
+ *  - includeInactive: boolean (default false)
  * 
- * Response:
- *  200: { success: true, items: [ { tenant_id, tenant_name?, user_count } ], total }
- *  NOTE: Route layer maps this to an array of { tenant, count } for frontend compatibility.
- *  400: on invalid params
- *  500: on unexpected errors (503 if DB disconnected)
+ * Enforces organization scoping from req.organizationId (set by extractOrganization middleware).
  */
 async function getUsersTenantSummary(req, res) {
   try {
-    // Parse dates safely
+    // --- Parse query params ---
     let from = null;
     let to = null;
     if (typeof req.query.from === 'string' && req.query.from.trim()) {
@@ -42,41 +37,30 @@ async function getUsersTenantSummary(req, res) {
       to = new Date(req.query.to);
     }
 
-    // Parse pipe-delimited status list
     let statuses = null;
-    const rawStatus = req.query.status;
-    if (typeof rawStatus === 'string' && rawStatus.trim()) {
-      statuses = rawStatus
+    if (typeof req.query.status === 'string' && req.query.status.trim()) {
+      statuses = req.query.status
         .split('|')
         .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-      if (statuses.length === 0) statuses = null;
+        .filter(Boolean);
     }
 
-    // Parse includeInactive boolean
     let includeInactive = false;
-    const rawIncludeInactive = req.query.includeInactive;
-    if (typeof rawIncludeInactive === 'string') {
-      const v = rawIncludeInactive.toLowerCase();
-      includeInactive = v === 'true' || v === '1' || v === 'yes';
-    } else if (typeof rawIncludeInactive === 'boolean') {
-      includeInactive = rawIncludeInactive;
+    if (typeof req.query.includeInactive === 'string') {
+      includeInactive = ['true', '1', 'yes'].includes(req.query.includeInactive.toLowerCase());
     }
 
-    // Build match stage for users collection
+    // --- Build MongoDB match ---
     const match = {};
-    // Enforce organization scoping if provided (maps to tenant_id)
-    const scopedTenant = req.scopedTenantId || req.organizationId || req.tenantId;
+    const scopedTenant = req.organizationId || req.tenantId;
     if (scopedTenant) {
-      // We will compute a _tenant_key field later; here restrict candidate docs to those having the scoped id
-      // across known fields for performance.
-      match.$or = (match.$or || []).concat([
+      match.$or = [
         { tenant_id: String(scopedTenant) },
         { organization_id: String(scopedTenant) },
         { 'tenant.tenant_id': String(scopedTenant) },
-      ]);
+      ];
     }
-    // Date range: consider created_at or updated_at. Use $or to be permissive.
+
     if (from || to) {
       const dateRange = {};
       if (from) dateRange.$gte = from;
@@ -86,13 +70,12 @@ async function getUsersTenantSummary(req, res) {
         { updated_at: dateRange },
       ];
     }
+
     if (statuses) {
       match.status = { $in: statuses };
     }
 
-    // Group by tenant/organization field
-    // Prefer document-level organization_id; if not present, also consider tenant_id field (in case users documents have that).
-    // Construct a computed tenant key that picks the first non-null of organization_id, tenant_id, tenant?.tenant_id.
+    // --- Build aggregation pipeline ---
     const pipeline = [
       { $match: match },
       {
@@ -105,20 +88,9 @@ async function getUsersTenantSummary(req, res) {
           },
         },
       },
-      {
-        $match: {
-          _tenant_key: { $nin: [null, ''] },
-        },
-      },
-      // If scoped, filter by computed key as well to be 100% safe
+      { $match: { _tenant_key: { $nin: [null, ''] } } },
       ...(scopedTenant
-        ? [
-            {
-              $match: {
-                _tenant_key: String(scopedTenant),
-              },
-            },
-          ]
+        ? [{ $match: { _tenant_key: String(scopedTenant) } }]
         : []),
       {
         $group: {
@@ -133,11 +105,6 @@ async function getUsersTenantSummary(req, res) {
           user_count: 1,
         },
       },
-    ];
-
-    // Enrich with tenant_name and optionally filter inactive tenants (based on Tenants.status)
-    // Use $lookup to tenants collection by tenant_id
-    pipeline.push(
       {
         $lookup: {
           from: Tenant.collection.name,
@@ -148,34 +115,23 @@ async function getUsersTenantSummary(req, res) {
       },
       {
         $addFields: {
-          tenant_name: {
-            $let: {
-              vars: { t: { $arrayElemAt: ['$tenant_doc', 0] } },
-              in: { $ifNull: ['$$t.tenant_name', null] },
-            },
-          },
-          tenant_status: {
-            $let: {
-              vars: { t: { $arrayElemAt: ['$tenant_doc', 0] } },
-              in: { $ifNull: ['$$t.status', null] },
-            },
-          },
+          tenant_name: { $ifNull: [{ $arrayElemAt: ['$tenant_doc.tenant_name', 0] }, null] },
+          tenant_status: { $ifNull: [{ $arrayElemAt: ['$tenant_doc.status', 0] }, null] },
         },
-      }
-    );
+      },
+    ];
 
     if (!includeInactive) {
       pipeline.push({
         $match: {
           $or: [
-            { tenant_status: { $eq: null } }, // If tenant record missing, don't exclude
+            { tenant_status: { $eq: null } },
             { tenant_status: 'active' },
           ],
         },
       });
     }
 
-    // Sort descending by user_count for chart-friendly order
     pipeline.push({ $sort: { user_count: -1, tenant_id: 1 } });
 
     const items = await User.aggregate(pipeline).allowDiskUse(true);
@@ -187,16 +143,12 @@ async function getUsersTenantSummary(req, res) {
     });
   } catch (err) {
     const message = err?.message || 'Request failed';
-    // Validation/cast errors -> 400
     if (err?.name === 'CastError' || /Cast to/i.test(message)) {
       return res.status(400).json({ success: false, message: 'Invalid value provided (tenant summary)', details: message });
     }
-    // DB disconnected -> 503
-    const ready = (mongoose.connection || {}).readyState;
-    if (ready !== 1) {
+    if ((mongoose.connection || {}).readyState !== 1) {
       return res.status(503).json({ success: false, message: 'Service unavailable: database not connected' });
     }
-    // Unexpected -> 500
     return res.status(500).json({ success: false, message: 'Internal Server Error' });
   }
 }
