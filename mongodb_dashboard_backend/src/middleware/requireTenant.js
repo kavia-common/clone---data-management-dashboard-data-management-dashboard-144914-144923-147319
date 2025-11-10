@@ -28,40 +28,44 @@ function requireTenant(req, res, next) {
   const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
   const allowDemo = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
 
-  // If JWT is present and contains tenant, prefer it and continue
+  // ✅ If JWT already resolved a tenant, accept and continue
   if (resolved.tenantId) {
     applyResolvedTenant(req, resolved);
     return next();
   }
 
-  // If not resolved yet, attempt a direct permissive query/header/body check
-  const qOrg =
-    (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
-    (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-    '';
-  const hOrg =
+  // ✅ Fallbacks: headers, query, and body (support both tenant_id & organization_id)
+  const headerOrg =
     (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
     (typeof req.headers?.['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
     (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
     (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
     (typeof req.headers?.['organization_id'] === 'string' && req.headers['organization_id'].trim()) ||
     '';
-  const bOrg =
+
+  const queryOrg =
+    (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+    (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+    '';
+
+  const bodyOrg =
     (typeof req.body?.organization_id === 'string' && req.body.organization_id.trim()) ||
     (typeof req.body?.tenant_id === 'string' && req.body.tenant_id.trim()) ||
     '';
 
-  const fallbackId = hOrg || qOrg || bOrg;
+  const fallbackId = headerOrg || queryOrg || bodyOrg;
+
   if (fallbackId) {
+    const source = headerOrg ? 'header' : queryOrg ? 'query' : 'body';
     applyResolvedTenant(req, {
       tenantId: String(fallbackId),
       organizationId: String(fallbackId),
-      source: hOrg ? 'header' : qOrg ? 'query' : 'body',
+      source,
     });
     return next();
   }
 
-  // Demo fallback (no auth and no explicit scope)
+  // ✅ Demo fallback (development/testing convenience)
   if (!isProd && allowDemo) {
     const demoTenant =
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
@@ -74,6 +78,7 @@ function requireTenant(req, res, next) {
     return next();
   }
 
+  // ❌ Still unresolved
   return res.status(400).json({
     success: false,
     message:
