@@ -26,12 +26,17 @@ const router = express.Router();
 /**
  * PUBLIC_INTERFACE
  * GET /
- * Health endpoint for base router
+ * Minimal root endpoint indicating service is running.
  */
 router.get('/', (req, res) => {
-  // Simple root health ping for uptime checks
   return res.status(200).json({ status: 'ok', message: 'Dashboard API backend' });
 });
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /healthz
+ * Liveness check that does not depend on MongoDB state.
+ */
 router.get('/healthz', healthController.check.bind(healthController));
 
 // Public auth routes remain unprotected

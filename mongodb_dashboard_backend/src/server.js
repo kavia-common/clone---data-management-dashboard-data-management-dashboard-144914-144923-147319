@@ -4,24 +4,32 @@
  */
 try { require('dotenv').config(); } catch {}
 
+/**
+ * PUBLIC_INTERFACE
+ * Server entry point. Binds to 0.0.0.0 by default and uses PORT=3001 when env is missing.
+ * Does not block startup on DB connection. Exports the server instance.
+ */
 const app = require('./app');
 const mongoose = require('mongoose');
 
-// Default to 3001 to match container deployment and docs URL
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
+
+// Defensive: ensure PORT is a positive integer
+const normalizedPort = Number.isFinite(PORT) && PORT > 0 ? PORT : 3001;
 
 // Early startup banner to aid diagnostics
 try {
   // eslint-disable-next-line no-console
-  console.log(`[startup] Initializing server on ${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+  console.log(
+    `[startup] Initializing server on ${HOST}:${normalizedPort} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
+  );
 } catch {}
 
 // Start listening unconditionally; Mongo connection is handled inside app.js and must not block server startup.
 const server = app
-  .listen(PORT, HOST, () => {
+  .listen(normalizedPort, HOST, () => {
     try {
-      // Guard: mongoose.connection.db may be undefined before initial connection
       const dbName =
         mongoose?.connection?.db?.databaseName ||
         process.env.MONGODB_DB ||
@@ -33,18 +41,19 @@ const server = app
     }
     // eslint-disable-next-line no-console
     console.log(
-      `[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
+      `[startup] Express listening on http://${HOST}:${normalizedPort} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
     );
     try {
-      // Helpful hint: echo how to curl health
-      console.log(`[startup] Health: curl http://127.0.0.1:${PORT}/api/health`);
+      // Helpful hint: echo how to curl health and docs
+      console.log(`[startup] Health: curl http://127.0.0.1:${normalizedPort}/health`);
+      console.log(`[startup] Swagger UI: http://127.0.0.1:${normalizedPort}/api-docs`);
     } catch {}
   })
   .on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
       // eslint-disable-next-line no-console
       console.error(
-        `[startup] Port ${PORT} is already in use. Ensure no other process is running on this port.`
+        `[startup] Port ${normalizedPort} is already in use. Ensure no other process is running on this port.`
       );
     } else {
       // eslint-disable-next-line no-console
@@ -53,7 +62,6 @@ const server = app
     // Exit so orchestrator/CI can restart
     process.exit(1);
   });
-
 
 // Graceful shutdown
 const shutdown = (signal) => {
