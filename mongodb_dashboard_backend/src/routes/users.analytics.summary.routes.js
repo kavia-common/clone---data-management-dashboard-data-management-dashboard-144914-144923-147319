@@ -2,6 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
+const { asyncHandler } = require('../utils/http');
 const { getUsersTenantSummary } = require('../controllers/users.analytics.summary.controller');
 const { extractOrganization } = require('../middleware/extractOrganization');
 
