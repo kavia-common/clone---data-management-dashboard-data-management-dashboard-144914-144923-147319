@@ -75,9 +75,20 @@ function extractNormalizedProjectId(payload) {
  * /api/app-deployments:
  *   get:
  *     summary: List application deployments
- *     description: Paginated list with optional filter and sort.
+ *     description: >
+ *       Paginated list with optional filter and sort.
+ *       Tenant scope is enforced server-side from JWT/header or query (?tenant_id=... or legacy ?organization_id=...).
+ *       Any client-provided tenant_id keys in the filter are ignored and replaced by the resolved tenant.
  *     tags: [AppDeployments]
  *     parameters:
+ *       - in: query
+ *         name: tenant_id
+ *         schema: { type: string }
+ *         description: Tenant identifier (alias: organization_id). Prefer header x-organization-id; query is accepted.
+ *       - in: query
+ *         name: organization_id
+ *         schema: { type: string }
+ *         description: Legacy alias for tenant_id. Mapped to tenant_id server-side.
  *       - in: query
  *         name: page
  *         schema: { type: integer, minimum: 1 }
@@ -90,7 +101,9 @@ function extractNormalizedProjectId(payload) {
  *       - in: query
  *         name: filter
  *         schema: { type: string }
- *         description: JSON filter (e.g., {"project_id":"p1","status":"success"})
+ *         description: >
+ *           JSON filter (e.g., {"project_id":"p1","status":"success"}).
+ *           Any tenant_id/organization_id sent here is ignored; server enforces tenant from JWT/header/query.
  *     responses:
  *       200:
  *         description: OK (array or envelope based on pagination params)
@@ -197,6 +210,8 @@ router.get(
  * /api/app-deployments/{id}:
  *   get:
  *     summary: Get app deployment by ID
+ *     description: >
+ *       Returns the document only if it belongs to the resolved tenant (JWT/header/query).
  *     tags: [AppDeployments]
  *     parameters:
  *       - in: path
@@ -215,6 +230,8 @@ router.get('/:id', asyncHandler(controller.getById));
  * /api/app-deployments:
  *   post:
  *     summary: Create app deployment
+ *     description: >
+ *       Allows tenant_id in payload but server will always override it using resolved tenant (JWT/header/query).
  *     tags: [AppDeployments]
  *     requestBody:
  *       required: true
@@ -249,6 +266,8 @@ router.post(
  * /api/app-deployments/{id}:
  *   put:
  *     summary: Update app deployment
+ *     description: >
+ *       Update is tenant-scoped. If payload includes tenant_id, it is ignored and replaced by server-side tenant.
  *     tags: [AppDeployments]
  *     parameters:
  *       - in: path
@@ -297,6 +316,8 @@ router.put(
  * /api/app-deployments/{id}:
  *   delete:
  *     summary: Delete app deployment
+ *     description: >
+ *       Delete is tenant-scoped; only records under the resolved tenant will be affected.
  *     tags: [AppDeployments]
  *     parameters:
  *       - in: path
