@@ -1,7 +1,7 @@
 const express = require('express');
 const { asyncHandler, failure } = require('../utils/http');
 const AppDeployment = require('../models/appDeployments.model');
-// const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
+const { buildCrudController } = require('../controllers/crudFactory');
 const { validateAppDeployment } = require('../middleware/validators');
 const { normalizeProjectId } = require('../services/enrichment.util');
 const { verifyAuth } = require('../middleware/verifyAuth');
@@ -11,6 +11,9 @@ const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const router = express.Router();
 // Enforce auth + tenant on all app-deployments routes
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
+
+// Alias for clarity with existing route code usage
+const requireTenantMw = requireTenant;
 
 const controller = buildCrudController(AppDeployment, '-created_at');
 
