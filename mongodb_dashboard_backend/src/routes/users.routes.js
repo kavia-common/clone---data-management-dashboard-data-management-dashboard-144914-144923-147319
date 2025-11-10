@@ -203,6 +203,7 @@ router.get(
   extractOrganization(),
   asyncHandler(async (req, res) => {
     const { from, to } = req.query || {};
+    console.debug("CHECK req",JSON.stringify(req.query))
     const includeInactive = String(req.query.includeInactive || 'false') === 'true';
     // Default status filter: "completed|active" means include either completed or active sessions.
     const statusParam = (req.query.status || 'completed|active').trim();

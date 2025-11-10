@@ -15,7 +15,7 @@ const app = express();
 try {
   // eslint-disable-next-line no-console
   console.log('[startup] Initializing Express app for Dashboard API');
-} catch {}
+} catch { }
 
 app.set('trust proxy', true); // only trust local proxies
 app.use(helmetMiddleware());
@@ -50,14 +50,14 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    // servers: [{ url: `${protocol}://${fullHost}` }],
-    servers: [
-  {
-    url:
-      
-      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-  },
-],
+    servers: [{ url: `${protocol}://${fullHost}` }],
+    //     servers: [
+    //   {
+    //     url:
+
+    //       'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //   },
+    // ],
 
   };
 };
@@ -94,7 +94,7 @@ app.get('/api/health', (req, res) => {
 });
 
 if (process.env.NODE_ENV === 'test') {
-  try { mongoose.set('bufferCommands', false); } catch {}
+  try { mongoose.set('bufferCommands', false); } catch { }
   app.use((req, res, next) => {
     const p = req.path || req.originalUrl || '';
     const bypass =
@@ -125,19 +125,19 @@ app.use('/api/dev', require('./routes/dev.routes'));
 try {
   // eslint-disable-next-line no-console
   console.log('[startup] Mounting /api/users routes...');
-} catch {}
+} catch { }
 app.use('/api/users', require('./routes/users.routes'));
 
 try {
   // eslint-disable-next-line no-console
   console.log('[startup] Mounting /api/users tenant-summary routes...');
-} catch {}
+} catch { }
 const usersAnalyticsSummaryRouter = require('./routes/users.analytics.summary.routes');
 if (usersAnalyticsSummaryRouter && usersAnalyticsSummaryRouter.stack) {
   try {
     // eslint-disable-next-line no-console
     console.log('[startup] users.analytics.summary router loaded with', usersAnalyticsSummaryRouter.stack.length, 'layers');
-  } catch {}
+  } catch { }
 }
 app.use('/api/users', usersAnalyticsSummaryRouter);
 
@@ -146,7 +146,7 @@ app.use('/api/users', usersAnalyticsSummaryRouter);
 try {
   // eslint-disable-next-line no-console
   console.log('[startup] Registering inline fallback for GET /api/users/tenant-summary');
-} catch {}
+} catch { }
 const { getUsersTenantSummary } = require('./controllers/users.analytics.summary.controller');
 app.get('/api/users/tenant-summary', async (req, res) => {
   try {
@@ -228,7 +228,7 @@ if (process.env.NODE_ENV !== 'test') {
 } else {
   // eslint-disable-next-line no-console
   console.log('[startup] Skipping MongoDB connection in test environment');
-  try { mongoose.set('bufferCommands', false); } catch {}
+  try { mongoose.set('bufferCommands', false); } catch { }
 }
 
 module.exports = app;
