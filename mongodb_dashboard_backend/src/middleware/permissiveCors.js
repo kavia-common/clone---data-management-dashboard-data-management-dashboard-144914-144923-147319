@@ -14,7 +14,7 @@
  * Also logs Origin and Access-Control-Request-Headers in non-production for diagnostics when DEBUG=true.
  */
 function permissiveCorsMiddleware(req, res, next) {
-  // Always set ACAO "*" for /api/* requests
+  // Always set ACAO "*" for API and docs responses
   res.setHeader('Access-Control-Allow-Origin', '*');
   // IMPORTANT: Do NOT set Access-Control-Allow-Credentials when using '*'
   // res.removeHeader('Access-Control-Allow-Credentials'); // ensure it's not present

@@ -19,6 +19,9 @@ const routes = require('./routes');
 function createApp() {
   const app = express();
 
+  // Ensure correct protocol/host behind reverse proxies (needed for accurate OpenAPI server URL)
+  app.set('trust proxy', true);
+
   // Security headers
   app.use(helmet({
     contentSecurityPolicy: false,
@@ -28,10 +31,16 @@ function createApp() {
   // CORS
   // For development and Swagger UI usage, enable permissive CORS for API and docs.
   // Note: We intentionally do NOT use credentials with '*' origin to comply with CORS spec.
+  // Apply earliest possible to ensure preflight and 4xx/5xx also include headers.
   app.use('/api', permissiveCorsMiddleware);
   app.use('/docs', permissiveCorsMiddleware);
   app.use('/openapi.json', permissiveCorsMiddleware);
-  // Allow generic OPTIONS preflight handling
+
+  // Explicit OPTIONS handlers for preflight on key mounts to guarantee 204
+  app.options('/api/*', permissiveCorsMiddleware, (req, res) => res.status(204).send());
+  app.options('/docs', permissiveCorsMiddleware, (req, res) => res.status(204).send());
+  app.options('/openapi.json', permissiveCorsMiddleware, (req, res) => res.status(204).send());
+  // Fallback catch-all OPTIONS
   app.options('*', cors());
 
   // Logging
@@ -57,12 +66,14 @@ function createApp() {
       const spec = JSON.parse(raw);
 
       // Compute server URL dynamically to match preview URL and include /api base for paths
-      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-      const host = req.headers['x-forwarded-host'] || req.get('host');
+      const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').toString();
+      const hostHeader = (req.headers['x-forwarded-host'] || req.get('host') || '').toString();
+      // Some proxies may pass comma-separated hosts; pick the first
+      const host = hostHeader.split(',')[0].trim();
       // Our paths in spec already start with /api; keep server as origin without trailing slash
       const origin = `${proto}://${host}`;
       // Ensure swagger uses the same scheme/host as the current request
-      spec.servers = [{ url: origin, description: 'Current host' }];
+      spec.servers = [{ url: origin, description: 'Current host (derived)' }];
 
       // Ensure minimal tags array exists
       if (!spec.tags) spec.tags = [];
@@ -74,8 +85,9 @@ function createApp() {
       return res.status(200).json(spec);
     } catch (e) {
       // Fallback minimal spec so docs still render
-      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-      const host = req.headers['x-forwarded-host'] || req.get('host');
+      const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').toString();
+      const hostHeader = (req.headers['x-forwarded-host'] || req.get('host') || '').toString();
+      const host = hostHeader.split(',')[0].trim();
       const origin = `${proto}://${host}`;
       return res.status(200).json({
         openapi: '3.0.3',
@@ -99,11 +111,31 @@ function createApp() {
     '/docs',
     swaggerUi.serve,
     swaggerUi.setup(null, {
+      // Use relative swaggerUrl so it matches current origin and scheme
       swaggerUrl: '/openapi.json',
       explorer: true,
       customSiteTitle: 'Dashboard API Docs',
     })
   );
+
+  // PUBLIC_INTERFACE
+  // Web docs usage note for CORS/proxy behavior
+  app.get('/docs/usage', (req, res) => {
+    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'http').toString();
+    const hostHeader = (req.headers['x-forwarded-host'] || req.get('host') || '').toString();
+    const host = hostHeader.split(',')[0].trim();
+    const origin = `${proto}://${host}`;
+    res.status(200).json({
+      success: true,
+      message: 'Swagger UI is configured to use a dynamic server URL based on the request origin.',
+      origin,
+      notes: [
+        'CORS is configured as non-credentialed with Access-Control-Allow-Origin: * for API and docs.',
+        'Preflight OPTIONS requests return 204 with appropriate Allow-Methods and Allow-Headers.',
+        'If served behind HTTPS proxy, trust proxy is enabled to preserve scheme for OpenAPI servers.',
+      ],
+    });
+  });
 
   // Simple root redirect/help so backend preview shows backend info, not frontend
   app.get('/', (req, res) => {
