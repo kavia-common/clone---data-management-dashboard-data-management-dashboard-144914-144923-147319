@@ -53,7 +53,7 @@ const buildDynamicSpec = (req) => {
     servers: [
       {
         url: `${protocol}://${fullHost}`,
-        description: 'Current server',
+       
       },
     ],
   };
