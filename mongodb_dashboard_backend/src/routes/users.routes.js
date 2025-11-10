@@ -1,6 +1,6 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
-const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
+const { buildCrudController } = require('../controllers/crudFactory');
 const User = require('../models/user.model');
 const { getUserProjectsFromSessions } = require('../services/users.service');
 const SessionTracking = require('../models/sessionTracking.model');
@@ -10,7 +10,7 @@ const mongoose = require('mongoose');
 const { extractOrganization } = require('../middleware/extractOrganization');
 
 const router = express.Router();
-const controller = buildTenantCrudController(User, '-created_at');
+const controller = buildCrudController(User, '-created_at');
 
 // Enforce JWT + Tenant at router level
 router.use(verifyAuth, requireTenantMw);
