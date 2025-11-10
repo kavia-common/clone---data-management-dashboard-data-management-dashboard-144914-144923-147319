@@ -33,7 +33,7 @@ const server = app
     }
     // eslint-disable-next-line no-console
     console.log(
-      `[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
+      `[startup] Server listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
     );
     try {
       // Helpful hint: echo how to curl health
