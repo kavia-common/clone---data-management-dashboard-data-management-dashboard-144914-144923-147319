@@ -1,7 +1,7 @@
 const express = require('express');
 const { asyncHandler, failure } = require('../utils/http');
 const AppDeployment = require('../models/appDeployments.model');
-const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
+// const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
 const { validateAppDeployment } = require('../middleware/validators');
 const { normalizeProjectId } = require('../services/enrichment.util');
 const { verifyAuth } = require('../middleware/verifyAuth');

@@ -2,7 +2,7 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
-const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
+// const { buildTenantCrudController } = require('../controllers/crudFactory.tenant');
 
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
