@@ -20,15 +20,17 @@ router.use(requireTenant, tenantScopeEnforcer());
  *     parameters:
  *       - in: header
  *         name: x-organization-id
- *         required: false
+ *         required: true
  *         schema: { type: string }
- *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping on aggregation.
+ *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping on aggregation and overrides any payload tenant fields.
  *       - in: query
  *         name: organization_id
  *         schema: { type: string }
+ *         description: Optional alternative to header; ignored if header is provided.
  *       - in: query
  *         name: tenant_id
  *         schema: { type: string }
+ *         description: Optional alternative to header; ignored if header is provided.
  *     responses:
  *       200:
  *         description: Aggregated users and projects with cost fields

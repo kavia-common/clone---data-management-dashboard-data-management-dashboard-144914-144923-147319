@@ -41,17 +41,17 @@ router.use(requireTenant, tenantScopeEnforcer());
  *     parameters:
  *       - in: header
  *         name: x-organization-id
- *         required: false
+ *         required: true
  *         schema: { type: string }
- *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping regardless of client-provided filters.
+ *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping regardless of client-provided filters and overrides payload.tenant_id/organization_id.
  *       - in: query
  *         name: organization_id
  *         schema: { type: string }
- *         description: Optional tenant (alias); will be overridden by header when provided.
+ *         description: Optional tenant (alias). Alternative to header; ignored if header is provided. Payload.tenant_id will be overridden by resolved tenant.
  *       - in: query
  *         name: tenant_id
  *         schema: { type: string }
- *         description: Optional tenant; will be overridden by header when provided.
+ *         description: Optional tenant. Alternative to header; ignored if header is provided. Payload.tenant_id will be overridden by resolved tenant.
  *       - in: query
  *         name: page
  *         schema: { type: integer, minimum: 1 }
@@ -92,15 +92,17 @@ router.get('/', asyncHandler(controller.list));
  *     parameters:
  *       - in: header
  *         name: x-organization-id
- *         required: false
+ *         required: true
  *         schema: { type: string }
- *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). The server overrides payload.tenant_id/organization_id with the resolved tenant.
+ *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). The server overrides payload.tenant_id/organization_id with the resolved tenant.
  *       - in: query
  *         name: organization_id
  *         schema: { type: string }
+ *         description: Optional alternative to header; ignored if header is provided.
  *       - in: query
  *         name: tenant_id
  *         schema: { type: string }
+ *         description: Optional alternative to header; ignored if header is provided.
  *       - in: path
  *         name: id
  *         required: true
@@ -121,17 +123,17 @@ router.get('/:id', asyncHandler(controller.getById));
  *     parameters:
  *       - in: header
  *         name: x-organization-id
- *         required: false
+ *         required: true
  *         schema: { type: string }
- *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). The server overrides payload.tenant_id/organization_id with the resolved tenant.
+ *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). The server overrides payload.tenant_id/organization_id with the resolved tenant.
  *       - in: query
  *         name: organization_id
  *         schema: { type: string }
- *         description: Optional tenant (alias); will be overridden by header when provided.
+ *         description: Optional alternative to header; ignored if header is provided. Payload tenant fields are overridden.
  *       - in: query
  *         name: tenant_id
  *         schema: { type: string }
- *         description: Optional tenant; will be overridden by header when provided.
+ *         description: Optional alternative to header; ignored if header is provided. Payload tenant fields are overridden.
  *     requestBody:
  *       required: true
  *       content:
@@ -153,15 +155,17 @@ router.post('/', asyncHandler(controller.create));
  *     parameters:
  *       - in: header
  *         name: x-organization-id
- *         required: false
+ *         required: true
  *         schema: { type: string }
- *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping on delete.
+ *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping and overrides any payload tenant fields.
  *       - in: query
  *         name: organization_id
  *         schema: { type: string }
+ *         description: Optional alternative to header; ignored if header is provided.
  *       - in: query
  *         name: tenant_id
  *         schema: { type: string }
+ *         description: Optional alternative to header; ignored if header is provided.
  *       - in: path
  *         name: id
  *         required: true
@@ -188,15 +192,17 @@ router.put('/:id', asyncHandler(controller.update));
  *     parameters:
  *       - in: header
  *         name: x-organization-id
- *         required: false
+ *         required: true
  *         schema: { type: string }
- *         description: Optional organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping on delete.
+ *         description: Required organization (tenant) id; takes precedence over query (?tenant_id or ?organization_id). Server enforces tenant scoping on delete.
  *       - in: query
  *         name: organization_id
  *         schema: { type: string }
+ *         description: Optional alternative to header; ignored if header is provided.
  *       - in: query
  *         name: tenant_id
  *         schema: { type: string }
+ *         description: Optional alternative to header; ignored if header is provided.
  *       - in: path
  *         name: id
  *         required: true
