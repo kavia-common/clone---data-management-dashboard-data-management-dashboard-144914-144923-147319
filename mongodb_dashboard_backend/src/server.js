@@ -10,11 +10,10 @@ const net = require('net');
 const app = require('./app');
 const mongoose = require('mongoose');
 
-// Strict binding to 3001 unless overridden by env
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
-// Emit a clear startup banner for CI readiness detectors
+
 // PUBLIC_INTERFACE
 function logListening(host, port) {
   // eslint-disable-next-line no-console
