@@ -18,9 +18,32 @@ try {
   console.log('[startup] Initializing Express app for Dashboard API');
 } catch { }
 
+// Register ultra-fast readiness early to avoid any middleware interference
+try { console.log('[startup] Registering GET /api/health and GET /health (early)'); } catch {}
+const healthHandler = (req, res) => {
+  const ready = mongoose.connection.readyState;
+  const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+  const payload = { status: 'ok', db, timestamp: new Date().toISOString() };
+  if (db !== 'connected') {
+    payload.hint = 'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
+  }
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json(payload);
+};
+app.get('/api/health', healthHandler);
+/**
+ * PUBLIC_INTERFACE
+ * GET /health
+ * Fast readiness check that does not depend on MongoDB. Returns 200 with status ok and db state.
+ */
+app.get('/health', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return healthHandler(req, res);
+});
+
 app.set('trust proxy', 1); // only trust local proxies
 app.use(helmetMiddleware());
- // Configure CORS with allowlist and credentials support via our middleware
+// Configure CORS with allowlist and credentials support via our middleware
 app.use(corsMiddleware());
 // Additionally apply a permissive CORS layer for all /api/* endpoints to ensure broad compatibility (no credentials)
 app.use('/api', permissiveCorsMiddleware);
@@ -90,30 +113,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 const baseRouter = require('./routes');
 app.use('/', baseRouter);
 
-/**
- * Simple health with DB status
- */
-try { console.log('[startup] Registering GET /api/health and GET /health'); } catch {}
-const healthHandler = (req, res) => {
-  const ready = mongoose.connection.readyState;
-  const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
-  const payload = { status: 'ok', db, timestamp: new Date().toISOString() };
-  if (db !== 'connected') {
-    payload.hint = 'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
-  }
-  res.set('Cache-Control', 'no-store');
-  return res.status(200).json(payload);
-};
-app.get('/api/health', healthHandler);
-/**
- * PUBLIC_INTERFACE
- * GET /health
- * Fast readiness check that does not depend on MongoDB. Returns 200 with status ok and db state.
- */
-app.get('/health', (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  return healthHandler(req, res);
-});
+
 
 if (process.env.NODE_ENV === 'test') {
   try { mongoose.set('bufferCommands', false); } catch { }
