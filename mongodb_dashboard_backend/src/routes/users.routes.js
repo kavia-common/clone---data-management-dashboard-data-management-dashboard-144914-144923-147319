@@ -248,13 +248,17 @@ router.get(
 /**
  * PUBLIC_INTERFACE
  * GET /api/users
- * Returns a list of users scoped to the active tenant (organization) resolved by verifyAuth + requireTenant.
- * - Client-provided tenant_id/organization_id in filters are ignored; server enforces req.tenantId internally.
+ * Returns a list of users scoped to the effective tenant.
+ * Scoping rules:
+ *  - When Authorization/JWT is present, the tenant is taken from req.auth.tenantId and cannot be overridden.
+ *  - If ?organization_id/tenant_id or headers specify a different tenant than JWT, request is rejected with 403.
+ *  - When no JWT is present (demo mode only), allow tenant from header/query and still enforce filtering.
+ *  - Mongo filter uses normalized OR across {tenant_id, organization_id, orgId, tenantId, organizationId, tenant.tenant_id}.
  * - Supports optional pagination (page, limit) for envelope response; without pagination returns a raw array.
  */
 router.get(
   '/',
-  // Normalize org/tenant from JWT/header/query with correct precedence so list applies proper tenant filter
+  // Normalize org/tenant, allowing non-JWT demo mode via header/query; JWT will still be used by requireTenant at mount
   extractOrganization(),
   controller.list
 );

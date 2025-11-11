@@ -86,9 +86,25 @@ function mergeFilterWithTenant(filter, tenantId) {
   delete f.tenant_id;
   delete f.tenantId;
   delete f.organization_id;
+  delete f.organizationId;
+  delete f.orgId;
+
   if (!tenantId) return f;
+
+  // Build a normalized tenant filter to match across possible fields (defensive)
+  const normalizedTenantFilter = {
+    $or: [
+      { tenant_id: String(tenantId) },
+      { organization_id: String(tenantId) },
+      { orgId: String(tenantId) },
+      { tenantId: String(tenantId) },
+      { organizationId: String(tenantId) },
+      { 'tenant.tenant_id': String(tenantId) },
+    ],
+  };
+
   // enforce tenant filter
-  return Object.keys(f).length > 0 ? { $and: [f, { tenant_id: String(tenantId) }] } : { tenant_id: String(tenantId) };
+  return Object.keys(f).length > 0 ? { $and: [f, normalizedTenantFilter] } : normalizedTenantFilter;
 }
 
 /**
@@ -112,10 +128,23 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
   return {
     // PUBLIC_INTERFACE
     async list(req, res) {
-      // Mirror tenant header into response for observability
-      if (req?.tenantId) {
+      // Determine effective tenant from JWT-backed middleware
+      const effectiveTenant = req?.tenantId ? String(req.tenantId) : undefined;
+
+      // Observability headers
+      try {
+        if (effectiveTenant) res.set('x-organization-id', effectiveTenant);
+        const authPresent = !!req.headers?.authorization;
+        res.set('x-tenant-auth-present', String(authPresent));
+      } catch (_) {}
+
+      // Developer-mode log
+      if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
         try {
-          res.set('x-organization-id', String(req.tenantId));
+          // eslint-disable-next-line no-console
+          console.debug(
+            `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'}`
+          );
         } catch (_) {}
       }
 
@@ -137,7 +166,29 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       if (!req.tenantId) {
         return failure(res, 'Missing tenant scope', 400);
       }
+
+      // If Authorization present, any client-supplied tenant filter/header/query must not switch tenants.
+      // We do not read client-supplied tenant fields in filters, but for traceability, detect if they attempted.
+      const clientRequestedTenant =
+        (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+        (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+        (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+        (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+        (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+        '';
+
+      const hasAuthHeader = !!req.headers?.authorization;
+      if (hasAuthHeader && clientRequestedTenant && String(clientRequestedTenant) !== String(req.tenantId)) {
+        // JWT tenant takes precedence; block cross-tenant access
+        return failure(res, 'Forbidden: tenant scope mismatch', 403);
+      }
+
       const appliedFilter = mergeFilterWithTenant(filter, req.tenantId);
+
+      // Expose applied filter for unit-style verification (header-safe)
+      try {
+        res.set('x-applied-tenant-filter', JSON.stringify(appliedFilter));
+      } catch (_) {}
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
       const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);

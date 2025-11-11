@@ -1420,7 +1420,7 @@
     "/api/users": {
       "get": {
         "summary": "List users",
-        "description": "Retrieve a paginated list of users with optional JSON filtering and sorting.",
+        "description": "Retrieve a paginated list of users with optional JSON filtering and sorting. Tenant scoping: when Authorization is present, the tenant is taken from JWT (req.auth.tenantId) and overrides query/header. If a different organization_id/tenant_id is provided than the JWT tenant, the request is rejected with 403. In demo mode without JWT, organization_id from header or query is allowed but is still enforced in filtering.",
         "tags": [
           "Users"
         ],
