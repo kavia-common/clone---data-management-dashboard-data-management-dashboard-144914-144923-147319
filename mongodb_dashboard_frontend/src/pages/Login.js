@@ -30,6 +30,7 @@ export default function Login() {
   const SUCCESS_REDIRECT = '/dashboard/overview';
 
   // 🔹 Fetch organizations for given email
+  // 🔹 Fetch organizations for given email
   async function handleFindOrgs() {
     setError('');
     if (!email) {
