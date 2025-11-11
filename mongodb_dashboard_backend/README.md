@@ -12,6 +12,18 @@ Quick start (development)
 - curl http://localhost:3001/health  # fast 200
 - curl http://localhost:3001/api/health  # includes db state
 
+Scripts
+- dev: nodemon src/server.js (auto-reload; honors HOST and PORT env, defaults HOST=0.0.0.0, PORT=3001)
+- start: node src/server.js (production style; same host/port behavior)
+- test: jest
+
+Preview runner compatibility
+- The preview will run: CI=true PORT=3001 HOST=0.0.0.0 npm run dev
+- package.json already defines a 'dev' script and server binds to 0.0.0.0:3001
+- Health endpoints for readiness checks:
+  - GET /health       -> always 200 with db state
+  - GET /api/health   -> 200 with db state (same as /health)
+
 Important
 - Do NOT run `npm run dev` from the frontend folder; it has no dev script and CI logs will show "Missing script: dev".
 - Avoid `-r dotenv/config` in scripts; dotenv is required in src/server.js.
