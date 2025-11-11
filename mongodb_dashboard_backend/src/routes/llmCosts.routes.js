@@ -26,10 +26,14 @@ const controller = buildCrudController(LLMCost, '-timestamp'); // default indexe
  */
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 
-// Expose applied tenant for quick debugging on responses at this router scope
+/**
+ * Expose applied tenant for quick debugging on responses at this router scope
+ * Adds both X-Applied-Tenant and x-applied-organization-id for preview verification.
+ */
 router.use((req, res, next) => {
   try {
     if (req.tenantId) {
+      res.set('X-Applied-Tenant', String(req.tenantId));
       res.set('x-applied-organization-id', String(req.tenantId));
     }
   } catch (_) {}

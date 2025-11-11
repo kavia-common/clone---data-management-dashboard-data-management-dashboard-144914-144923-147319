@@ -1,5 +1,9 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+const swaggerJSDoc = require('swagger-jsdoc');
+
 /**
  * PUBLIC_INTERFACE
  * Builds the base Swagger/OpenAPI specification for the Express app.
@@ -87,7 +91,7 @@ function buildJsDocSpec() {
 function sanitizeOpenApiDoc(doc) {
   if (!doc || typeof doc !== 'object') return null;
 
-  // Remove invalid path keys (Swagger UI will break on these)
+  // Remove invalid path keys
   let hasAnyValidPath = false;
   if (doc.paths && typeof doc.paths === 'object') {
     const validPaths = {};
@@ -96,20 +100,15 @@ function sanitizeOpenApiDoc(doc) {
         validPaths[key] = val;
         hasAnyValidPath = true;
       }
-      // Drop invalid keys silently
     });
     doc.paths = validPaths;
   } else {
     doc.paths = {};
   }
 
-  if (!hasAnyValidPath) {
-    return null;
-  }
+  if (!hasAnyValidPath) return null;
 
-  if (!doc.openapi) {
-    doc.openapi = '3.0.0';
-  }
+  if (!doc.openapi) doc.openapi = '3.0.0';
   if (!doc.info) {
     doc.info = {
       title: process.env.SWAGGER_TITLE || 'Dashboard API',
@@ -120,19 +119,22 @@ function sanitizeOpenApiDoc(doc) {
     };
   }
 
-  // Inject common components if absent
-  doc.components = doc.components || {};
-  doc.components.parameters = { ...(doc.components.parameters || {}) };
-  doc.components.schemas = { ...(doc.components.schemas || {}) };
+  // Inject common components if missing
   const commons = buildCommonComponents();
-  doc.components.parameters.xOrganizationId =
-    doc.components.parameters.xOrganizationId || commons.parameters.xOrganizationId;
-  doc.components.schemas.GenericDocument =
-    doc.components.schemas.GenericDocument || commons.schemas.GenericDocument;
-  doc.components.schemas.ListEnvelope =
-    doc.components.schemas.ListEnvelope || commons.schemas.ListEnvelope;
+  doc.components = doc.components || {};
+  doc.components.parameters = {
+    ...(doc.components.parameters || {}),
+    xOrganizationId:
+      doc.components.parameters?.xOrganizationId || commons.parameters.xOrganizationId,
+  };
+  doc.components.schemas = {
+    ...(doc.components.schemas || {}),
+    GenericDocument:
+      doc.components.schemas?.GenericDocument || commons.schemas.GenericDocument,
+    ListEnvelope:
+      doc.components.schemas?.ListEnvelope || commons.schemas.ListEnvelope,
+  };
 
-  // Validate it serializes
   try {
     JSON.stringify(doc);
   } catch {
@@ -142,19 +144,16 @@ function sanitizeOpenApiDoc(doc) {
   return doc;
 }
 
-// Cache result to avoid re-reading on every request
+// Cache result
 let cachedSpec = null;
 
 /**
  * PUBLIC_INTERFACE
  * getBaseOpenApiSpec
- * Returns a valid OpenAPI document. Prefers interfaces/openapi.json (sanitized)
- * and falls back to the JSDoc-generated spec if necessary.
  */
 function getBaseOpenApiSpec() {
   if (cachedSpec) return cachedSpec;
 
-  // Attempt to load interfaces/openapi.json (preferred)
   try {
     const filePath = path.resolve(__dirname, 'interfaces', 'openapi.json');
     const raw = fs.readFileSync(filePath, 'utf8');
@@ -165,18 +164,14 @@ function getBaseOpenApiSpec() {
       return cachedSpec;
     }
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn('[swagger] Could not load interfaces/openapi.json, falling back to JSDoc.', err?.message);
   }
 
-  // Fallback to JSDoc-generated spec
   try {
     cachedSpec = buildJsDocSpec();
     return cachedSpec;
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.error('[swagger] Failed to build JSDoc spec:', err);
-    // Final fallback: minimal valid spec to avoid blank UI
     cachedSpec = {
       openapi: '3.0.0',
       info: {
@@ -193,7 +188,4 @@ function getBaseOpenApiSpec() {
   }
 }
 
-module.exports = {
-  // PUBLIC_INTERFACE
-  getBaseOpenApiSpec,
-};
+module.exports = { getBaseOpenApiSpec };

@@ -691,9 +691,12 @@
     "/api/llm-costs": {
       "get": {
         "summary": "List LLM cost records",
-        "description": "Returns a list of LLM cost documents. Supports optional JSON filter, sorting and pagination. If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }. Otherwise a raw array is returned.\nTenant scoping: When Authorization is present, JWT tenant is enforced and overrides header/query. Otherwise, x-organization-id header is required. Any client-provided tenant fields in filter are ignored.",
+        "description": "Returns a list of LLM cost documents. Supports optional JSON filter, sorting and pagination. If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }. Otherwise a raw array is returned.\nTenant scoping: When Authorization (Bearer JWT) is present, the tenant from the JWT is enforced and overrides any header/query values. If a different organization_id/tenant_id is provided than the JWT tenant, the request is rejected with 403. Without JWT (demo/testing), x-organization-id header or query aliases (?tenant_id or ?organization_id) may be used to set scope. Any tenant fields in the filter are ignored server-side.\nDebugging: Responses include an X-Applied-Tenant header indicating the resolved tenant filter.",
         "tags": [
           "LLMCosts"
+        ],
+        "security": [
+          { "bearerAuth": [] }
         ],
         "parameters": [
           {
@@ -701,19 +704,19 @@
             "name": "x-organization-id",
             "schema": { "type": "string" },
             "required": false,
-            "description": "Tenant (organization) ID. Required when JWT is not provided; ignored if JWT is present with tenant."
+            "description": "Tenant (organization) ID. Required when JWT is not provided; ignored if JWT is present with tenant. If provided and conflicts with JWT tenant, the request is rejected with 403."
           },
           {
             "in": "query",
             "name": "organization_id",
             "schema": { "type": "string" },
-            "description": "Alias for tenant filter. Ignored when JWT is present. When header is provided, header takes precedence."
+            "description": "Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query. If conflicting with JWT tenant, 403 is returned."
           },
           {
             "in": "query",
             "name": "tenant_id",
             "schema": { "type": "string" },
-            "description": "Alias for tenant filter. Ignored when JWT is present. When header is provided, header takes precedence."
+            "description": "Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query. If conflicting with JWT tenant, 403 is returned."
           },
           {
             "in": "query",
@@ -825,6 +828,9 @@
       "get": {
         "summary": "Get an LLM cost record by ID",
         "tags": [ "LLMCosts" ],
+        "security": [
+          { "bearerAuth": [] }
+        ],
         "parameters": [
           { "in": "header", "name": "x-organization-id", "schema": { "type": "string" }, "required": false, "description": "Tenant id (required when JWT is not provided)" },
           { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Alias for tenant (ignored with JWT or header precedence)." },

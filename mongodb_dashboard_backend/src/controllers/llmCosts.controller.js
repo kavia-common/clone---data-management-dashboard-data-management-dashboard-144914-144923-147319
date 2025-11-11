@@ -66,6 +66,7 @@ async function getHierarchy(req, res) {
     const data = await aggregateHierarchy({ filter, tenantId: resolvedTenant });
     try {
       if (resolvedTenant) {
+        res.set('X-Applied-Tenant', String(resolvedTenant));
         res.set('x-applied-organization-id', String(resolvedTenant));
         res.set('x-applied-tenant-filter', JSON.stringify(filter));
       }

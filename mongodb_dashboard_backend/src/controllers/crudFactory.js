@@ -133,7 +133,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Observability headers
       try {
-        if (effectiveTenant) res.set('x-organization-id', effectiveTenant);
+        if (effectiveTenant) {
+          res.set('x-organization-id', effectiveTenant);
+          res.set('X-Applied-Tenant', effectiveTenant);
+        }
         const authPresent = !!req.headers?.authorization;
         res.set('x-tenant-auth-present', String(authPresent));
       } catch (_) {}

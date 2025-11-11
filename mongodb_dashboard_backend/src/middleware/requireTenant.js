@@ -35,6 +35,7 @@ function requireTenant(req, res, next) {
     }
     req.tenantId = String(jwtTenant);
     req.organizationId = String(jwtTenant);
+    try { res.set('X-Applied-Tenant', String(jwtTenant)); } catch (_) {}
     return next();
   }
 
@@ -63,6 +64,7 @@ function requireTenant(req, res, next) {
     req.auth.tenantId = String(resolved);
     req.tenantId = String(resolved);
     req.organizationId = String(resolved);
+    try { res.set('X-Applied-Tenant', String(resolved)); } catch (_) {}
     return next();
   }
 
@@ -77,6 +79,7 @@ function requireTenant(req, res, next) {
     req.auth.tenantId = String(demoTenant);
     req.tenantId = String(demoTenant);
     req.organizationId = String(demoTenant);
+    try { res.set('X-Applied-Tenant', String(demoTenant)); } catch (_) {}
     return next();
   }
 
