@@ -4,9 +4,8 @@
   "description": "Minimal Express app with scalable structure",
   "main": "src/server.js",
   "scripts": {
-    "start": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-production} node src/server.js",
-    "dev": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} nodemon src/server.js",
-    "preview": "npm run dev",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
     "test": "jest",
     "lint": "eslint .",
     "gen:openapi": "node generate_openapi.js"
