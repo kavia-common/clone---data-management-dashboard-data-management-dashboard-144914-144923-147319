@@ -148,6 +148,22 @@
         "parameters": [
           {
             "in": "query",
+            "name": "tenant_id",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional tenant (organization) ID to scope results. Alias: organization_id"
+          },
+          {
+            "in": "query",
+            "name": "organization_id",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Legacy alias for tenant scope. Prefer tenant_id."
+          },
+          {
+            "in": "query",
             "name": "page",
             "schema": {
               "type": "integer",

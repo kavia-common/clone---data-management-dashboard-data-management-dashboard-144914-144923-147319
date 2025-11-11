@@ -33,12 +33,13 @@ function requireTenant(req, res, next) {
     (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
     '';
 
-  // Accept query parameters for tenant resolution (new: tenant_id; legacy: organization_id)
+  // Accept query parameters for tenant resolution (preferred: tenant_id; legacy alias: organization_id)
   const qTenant = (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) || '';
   const qOrg = (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) || '';
+  const qAlias = qTenant || qOrg;
 
-  // Precedence: header > query(tenant_id) > query(organization_id)
-  const resolved = hdrTenant || qTenant || qOrg;
+  // Precedence: JWT > header > query (tenant_id | organization_id)
+  const resolved = hdrTenant || qAlias;
 
   const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
   const allowDemo = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
