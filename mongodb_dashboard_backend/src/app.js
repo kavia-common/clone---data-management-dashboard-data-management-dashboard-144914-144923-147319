@@ -70,8 +70,8 @@ app.get('/api/docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 
 const swaggerUiHandler = swaggerUi.setup(null, {
   swaggerOptions: {
-    // Prefer /api/docs.json so path is within /api to avoid proxy rewrites
-    url: '/api/docs.json',
+    // Prefer /api-docs.json so the default /api-docs viewer loads this spec
+    url: '/api-docs.json',
     displayRequestDuration: true,
     docExpansion: 'none',
   },
@@ -83,6 +83,8 @@ app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
 // Backwards-compatible mounts
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
+// Convenience: health within docs namespace
+app.get('/api-docs/health', (req, res) => res.status(200).json({ status: 'ok', via: '/api-docs/health' }));
 
 // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');
