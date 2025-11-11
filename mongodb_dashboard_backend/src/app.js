@@ -7,7 +7,6 @@ const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
-
 const cors = require('cors');
 
 const app = express();
@@ -22,11 +21,8 @@ app.set('trust proxy', 1); // only trust local proxies
 app.use(helmetMiddleware());
 // Configure CORS with allowlist and credentials support via our middleware
 app.use(corsMiddleware());
-/**
- * Preflight handling is performed inside corsMiddleware() for all paths, which
- * returns 204 with appropriate Access-Control-Allow-* headers. No separate
- * generic cors() binding here to avoid mismatched headers.
- */
+// Handle preflight across API routes explicitly to avoid 404 on OPTIONS
+app.options('/api/*', cors()); // uses default which will be overridden by corsMiddleware above
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -54,27 +50,38 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    // Force relative server URL so Swagger UI uses same-origin requests
-    servers: [{ url: '/' }],
+    servers: [{ url: `${protocol}://${fullHost}` }],
+    //     servers: [
+    //   {
+    //     url:
+
+    //       'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //   },
+    // ],
+
   };
 };
 
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
+// Serve spec at /api/docs.json as well to meet requirement
+app.get('/api/docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 
 const swaggerUiHandler = swaggerUi.setup(null, {
   swaggerOptions: {
-    url: '/openapi.json',
+    // Prefer /api/docs.json so path is within /api to avoid proxy rewrites
+    url: '/api/docs.json',
     displayRequestDuration: true,
     docExpansion: 'none',
   },
   customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
   customCss: '.topbar-wrapper .link:after { content: " | Use x-organization-id header for tenant-scoped endpoints"; font-size: 12px; color: #666; }',
 });
+// Primary mount at /api/docs as requested
+app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
+// Backwards-compatible mounts
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
-// Stable path for API docs
-app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
 
 // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');
@@ -83,7 +90,7 @@ app.use('/', baseRouter);
 /**
  * Simple health with DB status
  */
-try { console.log('[startup] Registering GET /api/health and GET /health'); } catch { }
+try { console.log('[startup] Registering GET /api/health and GET /health'); } catch {}
 const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';

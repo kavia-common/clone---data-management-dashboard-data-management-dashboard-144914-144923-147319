@@ -1,5 +1,9 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+const swaggerJSDoc = require('swagger-jsdoc');
+
 /**
  * PUBLIC_INTERFACE
  * Builds the base Swagger/OpenAPI specification for the Express app.
@@ -9,7 +13,7 @@
  *    - Sanitize invalid path keys (must start with '/')
  *    - Ensure required fields exist (openapi, info)
  *    - Ensure common components (xOrganizationId header) are available
- * 2) Fallback to JSDoc extraction from ./src/routes/*.js
+ * 2) Fallback to JSDoc extraction from ./src/routes/**/*.js and ./src/controllers/**/*.js
  *    - Provide shared component schemas so responses render correctly
  *
  * This module exports a function getBaseOpenApiSpec() to retrieve the base spec.
@@ -73,7 +77,12 @@ function buildJsDocSpec() {
       },
       components: buildCommonComponents(),
     },
-    apis: ['./src/routes/*.js'],
+    // Scan all route and controller files recursively for @swagger JSDoc blocks
+    apis: [
+      path.resolve(__dirname, 'src', 'routes', '**', '*.js'),
+      path.resolve(__dirname, 'src', 'controllers', '**', '*.js'),
+      path.resolve(__dirname, 'src', 'routes', '*.js'),
+    ],
   };
   return swaggerJSDoc(options);
 }

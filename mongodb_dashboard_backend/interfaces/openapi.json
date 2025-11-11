@@ -57,7 +57,10 @@
       "get": {
         "summary": "LLM cost distribution by agent",
         "description": "Aggregates the llm_cost/llm_costs collection by Agents[].\"Agent Name\", summing numeric values parsed from Agents[].\"Total Cost\" (strips leading '$'). Returns an array sorted in descending order of total_cost.\n",
-        "tags": [
+        "servers": [
+    { "url": "/" }
+  ],
+  "tags": [
           "Analytics"
         ],
         "responses": {
