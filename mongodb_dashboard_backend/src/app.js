@@ -77,6 +77,8 @@ const swaggerUiHandler = swaggerUi.setup(null, {
 });
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
+// Stable path for API docs
+app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
 
 // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');

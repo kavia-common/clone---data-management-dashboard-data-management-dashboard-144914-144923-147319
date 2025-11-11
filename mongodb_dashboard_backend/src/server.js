@@ -16,8 +16,6 @@ const envPortExplicit = typeof envPortRaw === 'string' && envPortRaw.trim() !== 
 const initialPort = envPortExplicit ? Number(envPortRaw) : DEFAULT_PORT;
 const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 
-
-
 // Attempt non-blocking DB connection; failures should not crash startup
 (async () => {
   try {
@@ -35,10 +33,8 @@ const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production'
  * EADDRINUSE handling:
  *  - Production (NODE_ENV=production): always hard exit so orchestrator/CI detects failure.
  *  - Non-production:
- *      - If PORT was explicitly set via env: log a clear warning and auto-increment to next available port,
- *        retrying up to a small cap so local dev doesn't crash. This preserves CI readiness when the requested
- *        port is available because we only fallback when it is actually busy.
- *      - If PORT was not set: also auto-increment from default port.
+ *      - If PORT was explicitly set: do NOT auto-increment. Log guidance to free the port and exit(1).
+ *      - If PORT was not set (using default): auto-increment from default port as a convenience.
  */
 function startListening({ host, port, maxRetries = 2, tryCount = 0, eaddrAttempts = 0, eaddrMax = 5 }) {
   return new Promise((resolve, reject) => {
@@ -47,35 +43,48 @@ function startListening({ host, port, maxRetries = 2, tryCount = 0, eaddrAttempt
         // eslint-disable-next-line no-console
         const dbConn = db && db();
         const dbName = dbConn?.databaseName || 'disconnected';
-        console.log(`[startup] Express listening on http://${host}:${port} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+        const env = process.env.NODE_ENV || 'development';
+        console.log(`[startup] Express listening on http://${host}:${port} (NODE_ENV=${env})`);
         console.log(`[startup] DB: ${dbName}`);
+        console.log(`[startup] Swagger UI: http://${host}:${port}/api/docs`);
         resolve(server);
       })
       .on('error', async (err) => {
         // 'EADDRINUSE' -> port busy; 'EACCES' -> permission; 'EADDRNOTAVAIL' -> bad host; 'ECONNRESET' transient etc.
         if (err && err.code === 'EADDRINUSE') {
-          if (isProduction) {
-            console.error(`[startup] Port ${port} is already in use (production). Exiting with failure.`);
+          // If explicitly requested or production, do not auto-increment.
+          if (isProduction || envPortExplicit) {
+            console.error(`[startup] Port ${port} is already in use.${isProduction ? ' (production)' : ''}`);
+            console.error('[startup] The server was instructed to bind to this exact port and will not auto-change.');
+            if (!isProduction) {
+              console.error('[startup] Resolve by freeing the port (e.g., kill process using it) and run again.');
+            }
             return reject(err);
           }
-          // Development behavior: auto-increment regardless of explicit PORT, with a clear message
+
+          // Only when no explicit PORT was given: try next ports as a developer convenience
           const nextPort = port + 1;
           if (eaddrAttempts + 1 > eaddrMax) {
-            console.error(`[startup] Unable to find a free port after ${eaddrMax} attempts starting from ${initialPort}. Exiting.`);
+            console.error(
+              `[startup] Unable to find a free port after ${eaddrMax} attempts starting from ${DEFAULT_PORT}. Exiting.`
+            );
             return reject(err);
           }
-          if (envPortExplicit) {
-            console.warn(`[startup] Port ${port} is in use (PORT explicitly set). Auto-incrementing to ${nextPort} (attempt ${eaddrAttempts + 1}/${eaddrMax})...`);
-          } else {
-            console.warn(`[startup] Port ${port} is in use. Trying next port ${nextPort} (attempt ${eaddrAttempts + 1}/${eaddrMax})...`);
-          }
-          return resolve(startListening({ host, port: nextPort, maxRetries, tryCount: 0, eaddrAttempts: eaddrAttempts + 1, eaddrMax }));
+          console.warn(
+            `[startup] Port ${port} is in use. Trying next port ${nextPort} (attempt ${eaddrAttempts + 1}/${eaddrMax})...`
+          );
+          return resolve(
+            startListening({ host, port: nextPort, maxRetries, tryCount: 0, eaddrAttempts: eaddrAttempts + 1, eaddrMax })
+          );
         }
 
-        // Retry a couple of times for transient errors
+        // Retry a couple of times for transient errors (not port-in-use)
         if (tryCount < maxRetries && (!err || err.code !== 'EADDRINUSE')) {
           const delayMs = 250 * (tryCount + 1);
-          console.warn(`[startup] Transient error on listen (attempt ${tryCount + 1}/${maxRetries}). Retrying in ${delayMs}ms...`, err?.code || err?.message || err);
+          console.warn(
+            `[startup] Transient error on listen (attempt ${tryCount + 1}/${maxRetries}). Retrying in ${delayMs}ms...`,
+            err?.code || err?.message || err
+          );
           setTimeout(() => {
             resolve(startListening({ host, port, maxRetries, tryCount: tryCount + 1, eaddrAttempts }));
           }, delayMs);
@@ -95,8 +104,9 @@ startListening({ host: HOST, port: initialPort, eaddrMax: 5 })
   .then((s) => {
     server = s;
   })
-  .catch((err) => {
-    // If we reach here, it's a hard failure; exit so orchestrator/CI can restart
+  .catch(() => {
+    // If we reach here, it's a hard failure; exit so orchestrator/CI can restart.
+    // In development when PORT was explicitly set and busy, we logged guidance above.
     process.exit(1);
   });
 
