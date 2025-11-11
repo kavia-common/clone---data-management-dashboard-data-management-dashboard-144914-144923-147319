@@ -21,6 +21,7 @@ function requireTenant(req, res, next) {
   const jwtTenant = req?.auth?.tenantId;
   if (jwtTenant) {
     req.tenantId = String(jwtTenant);
+    req.organizationId = String(jwtTenant);
     return next();
   }
 

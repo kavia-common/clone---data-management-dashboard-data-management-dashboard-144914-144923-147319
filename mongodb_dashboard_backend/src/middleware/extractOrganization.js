@@ -20,6 +20,7 @@ function extractOrganization() {
     const bOrg = typeof req.body?.organization_id === 'string' ? req.body.organization_id.trim() : '';
     const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
     const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
+    const fromJwt = typeof req?.auth?.tenantId === 'string' ? req.auth.tenantId.trim() : '';
     const hdrOrg =
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
       (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
@@ -27,8 +28,8 @@ function extractOrganization() {
       (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
       '';
 
-    // Prefer header, then query, then body to minimize client influence via URL tampering
-    const organizationId = hdrOrg || qTenant || qOrg || bOrg;
+    // Prefer JWT (when present), then header, then query, then body to minimize client influence
+    const organizationId = fromJwt || hdrOrg || qTenant || qOrg || bOrg;
 
     if (!organizationId) {
       return res.status(400).json({

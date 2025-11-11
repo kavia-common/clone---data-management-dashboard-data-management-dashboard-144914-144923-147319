@@ -254,6 +254,7 @@ router.post('/login', async (req, res) => {
         email: user.email,
         'custom:tenant_id': tenantId,
         tenant_id: tenantId,
+        organization_id: tenantId,
         token_use: 'id',
         iss: process.env.JWT_ISSUER || 'local-issuer',
         aud: process.env.JWT_AUDIENCE || 'local-audience',

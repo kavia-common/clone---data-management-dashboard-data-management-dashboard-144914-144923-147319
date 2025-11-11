@@ -30,7 +30,7 @@ async function getHierarchy(req, res) {
     delete filter.tenant_id;
     delete filter.tenantId;
     delete filter.organization_id;
-    const resolvedTenant = req?.tenantId || req?.organizationId;
+    const resolvedTenant = req?.tenantId || req?.organizationId || (req?.auth?.tenantId ? String(req.auth.tenantId) : undefined);
     if (resolvedTenant) {
       filter = Object.keys(filter).length
         ? { $and: [filter, { tenant_id: String(resolvedTenant) }] }

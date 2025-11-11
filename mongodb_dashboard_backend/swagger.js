@@ -4,23 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const swaggerJSDoc = require('swagger-jsdoc');
 
-/**
- * PUBLIC_INTERFACE
- * Builds the base Swagger/OpenAPI specification for the Express app.
- *
- * Strategy:
- * 1) Try to load a prebuilt OpenAPI spec from interfaces/openapi.json (preferred)
- *    - Sanitize invalid path keys (must start with '/')
- *    - Ensure required fields exist (openapi, info)
- *    - Ensure common components (xOrganizationId header) are available
- * 2) Fallback to JSDoc extraction from these globbed paths:
- *    - ./src/routes/**/ *.js
- *    - ./src/controllers/**/ *.js
- *    - Provide shared component schemas so responses render correctly
- *
- * This module exports a function getBaseOpenApiSpec() to retrieve the base spec.
- */
-
 /** Build the reusable components injected into any loaded spec */
 function buildCommonComponents() {
   return {

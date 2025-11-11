@@ -14,8 +14,15 @@ const { requireTenant } = require('../middleware/requireTenant');
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
 
-// Enforce JWT + Tenant at router level
-router.use(verifyAuth, requireTenant);
+ // Enforce JWT + Tenant at router level
+router.use(verifyAuth, requireTenant, (req, _res, next) => {
+  // Normalize organization/tenant for downstream handlers
+  if (req?.auth?.tenantId) {
+    req.organizationId = String(req.auth.tenantId);
+    req.tenantId = String(req.auth.tenantId);
+  }
+  next();
+});
 
 // Simple in-memory cache for tenant summary (5 minutes TTL)
 const TENANT_SUMMARY_CACHE = new Map();
