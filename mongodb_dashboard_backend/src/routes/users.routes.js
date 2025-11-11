@@ -13,10 +13,34 @@ const Tenant = require('../models/tenant.model');
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
 
-// Note: Authentication and tenant scoping are applied at mount points
-// in src/routes/index.js and src/app.js using verifyAuth + requireTenant.
-// Avoid duplicating router.use here to prevent import mismatches and
-// ensure consistent enforcement.
+/**
+ * Expose applied tenant and preview filter for diagnostics
+ */
+router.use((req, res, next) => {
+  try {
+    if (req.tenantId) {
+      res.set('X-Applied-Tenant', String(req.tenantId));
+      res.set('x-applied-organization-id', String(req.tenantId));
+      const tenant = String(req.tenantId);
+      const orgFilter = {
+        $or: [
+          { tenant_id: tenant },
+          { organization_id: tenant },
+          { orgId: tenant },
+          { tenantId: tenant },
+          { organizationId: tenant },
+          { 'tenant.tenant_id': tenant },
+        ],
+      };
+      res.set('X-Applied-Filter', JSON.stringify(orgFilter));
+      try {
+        // also surface model collection for this router
+        res.set('X-Model-Collection', User.collection?.name || 'users');
+      } catch (_) {}
+    }
+  } catch (_) {}
+  next();
+});
 
 // ====== CACHE UTILITIES ======
 const TENANT_SUMMARY_CACHE = new Map();

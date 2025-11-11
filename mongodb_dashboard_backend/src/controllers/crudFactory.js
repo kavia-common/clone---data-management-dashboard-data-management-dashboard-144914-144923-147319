@@ -142,7 +142,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       } catch (_) {}
 
       // Developer-mode log
-      if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+      const debugOn = process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true';
+      if (debugOn) {
         try {
           // eslint-disable-next-line no-console
           console.debug(
@@ -186,20 +187,53 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         return failure(res, 'Forbidden: tenant scope mismatch', 403);
       }
 
+      // Build final applied filter with robust tenant alias removal and normalized OR across aliases
       const appliedFilter = mergeFilterWithTenant(filter, req.tenantId);
 
-      // Expose applied filter and resolved org for unit-style verification (header-safe)
+      // Expose applied filter, model collection and quick existence probe for diagnostics
       try {
         const appliedFilterStr = JSON.stringify(appliedFilter);
         res.set('x-applied-tenant-filter', appliedFilterStr);
         res.set('X-Applied-Filter', appliedFilterStr);
         res.set('x-applied-organization-id', String(req.tenantId || ''));
+        if (Model && Model.collection && Model.collection.name) {
+          res.set('X-Model-Collection', Model.collection.name);
+        }
       } catch (_) {}
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
       const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
 
       try {
+        // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
+        let existsSample = 'unknown';
+        try {
+          const existsDoc = await Model.exists(
+            appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
+          ).lean?.();
+          existsSample = existsDoc ? 'true' : 'false';
+        } catch {
+          // Some Mongoose versions don't support .lean on exists result; fallback
+          try {
+            const existsDoc = await Model.exists(
+              appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
+            );
+            existsSample = existsDoc ? 'true' : 'false';
+          } catch {
+            existsSample = 'error';
+          }
+        }
+        try {
+          res.set('X-Exists-Sample', existsSample);
+        } catch (_) {}
+
+        if (debugOn) {
+          try {
+            // eslint-disable-next-line no-console
+            console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
+          } catch (_) {}
+        }
+
         if (req.method === 'GET' && explicit) {
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);

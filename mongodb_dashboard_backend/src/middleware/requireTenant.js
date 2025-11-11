@@ -35,7 +35,20 @@ function requireTenant(req, res, next) {
     }
     req.tenantId = String(jwtTenant);
     req.organizationId = String(jwtTenant);
-    try { res.set('X-Applied-Tenant', String(jwtTenant)); } catch (_) {}
+    try { 
+      res.set('X-Applied-Tenant', String(jwtTenant)); 
+      const tenant = String(jwtTenant);
+      res.set('X-Applied-Filter', JSON.stringify({
+        $or: [
+          { tenant_id: tenant },
+          { organization_id: tenant },
+          { orgId: tenant },
+          { tenantId: tenant },
+          { organizationId: tenant },
+          { 'tenant.tenant_id': tenant },
+        ],
+      }));
+    } catch (_) {}
     return next();
   }
 
@@ -64,7 +77,20 @@ function requireTenant(req, res, next) {
     req.auth.tenantId = String(resolved);
     req.tenantId = String(resolved);
     req.organizationId = String(resolved);
-    try { res.set('X-Applied-Tenant', String(resolved)); } catch (_) {}
+    try { 
+      res.set('X-Applied-Tenant', String(resolved)); 
+      const tenant = String(resolved);
+      res.set('X-Applied-Filter', JSON.stringify({
+        $or: [
+          { tenant_id: tenant },
+          { organization_id: tenant },
+          { orgId: tenant },
+          { tenantId: tenant },
+          { organizationId: tenant },
+          { 'tenant.tenant_id': tenant },
+        ],
+      }));
+    } catch (_) {}
     return next();
   }
 
@@ -79,7 +105,20 @@ function requireTenant(req, res, next) {
     req.auth.tenantId = String(demoTenant);
     req.tenantId = String(demoTenant);
     req.organizationId = String(demoTenant);
-    try { res.set('X-Applied-Tenant', String(demoTenant)); } catch (_) {}
+    try { 
+      res.set('X-Applied-Tenant', String(demoTenant)); 
+      const tenant = String(demoTenant);
+      res.set('X-Applied-Filter', JSON.stringify({
+        $or: [
+          { tenant_id: tenant },
+          { organization_id: tenant },
+          { orgId: tenant },
+          { tenantId: tenant },
+          { organizationId: tenant },
+          { 'tenant.tenant_id': tenant },
+        ],
+      }));
+    } catch (_) {}
     return next();
   }
 

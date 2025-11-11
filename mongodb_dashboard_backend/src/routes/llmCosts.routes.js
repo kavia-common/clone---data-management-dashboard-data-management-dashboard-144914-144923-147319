@@ -30,12 +30,11 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
  * Expose applied tenant for quick debugging on responses at this router scope
  * Adds both X-Applied-Tenant and x-applied-organization-id for preview verification.
  */
-router.use((req, res, next) => {
+router.use(async (req, res, next) => {
   try {
     if (req.tenantId) {
       res.set('X-Applied-Tenant', String(req.tenantId));
       res.set('x-applied-organization-id', String(req.tenantId));
-      // Provide a minimal applied filter preview focused on tenant aliases for debugging
       const tenant = String(req.tenantId);
       const orgFilter = {
         $or: [
@@ -48,6 +47,9 @@ router.use((req, res, next) => {
         ],
       };
       res.set('X-Applied-Filter', JSON.stringify(orgFilter));
+      try {
+        res.set('X-Model-Collection', LLMCost.collection?.name || 'llm_costs');
+      } catch (_) {}
     }
   } catch (_) {}
   next();
