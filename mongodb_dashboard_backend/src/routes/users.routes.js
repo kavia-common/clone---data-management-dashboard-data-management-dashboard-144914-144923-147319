@@ -252,7 +252,7 @@ router.get(
  * - Client-provided tenant_id/organization_id in filters are ignored; server enforces req.tenantId internally.
  * - Supports optional pagination (page, limit) for envelope response; without pagination returns a raw array.
  */
-router.get('/', controller.list);
+router.get('/', extractOrganization(), controller.list);
 router.get('/:id', controller.getById);
 router.post('/', controller.create);
 router.put('/:id', controller.update);

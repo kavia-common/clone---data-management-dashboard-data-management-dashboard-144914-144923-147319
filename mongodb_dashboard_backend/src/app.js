@@ -4,6 +4,7 @@ const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
+const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
@@ -19,8 +20,10 @@ try {
 
 app.set('trust proxy', 1); // only trust local proxies
 app.use(helmetMiddleware());
-// Configure CORS with allowlist and credentials support via our middleware
+ // Configure CORS with allowlist and credentials support via our middleware
 app.use(corsMiddleware());
+// Additionally apply a permissive CORS layer for all /api/* endpoints to ensure broad compatibility (no credentials)
+app.use('/api', permissiveCorsMiddleware);
 // Handle preflight across API routes explicitly to avoid 404 on OPTIONS
 app.options('/api/*', cors()); // uses default which will be overridden by corsMiddleware above
 app.use(rateLimiter());

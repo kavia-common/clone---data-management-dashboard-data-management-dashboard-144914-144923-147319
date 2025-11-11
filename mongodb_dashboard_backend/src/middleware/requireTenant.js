@@ -48,6 +48,7 @@ function requireTenant(req, res, next) {
     req.auth = req.auth || {};
     req.auth.tenantId = String(resolved);
     req.tenantId = String(resolved);
+    req.organizationId = String(resolved);
     return next();
   }
 
@@ -61,6 +62,7 @@ function requireTenant(req, res, next) {
     req.auth = req.auth || {};
     req.auth.tenantId = String(demoTenant);
     req.tenantId = String(demoTenant);
+    req.organizationId = String(demoTenant);
     return next();
   }
 
