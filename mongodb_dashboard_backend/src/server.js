@@ -110,6 +110,8 @@ function startServerStrict() {
         logListening(HOST, PORT);
         // concise pointers
         console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
+        // standardized readiness line for preview detectors
+        console.log(`Server ready: http://${HOST}:${PORT} (env=${NODE_ENV})`);
       } catch {}
       writePidFile();
     })
