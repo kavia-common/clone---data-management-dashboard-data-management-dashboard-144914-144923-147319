@@ -2,7 +2,7 @@
 
 - Default port: 3001 (configurable via PORT in .env)
 - Host bind: 0.0.0.0 by default (configurable via HOST)
-- Docs (Swagger UI): http://localhost:3001/docs (alias: http://localhost:3001/api-docs)
+- Docs (Swagger UI): http://localhost:3001/docs (alias: http://localhost:3001/api-docs and http://localhost:3001/api/docs)
 - OpenAPI JSON: http://localhost:3001/openapi.json (alias: http://localhost:3001/api-docs.json)
 
 Quick start (development)
@@ -30,8 +30,15 @@ Health/readiness
 - Health responses are not cached (`Cache-Control: no-store`)
 
 CORS
-- Defaults allow localhost:3000.
+- Defaults allow localhost:3000 and localhost:3001 (Swagger UI served by backend).
 - You can set FRONTEND_ORIGIN or CORS_ORIGINS or define REACT_APP_API_BASE_URL and we infer its origin.
+- Optional: set SWAGGER_ORIGIN if Swagger UI is hosted on a different domain.
+- To allow credentials, set CORS_CREDENTIALS=true. Only enable if your auth requires cookies/Authorization across origins.
+- For development emergency allow-all, set CORS_OPEN=true or CORS_ORIGIN="*" (ignored in production).
+- Allowed headers include x-organization-id and x-tenant-id used by tenant-scoped endpoints.
+Swagger/OpenAPI servers
+- The OpenAPI spec uses servers: [{ url: '/' }] so Swagger UI makes same-origin calls when hosted at /api/docs.
+- If you need a fixed absolute server in some environment, override by fetching /openapi.json through a reverse proxy that rewrites servers, or fork swagger.js.
 
 Key route to verify:
 - GET /api/users/active-trend (e.g., http://localhost:3001/api/users/active-trend)

@@ -23,21 +23,25 @@ function toOriginMaybe(urlLike) {
  *
  * Env vars supported:
  * - REACT_APP_API_BASE_URL: If set, its origin is allowed (e.g., https://api.example.com/api -> https://api.example.com).
- * - CORS_ORIGIN: A single explicit origin to allow.
+ * - CORS_ORIGIN: A single explicit origin to allow (set to "*" to allow any in development).
  * - CORS_ORIGINS: Comma-separated list of origins to allow.
  * - FRONTEND_ORIGIN: Convenience single origin for the frontend host.
+ * - SWAGGER_ORIGIN: Optional explicit origin where Swagger UI is hosted (when proxied elsewhere).
  * - CORS_CREDENTIALS: "true" to enable credentialed requests.
+ * - CORS_OPEN: "true" in development to allow any origin.
  *
  * Default allowances:
- * - http://localhost:3000
+ * - http://localhost:3000 (frontend)
  * - https://localhost:3000
+ * - http://localhost:3001 (Swagger UI hosted on the same backend)
+ * - https://localhost:3001
  * - A known preview environment origin (cloud preview).
  *
  * Behavior:
  * - Allows exact whitelisted origins.
  * - If not an exact match, allows same-host across different ports (helps dev/proxy scenarios).
  * - Returns 403 JSON on CORS rejection with a clear message.
- * - Handles OPTIONS preflight with 204 status.
+ * - Handles OPTIONS preflight with 204 status and appropriate headers.
  */
 // PUBLIC_INTERFACE
 function corsMiddleware() {
@@ -45,6 +49,7 @@ function corsMiddleware() {
 
   const singleOrigin = toOriginMaybe((process.env.CORS_ORIGIN || '').trim());
   const frontendOrigin = toOriginMaybe((process.env.FRONTEND_ORIGIN || '').trim());
+  const swaggerOrigin = toOriginMaybe((process.env.SWAGGER_ORIGIN || '').trim());
   const listOrigins = (process.env.CORS_ORIGINS || '')
     .split(',')
     .map((o) => toOriginMaybe(o.trim()))
@@ -56,6 +61,7 @@ function corsMiddleware() {
   listOrigins.forEach((o) => whitelist.add(o));
   if (singleOrigin) whitelist.add(singleOrigin);
   if (frontendOrigin) whitelist.add(frontendOrigin);
+  if (swaggerOrigin) whitelist.add(swaggerOrigin);
 
   // Infer from API base
   if (inferredFromApiBase) {
@@ -70,26 +76,31 @@ function corsMiddleware() {
     }
   }
 
-  // Localhost defaults
+  // Localhost defaults (frontend + backend where Swagger UI is served)
   whitelist.add('http://localhost:3000');
   whitelist.add('https://localhost:3000');
+  whitelist.add('http://localhost:3001');
+  whitelist.add('https://localhost:3001');
 
-  // Preview environment frontend
-  // Preview environment frontends
+  // Preview environment frontend (update or extend via CORS_ORIGINS)
   whitelist.add('https://kavia-dashboard-kavia-dev.cloud.kavia.ai');
-  
 
-
+  // In development, optionally allow any origin if CORS_ORIGIN="*" or CORS_OPEN=true
+  const devOpenCors =
+    (process.env.NODE_ENV !== 'production') &&
+    (((process.env.CORS_ORIGIN || '').trim() === '*') ||
+      ((process.env.CORS_OPEN || '').toLowerCase() === 'true'));
 
   const allowCredentials =
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
 
   // eslint-disable-next-line no-console
-  console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
+  console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials, '| devOpen=', devOpenCors);
 
   const corsInstance = cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true); // SSR / curl / same-origin
+      if (devOpenCors) return callback(null, true);
       if (whitelist.has(origin)) return callback(null, true);
 
       // Check same hostname, different port
@@ -111,31 +122,50 @@ function corsMiddleware() {
       }
 
       // Explicitly reject with proper CORS message
-
-      console.log('[CORS] Origin received:', origin);
-      return callback(null, true); // temporarily allow all
-
-      // return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
+      return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    // Broaden allowed headers to cover tenant headers and common custom headers used by Swagger "Try it out"
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+      'x-organization-id',
+      'x-tenant-id',
+      'x-tenant',
+      'x-tenantId'
+    ],
     exposedHeaders: ['Content-Length', 'Content-Type'],
     credentials: allowCredentials,
     optionsSuccessStatus: 204,
   });
 
   return (req, res, next) => {
+    // Handle OPTIONS explicitly so preflight never reaches routers
+    if (req.method === 'OPTIONS') {
+      return corsInstance(req, res, (err) => {
+        if (err) {
+          // eslint-disable-next-line no-console
+          console.warn(`[CORS] Preflight blocked for origin: ${req.headers.origin}`);
+          // Be permissive for preflight to aid debugging, but do not reveal server info
+          res.setHeader('Vary', 'Origin');
+          return res.status(204).send();
+        }
+        res.setHeader('Vary', 'Origin');
+        return res.status(204).send();
+      });
+    }
+
     corsInstance(req, res, (err) => {
       if (err) {
         // eslint-disable-next-line no-console
-        console.warn(`[CORS] Blocked origin: ${req.headers.origin}`);
+        console.warn(`[CORS] Blocked origin: ${req.headers.origin} -> ${err.message}`);
         return res.status(403).json({
           success: false,
           message: err.message,
         });
-      }
-      if (req.method === 'OPTIONS') {
-        return res.sendStatus(204);
       }
       return next();
     });

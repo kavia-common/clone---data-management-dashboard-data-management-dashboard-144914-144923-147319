@@ -132,6 +132,10 @@ function sanitizeOpenApiDoc(doc) {
   doc.components.schemas.ListEnvelope =
     doc.components.schemas.ListEnvelope || commons.schemas.ListEnvelope;
 
+  // Ensure servers is set to relative root so that Swagger UI uses same-origin calls
+  // This avoids cross-origin CORS issues when docs are hosted under the backend.
+  doc.servers = [{ url: '/' }];
+
   // Validate it serializes
   try {
     JSON.stringify(doc);

@@ -51,15 +51,8 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    servers: [{ url: `${protocol}://${fullHost}` }],
-    //     servers: [
-    //   {
-    //     url:
-
-    //       'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-    //   },
-    // ],
-
+    // Force relative server URL so Swagger UI uses same-origin requests
+    servers: [{ url: '/' }],
   };
 };
 
