@@ -133,6 +133,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       }
 
       // Enforce tenant BEFORE any sort to promote index usage.
+      // Guard: ensure tenantId exists as routes mount verifyAuth + requireTenant.
+      if (!req.tenantId) {
+        return failure(res, 'Missing tenant scope', 400);
+      }
       const appliedFilter = mergeFilterWithTenant(filter, req.tenantId);
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').

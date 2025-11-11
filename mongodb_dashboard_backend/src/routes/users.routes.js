@@ -92,6 +92,7 @@ router.get(
 // ====== TENANT SUMMARY ======
 router.get(
   '/tenant-summary',
+  // Ensure normalized organization scope for summary aggregation
   extractOrganization(),
   asyncHandler(async (req, res) => {
     const { from, to } = req.query || {};
@@ -244,7 +245,13 @@ router.get(
   })
 );
 
-// ====== BASIC CRUD ======
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users
+ * Returns a list of users scoped to the active tenant (organization) resolved by verifyAuth + requireTenant.
+ * - Client-provided tenant_id/organization_id in filters are ignored; server enforces req.tenantId internally.
+ * - Supports optional pagination (page, limit) for envelope response; without pagination returns a raw array.
+ */
 router.get('/', controller.list);
 router.get('/:id', controller.getById);
 router.post('/', controller.create);
