@@ -4,9 +4,16 @@ const { createApp } = require('./app');
 const mongoose = require('mongoose');
 const { connect, db } = require('./config/db');
 
-// Default to 3001 to match container deployment and docs URL
-const PORT = process.env.PORT || 3001;
-const HOST = process.env.HOST || '0.0.0.0';
+/**
+ * Determine if env PORT was explicitly provided by the user (not just defaulted).
+ * We consider it explicit if process.env.PORT is a non-empty string.
+ */
+const DEFAULT_PORT = 3001;
+const DEFAULT_HOST = '0.0.0.0';
+const HOST = process.env.HOST || DEFAULT_HOST;
+const envPortRaw = process.env.PORT;
+const envPortExplicit = typeof envPortRaw === 'string' && envPortRaw.trim() !== '';
+const initialPort = envPortExplicit ? Number(envPortRaw) : DEFAULT_PORT;
 
 // Create express app instance
 const app = createApp();
@@ -23,23 +30,67 @@ const app = createApp();
   }
 })();
 
-const server = app
-  .listen(PORT, HOST, () => {
-    // eslint-disable-next-line no-console
-    const dbConn = db && db();
-    const dbName = dbConn?.databaseName || 'disconnected';
-    console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
-    console.log(`[startup] DB: ${dbName}`);
+/**
+ * Try to bind the server with small retry for transient errors.
+ * If EADDRINUSE occurs:
+ *  - when env PORT was explicitly set -> log clear message and exit(1) (preserve current behavior)
+ *  - when env PORT was not set       -> increment port and retry until a free port is found (up to a cap)
+ */
+function startListening({ host, port, maxRetries = 2, tryCount = 0 }) {
+  return new Promise((resolve, reject) => {
+    const server = app
+      .listen(port, host, () => {
+        // eslint-disable-next-line no-console
+        const dbConn = db && db();
+        const dbName = dbConn?.databaseName || 'disconnected';
+        console.log(`[startup] Express listening on http://${host}:${port} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+        console.log(`[startup] DB: ${dbName}`);
+        resolve(server);
+      })
+      .on('error', async (err) => {
+        // 'EADDRINUSE' -> port busy; 'EACCES' -> permission; 'EADDRNOTAVAIL' -> bad host; 'ECONNRESET' transient etc.
+        if (err && err.code === 'EADDRINUSE') {
+          if (envPortExplicit) {
+            console.error(`[startup] Port ${port} is already in use and PORT was explicitly set via env. Exiting.`);
+            process.exit(1);
+          } else {
+            // Auto-increment to next port when not explicitly set
+            const nextPort = port + 1;
+            if (nextPort > DEFAULT_PORT + 50) {
+              console.error(`[startup] Unable to find a free port in range ${DEFAULT_PORT}-${DEFAULT_PORT + 50}. Exiting.`);
+              process.exit(1);
+            }
+            console.warn(`[startup] Port ${port} in use. Trying next port ${nextPort}...`);
+            resolve(startListening({ host, port: nextPort, maxRetries, tryCount: 0 }));
+            return;
+          }
+        }
+
+        // Retry a couple of times for transient errors
+        if (tryCount < maxRetries && (!err || err.code !== 'EADDRINUSE')) {
+          const delayMs = 250 * (tryCount + 1);
+          console.warn(`[startup] Transient error on listen (attempt ${tryCount + 1}/${maxRetries}). Retrying in ${delayMs}ms...`, err?.code || err?.message || err);
+          setTimeout(() => {
+            resolve(startListening({ host, port, maxRetries, tryCount: tryCount + 1 }));
+          }, delayMs);
+          return;
+        }
+
+        console.error('[startup] Server failed to start:', err);
+        reject(err);
+      });
+  });
+}
+
+let server;
+
+// Kickoff startup
+startListening({ host: HOST, port: initialPort })
+  .then((s) => {
+    server = s;
   })
-  .on('error', (err) => {
-    if (err && err.code === 'EADDRINUSE') {
-      // eslint-disable-next-line no-console
-      console.error(`[startup] Port ${PORT} is already in use. Ensure no other process is running on this port.`);
-    } else {
-      // eslint-disable-next-line no-console
-      console.error('[startup] Server failed to start:', err);
-    }
-    // Exit so orchestrator/CI can restart
+  .catch((err) => {
+    // If we reach here, it's a hard failure; exit so orchestrator/CI can restart
     process.exit(1);
   });
 
@@ -47,6 +98,26 @@ const server = app
 const shutdown = (signal) => {
   // eslint-disable-next-line no-console
   console.log(`${signal} signal received: closing HTTP server`);
+  if (!server) {
+    // server not bound or failed; still attempt DB shutdown
+    (async () => {
+      try {
+        if (mongoose?.connection?.readyState === 1) {
+          await mongoose.connection.close();
+          console.log('Mongoose connection closed');
+        }
+        const { close } = require('./config/db');
+        if (typeof close === 'function') {
+          await close(console);
+        }
+      } catch (e) {
+        console.error('Error during shutdown', e);
+      }
+      process.exit(0);
+    })();
+    return;
+  }
+
   server.close(async () => {
     // eslint-disable-next-line no-console
     console.log('HTTP server closed');
