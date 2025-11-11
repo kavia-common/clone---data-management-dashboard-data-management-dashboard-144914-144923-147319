@@ -110,7 +110,12 @@ function startServerStrict() {
         logListening(HOST, PORT);
         // concise pointers
         console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
-        // standardized readiness line for preview detectors
+        // standardized readiness line for preview detectors (do not change format)
+        // Preview Ready markers:
+        // - BACKEND_READY: url=<URL>
+        // - Listening on http://HOST:PORT
+        // Keep both for broad compatibility with various preview systems.
+        console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
         console.log(`Server ready: http://${HOST}:${PORT} (env=${NODE_ENV})`);
       } catch {}
       writePidFile();

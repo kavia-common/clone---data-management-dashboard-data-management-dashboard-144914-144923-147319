@@ -14,13 +14,17 @@ Quick start (development)
 
 Scripts
 - dev: runs the server with PORT/HOST defaults applied in-process (CI-compatible)
+- dev:watch: nodemon watcher if available (hot reload)
 - start: production-style boot; same host/port defaults
 - preview: same as start
 - test: jest
 
 Preview runner compatibility
-- The server binds to 0.0.0.0:3001 and logs readiness pointers: /health | /ready | /api/health | /api/docs | /api-docs
-- It also logs a clear line: "Listening on http://HOST:PORT" for readiness detectors.
+- The server binds to 0.0.0.0:PORT and logs readiness pointers: /health | /ready | /api/health | /api/docs | /api-docs
+- Readiness log markers (either is sufficient for detectors):
+  - BACKEND_READY: url=http://HOST:PORT
+  - Listening on http://HOST:PORT
+  - Server ready: http://HOST:PORT (env=...)
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
   - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
