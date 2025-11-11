@@ -222,7 +222,19 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
     async getById(req, res) {
       const { id } = req.params;
       try {
-        const doc = await Model.findOne({ _id: id, tenant_id: String(req.tenantId) }).lean();
+        const doc = await Model.findOne(
+          {
+            _id: id,
+            $or: [
+              { tenant_id: String(req.tenantId) },
+              { organization_id: String(req.tenantId) },
+              { orgId: String(req.tenantId) },
+              { tenantId: String(req.tenantId) },
+              { organizationId: String(req.tenantId) },
+              { 'tenant.tenant_id': String(req.tenantId) },
+            ],
+          }
+        ).lean();
         if (!doc) return failure(res, 'Not found', 404);
         return res.status(200).json(doc);
       } catch (err) {
@@ -249,7 +261,17 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       if (!clean) return failure(res, 'Bad request: payload must be an object', 400);
       try {
         const doc = await Model.findOneAndUpdate(
-          { _id: id, tenant_id: String(req.tenantId) },
+          {
+            _id: id,
+            $or: [
+              { tenant_id: String(req.tenantId) },
+              { organization_id: String(req.tenantId) },
+              { orgId: String(req.tenantId) },
+              { tenantId: String(req.tenantId) },
+              { organizationId: String(req.tenantId) },
+              { 'tenant.tenant_id': String(req.tenantId) },
+            ],
+          },
           clean,
           { new: true }
         ).lean();
@@ -264,7 +286,17 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
     async remove(req, res) {
       const { id } = req.params;
       try {
-        const doc = await Model.findOneAndDelete({ _id: id, tenant_id: String(req.tenantId) }).lean();
+        const doc = await Model.findOneAndDelete({
+          _id: id,
+          $or: [
+            { tenant_id: String(req.tenantId) },
+            { organization_id: String(req.tenantId) },
+            { orgId: String(req.tenantId) },
+            { tenantId: String(req.tenantId) },
+            { organizationId: String(req.tenantId) },
+            { 'tenant.tenant_id': String(req.tenantId) },
+          ],
+        }).lean();
         if (!doc) return failure(res, 'Not found', 404);
         return res.status(200).json({ _id: id });
       } catch (err) {

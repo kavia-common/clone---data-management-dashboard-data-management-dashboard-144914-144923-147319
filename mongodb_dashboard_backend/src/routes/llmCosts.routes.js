@@ -3,6 +3,7 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
+const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
@@ -19,8 +20,11 @@ const router = express.Router();
  */
 const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
 
-// Resolve tenantId from header/query/payload (organization_id alias) and enforce on queries
-router.use(requireTenant, tenantScopeEnforcer());
+/**
+ * Resolve tenantId from JWT/header/query and enforce on queries.
+ * Apply verifyAuth explicitly as a safeguard in case the router is mounted without it.
+ */
+router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 
 /**
  * @swagger

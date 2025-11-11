@@ -1,6 +1,7 @@
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
+const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
@@ -10,7 +11,7 @@ const router = express.Router();
 const controller = buildCrudController(LLMCost, '-timestamp');
 
 // Enforce tenant isolation for all requests on this router
-router.use(requireTenant, tenantScopeEnforcer());
+router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 
 /**
  * PUBLIC_INTERFACE

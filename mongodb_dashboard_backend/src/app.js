@@ -268,8 +268,10 @@ app.use('/api/appDeployments', verifyAuth, requireTenant, require('./routes/appD
 app.use('/api/costs', verifyAuth, requireTenant, require('./routes/costs.byAgent.routes'));
 
 /* LLM costs endpoints */
-app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
-app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
+const { verifyAuth: _verifyAuth } = require('./middleware/verifyAuth');
+const { requireTenant: _requireTenant } = require('./middleware/requireTenant');
+app.use('/api/llm-costs', _verifyAuth, _requireTenant, require('./routes/llmCosts.routes'));
+app.use('/api/llmCosts', _verifyAuth, _requireTenant, require('./routes/llmCosts.routes'));
 // Hierarchy analytics for LLM costs
 app.use('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 
