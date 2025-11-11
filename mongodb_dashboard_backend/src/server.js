@@ -14,6 +14,7 @@ const HOST = process.env.HOST || DEFAULT_HOST;
 const envPortRaw = process.env.PORT;
 const envPortExplicit = typeof envPortRaw === 'string' && envPortRaw.trim() !== '';
 const initialPort = envPortExplicit ? Number(envPortRaw) : DEFAULT_PORT;
+const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 
 // Create express app instance
 const app = createApp();
@@ -32,11 +33,15 @@ const app = createApp();
 
 /**
  * Try to bind the server with small retry for transient errors.
- * If EADDRINUSE occurs:
- *  - when env PORT was explicitly set -> log clear message and exit(1) (preserve current behavior)
- *  - when env PORT was not set       -> increment port and retry until a free port is found (up to a cap)
+ * EADDRINUSE handling:
+ *  - Production (NODE_ENV=production): always hard exit so orchestrator/CI detects failure.
+ *  - Non-production:
+ *      - If PORT was explicitly set via env: log a clear warning and auto-increment to next available port,
+ *        retrying up to a small cap so local dev doesn't crash. This preserves CI readiness when the requested
+ *        port is available because we only fallback when it is actually busy.
+ *      - If PORT was not set: also auto-increment from default port.
  */
-function startListening({ host, port, maxRetries = 2, tryCount = 0 }) {
+function startListening({ host, port, maxRetries = 2, tryCount = 0, eaddrAttempts = 0, eaddrMax = 5 }) {
   return new Promise((resolve, reject) => {
     const server = app
       .listen(port, host, () => {
@@ -50,20 +55,22 @@ function startListening({ host, port, maxRetries = 2, tryCount = 0 }) {
       .on('error', async (err) => {
         // 'EADDRINUSE' -> port busy; 'EACCES' -> permission; 'EADDRNOTAVAIL' -> bad host; 'ECONNRESET' transient etc.
         if (err && err.code === 'EADDRINUSE') {
-          if (envPortExplicit) {
-            console.error(`[startup] Port ${port} is already in use and PORT was explicitly set via env. Exiting.`);
-            process.exit(1);
-          } else {
-            // Auto-increment to next port when not explicitly set
-            const nextPort = port + 1;
-            if (nextPort > DEFAULT_PORT + 50) {
-              console.error(`[startup] Unable to find a free port in range ${DEFAULT_PORT}-${DEFAULT_PORT + 50}. Exiting.`);
-              process.exit(1);
-            }
-            console.warn(`[startup] Port ${port} in use. Trying next port ${nextPort}...`);
-            resolve(startListening({ host, port: nextPort, maxRetries, tryCount: 0 }));
-            return;
+          if (isProduction) {
+            console.error(`[startup] Port ${port} is already in use (production). Exiting with failure.`);
+            return reject(err);
           }
+          // Development behavior: auto-increment regardless of explicit PORT, with a clear message
+          const nextPort = port + 1;
+          if (eaddrAttempts + 1 > eaddrMax) {
+            console.error(`[startup] Unable to find a free port after ${eaddrMax} attempts starting from ${initialPort}. Exiting.`);
+            return reject(err);
+          }
+          if (envPortExplicit) {
+            console.warn(`[startup] Port ${port} is in use (PORT explicitly set). Auto-incrementing to ${nextPort} (attempt ${eaddrAttempts + 1}/${eaddrMax})...`);
+          } else {
+            console.warn(`[startup] Port ${port} is in use. Trying next port ${nextPort} (attempt ${eaddrAttempts + 1}/${eaddrMax})...`);
+          }
+          return resolve(startListening({ host, port: nextPort, maxRetries, tryCount: 0, eaddrAttempts: eaddrAttempts + 1, eaddrMax }));
         }
 
         // Retry a couple of times for transient errors
@@ -71,7 +78,7 @@ function startListening({ host, port, maxRetries = 2, tryCount = 0 }) {
           const delayMs = 250 * (tryCount + 1);
           console.warn(`[startup] Transient error on listen (attempt ${tryCount + 1}/${maxRetries}). Retrying in ${delayMs}ms...`, err?.code || err?.message || err);
           setTimeout(() => {
-            resolve(startListening({ host, port, maxRetries, tryCount: tryCount + 1 }));
+            resolve(startListening({ host, port, maxRetries, tryCount: tryCount + 1, eaddrAttempts }));
           }, delayMs);
           return;
         }
@@ -85,7 +92,7 @@ function startListening({ host, port, maxRetries = 2, tryCount = 0 }) {
 let server;
 
 // Kickoff startup
-startListening({ host: HOST, port: initialPort })
+startListening({ host: HOST, port: initialPort, eaddrMax: 5 })
   .then((s) => {
     server = s;
   })
