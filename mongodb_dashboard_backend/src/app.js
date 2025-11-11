@@ -121,6 +121,14 @@ app.get('/health', (req, res) => {
 app.get('/ready', (req, res) => {
   return healthHandler(req, res);
 });
+/**
+ * PUBLIC_INTERFACE
+ * GET /live
+ * Liveness probe alias to /health; always 200 with db state.
+ */
+app.get('/live', (req, res) => {
+  return healthHandler(req, res);
+});
 
 if (process.env.NODE_ENV === 'test') {
   try { mongoose.set('bufferCommands', false); } catch { }
