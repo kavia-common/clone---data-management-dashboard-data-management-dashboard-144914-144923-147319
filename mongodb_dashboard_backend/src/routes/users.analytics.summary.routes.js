@@ -6,6 +6,16 @@ const { getUsersTenantSummary } = require('../controllers/users.analytics.summar
 const { extractOrganization } = require('../middleware/extractOrganization');
 
 /**
+ * Minimal async handler to catch errors in async route handlers and forward to Express error middleware.
+ * This avoids introducing new dependencies and keeps behavior consistent across routes.
+ */
+function asyncHandler(fn) {
+  return function wrappedAsyncHandler(req, res, next) {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
+
+/**
  * PUBLIC_INTERFACE
  * GET /api/users/tenant-summary
  * Returns aggregated user counts by tenant with optional filters.
