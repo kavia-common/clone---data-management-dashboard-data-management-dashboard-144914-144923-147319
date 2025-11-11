@@ -326,8 +326,20 @@ async function aggregateHierarchy({ filter = {}, tenantId } = {}) {
     delete f.tenant_id;
     delete f.tenantId;
     delete f.organization_id;
+    delete f.organizationId;
+    delete f.orgId;
     if (tenantId) {
-      return Object.keys(f).length ? { $and: [f, { tenant_id: String(tenantId) }] } : { tenant_id: String(tenantId) };
+      const orgFilter = {
+        $or: [
+          { tenant_id: String(tenantId) },
+          { organization_id: String(tenantId) },
+          { organizationId: String(tenantId) },
+          { tenantId: String(tenantId) },
+          { orgId: String(tenantId) },
+          { 'tenant.tenant_id': String(tenantId) },
+        ],
+      };
+      return Object.keys(f).length ? { $and: [f, orgFilter] } : orgFilter;
     }
     return f;
   })();

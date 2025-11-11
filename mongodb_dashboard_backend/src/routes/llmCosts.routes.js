@@ -26,6 +26,16 @@ const controller = buildCrudController(LLMCost, '-timestamp'); // default indexe
  */
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 
+// Expose applied tenant for quick debugging on responses at this router scope
+router.use((req, res, next) => {
+  try {
+    if (req.tenantId) {
+      res.set('x-applied-organization-id', String(req.tenantId));
+    }
+  } catch (_) {}
+  next();
+});
+
 /**
  * @swagger
  * tags:
@@ -42,8 +52,10 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
  *       Returns a list of LLM cost documents. Supports optional JSON filter, sorting and pagination.
  *       If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }.
  *       Otherwise a raw array is returned.
- *       Tenant scoping is ALWAYS enforced by the server from the required `x-organization-id` header.
- *       Query aliases (?tenant_id or ?organization_id) are optional and ignored when the header is present.
+ *       Tenant scoping: When Authorization is present, JWT tenant is enforced and overrides header/query. If a different organization_id/tenant_id is provided than the JWT tenant, the request is rejected with 403.
+ *       In demo mode without JWT, x-organization-id header or query aliases (?tenant_id/organization_id) can be used to set scope.
+ *       The server ignores any tenant fields in the filter and injects the resolved tenant internally.
+ *       Debug: response will include x-applied-organization-id and x-applied-tenant-filter headers for troubleshooting.
  *       Safe defaults: server sorts by '-timestamp' (indexed) to avoid large in-memory sorts; large sorts use allowDiskUse(true).
  *     tags: [LLMCosts]
  *     operationId: listLlmCosts

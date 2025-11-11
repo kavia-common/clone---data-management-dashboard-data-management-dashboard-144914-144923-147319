@@ -185,9 +185,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       const appliedFilter = mergeFilterWithTenant(filter, req.tenantId);
 
-      // Expose applied filter for unit-style verification (header-safe)
+      // Expose applied filter and resolved org for unit-style verification (header-safe)
       try {
         res.set('x-applied-tenant-filter', JSON.stringify(appliedFilter));
+        res.set('x-applied-organization-id', String(req.tenantId || ''));
       } catch (_) {}
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').

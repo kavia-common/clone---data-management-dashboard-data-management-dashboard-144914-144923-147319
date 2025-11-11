@@ -64,6 +64,12 @@ async function getHierarchy(req, res) {
     ensureLlmCostsIndexes().catch(() => {});
 
     const data = await aggregateHierarchy({ filter, tenantId: resolvedTenant });
+    try {
+      if (resolvedTenant) {
+        res.set('x-applied-organization-id', String(resolvedTenant));
+        res.set('x-applied-tenant-filter', JSON.stringify(filter));
+      }
+    } catch (_) {}
     return success(res, data);
   } catch (err) {
     return handleError(res, err);

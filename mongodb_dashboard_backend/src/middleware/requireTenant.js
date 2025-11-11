@@ -20,6 +20,19 @@ function requireTenant(req, res, next) {
   // Prefer JWT tenantId if present (cannot be overridden)
   const jwtTenant = req?.auth?.tenantId;
   if (jwtTenant) {
+    // When JWT is present, ensure any explicit client-provided tenant does not conflict
+    const hdrCandidate =
+      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      (typeof req.headers['organization_id'] === 'string' && req.headers['organization_id'].trim()) ||
+      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) || '';
+    const qCandidate =
+      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+      (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) || '';
+    const candidate = hdrCandidate || qCandidate;
+    if (candidate && String(candidate) !== String(jwtTenant)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+    }
     req.tenantId = String(jwtTenant);
     req.organizationId = String(jwtTenant);
     return next();
