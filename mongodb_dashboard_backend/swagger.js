@@ -13,7 +13,9 @@ const swaggerJSDoc = require('swagger-jsdoc');
  *    - Sanitize invalid path keys (must start with '/')
  *    - Ensure required fields exist (openapi, info)
  *    - Ensure common components (xOrganizationId header) are available
- * 2) Fallback to JSDoc extraction from ./src/routes/**/*.js and ./src/controllers/**/*.js
+ * 2) Fallback to JSDoc extraction from these globbed paths:
+ *    - ./src/routes/**/ *.js
+ *    - ./src/controllers/**/ *.js
  *    - Provide shared component schemas so responses render correctly
  *
  * This module exports a function getBaseOpenApiSpec() to retrieve the base spec.
