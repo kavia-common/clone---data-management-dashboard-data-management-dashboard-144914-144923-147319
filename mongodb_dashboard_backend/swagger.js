@@ -7,6 +7,15 @@ const swaggerJSDoc = require('swagger-jsdoc');
 /** Build the reusable components injected into any loaded spec */
 function buildCommonComponents() {
   return {
+    securitySchemes: {
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description:
+          'Provide a Bearer token obtained from POST /api/auth/login. Token includes organization_id (a.k.a tenant_id) implicitly. When Authorization is present and valid, tenant scope is resolved from the JWT; x-organization-id header is not required.'
+      }
+    },
     parameters: {
       xOrganizationId: {
         name: 'x-organization-id',
@@ -14,7 +23,7 @@ function buildCommonComponents() {
         required: true,
         schema: { type: 'string' },
         description:
-          'Required tenant identifier for tenant-scoped endpoints. Header takes precedence over query aliases (?tenant_id or ?organization_id). 400 is returned when tenant is missing.',
+          'Tenant identifier for tenant-scoped endpoints. If Authorization Bearer token is provided, tenant is resolved implicitly from the JWT (organization_id/tenant_id) and this header is not required. When no Authorization is provided, include this header or use query ?tenant_id / ?organization_id.'
       },
     },
     schemas: {
@@ -61,6 +70,7 @@ function buildJsDocSpec() {
           'REST API for Data Management Dashboard with MongoDB and Express',
       },
       components: buildCommonComponents(),
+      security: [{ bearerAuth: [] }],
     },
     // Scan all route and controller files recursively for @swagger JSDoc blocks
     apis: [
@@ -118,13 +128,22 @@ function sanitizeOpenApiDoc(doc) {
   doc.components = doc.components || {};
   doc.components.parameters = { ...(doc.components.parameters || {}) };
   doc.components.schemas = { ...(doc.components.schemas || {}) };
+  doc.components.securitySchemes = { ...(doc.components.securitySchemes || {}) };
   const commons = buildCommonComponents();
+  // Merge securitySchemes
+  doc.components.securitySchemes.bearerAuth =
+    doc.components.securitySchemes.bearerAuth || commons.securitySchemes.bearerAuth;
+  // Merge header parameter
   doc.components.parameters.xOrganizationId =
     doc.components.parameters.xOrganizationId || commons.parameters.xOrganizationId;
+  // Merge schemas
   doc.components.schemas.GenericDocument =
     doc.components.schemas.GenericDocument || commons.schemas.GenericDocument;
   doc.components.schemas.ListEnvelope =
     doc.components.schemas.ListEnvelope || commons.schemas.ListEnvelope;
+
+  // Set global security so Swagger UI shows Authorize button and applies bearer by default
+  doc.security = doc.security || [{ bearerAuth: [] }];
 
   // Ensure servers is set to relative root so that Swagger UI uses same-origin calls
   // This avoids cross-origin CORS issues when docs are hosted under the backend.

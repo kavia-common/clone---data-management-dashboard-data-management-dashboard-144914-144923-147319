@@ -75,7 +75,7 @@ const swaggerUiHandler = swaggerUi.setup(null, {
     docExpansion: 'none',
   },
   customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
-  customCss: '.topbar-wrapper .link:after { content: " | Use x-organization-id header for tenant-scoped endpoints"; font-size: 12px; color: #666; }',
+  customCss: '.topbar-wrapper .link:after { content: " | Authorize with Bearer token; tenant is implicit (organization_id). If no token, use x-organization-id header."; font-size: 12px; color: #666; }',
 });
 // Primary mount at /api/docs as requested
 app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);

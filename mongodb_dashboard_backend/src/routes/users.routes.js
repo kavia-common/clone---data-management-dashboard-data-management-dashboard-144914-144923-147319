@@ -196,7 +196,10 @@ router.get('/seed-if-empty', asyncHandler(async (req, res) => {
  *       Accepts optional time range and status filters. If includeInactive=true, falls back to the
  *       users collection joined with known tenants to include tenants without recent activity.
  *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - $ref: '#/components/parameters/xOrganizationId'
  *       - in: query
  *         name: from
  *         schema: { type: string, format: date-time }
@@ -400,7 +403,10 @@ router.get(
  *       - Without pagination, a raw array of user documents is returned.
  *     tags:
  *       - Users
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - $ref: '#/components/parameters/xOrganizationId'
  *       - in: query
  *         name: page
  *         schema:
@@ -639,6 +645,10 @@ router.get(
  *   post:
  *     summary: Create user
  *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/xOrganizationId'
  *     requestBody:
  *       required: true
  *       content:
@@ -674,7 +684,10 @@ router.post(
  *   put:
  *     summary: Update user
  *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - $ref: '#/components/parameters/xOrganizationId'
  *       - in: path
  *         name: id
  *         required: true

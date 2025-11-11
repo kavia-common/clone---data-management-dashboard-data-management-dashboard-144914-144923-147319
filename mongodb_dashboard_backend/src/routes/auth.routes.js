@@ -174,6 +174,21 @@ router.post('/signup', async (req, res) => {
  *     responses:
  *       200:
  *         description: OK
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 tenant_id: { type: string, description: "Tenant id resolved from organization_id" }
+ *                 token: { type: string, description: "Bearer JWT; same as id_token" }
+ *                 id_token: { type: string, description: "Bearer JWT containing organization_id/tenant_id claims" }
+ *                 token_type: { type: string, example: "Bearer" }
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id: { type: string }
+ *                     email: { type: string }
  *       401:
  *         description: Invalid credentials
  *       422:
