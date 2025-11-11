@@ -33,6 +33,7 @@ router.get('/', (req, res) => {
   return res.status(200).json({ status: 'ok', message: 'Dashboard API backend' });
 });
 router.get('/healthz', healthController.check.bind(healthController));
+router.get('/health', healthController.check.bind(healthController));
 
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);

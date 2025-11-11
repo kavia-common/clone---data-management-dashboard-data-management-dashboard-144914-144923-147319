@@ -115,6 +115,10 @@ app.get('/api/health', healthHandler);
 app.get('/health', (req, res) => {
   return healthHandler(req, res);
 });
+// Backwards-compat liveness endpoint used by some probes
+app.get('/healthz', (req, res) => {
+  return healthHandler(req, res);
+});
 /**
  * PUBLIC_INTERFACE
  * GET /ready
@@ -314,10 +318,15 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 if (process.env.NODE_ENV !== 'test') {
-  connectDB().catch((err) => {
+  if (!process.env.MONGODB_URI) {
     // eslint-disable-next-line no-console
-    console.error('Failed to connect to MongoDB on startup:', err.message);
-  });
+    console.warn('[startup] MONGODB_URI not set. Starting server without DB connection. API may return 503 for DB-dependent routes.');
+  } else {
+    connectDB().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error('Failed to connect to MongoDB on startup:', err.message);
+    });
+  }
 } else {
   // eslint-disable-next-line no-console
   console.log('[startup] Skipping MongoDB connection in test environment');

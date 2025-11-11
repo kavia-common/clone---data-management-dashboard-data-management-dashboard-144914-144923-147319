@@ -14,6 +14,12 @@ const mongoose = require('mongoose');
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
+// Emit a clear startup banner for CI readiness detectors
+// PUBLIC_INTERFACE
+function logListening(host, port) {
+  // eslint-disable-next-line no-console
+  console.log(`Listening on http://${host}:${port}`);
+}
 
 // PID file path per requirement (shown in logs): .tmp/server.3001.pid
 const PID_FILE = path.join(process.cwd(), '.tmp', `server.${PORT}.pid`);
@@ -102,8 +108,9 @@ function startServerStrict() {
           '(not connected)';
         // eslint-disable-next-line no-console
         console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
+        logListening(HOST, PORT);
         // concise pointers
-        console.log(`[startup] /health | /ready | /api/health | /api/docs`);
+        console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
       } catch {}
       writePidFile();
     })

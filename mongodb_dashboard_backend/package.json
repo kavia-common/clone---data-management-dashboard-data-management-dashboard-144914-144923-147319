@@ -4,11 +4,11 @@
   "description": "Minimal Express app with scalable structure",
   "main": "src/server.js",
   "scripts": {
-    "start": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} node src/server.js",
-    "dev": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} nodemon src/server.js",
-    "preview": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} node src/server.js",
-    "dev:watch": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} nodemon src/server.js",
-    "dev:node": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} node src/server.js",
+    "start": "node -e \"process.env.HOST=process.env.HOST||'0.0.0.0';process.env.PORT=process.env.PORT||'3001';require('./src/server.js');\"",
+    "dev": "CI=${CI:-} node -e \"process.env.HOST=process.env.HOST||'0.0.0.0';process.env.PORT=process.env.PORT||'3001';process.env.NODE_ENV=process.env.NODE_ENV||'development';require('./src/server.js');\"",
+    "preview": "node -e \"process.env.HOST=process.env.HOST||'0.0.0.0';process.env.PORT=process.env.PORT||'3001';require('./src/server.js');\"",
+    "dev:watch": "nodemon --exec \"node src/server.js\"",
+    "dev:node": "node src/server.js",
     "test": "jest",
     "lint": "eslint .",
     "gen:openapi": "node generate_openapi.js"

@@ -13,16 +13,19 @@ Quick start (development)
 - curl http://localhost:3001/api/health   # includes db state
 
 Scripts
-- dev: nodemon src/server.js (auto-reload; honors HOST and PORT env, defaults HOST=0.0.0.0, PORT=3001)
-- start: node src/server.js (production style; same host/port behavior)
+- dev: runs the server with PORT/HOST defaults applied in-process (CI-compatible)
+- start: production-style boot; same host/port defaults
+- preview: same as start
 - test: jest
 
 Preview runner compatibility
-- The server binds to 0.0.0.0:3001 and logs readiness pointers: /health | /ready | /api/health | /api/docs
+- The server binds to 0.0.0.0:3001 and logs readiness pointers: /health | /ready | /api/health | /api/docs | /api-docs
+- It also logs a clear line: "Listening on http://HOST:PORT" for readiness detectors.
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
   - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
   - GET /api/health   -> 200 with db state (same as /health)
+  - GET /healthz      -> alias to /health
 
 Important
 - Always run preview/start commands from this backend directory:
@@ -39,7 +42,7 @@ Common variables:
 - MONGODB_URI=mongodb+srv://...
 - MONGODB_DB=test
 
-Note: The app will start even if MONGODB_URI is not set; health/docs endpoints remain available. Mongo connects when properly configured.
+Note: The app will start even if MONGODB_URI is not set; health/docs endpoints remain available. Mongo connects when properly configured (non-fatal on startup when missing).
 
 CORS
 - Defaults allow localhost:3000 and the current host:3001 (Swagger UI served by backend).
