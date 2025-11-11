@@ -1,8 +1,9 @@
-# Overview Endpoint
+# API Docs and Health Endpoints
 
-Provides totals for dashboard.
+- Swagger UI: /api/docs (also available at /docs and /api-docs)
+- OpenAPI JSON: /openapi.json (alias: /api-docs.json)
+- Health: 
+  - /api/health (includes DB status if connected)
+  - /health (quick readiness, same payload)
 
-Security and tenant enforcement:
-- All protected endpoints require Authorization: Bearer <token>.
-- Tenant is extracted from JWT claims (custom:tenant_id or tenant_id) and enforced across queries and aggregations.
-- Any :tenantId param must match req.auth.tenantId unless admin role is present.
+On startup, the server logs the URLs for health and docs for quick verification.

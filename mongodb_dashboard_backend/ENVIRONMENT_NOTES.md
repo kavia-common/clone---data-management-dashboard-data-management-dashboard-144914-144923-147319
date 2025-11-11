@@ -1,18 +1,23 @@
-# Runtime notes for preview/CI
+# Development Port Handling and Health/Docs
 
-- Start command: npm start (ensures dotenv is loaded) or node src/server.js (dotenv is auto-loaded now).
-- Default bind: HOST=0.0.0.0 PORT=3001
-- Health endpoint: 
-  - GET /api/health returns 200 regardless of DB connection; payload includes db: connected|connecting|disconnected.
-  - GET /health is also available and returns `{ status: "ok", ... }`.
-- MongoDB: If MONGODB_URI is unset, the server still starts. Logs a warning and health shows db=disconnected.
+This backend binds to a fixed default port 3001 (configurable via PORT). In development, when the port is already in use, the server will:
 
-Troubleshooting
-- If port 3001 is reported unavailable, check logs for [startup] and EADDRINUSE.
-- Dev routes are disabled in production unless ALLOW_DEV_ROUTES=true.
+- Detect and clean up a stale PID file if found at ./.tmp/server.<PORT>.pid
+- Retry binding a few times before failing
+- Never auto-switch the port to avoid drift with the frontend proxy or documentation
 
-Local development quick check
-- npm install
-- npm run dev  (binds to 0.0.0.0:3001 with nodemon)
-- curl http://localhost:3001/health  (or /api/health) should return 200 JSON.
-- No need for `-r dotenv/config`; dotenv is programmatically loaded in src/server.js.
+Environment variables to tune behavior:
+- PORT: Port to bind on (default 3001)
+- HOST: Host to bind on (default 0.0.0.0)
+- NODE_ENV: When set to development, enables the retry/wait logic on EADDRINUSE
+- DEV_PORT_RETRY_MS: Milliseconds to wait between retries (default 1500)
+- DEV_PORT_MAX_RETRIES: Max retry attempts before failing (default 10)
+
+Useful endpoints:
+- Health: GET /api/health and GET /health
+- Swagger UI: GET /api/docs
+- OpenAPI JSON: GET /openapi.json
+
+Notes:
+- In production, behavior is strict: if the port is in use, the process logs an error and exits immediately.
+- If you manually kill the process, the ./.tmp/server.<PORT>.pid file is cleaned up on next start if the PID is not alive.
