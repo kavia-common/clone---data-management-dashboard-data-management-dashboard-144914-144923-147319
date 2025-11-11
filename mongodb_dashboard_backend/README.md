@@ -26,6 +26,9 @@ Preview runner compatibility
   - GET /api/health   -> 200 with db state (same as /health)
 
 Important
+- Always run preview/start commands from this backend directory:
+  - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
+  - npm run dev  (or npm start)
 - Do NOT run `npm run dev` from the frontend folder; it has no dev script and CI logs will show "Missing script: dev".
 - Avoid `-r dotenv/config` in scripts; dotenv is required in src/server.js.
 
