@@ -64,10 +64,7 @@ export function quickUsersResolutionSmoke() {
   const url = verifyUsersUrlResolution("T0015");
   if (process.env.NODE_ENV !== "production") {
     // eslint-disable-next-line no-console
-    console.log(
-      "[Verify] Expecting users URL to be: https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api/users?organization_id=T0015",
-      "Got:", url
-    );
+    
   }
   return url;
 }
