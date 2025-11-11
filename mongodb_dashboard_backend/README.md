@@ -22,6 +22,7 @@ Preview runner compatibility
 - package.json already defines a 'dev' script and server binds to 0.0.0.0:3001
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
+  - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
   - GET /api/health   -> 200 with db state (same as /health)
 
 Important

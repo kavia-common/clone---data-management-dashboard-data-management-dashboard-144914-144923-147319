@@ -19,8 +19,9 @@ try {
 } catch { }
 
 app.set('trust proxy', 1); // only trust local proxies
+try { console.log('[startup] Applying security and CORS middlewares'); } catch {}
 app.use(helmetMiddleware());
- // Configure CORS with allowlist and credentials support via our middleware
+// Configure CORS with allowlist and credentials support via our middleware
 app.use(corsMiddleware());
 // Additionally apply a permissive CORS layer for all /api/* endpoints to ensure broad compatibility (no credentials)
 app.use('/api', permissiveCorsMiddleware);
@@ -90,7 +91,7 @@ app.use('/', baseRouter);
 /**
  * Simple health with DB status
  */
-try { console.log('[startup] Registering GET /api/health and GET /health'); } catch {}
+try { console.log('[startup] Registering GET /api/health, GET /health, and GET /ready'); } catch {}
 const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
@@ -98,7 +99,9 @@ const healthHandler = (req, res) => {
   if (db !== 'connected') {
     payload.hint = 'Database not connected. Ensure MONGODB_URI is set in environment (.env).';
   }
-  res.set('Cache-Control', 'no-store');
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   return res.status(200).json(payload);
 };
 app.get('/api/health', healthHandler);
@@ -108,7 +111,14 @@ app.get('/api/health', healthHandler);
  * Fast readiness check that does not depend on MongoDB. Returns 200 with status ok and db state.
  */
 app.get('/health', (req, res) => {
-  res.set('Cache-Control', 'no-store');
+  return healthHandler(req, res);
+});
+/**
+ * PUBLIC_INTERFACE
+ * GET /ready
+ * Kubernetes-style readiness probe alias to /health for convenience.
+ */
+app.get('/ready', (req, res) => {
   return healthHandler(req, res);
 });
 

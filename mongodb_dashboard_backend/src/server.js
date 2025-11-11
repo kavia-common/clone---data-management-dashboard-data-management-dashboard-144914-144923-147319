@@ -103,7 +103,7 @@ function startServerStrict() {
         // eslint-disable-next-line no-console
         console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
         // concise pointers
-        console.log(`[startup] /api/health | /api/docs`);
+        console.log(`[startup] /health | /ready | /api/health | /api/docs`);
       } catch {}
       writePidFile();
     })
