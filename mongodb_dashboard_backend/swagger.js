@@ -20,10 +20,10 @@ function buildCommonComponents() {
       xOrganizationId: {
         name: 'x-organization-id',
         in: 'header',
-        required: true,
+        required: false,
         schema: { type: 'string' },
         description:
-          'Tenant identifier for tenant-scoped endpoints. If Authorization Bearer token is provided, tenant is resolved implicitly from the JWT (organization_id/tenant_id) and this header is not required. When no Authorization is provided, include this header or use query ?tenant_id / ?organization_id.'
+          'Tenant identifier for tenant-scoped endpoints. Required when Authorization is not provided. If Authorization Bearer token is provided, tenant is resolved implicitly from the JWT (organization_id/tenant_id) and this header becomes optional. For testing without Authorization, include this header or use query ?tenant_id / ?organization_id.'
       },
     },
     schemas: {
@@ -72,11 +72,12 @@ function buildJsDocSpec() {
       components: buildCommonComponents(),
       security: [{ bearerAuth: [] }],
     },
-    // Scan all route and controller files recursively for @swagger JSDoc blocks
+    // Scan backend src for @swagger JSDoc blocks
     apis: [
       path.resolve(__dirname, 'src', 'routes', '**', '*.js'),
-      path.resolve(__dirname, 'src', 'controllers', '**', '*.js'),
       path.resolve(__dirname, 'src', 'routes', '*.js'),
+      path.resolve(__dirname, 'src', 'controllers', '**', '*.js'),
+      path.resolve(__dirname, 'src', 'controllers', '*.js'),
     ],
   };
   return swaggerJSDoc(options);

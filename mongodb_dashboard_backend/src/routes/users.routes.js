@@ -14,12 +14,18 @@ const { requireTenant } = require('../middleware/requireTenant');
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
 
- // Enforce JWT + Tenant at router level
+/**
+ * Enforce authentication and tenant scope.
+ * - verifyAuth extracts tenantId from JWT when Authorization is present.
+ * - requireTenant allows x-organization-id header when no Authorization is supplied.
+ * - We mirror the resolved tenant to req.organizationId consistently.
+ */
 router.use(verifyAuth, requireTenant, (req, _res, next) => {
-  // Normalize organization/tenant for downstream handlers
   if (req?.auth?.tenantId) {
     req.organizationId = String(req.auth.tenantId);
     req.tenantId = String(req.auth.tenantId);
+  } else if (req?.tenantId) {
+    req.organizationId = String(req.tenantId);
   }
   next();
 });
@@ -547,6 +553,32 @@ router.get(
   })
 );
 
+/**
+ * @swagger
+ * /api/users/{id}:
+ *   get:
+ *     summary: Get user by ID
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/xOrganizationId'
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: MongoDB document _id or flexible identifier (email/username)
+ *     responses:
+ *       200:
+ *         description: User document (scoped by organization)
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/User' }
+ *       400:
+ *         description: Invalid id
+ *       404:
+ *         description: Not found
+ */
 // Get user by id
 router.get(
   '/:id',
@@ -654,8 +686,11 @@ router.get(
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             description: User document payload
+ *             allOf:
+ *               - $ref: '#/components/schemas/User'
+ *             required:
+ *               - organization_id
+ *             description: User document payload. organization_id is enforced by server from JWT or x-organization-id.
  *     responses:
  *       201:
  *         description: Created
@@ -696,7 +731,11 @@ router.post(
  *       required: true
  *       content:
  *         application/json:
- *           schema: { type: object }
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/User'
+ *             required:
+ *               - organization_id
  *     responses:
  *       200:
  *         description: Updated
@@ -727,7 +766,10 @@ router.put(
  *   delete:
  *     summary: Delete user
  *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - $ref: '#/components/parameters/xOrganizationId'
  *       - in: path
  *         name: id
  *         required: true
@@ -776,7 +818,10 @@ router.delete(
  *       Prefers `last_updated` if present; falls back to `session_start`. Supports optional tenant scope,
  *       status filter (pipe-separated), and granularity day|week. Default granularity=day and status=completed|active.
  *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - $ref: '#/components/parameters/xOrganizationId'
  *       - in: query
  *         name: from
  *         schema: { type: string, format: date-time }
@@ -972,7 +1017,10 @@ router.get(
  *       Optional time range can be provided using "from" and "to" query parameters.
  *       Note: This endpoint excludes cost aggregation.
  *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - $ref: '#/components/parameters/xOrganizationId'
  *       - in: path
  *         name: userId
  *         required: true
@@ -1056,7 +1104,10 @@ router.get(
  *     summary: Top referral sources
  *     description: Aggregates users.referral_history by source (or infers from referral_code) and returns top N sources by count.
  *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
+ *       - $ref: '#/components/parameters/xOrganizationId'
  *       - in: query
  *         name: limit
  *         schema: { type: integer, minimum: 1, maximum: 200, default: 10 }
