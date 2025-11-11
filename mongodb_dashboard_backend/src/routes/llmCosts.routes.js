@@ -35,6 +35,19 @@ router.use((req, res, next) => {
     if (req.tenantId) {
       res.set('X-Applied-Tenant', String(req.tenantId));
       res.set('x-applied-organization-id', String(req.tenantId));
+      // Provide a minimal applied filter preview focused on tenant aliases for debugging
+      const tenant = String(req.tenantId);
+      const orgFilter = {
+        $or: [
+          { tenant_id: tenant },
+          { organization_id: tenant },
+          { orgId: tenant },
+          { tenantId: tenant },
+          { organizationId: tenant },
+          { 'tenant.tenant_id': tenant },
+        ],
+      };
+      res.set('X-Applied-Filter', JSON.stringify(orgFilter));
     }
   } catch (_) {}
   next();
