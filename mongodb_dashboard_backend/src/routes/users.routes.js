@@ -168,7 +168,16 @@ router.get(
   })
 );
 
-// ====== ACTIVE TREND ======
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/active-trend
+ * Returns trend of distinct active users bucketed by day/week.
+ * Scoping:
+ *  - If query.tenant_id is provided, it must match the authenticated/org tenant.
+ *  - If not provided, enforce req.tenantId from middleware.
+ * Notes:
+ *  - verifyAuth + requireTenant are mounted at router level in routes/index.js.
+ */
 router.get(
   '/active-trend',
   asyncHandler(async (req, res) => {
@@ -178,7 +187,14 @@ router.get(
     const to = req.query.to || now.toISOString();
     const granularity = (req.query.granularity || 'day').toLowerCase();
     const statusParam = (req.query.status || 'completed|active').trim();
-    const tenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
+    // Enforce tenant scoping:
+    // - If query.tenant_id present, use it only if it matches req.tenantId
+    // - Otherwise, default to req.tenantId
+    let tenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
+    if (!tenantId && req.tenantId) tenantId = String(req.tenantId);
+    if (tenantId && req.tenantId && String(tenantId) !== String(req.tenantId)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+    }
 
     const fromDate = new Date(from);
     const toDate = new Date(to);
