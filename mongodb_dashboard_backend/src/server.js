@@ -6,18 +6,16 @@ try { require('dotenv').config(); } catch {}
 
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 const app = require('./app');
 const mongoose = require('mongoose');
 
-// Default to 3001 to match container deployment and docs URL
+// Strict binding to 3001 unless overridden by env
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// Optional dev behavior tuning
-const DEV_PORT_RETRY_MS = Number(process.env.DEV_PORT_RETRY_MS || 1500);
-const DEV_PORT_MAX_RETRIES = Number(process.env.DEV_PORT_MAX_RETRIES || 10);
-// Use a pidfile inside tmp to detect stale same-app instances
+// PID file path per requirement (shown in logs): .tmp/server.3001.pid
 const PID_FILE = path.join(process.cwd(), '.tmp', `server.${PORT}.pid`);
 
 // Ensure .tmp exists for pid management
@@ -25,11 +23,56 @@ try {
   fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
 } catch {}
 
-// Early startup banner to aid diagnostics
+// Concise startup banner
 try {
   // eslint-disable-next-line no-console
-  console.log(`[startup] Initializing server on ${HOST}:${PORT} (NODE_ENV=${NODE_ENV})`);
+  console.log(`[startup] ${NODE_ENV} | ${HOST}:${PORT}`);
 } catch {}
+
+/**
+ * PUBLIC_INTERFACE
+ * ensurePidFileGuard
+ * Ensures single-instance behavior using a PID file.
+ * - If PID file exists and process is alive and listening on PORT, log and exit.
+ * - If PID file exists but process is not alive, remove it and continue.
+ * - On success to listen, write our PID and set up cleanup handlers.
+ */
+function ensurePidFileGuard() {
+  if (!fs.existsSync(PID_FILE)) return;
+  try {
+    const pidStr = fs.readFileSync(PID_FILE, 'utf8').trim();
+    const existingPid = Number(pidStr);
+    if (!Number.isFinite(existingPid) || existingPid <= 0) {
+      fs.unlinkSync(PID_FILE);
+      return;
+    }
+    // Check if process is alive
+    try {
+      process.kill(existingPid, 0);
+      // Optionally verify something is listening on PORT by attempting a connection
+      const client = new net.Socket();
+      const timeoutMs = 300;
+      const onDone = (shouldExit) => {
+        try { client.destroy(); } catch {}
+        if (shouldExit) {
+          // eslint-disable-next-line no-console
+          console.log(`[startup] Another instance is active (pid=${existingPid}) on port ${PORT}. Exiting.`);
+          process.exit(0);
+        }
+      };
+      client.setTimeout(timeoutMs);
+      client.once('connect', () => onDone(true));
+      client.once('timeout', () => onDone(true));
+      client.once('error', () => onDone(true));
+      client.connect(PORT, '127.0.0.1');
+    } catch {
+      // process not alive; stale pid file
+      fs.unlinkSync(PID_FILE);
+    }
+  } catch {
+    // ignore and proceed
+  }
+}
 
 function writePidFile() {
   try {
@@ -46,133 +89,60 @@ function removePidFile() {
   } catch {}
 }
 
-/**
- * Attempt to determine if the currently bound process on the port is our own "stale watcher".
- * We cannot inspect sockets without elevated permissions, so we heuristically:
- * - Check if a pid file exists from a prior run that is no longer alive
- * - If it exists and process is not running, we remove it and allow retry.
- * - If it exists and process is alive, we do not force takeover; we will print guidance.
- */
-function detectAndCleanupStaleWatcher() {
-  try {
-    if (!fs.existsSync(PID_FILE)) return false;
-    const pidStr = fs.readFileSync(PID_FILE, 'utf8').trim();
-    const stalePid = Number(pidStr);
-    if (!Number.isFinite(stalePid)) {
-      fs.unlinkSync(PID_FILE);
-      return false;
-    }
-    try {
-      // signal 0 checks existence without killing
-      process.kill(stalePid, 0);
-      // PID alive -> not stale
-      return false;
-    } catch {
-      // PID not alive -> stale, cleanup pid file and return true
-      fs.unlinkSync(PID_FILE);
-      return true;
-    }
-  } catch {
-    return false;
-  }
-}
+// Run guard before attempting to bind
+ensurePidFileGuard();
 
-/**
- * Start HTTP server with dev-only retry loop if EADDRINUSE is encountered.
- * In production we keep strict behavior and exit immediately.
- */
-function startServerWithDevFallback(attempt = 0) {
+function startServerStrict() {
   const server = app
     .listen(PORT, HOST, () => {
       try {
-        // Guard: mongoose.connection.db may be undefined before initial connection
         const dbName =
           mongoose?.connection?.db?.databaseName ||
           process.env.MONGODB_DB ||
           '(not connected)';
         // eslint-disable-next-line no-console
-        console.log('[startup] Express is starting with DB:', dbName);
-      } catch {
-        // ignore logging failure
-      }
-      // eslint-disable-next-line no-console
-      console.log(
-        `[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${NODE_ENV})`
-      );
-      try {
-        // Helpful hint: echo how to curl health
-        console.log(`[startup] Health: curl http://127.0.0.1:${PORT}/api/health`);
-        console.log(`[startup] Swagger UI: http://127.0.0.1:${PORT}/api/docs`);
+        console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
+        // concise pointers
+        console.log(`[startup] /api/health | /api/docs`);
       } catch {}
       writePidFile();
     })
     .on('error', (err) => {
       if (err && err.code === 'EADDRINUSE') {
-        if (NODE_ENV === 'development') {
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[startup] Port ${PORT} is already in use (attempt ${attempt + 1}).`
-          );
-          const cleaned = detectAndCleanupStaleWatcher();
-          if (cleaned) {
-            // eslint-disable-next-line no-console
-            console.warn('[startup] Detected stale PID file; cleaned up. Retrying shortly...');
-          }
-
-          if (attempt + 1 < DEV_PORT_MAX_RETRIES) {
-            setTimeout(() => startServerWithDevFallback(attempt + 1), DEV_PORT_RETRY_MS);
-            return;
-          }
-
-          // Final attempt failed — provide clear guidance but do not change binding.
-          // eslint-disable-next-line no-console
-          console.error(
-            `[startup] Could not bind to port ${PORT} after ${DEV_PORT_MAX_RETRIES} retries.\n` +
-            `Another process is likely running.\n` +
-            `Tips:\n` +
-            ` - If using nodemon or a watcher, stop the previous instance.\n` +
-            ` - Or export PORT=<free-port> to override for local testing.\n` +
-            ` - Check PID file at: ${PID_FILE}\n`
-          );
-        } else {
-          // eslint-disable-next-line no-console
-          console.error(
-            `[startup] Port ${PORT} is already in use. Ensure no other process is running on this port.`
-          );
-        }
+        // eslint-disable-next-line no-console
+        console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
       } else {
         // eslint-disable-next-line no-console
-        console.error('[startup] Server failed to start:', err);
+        console.error('[startup] Server failed to start:', err?.message || err);
       }
-      // Exit so orchestrator/CI can restart or developer can intervene
       process.exit(1);
     });
 
-  // Graceful shutdown handlers
   const shutdown = (signal) => {
-    // eslint-disable-next-line no-console
-    console.log(`${signal} signal received: closing HTTP server`);
-    server.close(async () => {
+    try {
       // eslint-disable-next-line no-console
-      console.log('HTTP server closed');
-      try {
-        await mongoose.connection.close();
-        // eslint-disable-next-line no-console
-        console.log('MongoDB connection closed');
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error('Error closing MongoDB connection', e);
-      } finally {
-        removePidFile();
-      }
+      console.log(`${signal} received; shutting down`);
+      server.close(async () => {
+        try {
+          await mongoose.connection.close();
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('Error closing MongoDB connection', e?.message || e);
+        } finally {
+          removePidFile();
+        }
+        process.exit(0);
+      });
+    } catch {
+      removePidFile();
       process.exit(0);
-    });
+    }
   };
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('exit', removePidFile);
 
-  // Log unexpected errors to avoid silent crashes during startup/runtime
   process.on('unhandledRejection', (reason) => {
     // eslint-disable-next-line no-console
     console.error('[unhandledRejection]', reason);
@@ -185,5 +155,5 @@ function startServerWithDevFallback(attempt = 0) {
   return server;
 }
 
-// Production: strict; Development: retry/wait if stale watcher detected
-module.exports = startServerWithDevFallback();
+// Export started server
+module.exports = startServerStrict();
