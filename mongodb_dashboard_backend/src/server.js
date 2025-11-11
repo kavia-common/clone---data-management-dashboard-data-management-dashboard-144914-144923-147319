@@ -1,6 +1,6 @@
 'use strict';
 
-const { createApp } = require('./app');
+const app = require('./app');
 const mongoose = require('mongoose');
 const { connect, db } = require('./config/db');
 
@@ -16,8 +16,7 @@ const envPortExplicit = typeof envPortRaw === 'string' && envPortRaw.trim() !== 
 const initialPort = envPortExplicit ? Number(envPortRaw) : DEFAULT_PORT;
 const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 
-// Create express app instance
-const app = createApp();
+
 
 // Attempt non-blocking DB connection; failures should not crash startup
 (async () => {
