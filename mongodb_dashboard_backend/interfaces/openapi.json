@@ -6,6 +6,25 @@
     "description": "REST API for Data Management Dashboard with MongoDB and Express"
   },
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Provide a JWT for authenticated requests. When provided, tenant scope is inferred from token; x-organization-id header becomes optional."
+      }
+    },
+    "parameters": {
+      "XOrganizationIdHeader": {
+        "name": "x-organization-id",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Tenant (organization) identifier. Optional when a JWT is supplied via bearerAuth and tenant is encoded in the token; otherwise supply this header to indicate tenant scope."
+      }
+    },
     "schemas": {
       "GenericDocument": {
         "type": "object",
@@ -49,9 +68,41 @@
             }
           }
         }
+      },
+      "User": {
+        "type": "object",
+        "description": "User document schema",
+        "properties": {
+          "_id": { "type": "string", "description": "MongoDB ObjectId as string" },
+          "name": { "type": "string", "description": "Full name of the user", "nullable": true },
+          "email": { "type": "string", "description": "Email address" },
+          "contact_number": { "type": "string", "description": "Phone or contact number", "nullable": true },
+          "department": { "type": "string", "description": "Department or team", "nullable": true },
+          "organization_id": { "type": "string", "description": "Tenant (organization) identifier" },
+          "is_admin": { "type": "boolean", "description": "Administrative privileges flag", "nullable": true },
+          "group_ids": {
+            "type": "array",
+            "description": "List of group identifiers the user is part of",
+            "items": { "type": "string" },
+            "nullable": true
+          },
+          "status": { "type": "string", "description": "User status (e.g., active, disabled)", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time", "description": "Creation timestamp", "nullable": true },
+          "updated_at": { "type": "string", "format": "date-time", "description": "Last update timestamp", "nullable": true },
+          "mail_subscription": {
+            "type": "object",
+            "description": "Mailing list or notifications subscription preferences",
+            "additionalProperties": true,
+            "nullable": true
+          }
+        },
+        "required": ["email", "organization_id"]
       }
     }
   },
+  "security": [
+    { "bearerAuth": [] }
+  ],
   "paths": {
     "/api/analytics/llm-cost-by-agent": {
       "get": {
@@ -1355,6 +1406,9 @@
               "default": false
             },
             "description": "When true, includes tenants from tenants/users collections even if no activity is found."
+          },
+          {
+            "$ref": "#/components/parameters/XOrganizationIdHeader"
           }
         ],
         "responses": {
@@ -1401,7 +1455,10 @@
           "503": {
             "description": "Database not connected"
           }
-        }
+        },
+        "security": [
+          { "bearerAuth": [] }
+        ]
       }
     },
     "/api/users": {
@@ -1458,11 +1515,20 @@
                     {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/GenericDocument"
+                        "$ref": "#/components/schemas/User"
                       }
                     },
                     {
-                      "$ref": "#/components/schemas/ListEnvelope"
+                      "type": "object",
+                      "allOf": [
+                        { "$ref": "#/components/schemas/ListEnvelope" }
+                      ],
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/User" }
+                        }
+                      }
                     }
                   ]
                 }
@@ -1472,7 +1538,15 @@
           "400": {
             "description": "Invalid filter"
           }
-        }
+        },
+        "security": [
+          { "bearerAuth": [] }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XOrganizationIdHeader"
+          }
+        ]
       },
       "post": {
         "summary": "Create user",
@@ -1483,16 +1557,18 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "description": "User document payload"
-              }
+              "schema": { "$ref": "#/components/schemas/User" }
             }
           }
         },
         "responses": {
           "201": {
-            "description": "Created"
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
           },
           "400": {
             "description": "Bad request"
@@ -1500,7 +1576,15 @@
           "422": {
             "description": "Validation failed"
           }
-        }
+        },
+        "security": [
+          { "bearerAuth": [] }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XOrganizationIdHeader"
+          }
+        ]
       }
     },
     "/api/users/seed-if-empty": {
@@ -1560,11 +1644,19 @@
               "type": "string"
             },
             "description": "MongoDB document _id"
+          },
+          {
+            "$ref": "#/components/parameters/XOrganizationIdHeader"
           }
         ],
         "responses": {
           "200": {
-            "description": "User document"
+            "description": "User document",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
           },
           "400": {
             "description": "Invalid id"
@@ -1572,7 +1664,10 @@
           "404": {
             "description": "Not found"
           }
-        }
+        },
+        "security": [
+          { "bearerAuth": [] }
+        ]
       },
       "put": {
         "summary": "Update user",
@@ -1587,21 +1682,27 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/XOrganizationIdHeader"
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object"
-              }
+              "schema": { "$ref": "#/components/schemas/User" }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Updated"
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
           },
           "400": {
             "description": "Invalid id or payload"
@@ -1612,7 +1713,10 @@
           "422": {
             "description": "Validation failed"
           }
-        }
+        },
+        "security": [
+          { "bearerAuth": [] }
+        ]
       },
       "delete": {
         "summary": "Delete user",
@@ -1627,6 +1731,9 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/XOrganizationIdHeader"
           }
         ],
         "responses": {
@@ -1639,7 +1746,10 @@
           "404": {
             "description": "Not found"
           }
-        }
+        },
+        "security": [
+          { "bearerAuth": [] }
+        ]
       }
     },
     "/api/users/active-trend": {
@@ -1938,7 +2048,7 @@
     },
     {
       "name": "Users",
-      "description": "Users collection endpoints"
+      "description": "Users collection endpoints. Tenant scoping: supply Authorization: Bearer <JWT> so tenant is inferred; alternatively provide x-organization-id header to scope requests."
     }
   ]
 }
