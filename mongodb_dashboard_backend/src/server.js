@@ -1,51 +1,40 @@
-/* Ensure environment variables from .env are loaded even if the process
- * is started without "-r dotenv/config" (e.g., by external orchestrators).
- * This guarantees preview/CI can boot without special node flags.
- */
-try { require('dotenv').config(); } catch {}
+'use strict';
 
-const app = require('./app');
+const { createApp } = require('./app');
 const mongoose = require('mongoose');
+const { connect, db } = require('./config/db');
 
 // Default to 3001 to match container deployment and docs URL
-const PORT = Number(process.env.PORT) || 3001;
+const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
-// Early startup banner to aid diagnostics
-try {
-  // eslint-disable-next-line no-console
-  console.log(`[startup] Initializing server on ${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
-} catch {}
+// Create express app instance
+const app = createApp();
 
-// Start listening unconditionally; Mongo connection is handled inside app.js and must not block server startup.
+// Attempt non-blocking DB connection; failures should not crash startup
+(async () => {
+  try {
+    const { db: database } = await connect(console);
+    // Attach db to app locals for health endpoints
+    if (database) app.locals.db = database;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[startup] DB connect attempt failed (non-fatal):', e?.message || e);
+  }
+})();
+
 const server = app
   .listen(PORT, HOST, () => {
-    try {
-      // Guard: mongoose.connection.db may be undefined before initial connection
-      const dbName =
-        mongoose?.connection?.db?.databaseName ||
-        process.env.MONGODB_DB ||
-        '(not connected)';
-      // eslint-disable-next-line no-console
-      console.log('[startup] Express is starting with DB:', dbName);
-    } catch {
-      // ignore logging failure
-    }
     // eslint-disable-next-line no-console
-    console.log(
-      `[startup] Server listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
-    );
-    try {
-      // Helpful hint: echo how to curl health
-      console.log(`[startup] Health: curl http://127.0.0.1:${PORT}/api/health`);
-    } catch {}
+    const dbConn = db && db();
+    const dbName = dbConn?.databaseName || 'disconnected';
+    console.log(`[startup] Express listening on http://${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+    console.log(`[startup] DB: ${dbName}`);
   })
   .on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
       // eslint-disable-next-line no-console
-      console.error(
-        `[startup] Port ${PORT} is already in use. Ensure no other process is running on this port.`
-      );
+      console.error(`[startup] Port ${PORT} is already in use. Ensure no other process is running on this port.`);
     } else {
       // eslint-disable-next-line no-console
       console.error('[startup] Server failed to start:', err);
@@ -53,7 +42,6 @@ const server = app
     // Exit so orchestrator/CI can restart
     process.exit(1);
   });
-
 
 // Graceful shutdown
 const shutdown = (signal) => {
@@ -63,12 +51,20 @@ const shutdown = (signal) => {
     // eslint-disable-next-line no-console
     console.log('HTTP server closed');
     try {
-      await mongoose.connection.close();
-      // eslint-disable-next-line no-console
-      console.log('MongoDB connection closed');
+      // Close mongoose if used elsewhere
+      if (mongoose?.connection?.readyState === 1) {
+        await mongoose.connection.close();
+        // eslint-disable-next-line no-console
+        console.log('Mongoose connection closed');
+      }
+      // Close native client via config/db close if available
+      const { close } = require('./config/db'); // lazy require to avoid cycles
+      if (typeof close === 'function') {
+        await close(console);
+      }
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.error('Error closing MongoDB connection', e);
+      console.error('Error during shutdown', e);
     }
     process.exit(0);
   });
