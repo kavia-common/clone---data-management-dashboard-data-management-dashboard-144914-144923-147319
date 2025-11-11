@@ -85,6 +85,11 @@ function corsMiddleware() {
   // Preview environment frontend (update or extend via CORS_ORIGINS)
   whitelist.add('https://kavia-dashboard-kavia-dev.cloud.kavia.ai');
 
+  // Explicit Kavia preview workspace origins (scheme/host/port must match)
+  // Allow the preview host both with and without explicit :3000 to cover frontend dev server
+  whitelist.add('https://vscode-internal-15523-beta.beta01.cloud.kavia.ai');
+  whitelist.add('https://vscode-internal-15523-beta.beta01.cloud.kavia.ai:3000');
+
   // In development, optionally allow any origin if CORS_ORIGIN="*" or CORS_OPEN=true
   const devOpenCors =
     (process.env.NODE_ENV !== 'production') &&

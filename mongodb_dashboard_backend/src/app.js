@@ -22,8 +22,11 @@ app.set('trust proxy', 1); // only trust local proxies
 app.use(helmetMiddleware());
 // Configure CORS with allowlist and credentials support via our middleware
 app.use(corsMiddleware());
-// Handle preflight across API routes explicitly to avoid 404 on OPTIONS
-app.options('/api/*', cors()); // uses default which will be overridden by corsMiddleware above
+/**
+ * Preflight handling is performed inside corsMiddleware() for all paths, which
+ * returns 204 with appropriate Access-Control-Allow-* headers. No separate
+ * generic cors() binding here to avoid mismatched headers.
+ */
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
