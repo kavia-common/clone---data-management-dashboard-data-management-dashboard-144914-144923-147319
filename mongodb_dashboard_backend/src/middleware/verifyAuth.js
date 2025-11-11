@@ -123,17 +123,15 @@ function verifyAuth(req, res, next) {
 
     req.auth = {
       ...payload,
+      // sub is the canonical user identifier used across the app
       sub: payload.sub || payload.user_id || payload.userId || payload.id || 'user',
+      // tenantId is used by scoping middleware and controllers (prefer JWT strictly)
       tenantId: extractedTenantId || (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
       scope: payload.scope || payload.scp || [],
       demo: false,
+      // include original header only for debugging (not used for auth)
       _tenantHeader: tenantFromHeader || null,
     };
-
-    // Normalize and expose organization/tenant on request object for downstream middleware/controllers
-    // Priority: JWT claim > header/query (header is ignored when JWT present)
-    req.organizationId = String(req.auth.tenantId);
-    req.tenantId = String(req.auth.tenantId);
 
     // Dev-only concise logs: computed tenant and subject for troubleshooting
     try {
