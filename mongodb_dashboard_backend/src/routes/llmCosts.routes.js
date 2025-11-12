@@ -43,6 +43,11 @@ router.use(async (req, res, next) => {
     } else {
       res.set('X-Applied-Tenant', 'none');
     }
+    // Make sure browsers can read diagnostics headers
+    res.set(
+      'Access-Control-Expose-Headers',
+      'Content-Type,Content-Length,X-Applied-Tenant,x-applied-organization-id,x-applied-tenant-filter,X-Model-Collection,X-Probe-Count,X-DB-Name,X-Applied-Filter-Strategy,X-Applied-Filter-Keys,X-Forced-Organization-Id'
+    );
   } catch (_) {}
   next();
 });

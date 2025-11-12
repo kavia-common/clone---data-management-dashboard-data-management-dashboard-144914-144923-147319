@@ -198,6 +198,8 @@ try {
   console.log('[startup] Mounting /api/users routes...');
 } catch { }
 app.use('/api/users', require('./routes/users.routes'));
+// Explicit mount for users projects endpoint with diagnostics to avoid any path shadowing issues
+app.use('/api/users', require('./routes/users.projects.routes'));
 
 try {
   // eslint-disable-next-line no-console
