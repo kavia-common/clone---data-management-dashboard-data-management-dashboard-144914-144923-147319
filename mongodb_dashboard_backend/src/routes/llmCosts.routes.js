@@ -73,25 +73,33 @@ router.use(async (req, res, next) => {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Allow custom filter but prevent client from setting tenant fields in a way that bypasses JWT scope.
-    // We do NOT strip organization_id here anymore; the controller will enforce tenant via req.tenantId
-    // and build a normalized OR filter across tenant aliases, ensuring cross-tenant access is blocked.
+    // Normalize client filter and strip any risky nested tenant hints; let controller enforce tenant scope.
     const raw = req.query.filter;
     if (raw) {
       try {
         const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (parsed && typeof parsed === 'object') {
-          // Keep user filters intact, just drop nested tenant.tenant_id which is obscure and potentially bypassy.
+          // Drop any nested alias that could bypass scoping
           if (Object.prototype.hasOwnProperty.call(parsed, 'tenant.tenant_id')) {
             delete parsed['tenant.tenant_id'];
           }
-          // Re-serialize
           req.query.filter = JSON.stringify(parsed);
         }
       } catch {
         req.query.filter = '{}';
       }
     }
+
+    // Lightweight debug header to confirm requested query aliases vs resolved tenant
+    try {
+      const clientOrg =
+        (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+        (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+        null;
+      res.set('X-Client-Requested-Tenant', clientOrg || 'none');
+      res.set('X-Resolved-Tenant', req.tenantId ? String(req.tenantId) : 'none');
+    } catch (_) {}
+
     return controller.list(req, res);
   })
 );

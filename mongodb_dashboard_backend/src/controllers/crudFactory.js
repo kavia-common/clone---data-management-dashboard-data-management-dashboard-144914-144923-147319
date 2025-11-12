@@ -83,8 +83,10 @@ function sanitizePayloadWithTenant(req) {
 function mergeFilterWithTenant(filter, tenantId) {
   // Normalize client-provided filter while stripping any tenant hints to prevent bypass
   const f = filter && typeof filter === 'object' ? { ...filter } : {};
-  // Remove all known tenant aliases from client filter; we may re-apply organization_id iff it matches effective tenant
-  const clientOrgId = f.organization_id;
+  // Capture if client explicitly asked for organization_id equal to effective tenant
+  const clientOrgId = f && Object.prototype.hasOwnProperty.call(f, 'organization_id') ? f.organization_id : undefined;
+
+  // Remove all known tenant aliases from client filter; server will re-apply robustly
   delete f.tenant_id;
   delete f.tenantId;
   delete f.organizationId;
@@ -96,7 +98,7 @@ function mergeFilterWithTenant(filter, tenantId) {
 
   const tenantStr = String(tenantId);
 
-  // Build authoritative tenant scope with organization_id first, then aliases
+  // Build authoritative tenant scope with organization_id as preferred field
   const normalizedTenantFilter = {
     $or: [
       { organization_id: tenantStr },
@@ -108,7 +110,7 @@ function mergeFilterWithTenant(filter, tenantId) {
     ],
   };
 
-  // If client provided organization_id equal to effective tenant, re-apply it to allow further narrowing
+  // If client provided organization_id equal to effective tenant, re-apply for stronger index usage on organization_id
   if (clientOrgId && String(clientOrgId) === tenantStr) {
     f.organization_id = tenantStr;
   }
