@@ -3,22 +3,16 @@
 const express = require('express');
 const router = express.Router();
 
+// Import controller first so the handler is loaded before route definition
 const { getUserProjects } = require('../controllers/users.projects.controller');
 
 /**
- * Route: GET /api/users/:userId/projects
- * Summary: Get projects associated with a user (from session tracking)
- * Description: Returns distinct projects the user has activity in, based on the session_tracking collection. Optional time range can be provided using "from" and "to" query parameters.
- * Query Params:
- *  - tenant_id (required): Tenant (organization) ID to scope the query. Alias organization_id supported.
- *  - from (optional ISO date-time)
- *  - to (optional ISO date-time)
- * Response:
- *  {
- *    user_id: string,
- *    tenant_id: string,
- *    projects: [{ project_id: string, project_name: string|null, last_activity: ISO string|null }]
- *  }
+ * GET /api/users/:userId/projects
+ * Handler: getUserProjects
+ * Notes:
+ *  - Path param: userId
+ *  - Query: tenant_id (required), from (optional ISO), to (optional ISO)
+ *  - This router is mounted under /api/users in users.routes.js, so we register as '/:userId/projects' here.
  */
 router.get('/:userId/projects', getUserProjects);
 

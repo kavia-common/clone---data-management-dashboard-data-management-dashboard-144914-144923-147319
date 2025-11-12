@@ -13,7 +13,10 @@ const Tenant = require('../models/tenant.model');
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
 
-// Mount sub-routes for users module
+/**
+ * Mount sub-routes first so sub-resources are registered prior to base routes.
+ * This yields: /api/users/:userId/projects
+ */
 router.use('/', require('../routes/users.projects.routes'));
 
 /**
