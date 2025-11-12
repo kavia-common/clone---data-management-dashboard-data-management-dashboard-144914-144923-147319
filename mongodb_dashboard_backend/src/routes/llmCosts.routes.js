@@ -40,6 +40,20 @@ router.use(async (req, res, next) => {
       // Keep minimal model collection info for quick verification
       try {
         res.set('X-Model-Collection', LLMCost.collection?.name || 'llm_costs');
+        // Also include an indicative filter header
+        res.set(
+          'X-Applied-Filter',
+          JSON.stringify({
+            $or: [
+              { tenant_id: tenant },
+              { organization_id: tenant },
+              { organizationId: tenant },
+              { tenantId: tenant },
+              { orgId: tenant },
+              { 'tenant.tenant_id': tenant },
+            ],
+          })
+        );
       } catch (_) {}
     } else {
       // If no tenant is attached, surface that explicitly for easier troubleshooting
@@ -60,18 +74,19 @@ router.use(async (req, res, next) => {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Allow custom filter but defensively strip any tenant keys to prevent bypass (server enforces from JWT)
+    // Allow custom filter but prevent client from setting tenant fields in a way that bypasses JWT scope.
+    // We do NOT strip organization_id here anymore; the controller will enforce tenant via req.tenantId
+    // and build a normalized OR filter across tenant aliases, ensuring cross-tenant access is blocked.
     const raw = req.query.filter;
     if (raw) {
       try {
         const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (parsed && typeof parsed === 'object') {
-          delete parsed.tenant_id;
-          delete parsed.tenantId;
-          delete parsed.organization_id;
-          delete parsed.organizationId;
-          delete parsed.orgId;
-          delete parsed['tenant.tenant_id'];
+          // Keep user filters intact, just drop nested tenant.tenant_id which is obscure and potentially bypassy.
+          if (Object.prototype.hasOwnProperty.call(parsed, 'tenant.tenant_id')) {
+            delete parsed['tenant.tenant_id'];
+          }
+          // Re-serialize
           req.query.filter = JSON.stringify(parsed);
         }
       } catch {

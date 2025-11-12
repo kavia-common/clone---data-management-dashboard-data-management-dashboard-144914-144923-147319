@@ -85,14 +85,15 @@ function mergeFilterWithTenant(filter, tenantId) {
   const f = filter && typeof filter === 'object' ? { ...filter } : {};
   delete f.tenant_id;
   delete f.tenantId;
-  delete f.organization_id;
+  // Keep organization_id from client to allow additional narrowing, but enforce via server-side OR to current tenant only.
+  // If client includes a conflicting organization_id, it will be neutralized by the server-applied tenant OR filter.
   delete f.organizationId;
   delete f.orgId;
   delete f['tenant.tenant_id'];
 
   if (!tenantId) return f;
 
-  // Defensive: apply OR across all known tenant aliases observed in datasets
+  // Defensive: apply OR across all known tenant/organization aliases observed in datasets
   const normalizedTenantFilter = {
     $or: [
       { tenant_id: String(tenantId) },
