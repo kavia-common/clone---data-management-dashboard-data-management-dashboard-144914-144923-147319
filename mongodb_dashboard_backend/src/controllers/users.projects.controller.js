@@ -1,116 +1,146 @@
 'use strict';
 
 /**
- * Users Projects Controller
- * Returns distinct projects the user has activity in, based on the session_tracking collection.
- * Applies required tenant scope (tenant_id / organization_id alias) and optional from/to datetime range filters.
- * 
- * PUBLIC_INTERFACE
- * @function getUserProjects
- * @description Express handler for GET /api/users/:userId/projects
- * @param {Request} req - Express request object
- * @param {Response} res - Express response object
- * @returns {Promise<void>} JSON: { user_id, tenant_id, projects: [{ project_id, project_name|null, last_activity|null }] }
+ * Controller for user projects derived from session tracking.
+ * Reads userId from params; tenant_id (required) and optional from/to (ISO datetime) from query.
+ * Aggregates distinct projects for the user within the tenant from session_tracking, and returns:
+ * {
+ *   user_id,
+ *   tenant_id,
+ *   projects: [{ project_id, project_name|null, last_activity|null }]
+ * }
  */
-const getUserProjects = async (req, res) => {
+
+const SessionTracking = require('../models/sessionTracking.model');
+const AppDeployment = require('../models/appDeployments.model');
+
+/**
+ * Normalize a value to ISO string if it's a valid date, else null.
+ * @param {Date|string|number|null|undefined} d
+ * @returns {string|null}
+ */
+function toIsoOrNull(d) {
+  const dt = d instanceof Date ? d : new Date(d);
+  return isNaN(dt.getTime()) ? null : dt.toISOString();
+}
+
+/**
+ * Extract projectId variants from a session tracking doc safely.
+ * @param {object} doc
+ * @returns {string|null}
+ */
+function pickProjectId(doc) {
+  if (!doc) return null;
+  // Common fields we support
+  const candidates = [
+    doc.project_id,
+    doc.projectId,
+    doc.project?.id,
+    doc.project?.projectId,
+    doc.metadata?.projectId,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim().length > 0) return c;
+  }
+  // fallbacks: sometimes nested strings
+  if (doc.project && typeof doc.project === 'string' && doc.project.trim()) {
+    return doc.project.trim();
+  }
+  return null;
+}
+
+/**
+ * Resolve a display name for a project from an AppDeployment-like doc.
+ * @param {object} d
+ * @returns {string|null}
+ */
+function pickProjectNameFromDeployment(d) {
+  if (!d) return null;
+  const candidates = [
+    d.projectName,
+    d.project_name,
+    d.metadata?.projectName,
+    d.metadata?.name,
+    d.project?.name,
+    d.project?.projectName,
+    d.name,
+    d.title,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim().length > 0) return c;
+  }
+  return null;
+}
+
+// PUBLIC_INTERFACE
+async function getUserProjects(req, res, next) {
+  /** This endpoint returns distinct projects the user has activity in, based on the session_tracking collection.
+   * Params:
+   *  - path: userId (string, required)
+   *  - query: tenant_id (string, required), from (ISO, optional), to (ISO, optional)
+   * Response:
+   *  {
+   *    user_id: string,
+   *    tenant_id: string,
+   *    projects: [{ project_id: string, project_name: string|null, last_activity: string|null }]
+   *  }
+   */
   try {
-    const db = req.app.locals.db;
-    if (!db) {
-      return res.status(503).json({ error: 'Database not connected' });
+    const { userId } = req.params || {};
+    const { tenant_id, from, to } = req.query || {};
+
+    if (!userId || !tenant_id) {
+      return res.status(400).json({
+        message: 'Missing required parameters: userId (path) and tenant_id (query) are required.',
+      });
     }
-
-    const { userId } = req.params;
-    const { tenant_id, organization_id, from, to } = req.query;
-
-    // Tenant scoping – accept tenant_id (preferred) or organization_id alias
-    const tenantId = tenant_id || organization_id;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'tenant_id is required' });
-    }
-
-    // Normalize user id to string for matching
-    const normalizedUserId = String(userId || '').trim();
-    if (!normalizedUserId) {
-      return res.status(400).json({ error: 'userId is required' });
-    }
-
-    const sessionCol = db.collection('session_tracking');
 
     // Build match filter
-    const timestampFields = ['last_updated', 'timestamp', 'session_end', 'session_start', 'created_at'];
     const match = {
-      $and: [
-        { $or: [{ tenant_id: tenantId }, { organization_id: tenantId }] },
-        { $or: [{ user_id: normalizedUserId }, { userId: normalizedUserId }] },
+      tenant_id: tenant_id,
+      // normalize user id against multiple potential fields in session tracking
+      $or: [
+        { user_id: String(userId) },
+        { userId: String(userId) },
+        { 'user.id': String(userId) },
+        { 'metadata.userId': String(userId) },
       ],
     };
 
-    // Apply date filters if provided - build a clause that checks across known timestamp fields
-    const dateRange = {};
+    // Time range (prefer last_updated; fall back to session_start)
+    const timeBounds = {};
     if (from) {
-      const fromDate = new Date(from);
-      if (isNaN(fromDate.getTime())) {
-        return res.status(400).json({ error: 'Invalid "from" date-time' });
+      const f = new Date(from);
+      if (isNaN(f.getTime())) {
+        return res.status(400).json({ message: 'Invalid "from" datetime. Provide ISO format.' });
       }
-      dateRange.$gte = fromDate;
+      timeBounds.$gte = f;
     }
     if (to) {
-      const toDate = new Date(to);
-      if (isNaN(toDate.getTime())) {
-        return res.status(400).json({ error: 'Invalid "to" date-time' });
+      const t = new Date(to);
+      if (isNaN(t.getTime())) {
+        return res.status(400).json({ message: 'Invalid "to" datetime. Provide ISO format.' });
       }
-      dateRange.$lte = toDate;
+      timeBounds.$lte = t;
     }
-    if (dateRange.$gte || dateRange.$lte) {
-      // Create $or over all candidate timestamp fields
-      const timeOr = timestampFields.map((f) => ({ [f]: dateRange }));
-      match.$and.push({ $or: timeOr });
+    if (Object.keys(timeBounds).length > 0) {
+      // We create a predicate that checks either last_updated or session_start within bounds.
+      match.$and = [
+        {
+          $or: [
+            { last_updated: timeBounds },
+            { session_start: timeBounds },
+          ],
+        },
+      ];
     }
 
-    // Aggregation to compute distinct projects and last activity
+    // Aggregate distinct projects and compute last_activity
     const pipeline = [
       { $match: match },
       {
         $addFields: {
-          // Pick the best available timestamp field for activity
-          activity_ts: {
-            $ifNull: [
-              '$last_updated',
-              {
-                $ifNull: [
-                  '$timestamp',
-                  {
-                    $ifNull: [
-                      '$session_end',
-                      {
-                        $ifNull: [
-                          '$session_start',
-                          '$created_at',
-                        ],
-                      },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
-        },
-      },
-      // Only keep docs that have a project id of some kind
-      {
-        $match: {
-          $or: [
-            { project_id: { $exists: true, $ne: null } },
-            { projectId: { $exists: true, $ne: null } },
-            { 'project.id': { $exists: true, $ne: null } },
-            { 'metadata.projectId': { $exists: true, $ne: null } },
-          ],
-        },
-      },
-      // Normalize fields for grouping
-      {
-        $addFields: {
-          _project_id: {
+          normalized_project_id: {
             $ifNull: [
               '$project_id',
               {
@@ -119,85 +149,121 @@ const getUserProjects = async (req, res) => {
                   {
                     $ifNull: [
                       '$project.id',
-                      '$metadata.projectId',
+                      { $ifNull: ['$metadata.projectId', '$project'] },
                     ],
                   },
                 ],
               },
             ],
           },
-          _project_name: {
-            $ifNull: [
-              '$project_name',
-              {
-                $ifNull: [
-                  '$project.name',
-                  {
-                    $ifNull: [
-                      '$metadata.projectName',
-                      null,
-                    ],
-                  },
-                ],
-              },
-            ],
+          activity_ts: {
+            $ifNull: ['$last_updated', '$session_start'],
           },
         },
       },
-      // Group by project id to get last activity and one project name
+      // Exclude null/empty ids
+      {
+        $match: {
+          normalized_project_id: { $type: 'string', $ne: '' },
+        },
+      },
       {
         $group: {
-          _id: '$_project_id',
+          _id: '$normalized_project_id',
           last_activity: { $max: '$activity_ts' },
-          project_name: { $first: '$_project_name' },
         },
       },
-      // Shape output
       {
         $project: {
           _id: 0,
-          project_id: { $toString: '$_id' },
-          project_name: {
-            $cond: [{ $gt: [{ $type: '$project_name' }, 'missing'] }, '$project_name', null],
-          },
-          last_activity: {
-            $cond: [
-              { $gt: [{ $type: '$last_activity' }, 'missing'] },
-              '$last_activity',
-              null,
+          project_id: '$_id',
+          last_activity: 1,
+        },
+      },
+      { $sort: { project_id: 1 } },
+    ];
+
+    const agg = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+
+    // Optional resolution of project_name from AppDeployments as a best-effort
+    // We'll attempt to find a single deployment per projectId (various fields)
+    const projectIds = agg.map((p) => p.project_id);
+    let namesByProject = {};
+    if (projectIds.length > 0 && AppDeployment && typeof AppDeployment.aggregate === 'function') {
+      const deploymentLookup = await AppDeployment.aggregate([
+        {
+          $match: {
+            $or: [
+              { projectId: { $in: projectIds } },
+              { project_id: { $in: projectIds } },
+              { 'metadata.projectId': { $in: projectIds } },
+              { 'project.id': { $in: projectIds } },
             ],
           },
         },
-      },
-      { $sort: { last_activity: -1, project_id: 1 } },
-    ];
+        // Prioritize more recent by created_at/updated_at if present
+        {
+          $addFields: {
+            _sort_ts: { $ifNull: ['$updated_at', '$created_at'] },
+          },
+        },
+        { $sort: { _sort_ts: -1 } },
+        {
+          $group: {
+            _id: {
+              $cond: [
+                { $ifNull: ['$projectId', false] },
+                '$projectId',
+                {
+                  $cond: [
+                    { $ifNull: ['$project_id', false] },
+                    '$project_id',
+                    {
+                      $cond: [
+                        { $ifNull: ['$metadata.projectId', false] },
+                        '$metadata.projectId',
+                        '$project.id',
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+            doc: { $first: '$$ROOT' },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            project_id: '$_id',
+            doc: 1,
+          },
+        },
+      ]).allowDiskUse(true);
 
-    const items = await sessionCol.aggregate(pipeline, { allowDiskUse: true }).toArray();
+      namesByProject = (deploymentLookup || []).reduce((acc, row) => {
+        acc[row.project_id] = pickProjectNameFromDeployment(row.doc);
+        return acc;
+      }, {});
+    }
 
-    // Optionally, future enhancement: If project_name is null, try resolve from projects/app_deployments
-    // For now, we return what we have from session_tracking to keep this endpoint fast.
-
-    // Normalize last_activity to ISO
-    const projects = items.map((p) => ({
-      project_id: String(p.project_id),
-      project_name: p.project_name ?? null,
-      last_activity: p.last_activity ? new Date(p.last_activity).toISOString() : null,
+    const items = agg.map((p) => ({
+      project_id: p.project_id,
+      project_name: namesByProject[p.project_id] ?? null,
+      last_activity: toIsoOrNull(p.last_activity),
     }));
 
-    return res.status(200).json({
-      user_id: normalizedUserId,
-      tenant_id: tenantId,
-      projects,
+    return res.json({
+      user_id: String(userId),
+      tenant_id,
+      projects: items,
     });
   } catch (err) {
-    // Basic error handling with safe message
-    // eslint-disable-next-line no-console
-    console.error('Error in getUserProjects:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return next(err);
   }
-};
+}
 
 module.exports = {
-  // PUBLIC_INTERFACE
+  // Ensure exported first as requested
   getUserProjects,
 };

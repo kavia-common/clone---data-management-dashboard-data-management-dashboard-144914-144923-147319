@@ -17,7 +17,8 @@ const controller = buildCrudController(User, '-created_at');
  * Mount sub-routes first so sub-resources are registered prior to base routes.
  * This yields: /api/users/:userId/projects
  */
-router.use('/', require('../routes/users.projects.routes'));
+const usersProjectsRoutes = require('./users.projects.routes');
+router.use('/', usersProjectsRoutes);
 
 /**
  * Expose applied tenant and preview filter for diagnostics
