@@ -33,9 +33,10 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 router.use(async (req, res, next) => {
   try {
     if (req.tenantId) {
-      res.set('X-Applied-Tenant', String(req.tenantId));
-      res.set('x-applied-organization-id', String(req.tenantId));
       const tenant = String(req.tenantId);
+      // Expose resolved tenant and defensive multi-alias OR filter for quick verification
+      res.set('X-Applied-Tenant', tenant);
+      res.set('x-applied-organization-id', tenant);
       const orgFilter = {
         $or: [
           { tenant_id: tenant },
@@ -50,6 +51,9 @@ router.use(async (req, res, next) => {
       try {
         res.set('X-Model-Collection', LLMCost.collection?.name || 'llm_costs');
       } catch (_) {}
+    } else {
+      // If no tenant is attached, surface that explicitly for easier troubleshooting
+      res.set('X-Applied-Tenant', 'none');
     }
   } catch (_) {}
   next();

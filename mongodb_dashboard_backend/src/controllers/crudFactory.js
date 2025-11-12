@@ -241,7 +241,13 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           const [items, total] = await Promise.all([
-            Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean(),
+            // Apply same filter for both items and total to keep meta.total consistent with data
+            Model.find(appliedFilter)
+              .sort(safeSort)
+              .skip(skip)
+              .limit(hardCappedLimit)
+              .allowDiskUse(true)
+              .lean(),
             Model.countDocuments(appliedFilter),
           ]);
 
