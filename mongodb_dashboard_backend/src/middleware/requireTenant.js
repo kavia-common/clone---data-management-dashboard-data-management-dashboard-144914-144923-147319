@@ -38,16 +38,19 @@ function requireTenant(req, res, next) {
     try { 
       res.set('X-Applied-Tenant', String(jwtTenant)); 
       const tenant = String(jwtTenant);
-      res.set('X-Applied-Filter', JSON.stringify({
+      const applied = {
         $or: [
-          { tenant_id: tenant },
           { organization_id: tenant },
+          { tenant_id: tenant },
           { orgId: tenant },
           { tenantId: tenant },
           { organizationId: tenant },
           { 'tenant.tenant_id': tenant },
         ],
-      }));
+      };
+      res.set('X-Applied-Filter', JSON.stringify(applied));
+      res.set('x-applied-tenant-filter', JSON.stringify(applied));
+      res.set('x-applied-organization-id', tenant);
     } catch (_) {}
     return next();
   }
@@ -80,16 +83,19 @@ function requireTenant(req, res, next) {
     try { 
       res.set('X-Applied-Tenant', String(resolved)); 
       const tenant = String(resolved);
-      res.set('X-Applied-Filter', JSON.stringify({
+      const applied = {
         $or: [
-          { tenant_id: tenant },
           { organization_id: tenant },
+          { tenant_id: tenant },
           { orgId: tenant },
           { tenantId: tenant },
           { organizationId: tenant },
           { 'tenant.tenant_id': tenant },
         ],
-      }));
+      };
+      res.set('X-Applied-Filter', JSON.stringify(applied));
+      res.set('x-applied-tenant-filter', JSON.stringify(applied));
+      res.set('x-applied-organization-id', tenant);
     } catch (_) {}
     return next();
   }
@@ -108,16 +114,19 @@ function requireTenant(req, res, next) {
     try { 
       res.set('X-Applied-Tenant', String(demoTenant)); 
       const tenant = String(demoTenant);
-      res.set('X-Applied-Filter', JSON.stringify({
+      const applied = {
         $or: [
-          { tenant_id: tenant },
           { organization_id: tenant },
+          { tenant_id: tenant },
           { orgId: tenant },
           { tenantId: tenant },
           { organizationId: tenant },
           { 'tenant.tenant_id': tenant },
         ],
-      }));
+      };
+      res.set('X-Applied-Filter', JSON.stringify(applied));
+      res.set('x-applied-tenant-filter', JSON.stringify(applied));
+      res.set('x-applied-organization-id', tenant);
     } catch (_) {}
     return next();
   }
