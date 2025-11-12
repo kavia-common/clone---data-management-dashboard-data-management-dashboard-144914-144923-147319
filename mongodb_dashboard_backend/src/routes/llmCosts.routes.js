@@ -131,9 +131,18 @@ router.get(
       }
     } catch (_) {}
 
-    // Query with consistent meta.total
+    // Query with consistent meta.total and add a probe count + connection diagnostics
     const sort = '-timestamp'; // keep safe default
     try {
+      // Probe: count and connection info (request-scoped)
+      try {
+        const probeCount = await LLMCost.countDocuments(appliedFilter);
+        const mongoose = require('mongoose');
+        const dbName = mongoose?.connection?.name || mongoose?.connection?.db?.databaseName || '(unknown)';
+        res.set('X-Probe-Count', String(probeCount));
+        res.set('X-DB-Name', dbName);
+      } catch (_) {}
+
       if (explicit) {
         const [items, total] = await Promise.all([
           LLMCost.find(appliedFilter).sort(sort).skip(skip).limit(limit).allowDiskUse(true).lean(),
