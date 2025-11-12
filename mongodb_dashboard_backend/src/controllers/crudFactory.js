@@ -83,27 +83,35 @@ function sanitizePayloadWithTenant(req) {
 function mergeFilterWithTenant(filter, tenantId) {
   // Normalize client-provided filter while stripping any tenant hints to prevent bypass
   const f = filter && typeof filter === 'object' ? { ...filter } : {};
+  // Remove all known tenant aliases from client filter; we may re-apply organization_id iff it matches effective tenant
+  const clientOrgId = f.organization_id;
   delete f.tenant_id;
   delete f.tenantId;
-  // Keep organization_id from client to allow additional narrowing, but enforce via server-side OR to current tenant only.
-  // If client includes a conflicting organization_id, it will be neutralized by the server-applied tenant OR filter.
   delete f.organizationId;
   delete f.orgId;
   delete f['tenant.tenant_id'];
+  delete f.organization_id;
 
   if (!tenantId) return f;
 
-  // Defensive: apply OR across all known tenant/organization aliases observed in datasets
+  const tenantStr = String(tenantId);
+
+  // Build authoritative tenant scope with organization_id first, then aliases
   const normalizedTenantFilter = {
     $or: [
-      { tenant_id: String(tenantId) },
-      { organization_id: String(tenantId) },
-      { organizationId: String(tenantId) },
-      { tenantId: String(tenantId) },
-      { orgId: String(tenantId) },
-      { 'tenant.tenant_id': String(tenantId) },
+      { organization_id: tenantStr },
+      { tenant_id: tenantStr },
+      { organizationId: tenantStr },
+      { tenantId: tenantStr },
+      { orgId: tenantStr },
+      { 'tenant.tenant_id': tenantStr },
     ],
   };
+
+  // If client provided organization_id equal to effective tenant, re-apply it to allow further narrowing
+  if (clientOrgId && String(clientOrgId) === tenantStr) {
+    f.organization_id = tenantStr;
+  }
 
   // Combine user filter (post-stripping) with normalized tenant filter
   return Object.keys(f).length > 0 ? { $and: [f, normalizedTenantFilter] } : normalizedTenantFilter;

@@ -26,10 +26,10 @@ function buildCommonComponents() {
       xOrganizationId: {
         name: 'x-organization-id',
         in: 'header',
-        required: true,
+        required: false,
         schema: { type: 'string' },
         description:
-          'Required tenant identifier for tenant-scoped endpoints. Header takes precedence over query aliases (?tenant_id or ?organization_id). 400 is returned when tenant is missing.',
+          'Tenant identifier for tenant-scoped endpoints. When Authorization (JWT) is present, the tenant from JWT is enforced and this header is ignored. Without JWT (demo/testing), provide either this header or query alias (?organization_id or ?tenant_id). Header takes precedence over query aliases.',
       },
     },
     schemas: {

@@ -41,19 +41,18 @@ router.use(async (req, res, next) => {
       try {
         res.set('X-Model-Collection', LLMCost.collection?.name || 'llm_costs');
         // Also include an indicative filter header
-        res.set(
-          'X-Applied-Filter',
-          JSON.stringify({
-            $or: [
-              { tenant_id: tenant },
-              { organization_id: tenant },
-              { organizationId: tenant },
-              { tenantId: tenant },
-              { orgId: tenant },
-              { 'tenant.tenant_id': tenant },
-            ],
-          })
-        );
+        const applied = {
+          $or: [
+            { organization_id: tenant },
+            { tenant_id: tenant },
+            { organizationId: tenant },
+            { tenantId: tenant },
+            { orgId: tenant },
+            { 'tenant.tenant_id': tenant },
+          ],
+        };
+        res.set('X-Applied-Filter', JSON.stringify(applied));
+        res.set('x-applied-tenant-filter', JSON.stringify(applied));
       } catch (_) {}
     } else {
       // If no tenant is attached, surface that explicitly for easier troubleshooting
