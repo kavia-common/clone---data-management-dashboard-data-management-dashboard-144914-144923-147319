@@ -16,6 +16,7 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // PUBLIC_INTERFACE
 function logListening(host, port) {
+  /** Logs a consistent listening line used by some preview systems. */
   // eslint-disable-next-line no-console
   console.log(`Listening on http://${host}:${port}`);
 }
@@ -35,14 +36,52 @@ try {
 } catch {}
 
 /**
+ * Check if a given PID is a live process.
+ */
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Attempt to determine if something is actually bound on PORT.
+ * We consider it bound if a TCP connect does not immediately fail; timeout also implies something captured the port.
+ * Returns a promise<boolean>.
+ */
+function isPortBound(port, host = '127.0.0.1', timeoutMs = 250) {
+  return new Promise((resolve) => {
+    const client = new net.Socket();
+    let done = false;
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      try { client.destroy(); } catch {}
+      resolve(result);
+    };
+    client.setTimeout(timeoutMs);
+    client.once('connect', () => finish(true));
+    client.once('timeout', () => finish(true));
+    client.once('error', () => finish(true));
+    try {
+      client.connect(port, host);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+/**
  * PUBLIC_INTERFACE
  * ensurePidFileGuard
  * Ensures single-instance behavior using a PID file.
- * - If PID file exists and process is alive and listening on PORT, log and exit.
- * - If PID file exists but process is not alive, remove it and continue.
- * - On success to listen, write our PID and set up cleanup handlers.
+ * - If PID file exists and process is alive, and port appears bound, logs and exits.
+ * - If PID file exists but process is not alive or port is not bound, remove it and continue.
  */
-function ensurePidFileGuard() {
+async function ensurePidFileGuard() {
   if (!fs.existsSync(PID_FILE)) return;
   try {
     const pidStr = fs.readFileSync(PID_FILE, 'utf8').trim();
@@ -51,28 +90,19 @@ function ensurePidFileGuard() {
       fs.unlinkSync(PID_FILE);
       return;
     }
-    // Check if process is alive
-    try {
-      process.kill(existingPid, 0);
-      // Optionally verify something is listening on PORT by attempting a connection
-      const client = new net.Socket();
-      const timeoutMs = 300;
-      const onDone = (shouldExit) => {
-        try { client.destroy(); } catch {}
-        if (shouldExit) {
-          // eslint-disable-next-line no-console
-          console.log(`[startup] Another instance is active (pid=${existingPid}) on port ${PORT}. Exiting.`);
-          process.exit(0);
-        }
-      };
-      client.setTimeout(timeoutMs);
-      client.once('connect', () => onDone(true));
-      client.once('timeout', () => onDone(true));
-      client.once('error', () => onDone(true));
-      client.connect(PORT, '127.0.0.1');
-    } catch {
-      // process not alive; stale pid file
-      fs.unlinkSync(PID_FILE);
+    const alive = isProcessAlive(existingPid);
+    const bound = await isPortBound(PORT);
+    if (alive && bound) {
+      // eslint-disable-next-line no-console
+      console.log(`[startup] Another instance is active (pid=${existingPid}) on port ${PORT}. Exiting.`);
+      process.exit(0);
+    } else {
+      // stale PID or not bound => cleanup
+      try {
+        fs.unlinkSync(PID_FILE);
+        // eslint-disable-next-line no-console
+        console.log(`[startup] Removed stale PID file at ${PID_FILE}`);
+      } catch {}
     }
   } catch {
     // ignore and proceed
@@ -94,78 +124,118 @@ function removePidFile() {
   } catch {}
 }
 
-// Run guard before attempting to bind
-ensurePidFileGuard();
+/**
+ * Try to start server; if EADDRINUSE, check PID file and port liveliness;
+ * if stale, remove PID and retry ONCE.
+ */
+async function bindServerWithPidRetry() {
+  await ensurePidFileGuard();
 
-function startServerStrict() {
-  const server = app
-    .listen(PORT, HOST, () => {
+  let attemptedRetry = false;
+
+  const attemptListen = () => {
+    const server = app
+      .listen(PORT, HOST, () => {
+        try {
+          const dbName =
+            mongoose?.connection?.db?.databaseName ||
+            process.env.MONGODB_DB ||
+            '(not connected)';
+          // eslint-disable-next-line no-console
+          console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
+          logListening(HOST, PORT);
+          // concise pointers
+          console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
+          // Single unambiguous readiness marker required by orchestrator:
+          // EXACT STRING: READY: http://HOST:PORT
+          console.log(`READY: http://${HOST}:${PORT}`);
+          // Additional compatibility markers for various preview systems
+          console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
+          console.log(`Listening on http://${HOST}:${PORT}`);
+        } catch {}
+        writePidFile();
+      })
+      .on('error', async (err) => {
+        if (err && err.code === 'EADDRINUSE') {
+          // eslint-disable-next-line no-console
+          console.error(`[startup] EADDRINUSE port ${PORT}. A process may already be bound. Checking PID file ${PID_FILE} ...`);
+          let cleaned = false;
+          try {
+            if (fs.existsSync(PID_FILE)) {
+              const pidStr = fs.readFileSync(PID_FILE, 'utf8').trim();
+              const existingPid = Number(pidStr);
+              const alive = Number.isFinite(existingPid) && existingPid > 0 ? isProcessAlive(existingPid) : false;
+              const bound = await isPortBound(PORT);
+              if (!alive || !bound) {
+                try {
+                  fs.unlinkSync(PID_FILE);
+                  cleaned = true;
+                  console.log(`[startup] Removed stale PID file at ${PID_FILE}; will retry bind once.`);
+                } catch {}
+              }
+            } else {
+              // No PID file but still EADDRINUSE; check bound
+              const bound = await isPortBound(PORT);
+              if (!bound) {
+                cleaned = true; // likely a race; allow retry
+                console.log('[startup] Port reported in-use but appears unbound; retrying once.');
+              }
+            }
+          } catch {}
+
+          if (!attemptedRetry && cleaned) {
+            attemptedRetry = true;
+            setTimeout(() => {
+              attemptListen();
+            }, 150);
+            return;
+          }
+        } else {
+          // eslint-disable-next-line no-console
+          console.error('[startup] Server failed to start:', err?.message || err);
+        }
+        process.exit(1);
+      });
+
+    const shutdown = (signal) => {
       try {
-        const dbName =
-          mongoose?.connection?.db?.databaseName ||
-          process.env.MONGODB_DB ||
-          '(not connected)';
         // eslint-disable-next-line no-console
-        console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
-        logListening(HOST, PORT);
-        // concise pointers
-        console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
-        // Single unambiguous readiness marker required by orchestrator:
-        // EXACT STRING: READY: http://HOST:PORT
-        console.log(`READY: http://${HOST}:${PORT}`);
-        // Additional compatibility markers for various preview systems
-        console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
-        console.log(`Listening on http://${HOST}:${PORT}`);
-      } catch {}
-      writePidFile();
-    })
-    .on('error', (err) => {
-      if (err && err.code === 'EADDRINUSE') {
-        // eslint-disable-next-line no-console
-        console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
-      } else {
-        // eslint-disable-next-line no-console
-        console.error('[startup] Server failed to start:', err?.message || err);
+        console.log(`${signal} received; shutting down`);
+        server.close(async () => {
+          try {
+            await mongoose.connection.close();
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error('Error closing MongoDB connection', e?.message || e);
+          } finally {
+            removePidFile();
+          }
+          process.exit(0);
+        });
+      } catch {
+        removePidFile();
+        process.exit(0);
       }
-      process.exit(1);
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('exit', removePidFile);
+
+    process.on('unhandledRejection', (reason) => {
+      // eslint-disable-next-line no-console
+      console.error('[unhandledRejection]', reason);
+    });
+    process.on('uncaughtException', (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[uncaughtException]', err);
     });
 
-  const shutdown = (signal) => {
-    try {
-      // eslint-disable-next-line no-console
-      console.log(`${signal} received; shutting down`);
-      server.close(async () => {
-        try {
-          await mongoose.connection.close();
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.error('Error closing MongoDB connection', e?.message || e);
-        } finally {
-          removePidFile();
-        }
-        process.exit(0);
-      });
-    } catch {
-      removePidFile();
-      process.exit(0);
-    }
+    return server;
   };
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('exit', removePidFile);
-
-  process.on('unhandledRejection', (reason) => {
-    // eslint-disable-next-line no-console
-    console.error('[unhandledRejection]', reason);
-  });
-  process.on('uncaughtException', (err) => {
-    // eslint-disable-next-line no-console
-    console.error('[uncaughtException]', err);
-  });
-
-  return server;
+  return attemptListen();
 }
 
 // Export started server
-module.exports = startServerStrict();
+module.exports = bindServerWithPidRetry();
