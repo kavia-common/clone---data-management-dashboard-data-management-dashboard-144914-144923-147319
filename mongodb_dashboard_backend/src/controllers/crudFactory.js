@@ -106,11 +106,14 @@ function mergeFilterWithTenant(filter, tenantId) {
 
   const tenantStr = String(tenantId);
 
-  // Build authoritative tenant scope with organization_id as preferred field
+  // Build authoritative tenant scope with organization_id as preferred field,
+  // but explicitly PRIMARY match on organization_id to align with data that uses organization_id.
+  // We also include a normalized OR for aliases as a fallback to maximize compatibility.
+  // IMPORTANT: We DO NOT append an additional AND with other tenant fields that could cause conflicts.
   const normalizedTenantFilter = {
     $or: [
-      { organization_id: tenantStr },
-      { tenant_id: tenantStr },
+      { organization_id: tenantStr }, // primary, prefer this
+      { tenant_id: tenantStr },       // legacy/alias
       { organizationId: tenantStr },
       { tenantId: tenantStr },
       { orgId: tenantStr },
@@ -124,6 +127,7 @@ function mergeFilterWithTenant(filter, tenantId) {
   }
 
   // Combine user filter (post-stripping) with normalized tenant filter
+  // NOTE: This single appliedFilter MUST be reused for both find and countDocuments.
   return Object.keys(f).length > 0 ? { $and: [f, normalizedTenantFilter] } : normalizedTenantFilter;
 }
 
@@ -258,7 +262,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         if (debugOn) {
           try {
             // eslint-disable-next-line no-console
-            console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
+            console.debug('[crudFactory.list] appliedFilter=', JSON.stringify(appliedFilter), 'sort=', safeSort, 'exists=', existsSample);
           } catch (_) {}
         }
 

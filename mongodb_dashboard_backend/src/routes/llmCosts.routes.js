@@ -80,6 +80,9 @@ router.get(
       } catch {
         req.query.filter = '{}';
       }
+    } else {
+      // Always ensure we pass a JSON string for consistent downstream parsing
+      req.query.filter = '{}';
     }
 
     // Lightweight debug header to confirm requested query aliases vs resolved tenant
@@ -87,6 +90,8 @@ router.get(
       const clientOrg =
         (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
         (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+        (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+        (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
         null;
       res.set('X-Client-Requested-Tenant', clientOrg || 'none');
       res.set('X-Resolved-Tenant', req.tenantId ? String(req.tenantId) : 'none');
@@ -99,6 +104,30 @@ router.get(
         console.debug('[llm-costs] GET /api/llm-costs tenant=', String(req.tenantId || ''), 'filterRaw=', req.query.filter || '{}');
       }
     } catch (_) {}
+
+    // Delegate to tenant-aware list. crudFactory will compute appliedFilter and set headers:
+    // - x-applied-tenant-filter (stringified)
+    // - X-Applied-Contains-organization_id, X-Applied-Contains-tenant_id
+    // Extra: After controller writes headers, we will log important ones in dev.
+    const originalJson = res.json.bind(res);
+    res.json = function (body) {
+      try {
+        if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+          const hdr = {
+            appliedTenant: res.get('X-Applied-Tenant') || res.get('x-applied-organization-id') || '',
+            model: res.get('X-Model-Collection') || '',
+            orKeys: res.get('X-Applied-Filter-Keys') || '',
+            containsOrgId: res.get('X-Applied-Contains-organization_id') || '',
+            containsTenantId: res.get('X-Applied-Contains-tenant_id') || '',
+            existsProbe: res.get('X-Exists-Sample') || '',
+            appliedFilter: res.get('x-applied-tenant-filter') || '',
+          };
+          // eslint-disable-next-line no-console
+          console.debug('[llm-costs] applied headers:', hdr);
+        }
+      } catch (_) {}
+      return originalJson(body);
+    };
     return controller.list(req, res);
   })
 );
