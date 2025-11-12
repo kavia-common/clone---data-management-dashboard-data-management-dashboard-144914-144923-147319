@@ -92,6 +92,13 @@ router.get(
       res.set('X-Resolved-Tenant', req.tenantId ? String(req.tenantId) : 'none');
     } catch (_) {}
 
+    // Temporary console for deep-verification (non-production only)
+    try {
+      if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+        // eslint-disable-next-line no-console
+        console.debug('[llm-costs] GET /api/llm-costs tenant=', String(req.tenantId || ''), 'filterRaw=', req.query.filter || '{}');
+      }
+    } catch (_) {}
     return controller.list(req, res);
   })
 );

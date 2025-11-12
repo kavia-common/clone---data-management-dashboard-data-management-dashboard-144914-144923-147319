@@ -218,6 +218,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         if (Model && Model.collection && Model.collection.name) {
           res.set('X-Model-Collection', Model.collection.name);
         }
+        // Temporary concise diagnostics for verification
+        const hasOr = appliedFilter && typeof appliedFilter === 'object' && appliedFilter.$or && Array.isArray(appliedFilter.$or);
+        const tenantStr = String(req.tenantId || '');
+        const orKeys = hasOr ? appliedFilter.$or.map((c) => Object.keys(c)[0]).join('|') : '';
+        const orContainsOrg = hasOr && appliedFilter.$or.some((c) => Object.prototype.hasOwnProperty.call(c, 'organization_id') && String(c.organization_id) === tenantStr);
+        const orContainsTenant = hasOr && appliedFilter.$or.some((c) => Object.prototype.hasOwnProperty.call(c, 'tenant_id') && String(c.tenant_id) === tenantStr);
+        res.set('X-Applied-Filter-Keys', hasOr ? orKeys : 'none');
+        res.set('X-Applied-Contains-organization_id', String(!!orContainsOrg));
+        res.set('X-Applied-Contains-tenant_id', String(!!orContainsTenant));
       } catch (_) {}
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
