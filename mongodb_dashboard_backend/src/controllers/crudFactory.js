@@ -80,6 +80,14 @@ function sanitizePayloadWithTenant(req) {
 /**
  * Merge filter safely with enforced tenant_id, ignoring any client-provided tenant keys.
  */
+/**
+ * PUBLIC_INTERFACE
+ * mergeFilterWithTenant
+ * Merges client filter with enforced tenant scope.
+ * - Strips any client-tenant hints.
+ * - Ensures tenantId is treated as string (prevents ObjectId mismatches).
+ * - Prefers organization_id in the applied scope to leverage likely indexes.
+ */
 function mergeFilterWithTenant(filter, tenantId) {
   // Normalize client-provided filter while stripping any tenant hints to prevent bypass
   const f = filter && typeof filter === 'object' ? { ...filter } : {};
@@ -206,7 +214,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       try {
         const appliedFilterStr = JSON.stringify(appliedFilter);
         res.set('x-applied-tenant-filter', appliedFilterStr);
-        res.set('X-Applied-Filter', appliedFilterStr);
         res.set('x-applied-organization-id', String(req.tenantId || ''));
         if (Model && Model.collection && Model.collection.name) {
           res.set('X-Model-Collection', Model.collection.name);

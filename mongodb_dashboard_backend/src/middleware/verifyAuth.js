@@ -14,6 +14,7 @@ const jwt = require('jsonwebtoken');
  *    - In non-production: allow demo mode only when ALLOW_DEMO_AUTH=true or token === "ok".
  * - If token === "ok" in non-production and demo allowed, fabricate a minimal auth context.
  * - Extract tenant_id/tenantId from JWT payload and attach as req.auth.tenantId (normalized).
+ * - IMPORTANT: When Authorization is present, request headers or query cannot override the tenant from JWT.
  */
 function verifyAuth(req, res, next) {
   try {

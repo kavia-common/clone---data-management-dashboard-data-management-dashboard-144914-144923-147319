@@ -34,28 +34,13 @@ router.use(async (req, res, next) => {
   try {
     if (req.tenantId) {
       const tenant = String(req.tenantId);
-      // Expose resolved tenant and defensive multi-alias OR filter for quick verification
+      // Minimal diagnostics only
       res.set('X-Applied-Tenant', tenant);
       res.set('x-applied-organization-id', tenant);
-      // Keep minimal model collection info for quick verification
       try {
         res.set('X-Model-Collection', LLMCost.collection?.name || 'llm_costs');
-        // Also include an indicative filter header
-        const applied = {
-          $or: [
-            { organization_id: tenant },
-            { tenant_id: tenant },
-            { organizationId: tenant },
-            { tenantId: tenant },
-            { orgId: tenant },
-            { 'tenant.tenant_id': tenant },
-          ],
-        };
-        res.set('X-Applied-Filter', JSON.stringify(applied));
-        res.set('x-applied-tenant-filter', JSON.stringify(applied));
       } catch (_) {}
     } else {
-      // If no tenant is attached, surface that explicitly for easier troubleshooting
       res.set('X-Applied-Tenant', 'none');
     }
   } catch (_) {}
@@ -70,6 +55,13 @@ router.use(async (req, res, next) => {
  *  - Merge filter with normalized tenant OR over aliases
  *  - Enforce JWT/header tenant and deny cross-tenant access (403)
  */
+router.get('/_debug/applied-tenant', asyncHandler(async (req, res) => {
+  return res.status(200).json({
+    tenant: req.tenantId ? String(req.tenantId) : null,
+    model: LLMCost.collection?.name || 'llm_costs',
+  });
+}));
+
 router.get(
   '/',
   asyncHandler(async (req, res) => {
