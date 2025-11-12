@@ -295,10 +295,11 @@ app.use('/api/costs', verifyAuth, requireTenant, require('./routes/costs.byAgent
 /* LLM costs endpoints */
 const { verifyAuth: _verifyAuth } = require('./middleware/verifyAuth');
 const { requireTenant: _requireTenant } = require('./middleware/requireTenant');
+// 1️⃣ Mount the hierarchy router first, and be explicit with its prefix
+app.use('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
+// 2️⃣ Then mount the main CRUD routes
 app.use('/api/llm-costs', _verifyAuth, _requireTenant, require('./routes/llmCosts.routes'));
 app.use('/api/llmCosts', _verifyAuth, _requireTenant, require('./routes/llmCosts.routes'));
-// Hierarchy analytics for LLM costs
-app.use('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 
 // Tenants, Projects, Auth, Session
 app.use('/api/tenants', verifyAuth, requireTenant, require('./routes/tenants.routes'));

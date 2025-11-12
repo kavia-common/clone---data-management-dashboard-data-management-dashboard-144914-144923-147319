@@ -65,70 +65,74 @@ router.get('/_debug/applied-tenant', asyncHandler(async (req, res) => {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Normalize client filter and strip any risky nested tenant hints; let controller enforce tenant scope.
-    const raw = req.query.filter;
-    if (raw) {
-      try {
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        if (parsed && typeof parsed === 'object') {
-          // Drop any nested alias that could bypass scoping
-          if (Object.prototype.hasOwnProperty.call(parsed, 'tenant.tenant_id')) {
-            delete parsed['tenant.tenant_id'];
-          }
-          req.query.filter = JSON.stringify(parsed);
-        }
-      } catch {
-        req.query.filter = '{}';
-      }
-    } else {
-      // Always ensure we pass a JSON string for consistent downstream parsing
-      req.query.filter = '{}';
+    // Strictly require organization_id in query and use it as the ONLY tenant filter for this endpoint
+    const orgId = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
+    if (!orgId) {
+      return res.status(400).json({ success: false, message: 'Missing required query parameter: organization_id' });
     }
 
-    // Lightweight debug header to confirm requested query aliases vs resolved tenant
-    try {
-      const clientOrg =
-        (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
-        (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-        (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-        (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-        null;
-      res.set('X-Client-Requested-Tenant', clientOrg || 'none');
-      res.set('X-Resolved-Tenant', req.tenantId ? String(req.tenantId) : 'none');
-    } catch (_) {}
+    // Preserve existing auth middleware; do not override tenant from JWT.
+    // If Authorization is present and JWT tenant is different from organization_id, reject with 403.
+    const jwtTenant = req?.tenantId ? String(req.tenantId) : undefined;
+    if (req.headers?.authorization && jwtTenant && jwtTenant !== orgId) {
+      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+    }
 
-    // Temporary console for deep-verification (non-production only)
-    try {
-      if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-        // eslint-disable-next-line no-console
-        console.debug('[llm-costs] GET /api/llm-costs tenant=', String(req.tenantId || ''), 'filterRaw=', req.query.filter || '{}');
-      }
-    } catch (_) {}
+    // Prepare pagination
+    const { parsePagination } = require('../utils/http');
+    const { page, limit, skip, explicit } = parsePagination(req.query);
 
-    // Delegate to tenant-aware list. crudFactory will compute appliedFilter and set headers:
-    // - x-applied-tenant-filter (stringified)
-    // - X-Applied-Contains-organization_id, X-Applied-Contains-tenant_id
-    // Extra: After controller writes headers, we will log important ones in dev.
-    const originalJson = res.json.bind(res);
-    res.json = function (body) {
+    // Build strict filter on organization_id only. Do not strip organization_id.
+    const baseFilter = { organization_id: orgId };
+
+    // Optional client filter: allow non-tenant fields only; never remove or override organization_id.
+    let clientFilter = {};
+    if (req.query && req.query.filter) {
       try {
-        if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-          const hdr = {
-            appliedTenant: res.get('X-Applied-Tenant') || res.get('x-applied-organization-id') || '',
-            model: res.get('X-Model-Collection') || '',
-            orKeys: res.get('X-Applied-Filter-Keys') || '',
-            containsOrgId: res.get('X-Applied-Contains-organization_id') || '',
-            containsTenantId: res.get('X-Applied-Contains-tenant_id') || '',
-            existsProbe: res.get('X-Exists-Sample') || '',
-            appliedFilter: res.get('x-applied-tenant-filter') || '',
-          };
-          // eslint-disable-next-line no-console
-          console.debug('[llm-costs] applied headers:', hdr);
+        const parsed = typeof req.query.filter === 'string' ? JSON.parse(req.query.filter) : req.query.filter;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          clientFilter = { ...parsed };
+          // Do NOT delete organization_id per requirement.
+          // Remove nested tenant aliases that could conflict
+          delete clientFilter.tenant_id;
+          delete clientFilter.tenantId;
+          delete clientFilter.organizationId;
+          delete clientFilter.orgId;
+          delete clientFilter['tenant.tenant_id'];
         }
-      } catch (_) {}
-      return originalJson(body);
-    };
-    return controller.list(req, res);
+      } catch {
+        return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+      }
+    }
+
+    // Applied filter is strictly AND with organization_id
+    const appliedFilter = Object.keys(clientFilter).length ? { $and: [baseFilter, clientFilter] } : baseFilter;
+
+    // Diagnostics
+    try {
+      res.set('X-Applied-Tenant', orgId);
+      res.set('x-applied-organization-id', orgId);
+      res.set('x-applied-tenant-filter', JSON.stringify(appliedFilter));
+      res.set('X-Model-Collection', LLMCost.collection?.name || 'llm_costs');
+      res.set('X-Applied-Filter-Strategy', 'organization_id_strict');
+      res.set('X-Applied-Filter-Keys', 'organization_id');
+    } catch (_) {}
+
+    // Query with consistent meta.total
+    const sort = '-timestamp'; // keep safe default
+    try {
+      if (explicit) {
+        const [items, total] = await Promise.all([
+          LLMCost.find(appliedFilter).sort(sort).skip(skip).limit(limit).allowDiskUse(true).lean(),
+          LLMCost.countDocuments(appliedFilter),
+        ]);
+        return res.status(200).json({ success: true, data: items, meta: { page, limit, total } });
+      }
+      const items = await LLMCost.find(appliedFilter).sort(sort).allowDiskUse(true).lean();
+      return res.status(200).json(items);
+    } catch (err) {
+      return res.status(400).json({ success: false, message: err?.message || 'Request failed' });
+    }
   })
 );
 

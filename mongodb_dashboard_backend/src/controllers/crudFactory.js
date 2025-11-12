@@ -211,31 +211,18 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         return failure(res, 'Forbidden: tenant scope mismatch', 403);
       }
 
-      // Build two candidate filters:
-      // 1) primaryApplied: force leading match on organization_id = tenant (AND user filter)
-      // 2) fallbackApplied: normalized OR across aliases (existing behavior via mergeFilterWithTenant)
+      // For general CRUD lists we retain existing behavior.
+      // Note: The /api/llm-costs route now overrides list handling at route-level for strict organization_id filtering.
       const tenantStr = String(req.tenantId);
-      const userFilter = (() => {
-        // replicate client filter stripping in mergeFilterWithTenant for org-first primary
-        const f = filter && typeof filter === 'object' ? { ...filter } : {};
-        delete f.tenant_id;
-        delete f.tenantId;
-        delete f.organizationId;
-        delete f.orgId;
-        delete f['tenant.tenant_id'];
-        // DO NOT delete organization_id; keep it if provided
-        return f;
-      })();
-
-      const primaryApplied =
-        Object.keys(userFilter).length > 0
-          ? { $and: [{ organization_id: tenantStr }, userFilter] }
-          : { organization_id: tenantStr };
-
       const fallbackApplied = mergeFilterWithTenant(filter, req.tenantId);
+      const appliedFilterUsed = fallbackApplied;
+      const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
 
-      // We will probe primary first; if zero results, we'll use fallback.
-      // This ensures best index usage when docs use organization_id while still supporting aliases.
+      try {
+        res.set('x-applied-tenant-filter', JSON.stringify(appliedFilterUsed || {}));
+        res.set('x-applied-organization-id', String(req.tenantId || ''));
+        res.set('X-Applied-Filter-Strategy', 'generic_fallback');
+      } catch (_) {}
       const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
 
       // Helper to set diagnostics headers for a given filter and strategy
