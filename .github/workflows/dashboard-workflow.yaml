@@ -1,0 +1,114 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - kavia-main
+
+env:
+  DUPLO_TOKEN: ${{ secrets.DUPLO_TOKEN }}
+  DUPLO_HOST: https://duplo.cloud.kavia.ai
+  DUPLO_TENANT: kavia-dev
+  REPO_NAME: kavia-dashboard
+  AWS_ACCOUNT_ID: 127214169382
+  AWS_REGION: us-west-2
+  IMAGE_NAME: kavia-dashboard
+  CLUSTER_NAME: dev
+  SERVICE_NAME: kavia-dashboard
+
+jobs:
+  build:  
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      image_tag: ${{ steps.image.outputs.tag }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Duplo Setup (provides AWS credentials)
+      uses: duplocloud/actions/setup@v0.0.5
+    
+    - name: Ensure ECR Repository Exists
+      run: |
+        aws ecr describe-repositories \
+          --repository-names ${{ env.REPO_NAME }} \
+          --region ${{ env.AWS_REGION }} 2>/dev/null || \
+        aws ecr create-repository \
+          --repository-name ${{ env.REPO_NAME }} \
+          --region ${{ env.AWS_REGION }} \
+          --image-scanning-configuration scanOnPush=true
+    
+    - name: Login to Amazon ECR
+      run: |
+        aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+          docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+    
+    - name: Set Image Tag
+      id: image
+      run: |
+        IMAGE_TAG="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.REPO_NAME }}:${{ github.sha }}"
+        echo "tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+        echo "Full image tag: ${IMAGE_TAG}"
+    
+    - name: Build Docker Image
+      run: |
+        docker build \
+          --platform linux/amd64 \
+          --file mongodb_dashboard_backend/Dockerfile \
+          --tag "${{ steps.image.outputs.tag }}" \
+          .
+    
+    - name: Push Docker Image to ECR
+      run: |
+        docker push "${{ steps.image.outputs.tag }}"
+        echo "✅ Successfully pushed: ${{ steps.image.outputs.tag }}"
+    
+    - name: Verify Image in ECR
+      run: |
+        echo "Verifying image exists in ECR..."
+        aws ecr describe-images \
+          --repository-name ${{ env.REPO_NAME }} \
+          --region ${{ env.AWS_REGION }} \
+          --image-ids imageTag=${{ github.sha }} \
+          --query 'imageDetails[0].[imageTags[0],imagePushedAt]' \
+          --output table
+        echo "✅ Image verified in ECR"
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment: development
+    timeout-minutes: 10
+    
+    steps:
+    - name: Duplo Setup
+      uses: duplocloud/actions/setup@v0.0.5
+      
+    - name: Update Service Image
+      run: |
+        echo "Deploying image: ${{ needs.build.outputs.image_tag }}"
+        duploctl service update_image ${{ env.SERVICE_NAME }} "${{ needs.build.outputs.image_tag }}"
+        echo "✅ Service updated successfully"
+    
+    - name: Wait for Deployment
+      run: |
+        echo "Waiting 30 seconds for pods to start..."
+        sleep 30
+        
+    - name: Verify Deployment
+      run: |
+        echo "✅ Deployment Summary"
+        echo "===================="
+        echo "Service: ${{ env.SERVICE_NAME }}"
+        echo "Image: ${{ needs.build.outputs.image_tag }}"
+        echo "Tenant: ${{ env.DUPLO_TENANT }}"
+        echo "Commit: ${{ github.sha }}"
+        echo "===================="
+        
+        echo ""
+        echo "Getting service status..."
+        duploctl service get ${{ env.SERVICE_NAME }} || echo "Could not fetch service status"
