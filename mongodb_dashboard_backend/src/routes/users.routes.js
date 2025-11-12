@@ -13,6 +13,9 @@ const Tenant = require('../models/tenant.model');
 const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
 
+// Mount sub-routes for users module
+router.use('/', require('../routes/users.projects.routes'));
+
 /**
  * Expose applied tenant and preview filter for diagnostics
  */

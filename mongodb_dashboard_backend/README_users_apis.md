@@ -1,18 +1,24 @@
-# Users API scoping notes
+# Users APIs - Additional
 
-- All list endpoints under /api/users are now strictly scoped by organization on the server.
-- Organization is read from trusted locations via middleware (headers preferred): 
-  - X-Organization-Id, X-Org-Id, X-Tenant-Id, X-Tenant
-  - Fallbacks: query ?tenant_id or ?organization_id, or body.organization_id for POST endpoints.
+## GET /api/users/:userId/projects
 
-Verification commands:
+Returns distinct projects the user has activity in, based on the `session_tracking` collection.
 
-- Should return only users for org \"orgA\":
-  curl -s 'http://localhost:3001/api/users?limit=5' -H 'X-Organization-Id: orgA' | jq
+Query parameters:
+- tenant_id: required (alias organization_id)
+- from: optional ISO date-time (inclusive)
+- to: optional ISO date-time (inclusive)
 
-- Should not be influenced by client-provided filter orgs (server strips and enforces):
-  curl -s 'http://localhost:3001/api/users?filter={"tenant_id":"orgB"}' -H 'X-Organization-Id: orgA' | jq
+Response:
+{
+  "user_id": "u1",
+  "tenant_id": "org_123",
+  "projects": [
+    { "project_id": "projA", "project_name": "My App", "last_activity": "2025-01-10T10:30:00.000Z" }
+  ]
+}
 
-- Debug logs:
-  append ?debug=true to see final filter in response meta or header X-Debug-Final-Filter (for unpaginated lists).
-
+Notes:
+- userId is normalized to string for matching and matched against `user_id` or `userId`.
+- tenant scope matches either `tenant_id` or legacy `organization_id`.
+- last_activity is taken from the most recent of: last_updated, timestamp, session_end, session_start, created_at.
