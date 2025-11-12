@@ -211,76 +211,114 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         return failure(res, 'Forbidden: tenant scope mismatch', 403);
       }
 
-      // Build final applied filter with robust tenant alias removal and normalized OR across aliases
-      const appliedFilter = mergeFilterWithTenant(filter, req.tenantId);
+      // Build two candidate filters:
+      // 1) primaryApplied: force leading match on organization_id = tenant (AND user filter)
+      // 2) fallbackApplied: normalized OR across aliases (existing behavior via mergeFilterWithTenant)
+      const tenantStr = String(req.tenantId);
+      const userFilter = (() => {
+        // replicate client filter stripping in mergeFilterWithTenant for org-first primary
+        const f = filter && typeof filter === 'object' ? { ...filter } : {};
+        delete f.tenant_id;
+        delete f.tenantId;
+        delete f.organizationId;
+        delete f.orgId;
+        delete f['tenant.tenant_id'];
+        // DO NOT delete organization_id; keep it if provided
+        return f;
+      })();
 
-      // Expose applied filter, model collection and quick existence probe for diagnostics
-      try {
-        const appliedFilterStr = JSON.stringify(appliedFilter);
-        res.set('x-applied-tenant-filter', appliedFilterStr);
-        res.set('x-applied-organization-id', String(req.tenantId || ''));
-        if (Model && Model.collection && Model.collection.name) {
-          res.set('X-Model-Collection', Model.collection.name);
-        }
-        // Temporary concise diagnostics for verification
-        const hasOr = appliedFilter && typeof appliedFilter === 'object' && appliedFilter.$or && Array.isArray(appliedFilter.$or);
-        const tenantStr = String(req.tenantId || '');
-        const orKeys = hasOr ? appliedFilter.$or.map((c) => Object.keys(c)[0]).join('|') : '';
-        const orContainsOrg = hasOr && appliedFilter.$or.some((c) => Object.prototype.hasOwnProperty.call(c, 'organization_id') && String(c.organization_id) === tenantStr);
-        const orContainsTenant = hasOr && appliedFilter.$or.some((c) => Object.prototype.hasOwnProperty.call(c, 'tenant_id') && String(c.tenant_id) === tenantStr);
-        res.set('X-Applied-Filter-Keys', hasOr ? orKeys : 'none');
-        res.set('X-Applied-Contains-organization_id', String(!!orContainsOrg));
-        res.set('X-Applied-Contains-tenant_id', String(!!orContainsTenant));
-      } catch (_) {}
+      const primaryApplied =
+        Object.keys(userFilter).length > 0
+          ? { $and: [{ organization_id: tenantStr }, userFilter] }
+          : { organization_id: tenantStr };
 
-      // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
+      const fallbackApplied = mergeFilterWithTenant(filter, req.tenantId);
+
+      // We will probe primary first; if zero results, we'll use fallback.
+      // This ensures best index usage when docs use organization_id while still supporting aliases.
       const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
 
-      try {
-        // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
-        let existsSample = 'unknown';
+      // Helper to set diagnostics headers for a given filter and strategy
+      const setDiagnostics = (applied, strategy) => {
         try {
-          const existsDoc = await Model.exists(
-            appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
-          ).lean?.();
-          existsSample = existsDoc ? 'true' : 'false';
-        } catch {
-          // Some Mongoose versions don't support .lean on exists result; fallback
-          try {
-            const existsDoc = await Model.exists(
-              appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
-            );
-            existsSample = existsDoc ? 'true' : 'false';
-          } catch {
-            existsSample = 'error';
+          res.set('x-applied-tenant-filter', JSON.stringify(applied || {}));
+          res.set('x-applied-organization-id', String(req.tenantId || ''));
+          res.set('X-Applied-Filter-Strategy', strategy); // primary | fallback
+          if (Model && Model.collection && Model.collection.name) {
+            res.set('X-Model-Collection', Model.collection.name);
           }
-        }
-        try {
-          res.set('X-Exists-Sample', existsSample);
+          const hasOr = applied && typeof applied === 'object' && applied.$or && Array.isArray(applied.$or);
+          const orKeys = hasOr ? applied.$or.map((c) => Object.keys(c)[0]).join('|') : 'none';
+          const orContainsOrg =
+            hasOr && applied.$or.some((c) => Object.prototype.hasOwnProperty.call(c, 'organization_id') && String(c.organization_id) === tenantStr);
+          const orContainsTenant =
+            hasOr && applied.$or.some((c) => Object.prototype.hasOwnProperty.call(c, 'tenant_id') && String(c.tenant_id) === tenantStr);
+          res.set('X-Applied-Filter-Keys', orKeys);
+          res.set('X-Applied-Contains-organization_id', String(!!orContainsOrg));
+          res.set('X-Applied-Contains-tenant_id', String(!!orContainsTenant));
         } catch (_) {}
+      };
+
+      try {
+        // Existence probe on primary
+        let existsPrimary = 'unknown';
+        try {
+          const ex1 = await Model.exists(primaryApplied);
+          existsPrimary = ex1 ? 'true' : 'false';
+        } catch {
+          existsPrimary = 'error';
+        }
+
+        let appliedFilterUsed = primaryApplied;
+        let appliedStrategy = 'primary';
+
+        // If primary has zero, try fallback
+        if (existsPrimary === 'false') {
+          // Probe fallback too (to populate debug header)
+          let existsFallback = 'unknown';
+          try {
+            const ex2 = await Model.exists(fallbackApplied);
+            existsFallback = ex2 ? 'true' : 'false';
+          } catch {
+            existsFallback = 'error';
+          }
+          // Choose fallback only if it returns something
+          if (existsFallback === 'true') {
+            appliedFilterUsed = fallbackApplied;
+            appliedStrategy = 'fallback';
+          }
+          try {
+            res.set('X-Exists-Primary', existsPrimary);
+            res.set('X-Exists-Fallback', existsFallback);
+          } catch (_) {}
+        } else {
+          try {
+            res.set('X-Exists-Primary', existsPrimary);
+          } catch (_) {}
+        }
+
+        setDiagnostics(appliedFilterUsed, appliedStrategy);
 
         if (debugOn) {
           try {
             // eslint-disable-next-line no-console
-            console.debug('[crudFactory.list] appliedFilter=', JSON.stringify(appliedFilter), 'sort=', safeSort, 'exists=', existsSample);
+            console.debug('[crudFactory.list] strategy=', appliedStrategy, 'filter=', JSON.stringify(appliedFilterUsed), 'sort=', safeSort);
           } catch (_) {}
         }
 
         if (req.method === 'GET' && explicit) {
-          const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
+          const key = buildListKey(req, appliedFilterUsed, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
           if (cached) return res.status(200).json(cached);
 
-          // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           const [items, total] = await Promise.all([
-            // Apply same filter for both items and total to keep meta.total consistent with data
-            Model.find(appliedFilter)
+            Model.find(appliedFilterUsed)
               .sort(safeSort)
               .skip(skip)
               .limit(hardCappedLimit)
               .allowDiskUse(true)
               .lean(),
-            Model.countDocuments(appliedFilter),
+            Model.countDocuments(appliedFilterUsed),
           ]);
 
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
@@ -288,8 +326,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           return res.status(200).json(payload);
         }
 
-        // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
-        const items = await Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        const items = await Model.find(appliedFilterUsed).sort(safeSort).allowDiskUse(true).lean();
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
