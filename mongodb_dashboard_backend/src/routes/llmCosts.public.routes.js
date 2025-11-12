@@ -31,9 +31,14 @@ router.get(
     try {
       if (rawFilter) {
         const parsed = typeof rawFilter === 'string' ? JSON.parse(rawFilter) : rawFilter;
-        delete parsed?.tenant_id;
-        delete parsed?.tenantId;
-        delete parsed?.organization_id;
+        // Strip only tenant aliases; keep organization_id to allow indexed primary strategy if it matches scope.
+        if (parsed && typeof parsed === 'object') {
+          delete parsed.tenant_id;
+          delete parsed.tenantId;
+          delete parsed.organizationId;
+          delete parsed.orgId;
+          delete parsed['tenant.tenant_id'];
+        }
         req.query.filter = JSON.stringify(parsed || {});
       }
     } catch {

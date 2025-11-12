@@ -290,10 +290,12 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           try {
             res.set('X-Exists-Primary', existsPrimary);
             res.set('X-Exists-Fallback', existsFallback);
+            res.set('X-Exists-Sample', `p:${existsPrimary}|f:${existsFallback}`);
           } catch (_) {}
         } else {
           try {
             res.set('X-Exists-Primary', existsPrimary);
+            res.set('X-Exists-Sample', `p:${existsPrimary}`);
           } catch (_) {}
         }
 
