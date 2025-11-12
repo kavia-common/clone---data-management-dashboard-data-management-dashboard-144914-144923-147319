@@ -65,16 +65,26 @@ router.get('/_debug/applied-tenant', asyncHandler(async (req, res) => {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Strictly require organization_id in query and use it as the ONLY tenant filter for this endpoint
-    const orgId = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
-    if (!orgId) {
+    // Guarded toggle: when enabled, force organization_id to a static value (default 'T0000') for verification.
+    // Set LLM_COSTS_FORCE_ORG_ID in environment to activate. Example: LLM_COSTS_FORCE_ORG_ID=T0000
+    const forcedOrgEnv = process.env.LLM_COSTS_FORCE_ORG_ID;
+    const isForcedEnabled = !!forcedOrgEnv && String(forcedOrgEnv).trim().length > 0;
+    const forcedOrgId = isForcedEnabled ? String(forcedOrgEnv).trim() : null;
+
+    // Resolve requested org from query (normal path)
+    const requestedOrgId = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
+
+    // Choose effective org: forced takes precedence when enabled
+    const effectiveOrgId = isForcedEnabled ? forcedOrgId : requestedOrgId;
+
+    if (!effectiveOrgId) {
       return res.status(400).json({ success: false, message: 'Missing required query parameter: organization_id' });
     }
 
-    // Preserve existing auth middleware; do not override tenant from JWT.
-    // If Authorization is present and JWT tenant is different from organization_id, reject with 403.
+    // Preserve existing auth middleware; do not override tenant from JWT when NOT forcing.
+    // If Authorization is present and JWT tenant is different from the effective organization_id, reject with 403.
     const jwtTenant = req?.tenantId ? String(req.tenantId) : undefined;
-    if (req.headers?.authorization && jwtTenant && jwtTenant !== orgId) {
+    if (req.headers?.authorization && jwtTenant && jwtTenant !== effectiveOrgId) {
       return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
     }
 
@@ -83,7 +93,7 @@ router.get(
     const { page, limit, skip, explicit } = parsePagination(req.query);
 
     // Build strict filter on organization_id only. Do not strip organization_id.
-    const baseFilter = { organization_id: orgId };
+    const baseFilter = { organization_id: effectiveOrgId };
 
     // Optional client filter: allow non-tenant fields only; never remove or override organization_id.
     let clientFilter = {};
@@ -110,12 +120,15 @@ router.get(
 
     // Diagnostics
     try {
-      res.set('X-Applied-Tenant', orgId);
-      res.set('x-applied-organization-id', orgId);
+      res.set('X-Applied-Tenant', effectiveOrgId);
+      res.set('x-applied-organization-id', effectiveOrgId);
       res.set('x-applied-tenant-filter', JSON.stringify(appliedFilter));
       res.set('X-Model-Collection', LLMCost.collection?.name || 'llm_costs');
-      res.set('X-Applied-Filter-Strategy', 'organization_id_strict');
+      res.set('X-Applied-Filter-Strategy', isForcedEnabled ? 'forced_organization_id' : 'organization_id_strict');
       res.set('X-Applied-Filter-Keys', 'organization_id');
+      if (isForcedEnabled) {
+        res.set('X-Forced-Organization-Id', effectiveOrgId);
+      }
     } catch (_) {}
 
     // Query with consistent meta.total
