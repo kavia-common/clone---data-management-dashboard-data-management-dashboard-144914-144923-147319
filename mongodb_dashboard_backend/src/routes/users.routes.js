@@ -286,6 +286,153 @@ router.get(
   extractOrganization(),
   controller.list
 );
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/:userId/projects
+ * Returns distinct projects for a user within the scoped tenant using session_tracking collection.
+ * - Requires tenant scope (JWT tenant or x-organization-id header / ?tenant_id / ?organization_id)
+ * - Optional query params: from, to (ISO date-time), page, limit
+ * - Pagination: when page/limit provided, wraps response with { success, data, meta }
+ *
+ * Diagnostics headers:
+ *   - X-Endpoint: "users-user-projects"
+ *   - X-User-Id: normalized string userId
+ *   - X-Applied-Tenant: from requireTenant middleware
+ */
+/**
+ * @swagger
+ * /api/users/{userId}/projects:
+ *   get:
+ *     summary: Get projects associated with a user (from session tracking)
+ *     description: >
+ *       Returns distinct projects the user has activity in, based on the session_tracking collection.
+ *       Requires tenant scope via JWT or x-organization-id header (or query aliases).
+ *       Supports optional time range using "from" and "to" query parameters and optional pagination "page" and "limit".
+ *     tags:
+ *       - Users
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User identifier (normalized to string for matching)
+ *       - in: query
+ *         name: organization_id
+ *         schema:
+ *           type: string
+ *         description: Tenant (organization) ID to scope the query. Alias of tenant_id; ignored when JWT is present and enforces tenant.
+ *       - in: query
+ *         name: tenant_id
+ *         schema:
+ *           type: string
+ *         description: Alias for tenant (organization) ID; prefer organization_id header.
+ *       - in: query
+ *         name: from
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Optional ISO date-time lower bound
+ *       - in: query
+ *         name: to
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Optional ISO date-time upper bound
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         description: Optional page number (enables envelope response)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 200
+ *         description: Optional page size (enables envelope response)
+ *     responses:
+ *       200:
+ *         description: User projects list
+ *       400:
+ *         description: Missing required parameters or invalid input
+ */
+router.get(
+  '/:userId/projects',
+  extractOrganization(),
+  asyncHandler(async (req, res) => {
+    // Param alignment: route uses :userId; normalize to string
+    const { userId } = req.params || {};
+    const normalizedUserId = String(userId || '').trim();
+
+    // Enforce tenant (requireTenant already mounted at app/index level; also use extractOrganization)
+    const tenantId = req.organizationId || req.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Missing tenant scope: include Authorization (JWT) or header x-organization-id or query ?tenant_id / ?organization_id',
+      });
+    }
+    if (!normalizedUserId) {
+      return res.status(400).json({ success: false, message: 'userId path parameter is required' });
+    }
+
+    // Time range
+    const { from, to } = req.query || {};
+    if (from) {
+      const d = new Date(from);
+      if (Number.isNaN(d.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid "from" date' });
+      }
+    }
+    if (to) {
+      const d = new Date(to);
+      if (Number.isNaN(d.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid "to" date' });
+      }
+    }
+
+    // Minimal diagnostics headers
+    res.setHeader('X-Endpoint', 'users-user-projects');
+    res.setHeader('X-User-Id', normalizedUserId);
+    if (tenantId) {
+      try {
+        res.setHeader('X-Applied-Tenant', String(tenantId));
+      } catch (_) {}
+    }
+
+    // Fetch projects via service
+    const { getUserProjectsFromSessions } = require('../services/users.service');
+    const payload = await getUserProjectsFromSessions({
+      tenantId: String(tenantId),
+      userId: normalizedUserId,
+      from,
+      to,
+    });
+
+    // Pagination support (optional)
+    const page = Number(req.query.page || 0);
+    const limit = Number(req.query.limit || 0);
+    if (page > 0 && limit > 0) {
+      const start = (page - 1) * limit;
+      const end = start + limit;
+      const sliced = (payload.projects || []).slice(start, end);
+      return res.status(200).json({
+        success: true,
+        data: sliced,
+        meta: { page, limit, total: (payload.projects || []).length },
+        user_id: payload.user_id,
+        tenant_id: payload.tenant_id,
+      });
+    }
+
+    // Non-paginated response: return the full object as documented
+    return res.status(200).json(payload);
+  })
+);
+
 router.get('/:id', controller.getById);
 router.post('/', controller.create);
 router.put('/:id', controller.update);

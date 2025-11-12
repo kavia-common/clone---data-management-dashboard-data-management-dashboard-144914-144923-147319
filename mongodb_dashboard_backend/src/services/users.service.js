@@ -10,7 +10,7 @@ const Project = require('../models/project.model');
  * - Returns unique projects with optional last activity timestamp and optional project_name (if found in projects collection).
  *
  * @param {Object} params
- * @param {string} params.tenantId - Required tenant identifier.
+ * @param {string} params.tenantId - Required tenant identifier. Alias of organization_id on inbound query; enforced from JWT/header by middleware.
  * @param {string|number|Object} params.userId - User identifier (will be normalized to string for matching).
  * @param {string|Date} [params.from] - Optional ISO date or Date for start of time range.
  * @param {string|Date} [params.to] - Optional ISO date or Date for end of time range.

@@ -1734,7 +1734,7 @@
     "/api/users/{userId}/projects": {
       "get": {
         "summary": "Get projects associated with a user (from session tracking)",
-        "description": "Returns distinct projects the user has activity in, based on the session_tracking collection. Optional time range can be provided using \"from\" and \"to\" query parameters. Note: This endpoint excludes cost aggregation.\n",
+        "description": "Returns distinct projects the user has activity in, based on the session_tracking collection. Optional time range can be provided using \"from\" and \"to\" query parameters. Supports optional pagination with page and limit. Note: This endpoint excludes cost aggregation.\n",
         "tags": [
           "Users"
         ],
@@ -1750,12 +1750,17 @@
           },
           {
             "in": "query",
+            "name": "organization_id",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Tenant (organization) ID to scope the query. Ignored when JWT is present and enforces tenant. Alias of tenant_id."
+          },
+          {
+            "in": "query",
             "name": "tenant_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Tenant (organization) ID to scope the query"
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Alias for tenant (organization) ID; prefer organization_id header."
           },
           {
             "in": "query",
@@ -1774,6 +1779,18 @@
               "format": "date-time"
             },
             "description": "Optional ISO date-time upper bound"
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": { "type": "integer", "minimum": 1 },
+            "description": "Optional page number (enables envelope response)"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200 },
+            "description": "Optional page size (enables envelope response)"
           }
         ],
         "responses": {
@@ -1782,35 +1799,29 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "user_id": {
-                      "type": "string"
-                    },
-                    "tenant_id": {
-                      "type": "string"
-                    },
-                    "projects": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "project_id": {
-                            "type": "string"
-                          },
-                          "project_name": {
-                            "type": "string",
-                            "nullable": true
-                          },
-                          "last_activity": {
-                            "type": "string",
-                            "format": "date-time",
-                            "nullable": true
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "user_id": { "type": "string" },
+                        "tenant_id": { "type": "string" },
+                        "projects": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "project_id": { "type": "string" },
+                              "project_name": { "type": "string", "nullable": true },
+                              "last_activity": { "type": "string", "format": "date-time", "nullable": true }
+                            }
                           }
                         }
                       }
+                    },
+                    {
+                      "$ref": "#/components/schemas/ListEnvelope"
                     }
-                  }
+                  ]
                 }
               }
             }
