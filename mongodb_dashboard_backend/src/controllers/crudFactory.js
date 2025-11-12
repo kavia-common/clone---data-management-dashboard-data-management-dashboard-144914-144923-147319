@@ -81,29 +81,30 @@ function sanitizePayloadWithTenant(req) {
  * Merge filter safely with enforced tenant_id, ignoring any client-provided tenant keys.
  */
 function mergeFilterWithTenant(filter, tenantId) {
+  // Normalize client-provided filter while stripping any tenant hints to prevent bypass
   const f = filter && typeof filter === 'object' ? { ...filter } : {};
-  // strip possible client-supplied tenant hints
   delete f.tenant_id;
   delete f.tenantId;
   delete f.organization_id;
   delete f.organizationId;
   delete f.orgId;
+  delete f['tenant.tenant_id'];
 
   if (!tenantId) return f;
 
-  // Build a normalized tenant filter to match across possible fields (defensive)
+  // Defensive: apply OR across all known tenant aliases observed in datasets
   const normalizedTenantFilter = {
     $or: [
       { tenant_id: String(tenantId) },
       { organization_id: String(tenantId) },
-      { orgId: String(tenantId) },
-      { tenantId: String(tenantId) },
       { organizationId: String(tenantId) },
+      { tenantId: String(tenantId) },
+      { orgId: String(tenantId) },
       { 'tenant.tenant_id': String(tenantId) },
     ],
   };
 
-  // enforce tenant filter
+  // Combine user filter (post-stripping) with normalized tenant filter
   return Object.keys(f).length > 0 ? { $and: [f, normalizedTenantFilter] } : normalizedTenantFilter;
 }
 

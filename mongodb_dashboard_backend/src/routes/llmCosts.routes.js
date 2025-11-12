@@ -37,17 +37,7 @@ router.use(async (req, res, next) => {
       // Expose resolved tenant and defensive multi-alias OR filter for quick verification
       res.set('X-Applied-Tenant', tenant);
       res.set('x-applied-organization-id', tenant);
-      const orgFilter = {
-        $or: [
-          { tenant_id: tenant },
-          { organization_id: tenant },
-          { orgId: tenant },
-          { tenantId: tenant },
-          { organizationId: tenant },
-          { 'tenant.tenant_id': tenant },
-        ],
-      };
-      res.set('X-Applied-Filter', JSON.stringify(orgFilter));
+      // Keep minimal model collection info for quick verification
       try {
         res.set('X-Model-Collection', LLMCost.collection?.name || 'llm_costs');
       } catch (_) {}
@@ -70,7 +60,7 @@ router.use(async (req, res, next) => {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Allow custom filter but defensively strip any tenant keys to prevent bypass
+    // Allow custom filter but defensively strip any tenant keys to prevent bypass (server enforces from JWT)
     const raw = req.query.filter;
     if (raw) {
       try {
@@ -81,6 +71,7 @@ router.get(
           delete parsed.organization_id;
           delete parsed.organizationId;
           delete parsed.orgId;
+          delete parsed['tenant.tenant_id'];
           req.query.filter = JSON.stringify(parsed);
         }
       } catch {

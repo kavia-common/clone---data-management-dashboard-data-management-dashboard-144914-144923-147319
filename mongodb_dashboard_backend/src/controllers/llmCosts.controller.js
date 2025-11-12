@@ -32,6 +32,7 @@ async function getHierarchy(req, res) {
     delete filter.organization_id;
     delete filter.organizationId;
     delete filter.orgId;
+    delete filter['tenant.tenant_id'];
 
     // JWT precedence check: if Authorization present and client hints conflict, reject with 403
     const clientRequestedTenant =
