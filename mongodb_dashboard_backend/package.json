@@ -1,0 +1,64 @@
+{
+  "name": "minimal-express-app",
+  "version": "1.0.0",
+  "description": "Minimal Express app with scalable structure",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node -e \"process.env.HOST=process.env.HOST||'0.0.0.0';process.env.PORT=process.env.PORT||'3001';process.env.NODE_ENV=process.env.NODE_ENV||'production';require('./src/server.js');\"",
+    "dev": "CI=${CI:-true} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} node ./src/server.js",
+    "dev:port3001": "CI=true HOST=0.0.0.0 PORT=3001 NODE_ENV=development node ./src/server.js",
+    "dev:watch": "CI=${CI:-true} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} nodemon --watch src --ext js,json --exec \"node src/server.js\"",
+    "dev:node": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} node src/server.js",
+    "preview": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=production node ./src/server.js",
+    "test": "jest",
+    "lint": "eslint .",
+    "gen:openapi": "node generate_openapi.js"
+  },
+  "engines": {
+    "node": ">=18 <=22",
+    "npm": ">=8"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "cors": "2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^5.9.0",
+    "mongoose": "^7.8.0",
+    "morgan": "^1.10.0",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "eslint": "^9.24.0",
+    "globals": "^16.0.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1",
+    "supertest": "^7.1.4"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "src"
+    ],
+    "ignore": [
+      "node_modules",
+      "package.json",
+      "package-lock.json",
+      "*.lock",
+      "*.log",
+      "*.md",
+      ".git",
+      "dist",
+      "build"
+    ],
+    "ext": "js,json",
+    "env": {
+      "HOST": "0.0.0.0",
+      "PORT": "3001",
+      "NODE_ENV": "development"
+    }
+  }
+}
