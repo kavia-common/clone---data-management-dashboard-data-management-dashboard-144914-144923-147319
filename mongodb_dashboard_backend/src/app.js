@@ -68,8 +68,13 @@ const buildDynamicSpec = (req) => {
   };
 };
 
-app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
-app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
+app.get('/openapi.json', (req, res) => {
+  // Always rebuild from sanitized base spec to avoid stale cache issues at the UI layer
+  return res.json(buildDynamicSpec(req));
+});
+app.get('/api-docs.json', (req, res) => {
+  return res.json(buildDynamicSpec(req));
+});
 // Serve spec at /api/docs.json as well to meet requirement
 app.get('/api/docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 

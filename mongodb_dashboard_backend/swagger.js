@@ -97,7 +97,8 @@ function buildJsDocSpec() {
       components: buildCommonComponents(),
       security: [{ bearerAuth: [] }],
     },
-    apis: ['./src/routes/*.js'],
+    // Exclude auth routes from JSDoc scanning; sanitizer also prunes as a second line of defense
+    apis: ['./src/routes/*.js', '!./src/routes/auth.routes.js'],
   };
   return swaggerJSDoc(options);
 }
@@ -115,6 +116,8 @@ function sanitizeOpenApiDoc(doc) {
 
   // Remove invalid path keys and filter out auth endpoints
   const invalidAuthPath = (p) =>
+    p === '/auth' ||
+    p === '/api/auth' ||
     p.startsWith('/auth/') ||
     p.startsWith('/api/auth/') ||
     p === '/login' ||
@@ -122,19 +125,41 @@ function sanitizeOpenApiDoc(doc) {
     p === '/token' ||
     p === '/refresh' ||
     p === '/session';
-  let hasAnyValidPath = false;
+  const isAuthOperation = (opObj) => {
+    if (!opObj || typeof opObj !== 'object') return false;
+    // Drop operations that are explicitly tagged as Auth
+    if (Array.isArray(opObj.tags) && opObj.tags.some((t) => String(t).toLowerCase() === 'auth')) {
+      return true;
+    }
+    return false;
+  };
+
   const validPaths = {};
   if (doc.paths && typeof doc.paths === 'object') {
     Object.entries(doc.paths).forEach(([key, val]) => {
-      if (
-        typeof key === 'string' &&
-        key.startsWith('/') &&
-        !invalidAuthPath(key) &&
-        val &&
-        typeof val === 'object'
-      ) {
-        validPaths[key] = val;
-        hasAnyValidPath = true;
+      if (typeof key !== 'string' || !key.startsWith('/') || invalidAuthPath(key) || !val || typeof val !== 'object') {
+        return;
+      }
+      // Filter out per-method auth-tagged operations if present
+      const filteredOps = {};
+      for (const method of Object.keys(val)) {
+        const lower = method.toLowerCase();
+        if (['get','post','put','patch','delete','options','head','trace'].includes(lower)) {
+          const op = val[method];
+          if (!isAuthOperation(op)) {
+            filteredOps[method] = op;
+          }
+        } else {
+          // include any non-HTTP keys untouched
+          filteredOps[method] = val[method];
+        }
+      }
+      // Only keep path if at least one valid http operation remains
+      const hasHttpOps = Object.keys(filteredOps).some((m) =>
+        ['get','post','put','patch','delete','options','head','trace'].includes(m.toLowerCase())
+      );
+      if (hasHttpOps) {
+        validPaths[key] = filteredOps;
       }
     });
   }
@@ -157,9 +182,9 @@ function sanitizeOpenApiDoc(doc) {
     doc.info.description = baseDesc;
   }
 
-  // Remove 'Auth' tag if present
+  // Remove 'Auth' tag if present (case-insensitive safety)
   if (Array.isArray(doc.tags)) {
-    doc.tags = doc.tags.filter((t) => t && t.name !== 'Auth');
+    doc.tags = doc.tags.filter((t) => t && String(t.name || '').toLowerCase() !== 'auth');
   }
 
   // Ensure components and bearerAuth exist

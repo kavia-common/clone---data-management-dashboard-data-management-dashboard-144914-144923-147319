@@ -6,6 +6,12 @@ const Tenant = require('../models/tenant.model');
 const { hashPassword, verifyAndMigrate, ensureTenantOrgSalt } = require('../utils/authHash');
 
 const router = express.Router();
+/**
+ * NOTE ABOUT DOCUMENTATION
+ * This router intentionally contains JSDoc annotations for internal reference, but swagger assembly explicitly
+ * excludes this file from scanning and the sanitizer removes any 'Auth' tagged operations.
+ * Result: These endpoints will not appear in Swagger UI, by design.
+ */
 // Note: This router is mounted at /api/auth in app.js, so endpoints are effective under /api/auth.
 
 /**
