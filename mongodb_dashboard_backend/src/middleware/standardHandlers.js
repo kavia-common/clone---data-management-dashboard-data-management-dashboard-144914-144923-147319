@@ -87,7 +87,7 @@ function notFoundHandler(req, res) {
 }
 
 // PUBLIC_INTERFACE
-function errorHandler(err, req, res, next) {
+function errorHandler(err, req, res, _next) {
   /**
    * Central error handler producing a standardized JSON envelope.
    * Maps validation errors to 422, cast errors to 400, DB connectivity to 503,

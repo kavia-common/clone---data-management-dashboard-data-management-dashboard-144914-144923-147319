@@ -55,7 +55,7 @@ function authTenant(req, res, next) {
  * Guard middleware that ensures any :tenantId path param matches the authenticated tenant.
  * Returns 403 if mismatch.
  */
-function ensureTenantAccess(req, res, next) {
+function ensureTenantAccess(req, res, _next) {
   const pathTenant = req.params?.tenantId || req.params?.tenant_id;
   if (!pathTenant) return next();
   const authTenantId = req.auth?.tenantId;

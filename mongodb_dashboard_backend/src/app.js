@@ -135,11 +135,10 @@ app.get('/api/users/tenant-summary', async (req, res) => {
   }
 });
 
-// ---------------------------------------------
-// Protected routes (with auth + tenant)
-// ---------------------------------------------
-const { verifyAuth } = require('./middleware/verifyAuth');
-const { requireTenant } = require('./middleware/requireTenant');
+/**
+ * Protected routes (with auth + tenant) - middlewares are applied in route modules as needed.
+ * Note: Removing unused imports to satisfy lint.
+ */
 
 app.use((req, res, next) => {
   if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {

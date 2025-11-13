@@ -1,4 +1,4 @@
- /* eslint-disable n/no-unsupported-features/es-syntax */
+ 
  /**
   * ESLint Flat Config for Node.js (CommonJS) backend.
   * - Targets Node 18+ environment.

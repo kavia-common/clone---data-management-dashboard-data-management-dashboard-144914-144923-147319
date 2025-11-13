@@ -80,9 +80,6 @@ async function getJwks() {
  */
 function jwkToPem(jwk) {
   if (!jwk || jwk.kty !== 'RSA') return null;
-  const exponent = Buffer.from(jwk.e, 'base64');
-  const modulus = Buffer.from(jwk.n, 'base64');
-  // Build RSA public key in ASN.1 DER, then to PEM.
   // Minimal implementation using Node crypto KeyObject from JWK when available (Node 15+).
   try {
     const keyObject = crypto.createPublicKey({ key: { kty: 'RSA', n: jwk.n, e: jwk.e }, format: 'jwk' });

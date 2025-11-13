@@ -1,4 +1,4 @@
-const { parsePagination, success, failure } = require('../utils/http');
+const { parsePagination, failure } = require('../utils/http');
 
 /**
  * Validate sort string against a whitelist to prevent unindexed/in-memory heavy sorts.
@@ -128,7 +128,14 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
   return {
     // PUBLIC_INTERFACE
     async list(req, res) {
-      console.debug("print the data -------------->>>>>>",req.params)
+      // Developer-mode toggle for guarded logs
+      const debugOn = process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true';
+
+      // Optional debug: request params (kept minimal to reduce log noise)
+      if (debugOn) {
+        // eslint-disable-next-line no-console
+        console.debug('[crudFactory.list] params=', req.params);
+      }
       // Determine effective tenant from JWT-backed middleware
       const effectiveTenant = req?.tenantId ? String(req.tenantId) : undefined;
 
@@ -143,7 +150,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       } catch (_) {}
 
       // Developer-mode log
-      const debugOn = process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true';
       if (debugOn) {
         try {
           // eslint-disable-next-line no-console
@@ -159,7 +165,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
-      console.log('----------->>>>>',req.query)
       let filter = {};
       try {
         filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
@@ -205,7 +210,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
       const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
-      console.log('below try ---->')
+
       try {
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
         let existsSample = 'unknown';
@@ -235,10 +240,16 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
           } catch (_) {}
         }
-          console.log('below if ---->')
+          if (debugOn) {
+            // eslint-disable-next-line no-console
+            console.debug('[crudFactory.list] executing paginated query');
+          }
 
         if (req.method === 'GET' && explicit) {
-                    console.log('inside if  ---->')
+                    if (debugOn) {
+                      // eslint-disable-next-line no-console
+                      console.debug('[crudFactory.list] serving from micro-cache');
+                    }
 
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
@@ -249,7 +260,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean(),
             Model.countDocuments(appliedFilter),
           ]);
-          console.debug('get data from db---->',items)
+          if (debugOn) {
+            // eslint-disable-next-line no-console
+            console.debug('[crudFactory.list] fetched items count=', Array.isArray(items) ? items.length : 0);
+          }
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
