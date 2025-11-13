@@ -56,13 +56,23 @@ function requireTenant(req, res, next) {
   const hdrTenant =
     (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
     (typeof req.headers['organization_id'] === 'string' && req.headers['organization_id'].trim()) ||
+    (typeof req.headers['organizationid'] === 'string' && req.headers['organizationid'].trim()) ||
+    (typeof req.headers['organizationId'] === 'string' && String(req.headers['organizationId']).trim()) ||
     (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
     (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+    (typeof req.headers['tenantid'] === 'string' && req.headers['tenantid'].trim()) ||
+    (typeof req.headers['tenantId'] === 'string' && String(req.headers['tenantId']).trim()) ||
     '';
 
   // Accept query parameters for tenant resolution (preferred: tenant_id; legacy alias: organization_id)
-  const qTenant = (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) || '';
-  const qOrg = (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) || '';
+  const qTenant =
+    (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+    (typeof req.query?.tenantId === 'string' && req.query.tenantId.trim()) ||
+    '';
+  const qOrg =
+    (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+    (typeof req.query?.organizationId === 'string' && req.query.organizationId.trim()) ||
+    '';
   const qAlias = qTenant || qOrg;
 
   // Precedence: JWT > header > query (tenant_id | organization_id)

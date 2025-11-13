@@ -394,9 +394,21 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
+    // Use same-origin server so Swagger calls hit this backend instance
     url: `${protocol}://${fullHost}`,
+    servers: [
+      {
+        url: `${protocol}://${fullHost}`,
+        description: 'Dynamic server (current host)',
+      },
+      {
+        url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+        description: 'Predefined dev server',
+      },
+    ],
   };
 };
+
 
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
