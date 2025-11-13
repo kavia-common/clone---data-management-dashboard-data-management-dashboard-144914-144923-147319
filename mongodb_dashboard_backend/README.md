@@ -12,10 +12,6 @@ Quick start (development)
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state
 
-Production build/start
-- npm run build         # lint-only build step (no transpile required)
-- npm run start:prod    # starts with NODE_ENV=production and memory-safe NODE_OPTIONS
-
 Scripts
 - dev: runs the server with PORT/HOST defaults applied in-process (CI-compatible)
 - dev:watch: nodemon watcher if available (hot reload)

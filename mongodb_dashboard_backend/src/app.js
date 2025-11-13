@@ -361,55 +361,9 @@ const app = express();
 // ---------------------------------------------
 app.set('trust proxy', 1);
 app.use(helmetMiddleware());
-
-// Standard CORS: allow specific origins (frontend, referer host), support credentials, and expose headers.
-// Build dynamic origin allowlist: FRONTEND_URL env, comma-separated CORS_ALLOW_ORIGINS, and Referer host at runtime.
-const dynamicCors = (() => {
-  const list = new Set();
-  const envFrontend = process.env.FRONTEND_URL || process.env.REACT_APP_SITE_URL || '';
-  if (envFrontend) list.add(envFrontend);
-  const extra = (process.env.CORS_ALLOW_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
-  for (const e of extra) list.add(e);
-  return function (req, callback) {
-    const origin = req.headers.origin;
-    // Derive from Referer to support preview URLs when Origin is absent on some GETs
-    const referer = req.headers.referer || req.headers.referrer;
-    if (referer && typeof referer === 'string') {
-      try {
-        const u = new URL(referer);
-        list.add(`${u.protocol}//${u.host}`);
-      } catch {}
-    }
-    const allowed = origin && list.has(origin);
-    // Allow localhost defaults in dev
-    const isDev = process.env.NODE_ENV !== 'production';
-    const isLocal =
-      origin && (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin) || /vscode.*:3000/.test(origin));
-    const finalAllow = allowed || (isDev && isLocal);
-    callback(null, {
-      origin: finalAllow ? origin : false,
-      credentials: true,
-      methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
-      allowedHeaders: [
-        'Content-Type','Authorization','Accept',
-        'x-organization-id','x-tenant-id','x-tenant','x-requested-with'
-      ],
-      exposedHeaders: [
-        'X-Applied-Filter','X-Applied-Tenant','x-applied-organization-id','Content-Length','Content-Type'
-      ],
-      maxAge: 600,
-      preflightContinue: false,
-      optionsSuccessStatus: 204
-    });
-  };
-})();
-app.use(cors(dynamicCors));
-// Explicit preflight for all routes to avoid 404 on OPTIONS
-app.options('*', cors(dynamicCors));
-
-// Keep permissive CORS only for public APIs that do not require credentials, but mount after standard cors to avoid conflicts.
+app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
-
+app.options('/api/*', cors());
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -549,9 +503,7 @@ safeUse('/api/analytics', require('./routes/analytics.overview.routes'));
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
-const { tenantScopeEnforcer } = require('./middleware/tenantScopeEnforcer');
-// Maintain consistent protection chain: verifyAuth -> requireTenant -> tenantScopeEnforcer -> router
-app.use('/api/llm-costs', verifyAuth, requireTenant, tenantScopeEnforcer(), require('./routes/llmCosts.routes'));
+safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));

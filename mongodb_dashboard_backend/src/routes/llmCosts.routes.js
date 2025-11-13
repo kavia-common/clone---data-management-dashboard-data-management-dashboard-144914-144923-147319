@@ -35,8 +35,6 @@ router.use(async (req, res, next) => {
     if (req.tenantId) {
       res.set('X-Applied-Tenant', String(req.tenantId));
       res.set('x-applied-organization-id', String(req.tenantId));
-      // Ensure browser can read these custom headers
-      res.set('Access-Control-Expose-Headers', 'X-Applied-Tenant,x-applied-organization-id,X-Applied-Filter,Content-Type,Content-Length');
       const tenant = String(req.tenantId);
       const orgFilter = {
         $or: [
