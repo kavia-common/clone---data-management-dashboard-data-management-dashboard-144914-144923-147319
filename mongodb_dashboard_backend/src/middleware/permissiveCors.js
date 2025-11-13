@@ -46,7 +46,7 @@ function permissiveCorsMiddleware(req, res, next) {
   const debug =
     process.env.NODE_ENV !== 'production' ||
     String(process.env.DEBUG || '').toLowerCase() === 'true';
-  if (debug && req.path && (req.path === '/api/users' || req.path.startsWith('/api/users'))) {
+  if (debug && req.path) {
     // eslint-disable-next-line no-console
     console.log(
       `[CORS][users] origin=${req.headers.origin || 'n/a'} ACRH=${requested || 'n/a'} method=${req.method} x-org=${req.headers['x-organization-id'] || 'n/a'}`

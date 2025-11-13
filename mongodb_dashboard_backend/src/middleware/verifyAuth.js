@@ -25,7 +25,10 @@ function verifyAuth(req, res, next) {
       p.startsWith('/api/health') ||
       p.startsWith('/openapi.json') ||
       p.startsWith('/api-docs') ||
-      p.startsWith('/docs')
+      p.startsWith('/docs') ||
+      p.startsWith('/api/docs/try-it-out/log') ||
+      p.startsWith('/api/dev/echo') ||
+      p.startsWith('/api/dev/echo-headers')
     ) {
       return next();
     }

@@ -28,7 +28,7 @@ function extractOrganization() {
       '';
 
     // Prefer header, then query, then body to minimize client influence via URL tampering
-    const organizationId = hdrOrg || qTenant || qOrg || bOrg;
+    const organizationId = [hdrOrg, qTenant, qOrg, bOrg].find(v => typeof v === 'string' && v.trim().length > 0) || '';
 
     if (!organizationId) {
       return res.status(400).json({

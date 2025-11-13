@@ -80,10 +80,23 @@ app.get('/api/docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 
 const swaggerUiHandler = swaggerUi.setup(null, {
   swaggerOptions: {
-    // Prefer /api-docs.json so the default /api-docs viewer loads this spec
     url: '/api-docs.json',
     displayRequestDuration: true,
     docExpansion: 'none',
+    // Ensure custom header is forwarded by Swagger "Try it out"
+    requestInterceptor: (req) => {
+      try {
+        // If operation defines header parameter x-organization-id, Swagger UI will put it under req.headers automatically when user fills it.
+        // As a safety, also copy from common aliases if provided in query to header.
+        if (!req.headers) req.headers = {};
+        if (req.headers['x-org-id'] && !req.headers['x-organization-id']) {
+          req.headers['x-organization-id'] = req.headers['x-org-id'];
+        }
+        // If user set organization_id query, prefer header
+        if (req.loadSpec) return req;
+      } catch (e) {}
+      return req;
+    },
   },
   customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
   customCss: '.topbar-wrapper .link:after { content: " | Authorize with Bearer token; tenant is implicit (organization_id). If no token, use x-organization-id header."; font-size: 12px; color: #666; }',
@@ -94,11 +107,42 @@ const swaggerUiHandler = swaggerUi.setup(null, {
  * Note: This backend does not use any http-proxy-middleware nor webpack dev middleware.
  */
 app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
+// Preflight for Swagger UI routes to ensure custom headers are allowed
+app.options(['/api/docs', '/docs', '/api-docs', '/api-docs.json', '/openapi.json', '/api/docs/try-it-out/log'], (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,x-organization-id,x-org-id,x-tenant-id,x-tenant,Origin,User-Agent,Cache-Control,Pragma');
+  res.set('Access-Control-Max-Age', '600');
+  return res.status(204).send();
+});
 // Backwards-compatible mounts
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 // Convenience: health within docs namespace
 app.get('/api-docs/health', (req, res) => res.status(200).json({ status: 'ok', via: '/api-docs/health' }));
+
+// PUBLIC_INTERFACE
+// GET /api/docs/try-it-out/log
+// Logs request method, path, origin, authorization presence, and tenant headers for Swagger Try it out debugging.
+// This endpoint does not require auth and is intended only for diagnostics.
+app.all('/api/docs/try-it-out/log', (req, res) => {
+  const hdrs = {
+    origin: req.headers.origin || null,
+    authorization_present: !!(req.headers.authorization || req.headers.Authorization),
+    authorization_sample: (req.headers.authorization || req.headers.Authorization || '').slice(0, 20) || null,
+    'x-organization-id': req.headers['x-organization-id'] || null,
+    'x-org-id': req.headers['x-org-id'] || null,
+    'x-tenant-id': req.headers['x-tenant-id'] || null,
+    'x-tenant': req.headers['x-tenant'] || null,
+    'access-control-request-headers': req.headers['access-control-request-headers'] || null,
+    'access-control-request-method': req.headers['access-control-request-method'] || null,
+  };
+  try {
+    // eslint-disable-next-line no-console
+    console.log('[swagger-try] method=', req.method, 'path=', req.path, 'headers=', hdrs);
+  } catch {}
+  return res.status(200).json({ success: true, message: 'Logged request headers for Swagger Try it out', headers: hdrs });
+});
 
 // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');
@@ -200,6 +244,20 @@ app.get('/api/docs/headers', (req, res) => {
 app.use('/api/dev', require('./routes/dev.routes'));
 
 // PUBLIC_INTERFACE
+// GET /api/dev/echo
+// Echoes Authorization, x-organization-id header, and organization_id/tenant_id query params.
+// Useful for validating Swagger Try it out header/query propagation.
+app.get('/api/dev/echo', (req, res) => {
+  return res.status(200).json({
+    authorization: req.headers.authorization || req.headers.Authorization || null,
+    x_organization_id: req.headers['x-organization-id'] || null,
+    organization_id_query: typeof req.query.organization_id === 'string' ? req.query.organization_id : null,
+    tenant_id_query: typeof req.query.tenant_id === 'string' ? req.query.tenant_id : null,
+    note: 'For testing Swagger Try it out sends both headers and query params.',
+  });
+});
+
+// PUBLIC_INTERFACE
 // GET /api/dev/echo-headers
 // Debug endpoint to echo select headers for verification in Swagger Try it out.
 // Returns received x-organization-id, x-tenant-id, authorization presence.
@@ -283,13 +341,17 @@ const { requireTenant } = require('./middleware/requireTenant');
  * Add a thin logger to confirm headers for protected API calls in development.
  */
 const devHeadersLogger = (req, res, next) => {
-  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-    if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
+  const debug = process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true';
+  if (debug) {
+    // Log all swagger try-it-out calls and API calls except auth
+    const isSwagger = req.path.startsWith('/api/docs') || req.path.startsWith('/docs') || req.path.startsWith('/api-docs');
+    const isApi = req.path.startsWith('/api/') && !req.path.startsWith('/api/auth');
+    if (isSwagger || isApi) {
       const authPresent = !!(req.headers?.authorization || req.headers?.Authorization);
       const xtenant = req.headers?.['x-tenant-id'] || req.headers?.['x-tenant'] || null;
       const xorg = req.headers?.['x-organization-id'] || req.headers?.['x-org-id'] || null;
       // eslint-disable-next-line no-console
-      console.debug(`[api] ${req.method} ${req.path} Authorization=${authPresent ? 'yes' : 'no'} x-organization-id=${xorg || 'n/a'} x-tenant-id=${xtenant || 'n/a'}`);
+      console.debug(`[headers] ${req.method} ${req.path} auth=${authPresent ? 'yes' : 'no'} x-org-id=${xorg || 'n/a'} x-tenant-id=${xtenant || 'n/a'} origin=${req.headers.origin || 'n/a'}`);
     }
   }
   next();
