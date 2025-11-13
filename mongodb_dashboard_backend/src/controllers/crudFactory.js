@@ -336,13 +336,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean(),
             Model.countDocuments(appliedFilter),
           ]);
+          console.debug("Model ----",Model)
+          console.debug("item ---1",items)
           // If no items and sorting by timestamp, retry with -_id as a safe fallback to avoid missing timestamp fields
           if (Array.isArray(items) && items.length === 0 && String(safeSort).includes('timestamp')) {
             const fallbackSort = '-_id';
             try { res.set('X-Sort-Fallback', fallbackSort); } catch(_) {}
             items = await Model.find(appliedFilter).sort(fallbackSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
-
+          console.debug("item ---2",items)
           // Post-query diagnostics
           try {
             res.set('X-Debug-Query-Result-Count', String(Array.isArray(items) ? items.length : 0));
@@ -354,7 +356,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             } catch (_) {}
             res.set('x-debug-post-count', String(postCount));
             // eslint-disable-next-line no-console
-            console.log(
+            console.debug(
               '[crudFactory.list][post-query]',
               JSON.stringify({
                 collection: Model?.collection?.name || 'unknown',
@@ -392,7 +394,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
         let items = await Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        console.debug("items ---999999",items)
         if (Array.isArray(items) && items.length === 0 && String(safeSort).includes('timestamp')) {
+          console.debug("hdojak;sdjla/d;")
           const fallbackSort = '-_id';
           try { res.set('X-Sort-Fallback', fallbackSort); } catch(_) {}
           items = await Model.find(appliedFilter).sort(fallbackSort).allowDiskUse(true).lean();
