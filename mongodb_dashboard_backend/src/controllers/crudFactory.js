@@ -92,14 +92,25 @@ function mergeFilterWithTenant(filter, tenantId) {
   if (!tenantId) return f;
 
   // Build a normalized tenant filter to match across possible fields (defensive)
+  // Prioritize actual schema field 'tenant_id' (indexed) and include common aliases for backward compatibility.
+  // Avoid overly-nested ambiguous paths unless known in this codebase to reduce mismatches.
+  const tenantVal = String(tenantId);
   const normalizedTenantFilter = {
     $or: [
-      { tenant_id: String(tenantId) },
-      { organization_id: String(tenantId) },
-      { orgId: String(tenantId) },
-      { tenantId: String(tenantId) },
-      { organizationId: String(tenantId) },
-      { 'tenant.tenant_id': String(tenantId) },
+      // Primary schema (LLMCostsSchema)
+      { tenant_id: tenantVal },
+
+      // Legacy/alias fields occasionally present in imported datasets
+      { organization_id: tenantVal },
+      { organizationId: tenantVal },
+      { tenantId: tenantVal },
+      { orgId: tenantVal },
+
+      // Nested shapes occasionally seen in some payloads
+      { 'tenant.tenant_id': tenantVal },
+      { 'tenant.id': tenantVal },
+      { 'metadata.organizationId': tenantVal },
+      { 'metadata.tenantId': tenantVal },
     ],
   };
 
@@ -201,10 +212,13 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         if (Model && Model.collection && Model.collection.name) {
           res.set('X-Model-Collection', Model.collection.name);
         }
+        // Include request query aliases for tenant resolution visibility
+        res.set('X-Debug-Org-Header', String(req.headers?.['x-organization-id'] || ''));
+        res.set('X-Debug-Org-Query', String(req.query?.organization_id || req.query?.tenant_id || ''));
       } catch (_) {}
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
-      const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
+      let safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
       console.log('below try ---->')
       try {
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
@@ -242,13 +256,20 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
+          console.log("appl fiter ---",appliedFilter)
+          console.log("cahed ---",cached)
           if (cached) return res.status(200).json(cached);
-          
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
-          const [items, total] = await Promise.all([
+          let [items, total] = await Promise.all([
             Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean(),
             Model.countDocuments(appliedFilter),
           ]);
+          // If no items and sorting by timestamp, retry with -_id as a safe fallback to avoid missing timestamp fields
+          if (Array.isArray(items) && items.length === 0 && String(safeSort).includes('timestamp')) {
+            const fallbackSort = '-_id';
+            try { res.set('X-Sort-Fallback', fallbackSort); } catch(_) {}
+            items = await Model.find(appliedFilter).sort(fallbackSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+          }
           console.debug('get data from db---->',items)
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
@@ -256,7 +277,12 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
-        const items = await Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        let items = await Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        if (Array.isArray(items) && items.length === 0 && String(safeSort).includes('timestamp')) {
+          const fallbackSort = '-_id';
+          try { res.set('X-Sort-Fallback', fallbackSort); } catch(_) {}
+          items = await Model.find(appliedFilter).sort(fallbackSort).allowDiskUse(true).lean();
+        }
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');

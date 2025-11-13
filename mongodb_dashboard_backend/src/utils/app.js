@@ -50,14 +50,14 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    // servers: [{ url: `${protocol}://${fullHost}` }],
-    servers: [
-  {
-    url:
-      process.env.SWAGGER_SERVER_URL ||
-      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-  },
-],
+    servers: [{ url: `${protocol}://${fullHost}` }],
+//     servers: [
+//   {
+//     url:
+//       process.env.SWAGGER_SERVER_URL ||
+//       'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+//   },
+// ],
 
   };
 };
