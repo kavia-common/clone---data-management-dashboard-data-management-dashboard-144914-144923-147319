@@ -248,7 +248,7 @@ try {
   // eslint-disable-next-line no-console
   console.log('[startup] Mounting /api/users routes...');
 } catch { }
-app.use('/api/users', require('./routes/users.routes'));
+app.use('/api/users', verifyAuth, requireTenant, require('./routes/users.routes'));
 
 try {
   // eslint-disable-next-line no-console
