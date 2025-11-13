@@ -33,7 +33,9 @@ function toNumber(val) {
     }
   }
   if (typeof val === 'string') {
-    const n = parseFloat(val);
+    // Handle currency like "$1.23"
+    const cleaned = val.replace(/[^0-9.+-eE]/g, '');
+    const n = parseFloat(cleaned);
     return Number.isNaN(n) ? NaN : n;
   }
   // Fallback attempt
@@ -42,10 +44,12 @@ function toNumber(val) {
 }
 
 /**
- * Normalize a session document:
+ * Normalize and enrich a session document:
  * - Ensure total_cost is a number (default 0 if NaN/undefined)
  * - Ensure cost_history[].total_cost are numbers
  * - Ensure agent_costs values are numbers
+ * - Ensure session_data exists and has created_at if present in other timestamp fields
+ * - Ensure session_breakdown is an array (may be empty) with normalized duration numbers
  */
 function normalizeSessionDoc(doc) {
   const out = { ...doc };
@@ -77,6 +81,55 @@ function normalizeSessionDoc(doc) {
       newAC[k] = Number.isFinite(v) ? v : 0;
     }
     out.agent_costs = newAC;
+  }
+
+  // Ensure session_data object shape
+  if (!out.session_data || typeof out.session_data !== 'object') {
+    out.session_data = {};
+  }
+  // Backfill created_at in session_data if missing but available elsewhere
+  if (!out.session_data.created_at) {
+    const created =
+      out.created_at ||
+      out.timestamp ||
+      out.session_start ||
+      (out.session_breakdown && Array.isArray(out.session_breakdown) && out.session_breakdown[0]?.session_start) ||
+      null;
+    if (created) {
+      try {
+        out.session_data.created_at = new Date(created);
+      } catch {
+        // ignore invalid
+      }
+    }
+  }
+
+  // Normalize session_breakdown array
+  if (!Array.isArray(out.session_breakdown)) {
+    out.session_breakdown = [];
+  } else {
+    out.session_breakdown = out.session_breakdown.map((entry) => {
+      const e = { ...entry };
+      if (e && typeof e === 'object') {
+        // normalize duration to number if present
+        if (e.duration !== undefined) {
+          const d = toNumber(e.duration);
+          e.duration = Number.isFinite(d) ? d : undefined;
+        }
+        // Allow Agent to be a string or array; normalize to array if provided
+        if (e.Agent && !Array.isArray(e.Agent)) {
+          e.Agent = [String(e.Agent)];
+        }
+        // cast dates if string
+        try {
+          if (e.session_start) e.session_start = new Date(e.session_start);
+          if (e.session_end) e.session_end = new Date(e.session_end);
+        } catch {
+          // ignore parsing errors
+        }
+      }
+      return e;
+    });
   }
 
   return out;
@@ -147,12 +200,18 @@ function slSet(key, payload) {
   sessionsListCache.set(key, { payload, expiresAt: Date.now() + SESS_LIST_TTL_MS });
 }
 
+/**
+ * If JWT is present (as enforced by router mounting), we prefer req.tenantId from middleware.
+ * However, we keep the existing behavior to allow explicit tenant_id in query for compatibility
+ * in non-auth tool usage. When Authorization is present and tenant_id conflicts, middleware upstream
+ * should already block it; here we defensively enforce tenant alias scoping as well.
+ */
 // PUBLIC_INTERFACE
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Enforce tenant scope strictly via ?tenant_id=... query param
-    // Accept legacy fallbacks only if tenant_id is not provided
+    // Derive tenant: prefer middleware-set req.tenantId; fallback to query/header for legacy behavior.
+    const tenantJwt = req?.tenantId ? String(req.tenantId) : null;
     const tenantFromQuery = typeof req.query.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
     const legacyHeaderTenant =
       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
@@ -162,9 +221,8 @@ router.get(
       '';
     const tenantFromLegacyQuery =
       (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) || '';
-    const enforcedTenant = tenantFromQuery || tenantFromLegacyQuery || legacyHeaderTenant || null;
+    const enforcedTenant = tenantJwt || tenantFromQuery || tenantFromLegacyQuery || legacyHeaderTenant || null;
 
-    // If a tenant is required for this endpoint, validate presence
     if (!enforcedTenant) {
       return res.status(400).json({
         success: false,
@@ -189,8 +247,8 @@ router.get(
           { task_id: regex },
           { tenant_id: regex },
           { organization_name: regex },
-          { user_name: regex }, // actual field in schema
-          { User_name: regex }, // alias supported by mongoose for compatibility
+          { user_name: regex },
+          { User_name: regex },
           { project_id: regex },
           { container_id: regex },
           { service_type: regex },
@@ -201,8 +259,6 @@ router.get(
           { 'session_data.llm_model': regex },
         ],
       };
-      // TODO: Consider adding dedicated text or compound indexes for large datasets
-      // e.g., db.session_tracking.createIndex({ user_name: "text", organization_name: "text", ... })
     }
 
     const filterRaw = req.query.filter ? req.query.filter : '{}';
@@ -253,7 +309,6 @@ router.get(
         if (cached) return res.status(200).json(cached);
 
         const [docs, total] = await Promise.all([
-          // Use model documents (no lean) so Mongoose applies basic casting; still normalize to be safe
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
           SessionTracking.countDocuments(finalFilter),
         ]);
@@ -272,12 +327,45 @@ router.get(
       }
       return res.status(200).json(items);
     } catch (err) {
-      // Map common cast errors to 400 to avoid 500
       const message = err?.message || 'Request failed';
       if (err?.name === 'CastError' || /Cast to/.test(message)) {
         return res
           .status(400)
           .json({ success: false, message: 'Invalid value provided (list)', details: message });
+      }
+      return res.status(400).json({ success: false, message: 'Request failed', details: message });
+    }
+  })
+);
+
+// Override getById to normalize/enrich the single document response for Session Details modal
+router.get(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    try {
+      const id = req.params.id;
+      const tenant = req?.tenantId ? String(req.tenantId) : undefined;
+      const doc = await SessionTracking.findOne(
+        tenant
+          ? {
+              _id: id,
+              $or: [
+                { tenant_id: tenant },
+                { organization_id: tenant },
+                { organizationId: tenant },
+              ],
+            }
+          : { _id: id }
+      );
+      if (!doc) {
+        return res.status(404).json({ success: false, message: 'Not found' });
+      }
+      const enriched = normalizeSessionDoc(doc.toObject({ getters: true }));
+      return res.status(200).json(enriched);
+    } catch (err) {
+      const message = err?.message || 'Request failed';
+      if (err?.name === 'CastError' || /Cast to/.test(message)) {
+        return res.status(400).json({ success: false, message: 'Invalid id', details: message });
       }
       return res.status(400).json({ success: false, message: 'Request failed', details: message });
     }
