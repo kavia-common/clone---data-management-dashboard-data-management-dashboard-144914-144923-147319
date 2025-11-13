@@ -266,6 +266,7 @@ router.get(
       }
 
       const docs = await SessionTracking.find(finalFilter).sort(sort);
+      console.debug("docs ---",docs)
       const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
       if (debugEnabled) {
         res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort }));

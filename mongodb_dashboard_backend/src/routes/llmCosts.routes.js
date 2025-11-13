@@ -32,32 +32,55 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
  */
 router.use(async (req, res, next) => {
   try {
-    if (req.tenantId) {
-      res.set('X-Applied-Tenant', String(req.tenantId));
-      res.set('x-applied-organization-id', String(req.tenantId));
-      const tenant = String(req.tenantId);
-      const orgFilter = {
-        $or: [
-          { tenant_id: tenant },
-          { organization_id: tenant },
-          { orgId: tenant },
-          { tenantId: tenant },
-          { organizationId: tenant },
-          { 'tenant.tenant_id': tenant },
-        ],
-      };
-      res.set('X-Applied-Filter', JSON.stringify(orgFilter));
-      try {
-        res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
-      } catch (_) {}
-      // Attempt to include a quick count for visibility (non-blocking)
-      try {
-        LLMCost.countDocuments(orgFilter).then((c) => {
-          try { res.set('X-Applied-Filter-Count', String(c)); } catch(_) {}
-        }).catch(() => {});
-      } catch (_) {}
+    const collectionName = LLMCost?.collection?.name || 'llm-costs';
+    const effectiveTenant = req?.tenantId ? String(req.tenantId) : '';
+    // Set base debug headers for this route
+    res.set('X-Model-Collection', collectionName);
+    if (effectiveTenant) {
+      res.set('X-Applied-Tenant', effectiveTenant);
+      res.set('x-applied-organization-id', effectiveTenant);
     }
-  } catch (_) {}
+    // Build the tenant filter preview for diagnostics
+    const tenant = effectiveTenant;
+    const orgFilter = tenant
+      ? {
+          $or: [
+            { tenant_id: tenant },
+            { organization_id: tenant },
+            { orgId: tenant },
+            { tenantId: tenant },
+            { organizationId: tenant },
+            { 'tenant.tenant_id': tenant },
+          ],
+        }
+      : {};
+    res.set('X-Applied-Filter', JSON.stringify(orgFilter));
+
+    // Log that this /api/llm-costs route is using LLMCost model
+    // eslint-disable-next-line no-console
+    console.log(
+      `[llm-costs.route] router init: model=LLMCost collection=${collectionName} tenant=${effectiveTenant || 'n/a'}`
+    );
+
+    // Quick async count for visibility (does not block)
+    if (tenant) {
+      LLMCost.countDocuments(orgFilter)
+        .then((c) => {
+          try {
+            res.set('X-Applied-Filter-Count', String(c));
+          } catch (_) {}
+          // eslint-disable-next-line no-console
+          console.log(
+            `[llm-costs.route] preflight count collection=${collectionName} tenant=${tenant} count=${c}`
+          );
+        })
+        .catch(() => {});
+    }
+  } catch (_) {
+    // ensure we do not swallow logs silently
+    // eslint-disable-next-line no-console
+    console.log('[llm-costs.route] preflight diagnostics failed');
+  }
   next();
 });
 

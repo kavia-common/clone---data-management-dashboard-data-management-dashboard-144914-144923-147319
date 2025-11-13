@@ -170,19 +170,21 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       } catch (_) {}
 
       // Developer-mode log
-      const debugOn = process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true';
-      if (debugOn) {
-        try {
-          // eslint-disable-next-line no-console
-          console.debug(
-            `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'}`
-          );
-        } catch (_) {}
-      }
+      const debugOn = true; // force visibility for diagnostics
+      try {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'} modelCollection=${Model?.collection?.name || 'unknown'}`
+        );
+      } catch (_) {}
 
       // Parse pagination but hard-cap the limit to prevent heavy responses.
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
       const hardCappedLimit = clampLimit(parsedLimit, 500);
+      try {
+        res.set('x-debug-limit', String(hardCappedLimit));
+        res.set('x-debug-skip', String(skip));
+      } catch (_) {}
 
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
@@ -218,6 +220,26 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Build final applied filter with robust tenant alias removal and normalized OR across aliases
       const appliedFilter = mergeFilterWithTenant(filter, req.tenantId);
+      try {
+        const filterSummary = {
+          hasTenant: !!req.tenantId,
+          filterShape: appliedFilter && typeof appliedFilter === 'object' ? Object.keys(appliedFilter) : [],
+        };
+        res.set('x-debug-filter-summary', JSON.stringify(filterSummary));
+        // eslint-disable-next-line no-console
+        console.log('[crudFactory.list] finalFilter summary', filterSummary);
+      } catch (_) {}
+      try {
+        const filterSummary = {
+          hasTenant: !!req.tenantId,
+          filterKeys: Array.isArray(appliedFilter?.$and)
+            ? Object.keys(appliedFilter.$and[0] || {})
+            : Object.keys(appliedFilter || {}),
+        };
+        res.set('x-debug-filter-summary', JSON.stringify(filterSummary));
+        // eslint-disable-next-line no-console
+        console.log('[crudFactory.list] finalFilter summary', filterSummary);
+      } catch (_) {}
 
       // Expose applied filter, model collection and quick existence probe for diagnostics
       try {
@@ -227,14 +249,27 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         res.set('x-applied-organization-id', String(req.tenantId || ''));
         if (Model && Model.collection && Model.collection.name) {
           res.set('X-Model-Collection', Model.collection.name);
+          res.set('x-debug-model-collection', Model.collection.name);
         }
         // Include request query aliases for tenant resolution visibility
-        res.set('X-Debug-Org-Header', String(req.headers?.['x-organization-id'] || ''));
-        res.set('X-Debug-Org-Query', String(req.query?.organization_id || req.query?.tenant_id || ''));
+        const dbgOrgHeader = String(req.headers?.['x-organization-id'] || '');
+        const dbgOrgQuery = String(req.query?.organization_id || req.query?.tenant_id || '');
+        res.set('X-Debug-Org-Header', dbgOrgHeader);
+        res.set('X-Debug-Org-Query', dbgOrgQuery);
+        res.set('x-debug-applied-filter', appliedFilterStr);
+        res.set('x-debug-sort', String(safeSort));
+        res.set('x-debug-paging', JSON.stringify({ page, limit: hardCappedLimit, skip, explicit }));
       } catch (_) {}
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
       let safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
+      try {
+        res.set('X-Debug-Sort', String(safeSort));
+        res.set('X-Debug-Paging', JSON.stringify({ page, limit: hardCappedLimit, skip, explicit }));
+        if (Model && Model.collection && Model.collection.name) {
+          res.set('x-debug-model-collection', Model.collection.name);
+        }
+      } catch (_) {}
 
       try {
         // Diagnostics: fetch a single sample document to inspect tenant/org fields and timestamp
@@ -308,6 +343,48 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             items = await Model.find(appliedFilter).sort(fallbackSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
 
+          // Post-query diagnostics
+          try {
+            res.set('X-Debug-Query-Result-Count', String(Array.isArray(items) ? items.length : 0));
+            let postCount = total;
+            try {
+              if (typeof postCount !== 'number') {
+                postCount = await Model.countDocuments(appliedFilter);
+              }
+            } catch (_) {}
+            res.set('x-debug-post-count', String(postCount));
+            // eslint-disable-next-line no-console
+            console.log(
+              '[crudFactory.list][post-query]',
+              JSON.stringify({
+                collection: Model?.collection?.name || 'unknown',
+                resultCount: Array.isArray(items) ? items.length : 0,
+                total: postCount,
+              })
+            );
+          } catch (_) {}
+
+          // If empty, probe collection existence with unfiltered sample
+          if (Array.isArray(items) && items.length === 0) {
+            let anyDoc = null;
+            try {
+              anyDoc = await Model.find({}).limit(1).lean();
+            } catch (_) {}
+            try {
+              res.set('X-Debug-Collection-Has-Data', anyDoc && anyDoc.length > 0 ? 'true' : 'false');
+            } catch (_) {}
+            try {
+              // eslint-disable-next-line no-console
+              console.log(
+                '[crudFactory.list][empty-result-probe]',
+                JSON.stringify({
+                  collection: Model?.collection?.name || 'unknown',
+                  hasAnyData: !!(anyDoc && anyDoc.length > 0),
+                })
+              );
+            } catch (_) {}
+          }
+
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
@@ -320,6 +397,47 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           try { res.set('X-Sort-Fallback', fallbackSort); } catch(_) {}
           items = await Model.find(appliedFilter).sort(fallbackSort).allowDiskUse(true).lean();
         }
+
+        // Post-query diagnostics
+        try {
+          res.set('X-Debug-Query-Result-Count', String(Array.isArray(items) ? items.length : 0));
+          let postCount = -1;
+          try {
+            postCount = await Model.countDocuments(appliedFilter);
+          } catch (_) {}
+          res.set('x-debug-post-count', String(postCount));
+          // eslint-disable-next-line no-console
+          console.log(
+            '[crudFactory.list][post-query]',
+            JSON.stringify({
+              collection: Model?.collection?.name || 'unknown',
+              resultCount: Array.isArray(items) ? items.length : 0,
+              total: postCount,
+            })
+          );
+        } catch (_) {}
+
+        // If empty, probe collection existence with unfiltered sample
+        if (Array.isArray(items) && items.length === 0) {
+          let anyDoc = null;
+          try {
+            anyDoc = await Model.find({}).limit(1).lean();
+          } catch (_) {}
+          try {
+            res.set('X-Debug-Collection-Has-Data', anyDoc && anyDoc.length > 0 ? 'true' : 'false');
+          } catch (_) {}
+          try {
+            // eslint-disable-next-line no-console
+            console.log(
+              '[crudFactory.list][empty-result-probe]',
+              JSON.stringify({
+                collection: Model?.collection?.name || 'unknown',
+                hasAnyData: !!(anyDoc && anyDoc.length > 0),
+              })
+            );
+          } catch (_) {}
+        }
+
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
