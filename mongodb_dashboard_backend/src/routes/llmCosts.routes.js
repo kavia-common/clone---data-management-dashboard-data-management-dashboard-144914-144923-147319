@@ -286,4 +286,8 @@ router.put('/:id', asyncHandler(controller.update));
  */
 router.delete('/:id', asyncHandler(controller.remove));
 
+/**
+ * PUBLIC_INTERFACE
+ * Router for LLM Costs CRUD and hierarchy endpoints.
+ */
 module.exports = router;

@@ -77,6 +77,10 @@ async function getHierarchy(req, res) {
   }
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Exports LLM cost hierarchy handler for /api/llm-costs/hierarchy.
+ */
 module.exports = {
   getHierarchy,
 };
