@@ -9,6 +9,7 @@ const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
+const organizationMiddleware = require('./middleware/organization');
 
 const app = express();
 
@@ -21,15 +22,22 @@ try {
 app.set('trust proxy', 1); // only trust local proxies
 try { console.log('[startup] Applying security and CORS middlewares'); } catch {}
 app.use(helmetMiddleware());
-// Configure CORS with allowlist and credentials support via our middleware
+
+// Configure CORS including x-organization-id
 app.use(corsMiddleware());
 // Additionally apply a permissive CORS layer for all /api/* endpoints to ensure broad compatibility (no credentials)
 app.use('/api', permissiveCorsMiddleware);
 // Handle preflight across API routes explicitly to avoid 404 on OPTIONS
-app.options('/api/*', cors()); // uses default which will be overridden by corsMiddleware above
+app.options('/api/*', cors({
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-organization-id', 'x-tenant-id', 'x-tenant']
+}));
+
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Attach organization/tenant id to request context for all routes
+app.use(organizationMiddleware);
 
 const buildDynamicSpec = (req) => {
   const host = req.get('host');
@@ -55,15 +63,15 @@ const buildDynamicSpec = (req) => {
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
     // Use same-origin server so Swagger calls hit this backend instance
-    // url: `${protocol}://${fullHost}`,
+    url: `${protocol}://${fullHost}`,
         
-    servers: [
-      {
-        url:
+    // servers: [
+    //   {
+    //     url:
 
-          'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-      },
-    ],
+    //       'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //   },
+    // ],
   };
 };
 
@@ -260,9 +268,9 @@ const devHeadersLogger = (req, res, next) => {
   if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
     if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
       const authPresent = !!(req.headers?.authorization || req.headers?.Authorization);
-      const xtenant = req.headers?.['x-tenant-id'] || req.headers?.['x-tenant'] || null;
+      const xorg = req.headers?.['x-organization-id'] || null;
       // eslint-disable-next-line no-console
-      console.debug(`[api] ${req.method} ${req.path} Authorization=${authPresent ? 'yes' : 'no'} x-tenant-id=${xtenant || 'n/a'}`);
+      console.debug(`[api] ${req.method} ${req.path} Authorization=${authPresent ? 'yes' : 'no'} x-organization-id=${xorg || 'n/a'}`);
     }
   }
   next();

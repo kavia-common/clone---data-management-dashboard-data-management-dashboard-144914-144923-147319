@@ -17,7 +17,6 @@ function permissiveCorsMiddleware(req, res, next) {
   // Always set ACAO "*" for /api/* requests
   res.setHeader('Access-Control-Allow-Origin', '*');
   // IMPORTANT: Do NOT set Access-Control-Allow-Credentials when using '*'
-  // res.removeHeader('Access-Control-Allow-Credentials'); // ensure it's not present
 
   // Consolidated allow methods
   res.setHeader(
@@ -28,7 +27,7 @@ function permissiveCorsMiddleware(req, res, next) {
   // Reflect requested headers for preflight; otherwise, provide a permissive default superset
   const requested = req.headers['access-control-request-headers'];
   const defaultAllowed =
-    'Content-Type,Authorization,Accept,x-tenant-id,x-tenant,Origin,User-Agent,Cache-Control,Pragma';
+    'Content-Type,Authorization,Accept,x-tenant-id,x-tenant,x-organization-id,Origin,User-Agent,Cache-Control,Pragma';
   res.setHeader(
     'Access-Control-Allow-Headers',
     requested && typeof requested === 'string' && requested.trim() !== ''
@@ -37,19 +36,19 @@ function permissiveCorsMiddleware(req, res, next) {
   );
 
   // Expose some common headers (safe)
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Type,Content-Length');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Type,Content-Length,X-Applied-Tenant,x-applied-organization-id');
 
   // Cache preflight result briefly (optional, conservative)
   res.setHeader('Access-Control-Max-Age', '600');
 
-  // Debug logging for /api/users diagnostics in non-production or DEBUG=true
+  // Debug logging for /api diagnostics in non-production or DEBUG=true
   const debug =
     process.env.NODE_ENV !== 'production' ||
     String(process.env.DEBUG || '').toLowerCase() === 'true';
-  if (debug && req.path && (req.path === '/api/users' || req.path.startsWith('/api/users'))) {
+  if (debug && req.path && req.path.startsWith('/api/')) {
     // eslint-disable-next-line no-console
     console.log(
-      `[CORS][users] origin=${req.headers.origin || 'n/a'} ACRH=${requested || 'n/a'} method=${req.method}`
+      `[CORS] origin=${req.headers.origin || 'n/a'} ACRH=${requested || 'n/a'} method=${req.method}`
     );
   }
 

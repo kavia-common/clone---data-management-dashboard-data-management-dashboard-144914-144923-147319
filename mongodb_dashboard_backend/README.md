@@ -55,6 +55,17 @@ CORS
 - Emergency development: set CORS_OPEN=true to allow all origins (not for production).
 - Allowed headers include x-organization-id and x-tenant-id used by tenant-scoped endpoints.
 
+Organization/Tenant handling
+- A global middleware extracts organization_id from:
+  - Header: x-organization-id (preferred)
+  - Query: ?organization_id= or ?tenant_id=
+- When provided, the value is attached to:
+  - req.organizationId
+  - req.context.organizationId
+  - req.tenantId (alias)
+- Most routes will apply scoping if present; they do not fail with 400 if missing unless business logic requires it.
+- CORS exposes X-Applied-Tenant/x-applied-organization-id on responses for debugging.
+
 Swagger/OpenAPI servers
 - The OpenAPI spec is served dynamically and uses same-origin so Swagger UI calls this backend instance.
 - Endpoints:

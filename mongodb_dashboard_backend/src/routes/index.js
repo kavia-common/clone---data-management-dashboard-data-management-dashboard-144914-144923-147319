@@ -38,6 +38,8 @@ router.get('/health', healthController.check.bind(healthController));
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);
 
+// Note: organization middleware is applied globally in app.js; verifyAuth/requireTenant still enforce JWT tenant where needed.
+
 // Protected core routes behind auth + tenant
 router.use('/users', verifyAuth, requireTenant, usersRoutes);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);

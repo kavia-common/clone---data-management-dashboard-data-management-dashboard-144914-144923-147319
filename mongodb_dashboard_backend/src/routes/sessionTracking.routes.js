@@ -162,16 +162,9 @@ router.get(
       '';
     const tenantFromLegacyQuery =
       (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) || '';
-    const enforcedTenant = tenantFromQuery || tenantFromLegacyQuery || legacyHeaderTenant || null;
+    const enforcedTenant = tenantFromQuery || tenantFromLegacyQuery || legacyHeaderTenant || req.organizationId || null;
 
-    // If a tenant is required for this endpoint, validate presence
-    if (!enforcedTenant) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'tenant_id is required. Provide ?tenant_id=... (legacy fallbacks: header x-tenant-id/x-organization-id or ?organization_id=...)',
-      });
-    }
+    // Tenant is optional here; when present it will be applied to the final filter.
 
     // Parse pagination and filter (support pageSize alias for limit)
     const rawQuery = { ...req.query };
