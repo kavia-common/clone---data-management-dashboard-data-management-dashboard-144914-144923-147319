@@ -20,7 +20,7 @@ Scripts
 - test: jest
 
 Preview runner compatibility
-- The server binds to 0.0.0.0:PORT and logs readiness pointers: /health | /ready | /api/health | /api/docs | /api-docs
+- The server binds to 0.0.0.0:PORT (no http-proxy-middleware or webpack dev middleware is used) and logs readiness pointers: /health | /ready | /api/health | /api/docs | /api-docs
 - Readiness log markers (either is sufficient for detectors):
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT

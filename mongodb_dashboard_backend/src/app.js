@@ -83,7 +83,11 @@ const swaggerUiHandler = swaggerUi.setup(null, {
   customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
   customCss: '.topbar-wrapper .link:after { content: " | Authorize with Bearer token; tenant is implicit (organization_id). If no token, use x-organization-id header."; font-size: 12px; color: #666; }',
 });
-// Primary mount at /api/docs as requested
+/**
+ * Swagger UI mounting
+ * We serve the UI at /api/docs (aliases below). The UI fetches the local spec from /api-docs.json via swaggerOptions.url.
+ * Note: This backend does not use any http-proxy-middleware nor webpack dev middleware.
+ */
 app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
 // Backwards-compatible mounts
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);

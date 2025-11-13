@@ -96,7 +96,7 @@ function sanitizeOpenApiDoc(doc) {
   if (doc.paths && typeof doc.paths === 'object') {
     const validPaths = {};
     Object.entries(doc.paths).forEach(([key, val]) => {
-      if (typeof key === 'string' && key.startsWith('/')) {
+      if (typeof key === 'string' && key.startsWith('/') && val && typeof val === 'object') {
         validPaths[key] = val;
         hasAnyValidPath = true;
       }
@@ -155,6 +155,8 @@ function getBaseOpenApiSpec() {
   if (cachedSpec) return cachedSpec;
 
   try {
+    // Ensure we read from project-level interfaces/openapi.json (one level above src/)
+    // __dirname points to backend root, as this file is at backend/swagger.js
     const filePath = path.resolve(__dirname, 'interfaces', 'openapi.json');
     const raw = fs.readFileSync(filePath, 'utf8');
     const parsed = JSON.parse(raw);

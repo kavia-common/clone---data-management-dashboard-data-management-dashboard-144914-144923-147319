@@ -1,0 +1,7 @@
+# Ignore transient and generated directories/files
+.tmp/
+node_modules/
+dist/
+build/
+coverage/
+*.log

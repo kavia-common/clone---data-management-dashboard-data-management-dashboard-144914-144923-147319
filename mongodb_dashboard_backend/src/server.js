@@ -11,7 +11,14 @@ const app = require('./app');
 const mongoose = require('mongoose');
 
 const PORT = Number(process.env.PORT) || 3001;
-const HOST = process.env.HOST || '0.0.0.0';
+let HOST = process.env.HOST || '0.0.0.0';
+// Guard: if HOST is an invalid specific IP in preview/container env, default to 0.0.0.0
+if (HOST && !/^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(HOST) && HOST !== '0.0.0.0' && HOST !== '::' && HOST !== 'localhost') {
+  // For named hosts, rely on 0.0.0.0 bind for portability
+  // eslint-disable-next-line no-console
+  console.warn(`[startup] Overriding HOST='${HOST}' to 0.0.0.0 for portability`);
+  HOST = '0.0.0.0';
+}
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // PUBLIC_INTERFACE
