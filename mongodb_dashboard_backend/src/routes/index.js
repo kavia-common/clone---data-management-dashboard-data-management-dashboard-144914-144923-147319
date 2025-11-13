@@ -4,6 +4,7 @@ const express = require('express');
 const healthController = require('../controllers/health');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
+const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 
 // Core route modules
 const authRoutes = require('./auth.routes');
@@ -42,7 +43,7 @@ router.use('/auth', authRoutes);
 router.use('/users', verifyAuth, requireTenant, usersRoutes);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 
-router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);
+router.use('/llm-costs', verifyAuth, requireTenant, tenantScopeEnforcer(), llmCostsRoutes);
 router.use('/llm-costs-aggregate', verifyAuth, requireTenant, llmCostsAggregateRoutes);
 router.use('/costs', verifyAuth, requireTenant, costsByAgentRoutes);
 router.use('/session', verifyAuth, requireTenant, sessionRoutes);
