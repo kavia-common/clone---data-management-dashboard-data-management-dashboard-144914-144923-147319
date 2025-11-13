@@ -196,7 +196,7 @@ app.use('/api/data', require('./routes/data.routes'));
 app.use('/api/costs', require('./routes/costs.byAgent.routes'));
 
 // LLM costs endpoints
-app.use('/api/llm-costs', require('./routes/llmCosts.routes'));
+app.use('/api/llm-costs', require('./routes/ll'));
 // app.use('/api/llmCosts', require('./routes/llmCosts.routes'));
 
 // Tenants, Projects, Auth, Session
