@@ -34,7 +34,7 @@ const LLMCostsSchema = new mongoose.Schema(
   },
   {
     timestamps: false,
-    collection: 'llm_costs',
+    collection: 'llm-costs',
     strict: false, // allow additional fields that may exist in real documents
   }
 );

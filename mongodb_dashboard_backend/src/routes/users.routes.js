@@ -286,6 +286,40 @@ router.get(
   extractOrganization(),
   controller.list
 );
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/:userId/projects
+ * Returns distinct projects for the specified user based on session_tracking activity.
+ * Query:
+ *  - organization_id or tenant_id: required tenant (organization) id
+ *  - from, to: optional ISO date-time bounds for time range filtering
+ * Response:
+ *  200: { user_id, tenant_id, projects: [{ project_id, project_name?, last_activity? }] }
+ *  400: Missing/invalid parameters
+ */
+router.get('/:userId/projects', asyncHandler(async (req, res) => {
+  const userId = req.params.userId;
+  // Accept both organization_id and tenant_id; prefer organization_id
+  const tenantId = (req.query.organization_id || req.query.tenant_id || req.organizationId || req.tenantId || '').toString().trim();
+
+  if (!userId || !tenantId) {
+    return res.status(400).json({ success: false, message: 'userId (path) and organization_id/tenant_id (query/header) are required' });
+  }
+
+  // Validate optional dates (lenient: backend service handles conversion; here we only pass through)
+  const { from, to } = req.query || {};
+  const { getUserProjectsFromSessions } = require('../services/users.service');
+
+  const payload = await getUserProjectsFromSessions({
+    tenantId,
+    userId,
+    from,
+    to,
+  });
+
+  return res.status(200).json(payload);
+}));
+
 router.get('/:id', controller.getById);
 router.post('/', controller.create);
 router.put('/:id', controller.update);

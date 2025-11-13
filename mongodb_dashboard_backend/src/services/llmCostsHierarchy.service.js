@@ -318,7 +318,7 @@ async function aggregateHierarchy({ filter = {}, tenantId } = {}) {
    * ]
    */
   const db = await getDb();
-  const col = db.collection('llm_costs');
+  const col = db.collection('llm-costs');
 
   // Build enforced filter with tenant
   const enforcedFilter = (() => {
@@ -413,7 +413,7 @@ async function ensureLlmCostsIndexes() {
    * Ensures helpful indexes for the aggregation performance.
    */
   const db = await getDb();
-  const col = db.collection('llm_costs');
+  const col = db.collection('llm-costs');
   try {
     await col.createIndex({ tenant_id: 1, user_id: 1 });
   } catch (e) {}

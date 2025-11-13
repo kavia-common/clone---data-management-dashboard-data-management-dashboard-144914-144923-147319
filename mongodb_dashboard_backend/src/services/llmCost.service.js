@@ -40,8 +40,8 @@ function resolveCollectionCandidates() {
   // Deduplicate while preserving order
   // Default priority updated to prefer 'llm_cost' as the canonical collection name
   const defaults = [
-    'llm_cost',   // preferred default
-    'llm_costs',
+    // 'llm_cost',   // preferred default
+    // 'llm_costs',
     'llm-costs',
     'llm_events',
     'llm-events',

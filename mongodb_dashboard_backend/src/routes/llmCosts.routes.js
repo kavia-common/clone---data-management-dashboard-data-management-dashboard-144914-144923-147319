@@ -48,7 +48,7 @@ router.use(async (req, res, next) => {
       };
       res.set('X-Applied-Filter', JSON.stringify(orgFilter));
       try {
-        res.set('X-Model-Collection', LLMCost.collection?.name || 'llm_costs');
+        res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
       } catch (_) {}
     }
   } catch (_) {}

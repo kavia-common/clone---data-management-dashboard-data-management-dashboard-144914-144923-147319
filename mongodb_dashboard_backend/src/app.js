@@ -55,15 +55,15 @@ const buildDynamicSpec = (req) => {
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
     // Use same-origin server so Swagger calls hit this backend instance
-    // url: `${protocol}://${fullHost}`,
+    url: `${protocol}://${fullHost}`,
         
-    servers: [
-      {
-        url:
+    // servers: [
+    //   {
+    //     url:
 
-          'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-      },
-    ],
+    //       'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //   },
+    // ],
   };
 };
 
@@ -296,7 +296,7 @@ app.use('/api/costs', verifyAuth, requireTenant, require('./routes/costs.byAgent
 const { verifyAuth: _verifyAuth } = require('./middleware/verifyAuth');
 const { requireTenant: _requireTenant } = require('./middleware/requireTenant');
 app.use('/api/llm-costs', _verifyAuth, _requireTenant, require('./routes/llmCosts.routes'));
-app.use('/api/llmCosts', _verifyAuth, _requireTenant, require('./routes/llmCosts.routes'));
+// app.use('/api/llmCosts', _verifyAuth, _requireTenant, require('./routes/llmCosts.routes'));
 // Hierarchy analytics for LLM costs
 app.use('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 

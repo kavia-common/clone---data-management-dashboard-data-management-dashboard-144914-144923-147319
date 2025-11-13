@@ -128,6 +128,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
   return {
     // PUBLIC_INTERFACE
     async list(req, res) {
+      console.debug("print the data -------------->>>>>>",req.params)
       // Determine effective tenant from JWT-backed middleware
       const effectiveTenant = req?.tenantId ? String(req.tenantId) : undefined;
 
@@ -158,6 +159,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
+      console.log('----------->>>>>',req.query)
       let filter = {};
       try {
         filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
@@ -203,7 +205,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
       const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
-
+      console.log('below try ---->')
       try {
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
         let existsSample = 'unknown';
@@ -233,18 +235,21 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
           } catch (_) {}
         }
+          console.log('below if ---->')
 
         if (req.method === 'GET' && explicit) {
+                    console.log('inside if  ---->')
+
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
           if (cached) return res.status(200).json(cached);
-
+          
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           const [items, total] = await Promise.all([
             Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean(),
             Model.countDocuments(appliedFilter),
           ]);
-
+          console.debug('get data from db---->',items)
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);

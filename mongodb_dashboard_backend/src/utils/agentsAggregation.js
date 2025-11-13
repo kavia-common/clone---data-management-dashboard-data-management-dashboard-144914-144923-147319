@@ -3,7 +3,7 @@
 /**
  * PUBLIC_INTERFACE
  * aggregateAgentsUsageAndCost
- * Aggregates agent costs and usage across session_tracking and llm_costs collections.
+ * Aggregates agent costs and usage across session_tracking and llm-costs collections.
  * - Parses currency-like strings (e.g., "$0.108255") safely to numbers.
  * - Sums costs and tokens (usage) per agent, merging both sources.
  * - Supports optional filters: tenant_id, project_id, from, to.
@@ -35,7 +35,7 @@ async function aggregateAgentsUsageAndCost(
   } = {}
 ) {
   const sessionTrackingCol = db.collection('session_tracking');
-  const llmCostsCol = db.collection('llm_costs');
+  const llmCostsCol = db.collection('llm-costs');
 
   // --- Build match filters ---
   const andConditions = [];
@@ -173,7 +173,7 @@ async function aggregateAgentsUsageAndCost(
     },
   ];
 
-  // 2) Aggregate llm_costs.agents with strict normalization of currency strings and tokens
+  // 2) Aggregate llm-costs.agents with strict normalization of currency strings and tokens
   const llmCostsPipeline = [
     { $match: sessionMatch },
     { $unwind: { path: '$agents', preserveNullAndEmptyArrays: false } },
@@ -236,7 +236,7 @@ async function aggregateAgentsUsageAndCost(
       agent_name: s.agent_name,
       source_breakdown: {
         session_tracking: { cost: s.cost || 0, tokens: s.total_tokens || 0 },
-        llm_costs: { cost: 0, tokens: 0 },
+        llm-costs: { cost: 0, tokens: 0 },
       },
       session_count: s.session_count || 0,
     });
@@ -248,20 +248,20 @@ async function aggregateAgentsUsageAndCost(
         agent_name: l.agent_name,
         source_breakdown: {
           session_tracking: { cost: 0, tokens: 0 },
-          llm_costs: { cost: l.cost || 0, tokens: l.total_tokens || 0 },
+          llm-costs: { cost: l.cost || 0, tokens: l.total_tokens || 0 },
         },
         session_count: 0,
       });
     } else {
       const existing = map.get(l.agent_name);
-      existing.source_breakdown.llm_costs.cost += l.cost || 0;
-      existing.source_breakdown.llm_costs.tokens += l.total_tokens || 0;
+      existing.source_breakdown.llm-costs.cost += l.cost || 0;
+      existing.source_breakdown.llm-costs.tokens += l.total_tokens || 0;
     }
   }
 
   const items = Array.from(map.values()).map((x) => {
     const st = x.source_breakdown.session_tracking;
-    const lc = x.source_breakdown.llm_costs;
+    const lc = x.source_breakdown.llm-costs;
     const total_cost = Number(((st.cost || 0) + (lc.cost || 0)).toFixed(6));
     const total_usage = Number(((st.tokens || 0) + (lc.tokens || 0)).toFixed(0));
     return {
