@@ -77,6 +77,12 @@ function requireTenant(req, res, next) {
     req.auth.tenantId = String(resolved);
     req.tenantId = String(resolved);
     req.organizationId = String(resolved);
+    try {
+      if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+        // eslint-disable-next-line no-console
+        console.debug('[requireTenant] resolved from header/query ->', String(resolved));
+      }
+    } catch {}
     try { 
       res.set('X-Applied-Tenant', String(resolved)); 
       const tenant = String(resolved);

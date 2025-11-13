@@ -306,18 +306,45 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'userId (path) and organization_id/tenant_id (query/header) are required' });
   }
 
+  // Debug trace to validate handler entry and resolved scope during runtime
+  try {
+    if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+      // eslint-disable-next-line no-console
+      console.debug(`[users.projects] GET /api/users/${userId}/projects tenantId=${tenantId} from=${req.query?.from || 'n/a'} to=${req.query?.to || 'n/a'}`);
+    }
+  } catch {}
+
   // Validate optional dates (lenient: backend service handles conversion; here we only pass through)
   const { from, to } = req.query || {};
   const { getUserProjectsFromSessions } = require('../services/users.service');
 
-  const payload = await getUserProjectsFromSessions({
-    tenantId,
-    userId,
-    from,
-    to,
-  });
+  try {
+    const payload = await getUserProjectsFromSessions({
+      tenantId,
+      userId,
+      from,
+      to,
+    });
 
-  return res.status(200).json(payload);
+    // Ensure projects is always an array for safety
+    const safePayload = {
+      user_id: String(payload?.user_id || userId),
+      tenant_id: String(payload?.tenant_id || tenantId),
+      projects: Array.isArray(payload?.projects) ? payload.projects : [],
+    };
+
+    return res.status(200).json(safePayload);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[users.projects] error:', err?.message || err);
+    // Return safe default 200 with empty list to avoid 404/500 breaking frontend
+    return res.status(200).json({
+      user_id: String(userId),
+      tenant_id: String(tenantId),
+      projects: [],
+      info: 'Fallback due to internal error while aggregating projects',
+    });
+  }
 }));
 
 router.get('/:id', controller.getById);

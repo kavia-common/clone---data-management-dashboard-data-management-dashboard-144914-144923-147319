@@ -84,6 +84,7 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to }) {
         : undefined,
       last_activity: g.last_activity ? new Date(g.last_activity).toISOString() : undefined,
     }));
+  // If no projects, return an empty array (not null/undefined) to guarantee stable client behavior.
 
   return {
     user_id: userIdString,

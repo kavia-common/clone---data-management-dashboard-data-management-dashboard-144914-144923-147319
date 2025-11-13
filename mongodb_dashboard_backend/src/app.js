@@ -192,6 +192,9 @@ app.use('/api/dev', require('./routes/dev.routes'));
 /**
  * Public API routes
  * Users CRUD and analytics summary
+ * Note: /api/users is mounted directly here (canonical API mount).
+ * The baseRouter mounted at '/' also exposes '/users' without the '/api' prefix for legacy/internal use.
+ * There is no duplicate '/api/users' mount elsewhere to avoid collisions.
  */
 try {
   // eslint-disable-next-line no-console
