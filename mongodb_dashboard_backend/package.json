@@ -12,6 +12,7 @@
     "preview": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=production node ./src/server.js",
     "test": "jest",
     "lint": "eslint .",
+    "build": "npm run -s lint && node -e \"console.log('build ok')\"",
     "gen:openapi": "node generate_openapi.js"
   },
   "engines": {

@@ -147,7 +147,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
         const authPresent = !!req.headers?.authorization;
         res.set('x-tenant-auth-present', String(authPresent));
-      } catch (_) {}
+      } catch (_ignored) {}
 
       // Developer-mode log
       if (debugOn) {
@@ -156,7 +156,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           console.debug(
             `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'}`
           );
-        } catch (_) {}
+        } catch (_ignored) {}
       }
 
       // Parse pagination but hard-cap the limit to prevent heavy responses.
@@ -238,7 +238,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           try {
             // eslint-disable-next-line no-console
             console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
-          } catch (_) {}
+          } catch (_ignored) {}
         }
           if (debugOn) {
             // eslint-disable-next-line no-console

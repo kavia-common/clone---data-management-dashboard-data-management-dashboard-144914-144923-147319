@@ -1,11 +1,9 @@
 'use strict';
 
 const express = require('express');
-const mongoose = require('mongoose');
 const { asyncHandler } = require('../utils/http');
 const { buildCrudController } = require('../controllers/crudFactory');
 const User = require('../models/user.model');
-const { requireTenant } = require('../middleware/requireTenant');
 const { extractOrganization } = require('../middleware/extractOrganization');
 const SessionTracking = require('../models/sessionTracking.model');
 const Tenant = require('../models/tenant.model');
@@ -36,9 +34,9 @@ router.use((req, res, next) => {
       try {
         // also surface model collection for this router
         res.set('X-Model-Collection', User.collection?.name || 'users');
-      } catch (_) {}
+      } catch (_ignored) {}
     }
-  } catch (_) {}
+  } catch (_ignored) {}
   next();
 });
 
@@ -312,7 +310,7 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
       // eslint-disable-next-line no-console
       console.debug(`[users.projects] GET /api/users/${userId}/projects tenantId=${tenantId} from=${req.query?.from || 'n/a'} to=${req.query?.to || 'n/a'}`);
     }
-  } catch {}
+  } catch (_ignored) {}
 
   // Validate optional dates (lenient: backend service handles conversion; here we only pass through)
   const { from, to } = req.query || {};

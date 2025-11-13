@@ -28,10 +28,9 @@ const router = express.Router();
  * GET /
  * Health endpoint for base router
  */
-router.get('/', (req, res) => {
-  // Simple root health ping for uptime checks
-  return res.status(200).json({ status: 'ok', message: 'Dashboard API backend' });
-});
+router.get('/', (req, res) =>
+  res.status(200).json({ status: 'ok', message: 'Dashboard API backend' })
+);
 router.get('/healthz', healthController.check.bind(healthController));
 router.get('/health', healthController.check.bind(healthController));
 

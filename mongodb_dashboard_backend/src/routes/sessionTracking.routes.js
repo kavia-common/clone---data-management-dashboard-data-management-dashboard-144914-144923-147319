@@ -1,6 +1,5 @@
 const express = require('express');
-const { asyncHandler } = require('../utils/http');
-const { parsePagination } = require('../utils/http');
+const { asyncHandler, parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 // Use the existing generic CRUD factory with tenant enforcement
 const { buildCrudController } = require('../controllers/crudFactory');
@@ -388,7 +387,6 @@ router.get(
  *       404: { description: Not found }
  *       400: { description: Invalid id }
  */
-router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));
 router.put('/:id', asyncHandler(controller.update));
 router.delete('/:id', asyncHandler(controller.remove));

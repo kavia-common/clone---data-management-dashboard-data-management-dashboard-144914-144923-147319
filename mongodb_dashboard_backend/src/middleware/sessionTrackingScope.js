@@ -48,7 +48,9 @@ function sessionTrackingScope(req, res, next) {
       // eslint-disable-next-line no-console
       console.debug(`[session-tracking.scope] ${req.method} ${req.originalUrl} enforced filter:`, req.forcedFilter);
     }
-  } catch {}
+  } catch (e) {
+    // ignore
+  }
 
   // Do not mutate incoming query/body here beyond attaching forced filter;
   // the controller will merge and override tenant_id to this value.
