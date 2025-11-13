@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * Date utilities for analytics
  */

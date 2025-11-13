@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * PUBLIC_INTERFACE
  * Versioned authentication hashing utility with per-organization salt support.
