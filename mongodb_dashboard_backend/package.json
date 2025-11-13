@@ -4,12 +4,12 @@
   "description": "Minimal Express app with scalable structure",
   "main": "src/server.js",
   "scripts": {
-    "start": "node -e \"process.env.HOST=process.env.HOST||'0.0.0.0';process.env.PORT=process.env.PORT||'3001';process.env.NODE_ENV=process.env.NODE_ENV||'production';require('./src/server.js');\"",
-    "dev": "CI=${CI:-true} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} node ./src/server.js",
-    "dev:port3001": "CI=true HOST=0.0.0.0 PORT=3001 NODE_ENV=development node ./src/server.js",
-    "dev:watch": "CI=${CI:-true} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} nodemon --watch src --ext js,json --exec \"node src/server.js\"",
-    "dev:node": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} node src/server.js",
-    "preview": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=production node ./src/server.js",
+    "start": "NODE_OPTIONS=${NODE_OPTIONS:---max-old-space-size=1024} CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-false} WATCHPACK_POLLING=${WATCHPACK_POLLING:-false} GENERATE_SOURCEMAP=${GENERATE_SOURCEMAP:-false} node -e \"process.env.HOST=process.env.HOST||'0.0.0.0';process.env.PORT=process.env.PORT||'3001';process.env.NODE_ENV=process.env.NODE_ENV||'production';require('./src/server.js');\"",
+    "dev": "CI=${CI:-true} NODE_OPTIONS=${NODE_OPTIONS:---max-old-space-size=1024} CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-false} WATCHPACK_POLLING=${WATCHPACK_POLLING:-false} GENERATE_SOURCEMAP=${GENERATE_SOURCEMAP:-false} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} node ./src/server.js",
+    "dev:port3001": "CI=${CI:-true} NODE_OPTIONS=${NODE_OPTIONS:---max-old-space-size=1024} CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-false} WATCHPACK_POLLING=${WATCHPACK_POLLING:-false} GENERATE_SOURCEMAP=${GENERATE_SOURCEMAP:-false} HOST=0.0.0.0 PORT=3001 NODE_ENV=development node ./src/server.js",
+    "dev:watch": "CI=${CI:-true} NODE_OPTIONS=${NODE_OPTIONS:---max-old-space-size=1024} CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-false} WATCHPACK_POLLING=${WATCHPACK_POLLING:-false} GENERATE_SOURCEMAP=${GENERATE_SOURCEMAP:-false} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} nodemon --watch src --ext js,json --exec \"node src/server.js\"",
+    "dev:node": "NODE_OPTIONS=${NODE_OPTIONS:---max-old-space-size=1024} CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-false} WATCHPACK_POLLING=${WATCHPACK_POLLING:-false} GENERATE_SOURCEMAP=${GENERATE_SOURCEMAP:-false} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} node src/server.js",
+    "preview": "NODE_OPTIONS=${NODE_OPTIONS:---max-old-space-size=1024} CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING:-false} WATCHPACK_POLLING=${WATCHPACK_POLLING:-false} GENERATE_SOURCEMAP=${GENERATE_SOURCEMAP:-false} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=production node ./src/server.js",
     "test": "jest",
     "lint": "eslint .",
     "gen:openapi": "node generate_openapi.js"

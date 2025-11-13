@@ -164,6 +164,31 @@ function startServerStrict() {
     console.error('[uncaughtException]', err);
   });
 
+  // Soft memory pressure logging to aid OOM diagnostics without crashing
+  let lastWarn = 0;
+  setInterval(() => {
+    try {
+      const mem = process.memoryUsage?.();
+      if (!mem) return;
+      const rssMB = Math.round((mem.rss || 0) / (1024 * 1024));
+      const heapMB = Math.round((mem.heapUsed || 0) / (1024 * 1024));
+      const now = Date.now();
+      if (rssMB > 800 && now - lastWarn > 15000) {
+        lastWarn = now;
+        console.warn(`[memory] High usage detected rss=${rssMB}MB heapUsed=${heapMB}MB`);
+      }
+    } catch {}
+  }, 10000).unref();
+
+  // Handle SIGUSR2 from nodemon gracefully
+  process.once('SIGUSR2', () => {
+    console.log('SIGUSR2 received; nodemon restart');
+    server.close(() => {
+      removePidFile();
+      process.kill(process.pid, 'SIGUSR2');
+    });
+  });
+
   return server;
 }
 
