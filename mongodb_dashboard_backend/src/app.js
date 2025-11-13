@@ -1,5 +1,3 @@
-'use strict';
-
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
