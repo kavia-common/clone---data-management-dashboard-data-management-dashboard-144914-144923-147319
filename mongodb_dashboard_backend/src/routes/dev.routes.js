@@ -81,7 +81,6 @@ if (!allowDev) {
     });
   });
   module.exports = router;
-  return;
 }
 
 /**
