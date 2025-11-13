@@ -3,9 +3,37 @@
   "info": {
     "title": "Dashboard API",
     "version": "1.0.0",
-    "description": "REST API for Data Management Dashboard with MongoDB and Express"
+    "description": "REST API for Data Management Dashboard with MongoDB and Express. Authentication: Bearer (JWT) via Authorize button. Tenant scoping: send x-organization-id header (or organization_id query) when JWT is not provided; JWT tenant overrides header/query."
   },
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Provide a valid JWT as a Bearer token. When present, tenant is resolved from the token and overrides x-organization-id and query aliases."
+      }
+    },
+    "parameters": {
+      "XOrganizationId": {
+        "in": "header",
+        "name": "x-organization-id",
+        "required": true,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Tenant (organization) identifier header for tenant-scoped endpoints when Authorization is not provided. Alternatively pass as query parameter ?organization_id (or ?tenant_id). Header takes precedence over query aliases."
+      },
+      "OrganizationIdQuery": {
+        "in": "query",
+        "name": "organization_id",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "Optional tenant (organization) identifier as a query parameter. Use header x-organization-id instead when possible."
+      }
+    },
     "schemas": {
       "GenericDocument": {
         "type": "object",
@@ -52,6 +80,9 @@
       }
     }
   },
+  "security": [
+    { "bearerAuth": [] }
+  ],
   "paths": {
     "/api/analytics/llm-cost-by-agent": {
       "get": {
@@ -146,6 +177,8 @@
           "AppDeployments"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/OrganizationIdQuery" },
           {
             "in": "query",
             "name": "tenant_id",
@@ -153,14 +186,6 @@
               "type": "string"
             },
             "description": "Optional tenant (organization) ID to scope results. Alias: organization_id"
-          },
-          {
-            "in": "query",
-            "name": "organization_id",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Legacy alias for tenant scope. Prefer tenant_id."
           },
           {
             "in": "query",
@@ -695,23 +720,9 @@
         "tags": [
           "LLMCosts"
         ],
-        "security": [
-          { "bearerAuth": [] }
-        ],
         "parameters": [
-          {
-            "in": "header",
-            "name": "x-organization-id",
-            "schema": { "type": "string" },
-            "required": false,
-            "description": "Tenant (organization) ID. Required when JWT is not provided; ignored if JWT is present with tenant. If provided and conflicts with JWT tenant, the request is rejected with 403."
-          },
-          {
-            "in": "query",
-            "name": "organization_id",
-            "schema": { "type": "string" },
-            "description": "Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query. If conflicting with JWT tenant, 403 is returned."
-          },
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/OrganizationIdQuery" },
           {
             "in": "query",
             "name": "tenant_id",
@@ -767,8 +778,8 @@
         "description": "Creates a new LLM cost record. Tenant scoping is enforced from JWT when Authorization is provided, otherwise x-organization-id header is required. Any tenant fields in payload are overridden server-side.",
         "tags": [ "LLMCosts" ],
         "parameters": [
-          { "in": "header", "name": "x-organization-id", "schema": { "type": "string" }, "required": false, "description": "Required when JWT is not provided." },
-          { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Alias for tenant (ignored with JWT or header precedence)." },
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/OrganizationIdQuery" },
           { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Alias for tenant (ignored with JWT or header precedence)." }
         ],
         "requestBody": {
@@ -828,12 +839,9 @@
       "get": {
         "summary": "Get an LLM cost record by ID",
         "tags": [ "LLMCosts" ],
-        "security": [
-          { "bearerAuth": [] }
-        ],
         "parameters": [
-          { "in": "header", "name": "x-organization-id", "schema": { "type": "string" }, "required": false, "description": "Tenant id (required when JWT is not provided)" },
-          { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Alias for tenant (ignored with JWT or header precedence)." },
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/OrganizationIdQuery" },
           { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Alias for tenant (ignored with JWT or header precedence)." },
           { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
         ],
