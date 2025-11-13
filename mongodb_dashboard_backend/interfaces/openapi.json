@@ -3,7 +3,7 @@
   "info": {
     "title": "Dashboard API",
     "version": "1.0.0",
-    "description": "REST API for Data Management Dashboard with MongoDB and Express.\n\nAuthentication and Tenant Scoping\n- Click the \"Authorize\" button in Swagger UI to enter your Bearer token (JWT) for Authorization.\n- For tenant-scoped endpoints, provide the tenant in the x-organization-id header field shown in each request (Swagger UI will show a header input). When a valid JWT is provided, tenant is taken from the token and overrides the header or query values.\n- Without JWT (for demo/testing), you may use the x-organization-id header or organization_id/tenant_id query parameter to set scope. The header takes precedence over query.\n"
+    "description": "REST API for Data Management Dashboard with MongoDB and Express.\n\nAuthentication and Tenant Scoping\n- Authentication endpoints (e.g., /auth/*, /api/auth/*, /login, /logout, /token, /refresh, /session) are managed externally and are not documented here. Use the Authorize button to provide a Bearer token (JWT).\n- Click the \"Authorize\" button in Swagger UI to enter your Bearer token (JWT) for Authorization.\n- For tenant-scoped endpoints, provide the tenant in the x-organization-id header field shown in each request (Swagger UI will show a header input). When a valid JWT is provided, tenant is taken from the token and overrides the header or query values.\n- Without JWT (for demo/testing), you may use the x-organization-id header or organization_id/tenant_id query parameter to set scope. The header takes precedence over query.\n"
   },
   "components": {
     "securitySchemes": {
