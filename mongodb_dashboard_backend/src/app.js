@@ -38,8 +38,26 @@ app.use(express.urlencoded({ extended: true }));
  * - /docs and /api/docs
  */
 setupSwagger(app);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/docs/help
+ * Provides usage notes for the Swagger UI, including how to use the Authorize button and x-organization-id.
+ */
+app.get('/api/docs/help', (req, res) => {
+  return res.status(200).json({
+    title: 'Swagger UI Help',
+    usage: [
+      'Click the Authorize button and paste your Bearer JWT (if available).',
+      'For tenant-scoped endpoints, add header x-organization-id under the "Headers" section when using Try it out.',
+      'Alternatively, you can pass ?tenant_id in the query. The UI request interceptor will mirror it to x-organization-id.',
+    ],
+    spec: '/openapi.json',
+    ui: '/api/docs',
+  });
+});
 // Preflight for Swagger UI routes to ensure custom headers are allowed
-app.options(['/api/docs', '/docs', '/openapi.json', '/api/openapi.json'], (req, res) => {
+app.options(['/api/docs', '/docs', '/openapi.json', '/api/openapi.json', '/api-docs'], (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,x-organization-id,x-org-id,x-tenant-id,x-tenant,Origin,User-Agent,Cache-Control,Pragma');
@@ -69,6 +87,13 @@ app.all('/api/docs/try-it-out/log', (req, res) => {
   } catch {}
   return res.status(200).json({ success: true, message: 'Logged request headers for Swagger Try it out', headers: hdrs });
 });
+
+/**
+ * Provide canonical docs redirects to ensure users find the correct UI:
+ * - /api-docs -> /api/docs
+ * - /api/docs -> already mounted by setupSwagger
+ */
+app.get('/api-docs', (req, res) => res.redirect(302, '/api/docs'));
 
 // Base router (non-/api) for health and overview
 const baseRouter = require('./routes');

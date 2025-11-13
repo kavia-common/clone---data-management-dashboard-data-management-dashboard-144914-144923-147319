@@ -39,8 +39,9 @@ function setupSwagger(app) {
   });
 
   // Swagger UI:
-  // IMPORTANT: pass only 'url' via swaggerOptions to avoid validation error "attribute url is unexpected"
-  // and DO NOT pass both 'spec' and 'url' at the same time.
+  // IMPORTANT: pass only 'url' via swaggerOptions and do not pass 'spec' simultaneously.
+  // Using url=/openapi.json guarantees a single source of truth and shows the Authorize button
+  // when components.securitySchemes.bearerAuth is present (as defined in interfaces/openapi.json).
   const uiHandler = swaggerUi.setup(null, {
     swaggerOptions: {
       url: '/openapi.json',
