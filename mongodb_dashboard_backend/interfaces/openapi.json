@@ -3,7 +3,7 @@
   "info": {
     "title": "Dashboard API",
     "version": "1.0.0",
-    "description": "REST API for Data Management Dashboard with MongoDB and Express. Authentication: Bearer (JWT) via Authorize button. Tenant scoping: send x-organization-id header (or organization_id query) when JWT is not provided; JWT tenant overrides header/query."
+    "description": "REST API for Data Management Dashboard with MongoDB and Express.\n\nAuthentication and Tenant Scoping\n- Click the \"Authorize\" button in Swagger UI to enter your Bearer token (JWT) for Authorization.\n- For tenant-scoped endpoints, provide the tenant in the x-organization-id header field shown in each request (Swagger UI will show a header input). When a valid JWT is provided, tenant is taken from the token and overrides the header or query values.\n- Without JWT (for demo/testing), you may use the x-organization-id header or organization_id/tenant_id query parameter to set scope. The header takes precedence over query.\n"
   },
   "components": {
     "securitySchemes": {
@@ -85,6 +85,36 @@
     { "bearerAuth": [] }
   ],
   "paths": {
+    "/api/dev/echo": {
+      "get": {
+        "summary": "Echo request headers and tenant resolution (dev)",
+        "description": "Development helper endpoint to validate that Swagger UI sends Authorization and x-organization-id. Returns selected headers and resolved tenant values.",
+        "tags": ["Dev"],
+        "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/OrganizationIdQuery" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Echo of request metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "authorization": { "type": "string", "nullable": true, "description": "Raw Authorization header" },
+                    "x_organization_id": { "type": "string", "nullable": true, "description": "x-organization-id header if provided" },
+                    "organization_id_query": { "type": "string", "nullable": true, "description": "organization_id query param if provided" },
+                    "tenant_id_query": { "type": "string", "nullable": true, "description": "tenant_id query param if provided" },
+                    "note": { "type": "string", "example": "For testing Swagger Try it out sends both headers and query params." }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/analytics/llm-cost-by-agent": {
       "get": {
         "summary": "LLM cost distribution by agent",
@@ -1927,6 +1957,10 @@
     }
   },
   "tags": [
+    {
+      "name": "Dev",
+      "description": "Developer helper and verification endpoints"
+    },
     {
       "name": "AppDeployments",
       "description": "Application deployments endpoints"
