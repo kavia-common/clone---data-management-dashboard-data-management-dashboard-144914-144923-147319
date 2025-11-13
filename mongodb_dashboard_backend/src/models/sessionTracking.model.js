@@ -70,4 +70,23 @@ try {
 const SessionTracking =
   mongoose.models.SessionTracking || mongoose.model('SessionTracking', SessionTrackingSchema);
 
+/**
+ * PUBLIC_INTERFACE
+ * ensureSessionTrackingIndexes
+ * Ensure core indexes exist. Safe to call on startup; errors are logged but do not crash.
+ */
+async function ensureSessionTrackingIndexes() {
+  try {
+    // Core indexes (idempotent)
+    await SessionTracking.init();
+    // Minimal helpful indexes if not defined above (defensive duplicates are ignored by MongoDB)
+    await SessionTracking.collection.createIndex({ user_id: 1, status: 1 }, { background: true });
+    await SessionTracking.collection.createIndex({ tenant_id: 1, status: 1 }, { background: true });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('ensureSessionTrackingIndexes warning:', err?.message || err);
+  }
+}
+
 module.exports = SessionTracking;
+module.exports.ensureSessionTrackingIndexes = ensureSessionTrackingIndexes;

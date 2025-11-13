@@ -51,8 +51,14 @@ function toNumber(val) {
  * - Ensure session_breakdown is an array (may be empty) with normalized duration numbers
  */
 function normalizeSessionDoc(doc) {
-  const out = { ...doc };
+  // Defensive clone; accept both plain object or Mongoose doc.toObject()-like
+  const base = doc && typeof doc.toObject === 'function' ? doc.toObject({ getters: true }) : doc || {};
+  const out = { ...base };
 
+  // Normalize identifiers and optional fields to avoid undefined surprises for consumers
+  if (out._id != null) out._id = String(out._id);
+
+  // Ensure cost numbers are plain JS numbers
   const cost = toNumber(out.total_cost);
   out.total_cost = Number.isFinite(cost) ? cost : 0;
 
@@ -103,12 +109,12 @@ function normalizeSessionDoc(doc) {
     }
   }
 
-  // Normalize session_breakdown array
+  // Normalize session_breakdown array (null-safe and tolerant to mixed types)
   if (!Array.isArray(out.session_breakdown)) {
     out.session_breakdown = [];
   } else {
     out.session_breakdown = out.session_breakdown.map((entry) => {
-      const e = { ...entry };
+      const e = entry && typeof entry.toObject === 'function' ? entry.toObject() : { ...(entry || {}) };
       if (e && typeof e === 'object') {
         // normalize duration to number if present
         if (e.duration !== undefined) {
@@ -126,9 +132,33 @@ function normalizeSessionDoc(doc) {
         } catch {
           // ignore parsing errors
         }
+        // Ensure user_id is string when present for consistent client matching
+        if (e.user_id != null && typeof e.user_id !== 'string') {
+          try {
+            e.user_id = String(e.user_id);
+          } catch {
+            // ignore cast errors
+          }
+        }
       }
       return e;
     });
+  }
+
+  // Compute total_duration_for_user based on session_breakdown filtered by this doc's user_id (string-normalized)
+  const thisUserId = out.user_id != null ? String(out.user_id) : null;
+  if (thisUserId) {
+    const total = Array.isArray(out.session_breakdown)
+      ? out.session_breakdown.reduce((acc, s) => {
+          const uid = s && s.user_id != null ? String(s.user_id) : null;
+          const dur = s && typeof s.duration === 'number' ? s.duration : 0;
+          return uid === thisUserId ? acc + (Number.isFinite(dur) ? dur : 0) : acc;
+        }, 0)
+      : 0;
+    out.total_duration_for_user = total;
+  } else {
+    // If user_id missing, default to 0 for backward-compatible truthy numeric field
+    out.total_duration_for_user = 0;
   }
 
   return out;
@@ -170,7 +200,10 @@ function normalizeSessionDoc(doc) {
  *           service_type, status, and session_data fields (session_name, description, llm_model).
  *     responses:
  *       200:
- *         description: Successful response (array or envelope based on pagination params)
+ *         description: Successful response (array or envelope based on pagination params).
+ *           Each record is enriched with:
+ *           - session_breakdown: array of per-phase segments (null-safe; empty array if absent)
+ *           - total_duration_for_user: number, sum of segment durations where segment.user_id equals record.user_id
  *         content:
  *           application/json:
  *             schema:
@@ -308,10 +341,12 @@ router.get(
         if (cached) return res.status(200).json(cached);
 
         const [docs, total] = await Promise.all([
-          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
+          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
           SessionTracking.countDocuments(finalFilter),
         ]);
-        const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
+
+        // Normalize and enrich each doc; ensure session_breakdown present and computed total_duration_for_user
+        const items = docs.map((d) => normalizeSessionDoc(d));
         const meta = { page, limit, total };
         if (debugEnabled) meta.debug = { finalFilter, sort, skip, limit };
         const payload = { success: true, data: items, meta };
@@ -319,8 +354,8 @@ router.get(
         return res.status(200).json(payload);
       }
 
-      const docs = await SessionTracking.find(finalFilter).sort(sort);
-      const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
+      const docs = await SessionTracking.find(finalFilter).sort(sort).lean();
+      const items = docs.map((d) => normalizeSessionDoc(d));
       if (debugEnabled) {
         res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort }));
       }
@@ -355,11 +390,11 @@ router.get(
               ],
             }
           : { _id: id }
-      );
+      ).lean();
       if (!doc) {
         return res.status(404).json({ success: false, message: 'Not found' });
       }
-      const enriched = normalizeSessionDoc(doc.toObject({ getters: true }));
+      const enriched = normalizeSessionDoc(doc);
       return res.status(200).json(enriched);
     } catch (err) {
       const message = err?.message || 'Request failed';
