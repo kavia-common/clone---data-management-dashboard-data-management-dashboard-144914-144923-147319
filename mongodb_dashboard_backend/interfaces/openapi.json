@@ -20,9 +20,10 @@
         "name": "x-organization-id",
         "required": true,
         "schema": {
-          "type": "string"
+          "type": "string",
+          "example": "org_demo"
         },
-        "description": "Tenant (organization) identifier header for tenant-scoped endpoints when Authorization is not provided. Alternatively pass as query parameter ?organization_id (or ?tenant_id). Header takes precedence over query aliases."
+        "description": "Tenant (organization) identifier header for tenant-scoped endpoints when Authorization is not provided. Alternatively pass as query parameter ?organization_id (or ?tenant_id). Header takes precedence over query aliases. When Authorization (Bearer JWT) is present, the tenant is taken from the token and this header is not required."
       },
       "OrganizationIdQuery": {
         "in": "query",
@@ -1040,6 +1041,8 @@
           "SessionTracking"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/OrganizationIdQuery" },
           {
             "in": "query",
             "name": "page",
@@ -1152,6 +1155,8 @@
           "SessionTracking"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/OrganizationIdQuery" },
           {
             "in": "path",
             "name": "id",
@@ -1418,6 +1423,8 @@
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/OrganizationIdQuery" },
           {
             "in": "query",
             "name": "page",
@@ -1484,6 +1491,10 @@
         "summary": "Create user",
         "tags": [
           "Users"
+        ],
+        "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/OrganizationIdQuery" }
         ],
         "requestBody": {
           "required": true,
@@ -1558,6 +1569,8 @@
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/OrganizationIdQuery" },
           {
             "in": "path",
             "name": "id",

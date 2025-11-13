@@ -194,6 +194,22 @@ app.get('/api/docs/headers', (req, res) => {
 // Dev utilities
 app.use('/api/dev', require('./routes/dev.routes'));
 
+// PUBLIC_INTERFACE
+// GET /api/dev/echo-headers
+// Debug endpoint to echo select headers for verification in Swagger Try it out.
+// Returns received x-organization-id, x-tenant-id, authorization presence.
+app.get('/api/dev/echo-headers', (req, res) => {
+  const hdrs = {
+    'x-organization-id': req.headers['x-organization-id'] || null,
+    'x-org-id': req.headers['x-org-id'] || null,
+    'x-tenant-id': req.headers['x-tenant-id'] || null,
+    'x-tenant': req.headers['x-tenant'] || null,
+    authorization: !!(req.headers.authorization || req.headers.Authorization),
+    origin: req.headers.origin || null,
+  };
+  return res.status(200).json({ success: true, headers: hdrs });
+});
+
 /**
  * Public API routes
  * Users CRUD and analytics summary
@@ -266,8 +282,9 @@ const devHeadersLogger = (req, res, next) => {
     if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
       const authPresent = !!(req.headers?.authorization || req.headers?.Authorization);
       const xtenant = req.headers?.['x-tenant-id'] || req.headers?.['x-tenant'] || null;
+      const xorg = req.headers?.['x-organization-id'] || req.headers?.['x-org-id'] || null;
       // eslint-disable-next-line no-console
-      console.debug(`[api] ${req.method} ${req.path} Authorization=${authPresent ? 'yes' : 'no'} x-tenant-id=${xtenant || 'n/a'}`);
+      console.debug(`[api] ${req.method} ${req.path} Authorization=${authPresent ? 'yes' : 'no'} x-organization-id=${xorg || 'n/a'} x-tenant-id=${xtenant || 'n/a'}`);
     }
   }
   next();

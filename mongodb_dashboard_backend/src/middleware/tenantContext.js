@@ -32,14 +32,24 @@ const { userHasTenant } = require('../utils/rbac');
  * 4. req.query.tenantId (fallback)
  */
 function resolveTenantFromRequest(req) {
-  const hdr = req.headers['x-tenant-id'] || req.headers['x-tenant'] || '';
-  if (hdr && typeof hdr === 'string' && hdr.trim()) return hdr.trim();
+  // Accept multiple header names: prefer x-organization-id to align with OpenAPI; keep legacy aliases
+  const hdrOrg = (req.headers['x-organization-id'] || req.headers['x-org-id'] || req.headers['x-tenant-id'] || req.headers['x-tenant'] || '');
+  if (hdrOrg && typeof hdrOrg === 'string' && hdrOrg.trim()) return hdrOrg.trim();
+
   const cookieTenant = req.cookies?.activeTenant || req.signedCookies?.activeTenant;
   if (cookieTenant && typeof cookieTenant === 'string' && cookieTenant.trim()) return cookieTenant.trim();
-  const bodyTenant = req.body && typeof req.body.tenantId === 'string' ? req.body.tenantId.trim() : '';
+
+  // Body aliases
+  const bodyTenant = (req.body && (typeof req.body.tenantId === 'string' ? req.body.tenantId.trim() : '')) ||
+                     (req.body && (typeof req.body.organization_id === 'string' ? req.body.organization_id.trim() : ''));
   if (bodyTenant) return bodyTenant;
-  const queryTenant = typeof req.query.tenantId === 'string' ? req.query.tenantId.trim() : '';
+
+  // Query aliases
+  const queryTenant = (typeof req.query.tenantId === 'string' ? req.query.tenantId.trim() : '') ||
+                      (typeof req.query.tenant_id === 'string' ? req.query.tenant_id.trim() : '') ||
+                      (typeof req.query.organization_id === 'string' ? req.query.organization_id.trim() : '');
   if (queryTenant) return queryTenant;
+
   return '';
 }
 

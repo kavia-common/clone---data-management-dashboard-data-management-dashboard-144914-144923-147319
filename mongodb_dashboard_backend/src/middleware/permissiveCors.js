@@ -28,7 +28,7 @@ function permissiveCorsMiddleware(req, res, next) {
   // Reflect requested headers for preflight; otherwise, provide a permissive default superset
   const requested = req.headers['access-control-request-headers'];
   const defaultAllowed =
-    'Content-Type,Authorization,Accept,x-tenant-id,x-tenant,Origin,User-Agent,Cache-Control,Pragma';
+    'Content-Type,Authorization,Accept,x-organization-id,x-org-id,x-tenant-id,x-tenant,Origin,User-Agent,Cache-Control,Pragma';
   res.setHeader(
     'Access-Control-Allow-Headers',
     requested && typeof requested === 'string' && requested.trim() !== ''
@@ -49,7 +49,7 @@ function permissiveCorsMiddleware(req, res, next) {
   if (debug && req.path && (req.path === '/api/users' || req.path.startsWith('/api/users'))) {
     // eslint-disable-next-line no-console
     console.log(
-      `[CORS][users] origin=${req.headers.origin || 'n/a'} ACRH=${requested || 'n/a'} method=${req.method}`
+      `[CORS][users] origin=${req.headers.origin || 'n/a'} ACRH=${requested || 'n/a'} method=${req.method} x-org=${req.headers['x-organization-id'] || 'n/a'}`
     );
   }
 
