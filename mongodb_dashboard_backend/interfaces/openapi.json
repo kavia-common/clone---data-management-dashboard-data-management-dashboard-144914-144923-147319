@@ -1176,7 +1176,6 @@
         "parameters": [
           { "$ref": "#/components/parameters/XOrganizationId" },
           { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
           {
             "in": "query",
             "name": "organization_id",
@@ -1551,6 +1550,13 @@
           { "$ref": "#/components/parameters/XOrganizationId" },
           { "$ref": "#/components/parameters/TenantIdQuery" },
           { "$ref": "#/components/parameters/OrganizationIdLegacy" },
+          {
+            "in": "query",
+            "name": "organization_id",
+            "required": false,
+            "schema": { "type": "string", "example": "org_demo" },
+            "description": "Alias for tenant identifier (inline). Prefer header x-organization-id; JWT overrides when provided."
+          },
           {
             "in": "query",
             "name": "from",
