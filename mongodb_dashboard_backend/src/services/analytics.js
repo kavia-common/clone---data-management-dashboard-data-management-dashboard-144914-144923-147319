@@ -3,28 +3,22 @@
 const db = require('../config/db');
 
 /**
- * Overview total metrics for a tenant.
+ * PUBLIC_INTERFACE
+ * getOverviewTotals
+ * Returns totals for users and app_deployments for a tenant.
  */
-// PUBLIC_INTERFACE
 async function getOverviewTotals(tenantId) {
-  const { users, app_deployments } = db.getCollections ? db.getCollections() : { users: null, app_deployments: null };
-  if (!users || !app_deployments) {
-    // Fallback if helper not available; try via db.get()
-    const dbo = db.get?.();
-    const usersCol = dbo?.collection ? dbo.collection('users') : null;
-    const appsCol = dbo?.collection ? dbo.collection('app_deployments') : null;
-    const usersCount = usersCol ? await usersCol.countDocuments({ tenant_id: tenantId }) : 0;
-    const appsCount = appsCol ? await appsCol.countDocuments({ tenant_id: tenantId }) : 0;
-    return { totalUsers: usersCount, totalDeployedApps: appsCount };
-  }
+  const dbo = await db.getDb();
+  const usersCol = dbo.collection('users');
+  const appsCol = dbo.collection('app_deployments');
 
-  // Count docs within tenant only
-  const usersCount = await users.countDocuments({ tenant_id: tenantId });
-  const appsCount = await app_deployments.countDocuments({ tenant_id: tenantId });
+  const [usersCount, appsCount] = await Promise.all([
+    usersCol.countDocuments({ tenant_id: tenantId }),
+    appsCol.countDocuments({ tenant_id: tenantId }),
+  ]);
 
   return { totalUsers: usersCount, totalDeployedApps: appsCount };
 }
 
-module.exports = {
-  getOverviewTotals,
-};
+const analyticsService = { getOverviewTotals };
+module.exports = analyticsService;

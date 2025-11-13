@@ -3,19 +3,18 @@ const mongoose = require('mongoose');
 /**
  * PUBLIC_INTERFACE
  * Establishes a connection to MongoDB using Mongoose.
- * - Reads the connection string from process.env.MONGODB_URI
- * - Does NOT hard-code any default credentials or URIs (security and environment portability)
- * - Emits useful, non-sensitive logs for verification
+ * - Reads connection string from env (MONGODB_URI)
+ * - Emits non-sensitive logs; avoids hard-coded defaults
  *
- * Returns the active mongoose.connection.
+ * Returns mongoose.connection (connected or skipped if no URI).
  *
- * ENVIRONMENT VARIABLES REQUIRED:
- * - MONGODB_URI: Mongo connection string (e.g. mongodb://user:pass@host:27017/db)
- * - MONGODB_DB (optional): Database name override
- * - MONGOOSE_AUTO_INDEX (optional): 'true' to enable autoIndex
+ * ENV required:
+ * - MONGODB_URI
+ * Optional:
+ * - MONGODB_DB
+ * - MONGOOSE_AUTO_INDEX
  */
 async function connectDB() {
-  // Enforce env-based configuration; never hard-code credentials
   const uri = process.env.MONGODB_URI;
 
   if (!uri || typeof uri !== 'string' || uri.trim() === '') {
@@ -23,13 +22,11 @@ async function connectDB() {
     console.warn(
       '[db] MONGODB_URI is not set. Skipping MongoDB connection. The API will start, health endpoints will report db=disconnected.'
     );
-    // Return the current mongoose.connection without attempting to connect
     return mongoose.connection;
   }
 
   mongoose.set('strictQuery', true);
 
-  // In test mode, prefer fast failures and no buffering to keep tests snappy.
   const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
   if (isTest) {
     try {
@@ -39,13 +36,10 @@ async function connectDB() {
     }
   }
 
-  // Connection options recommended for modern Mongoose
-  // - Disable autoIndex by default to avoid failures on clusters with existing duplicate data.
-  //   You can override by setting MONGOOSE_AUTO_INDEX=true
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'test'; // Optional; if not set, Mongo will use the URI/path default
+  const dbName = process.env.MONGODB_DB || undefined;
 
   const options = {
     autoIndex,
@@ -53,16 +47,15 @@ async function connectDB() {
     serverSelectionTimeoutMS: isTest ? 250 : 5000,
     socketTimeoutMS: isTest ? 500 : 45000,
     family: 4,
-    dbName,
+    ...(dbName ? { dbName } : {}),
   };
 
-  // Prepare a safe, masked log for the cluster host (never log credentials)
   let clusterHost = 'unknown-host';
   try {
     const parsed = new URL(uri);
     clusterHost = parsed.hostname || clusterHost;
   } catch {
-    // swallow parse errors; we will still attempt to connect
+    // swallow parse errors
   }
 
   mongoose.connection.on('connected', () => {
@@ -95,15 +88,12 @@ async function connectDB() {
 /**
  * PUBLIC_INTERFACE
  * getDb
- * Returns an active MongoDB Db instance from the current Mongoose connection.
- * Ensures a connection is established; if not connected, attempts to connect first.
+ * Returns native MongoDB Db from current Mongoose connection.
  */
 async function getDb() {
-  // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
   if (mongoose.connection.readyState !== 1) {
     await connectDB();
   }
-  // In rare cases during connect, db might still be null; await a tick
   if (!mongoose.connection.db) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
@@ -113,12 +103,7 @@ async function getDb() {
 /**
  * PUBLIC_INTERFACE
  * getCollection
- * Helper to obtain a native MongoDB collection by name. Accepts a string name
- * or an array of candidate names and returns the first existing collection;
- * if none exist, returns the first candidate name as a collection handle.
- *
- * Example:
- *  const col = await getCollection(['llm-costs', 'llm_costs']);
+ * Obtain a collection by name or first-existing from an array of names.
  */
 async function getCollection(nameOrNames) {
   const db = await getDb();
@@ -132,8 +117,7 @@ async function getCollection(nameOrNames) {
     const existingNames = new Set(existing.map((c) => c.name));
     const chosen = candidates.find((n) => existingNames.has(n)) || candidates[0];
     return db.collection(chosen);
-  } catch (err) {
-    // Fallback: return the first candidate even if listCollections fails
+  } catch {
     return db.collection(candidates[0]);
   }
 }
@@ -141,11 +125,11 @@ async function getCollection(nameOrNames) {
 /**
  * PUBLIC_INTERFACE
  * isDbConnected
- * Returns boolean indicating if Mongoose is currently connected to MongoDB.
+ * Indicates if Mongoose is connected.
  */
 function isDbConnected() {
-  // 1 means connected
   return mongoose.connection && mongoose.connection.readyState === 1;
 }
 
-module.exports = { connectDB, getDb, getCollection, isDbConnected };
+const dbConfig = { connectDB, getDb, getCollection, isDbConnected };
+module.exports = dbConfig;

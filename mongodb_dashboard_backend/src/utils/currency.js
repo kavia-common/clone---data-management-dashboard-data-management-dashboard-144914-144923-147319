@@ -3,12 +3,7 @@
 /**
 // PUBLIC_INTERFACE
  * parseCurrencyToNumber
- * Safely parses a currency-like value to a number.
- * - Accepts inputs like "$0.447605", "1,234.567890", 0.123, "  $ 12.34  ".
- * - Strips "$", commas, and whitespace.
- * - Returns a finite number or 0 if parsing fails.
- * @param {any} value
- * @returns {number}
+ * Parses currency-like strings to a number; strips $ and commas.
  */
 function parseCurrencyToNumber(value) {
   try {
@@ -18,7 +13,6 @@ function parseCurrencyToNumber(value) {
     if (value == null) return 0;
     const s = String(value).trim();
     if (!s) return 0;
-    // Remove $ and commas and spaces
     const sanitized = s.replace(/\$/g, '').replace(/,/g, '').trim();
     const n = Number.parseFloat(sanitized);
     return Number.isFinite(n) ? n : 0;
@@ -30,11 +24,7 @@ function parseCurrencyToNumber(value) {
 /**
 // PUBLIC_INTERFACE
  * roundTo
- * Rounds a number to the specified precision, default 6 decimals.
- * Returns 0 if not a finite number.
- * @param {number} n
- * @param {number} precision
- * @returns {number}
+ * Round a number safely to a given precision (default 6).
  */
 function roundTo(n, precision = 6) {
   if (!Number.isFinite(n)) return 0;
@@ -43,7 +33,9 @@ function roundTo(n, precision = 6) {
   return Math.round(n * f) / f;
 }
 
-module.exports = {
+const currencyUtil = {
   parseCurrencyToNumber,
   roundTo,
 };
+
+module.exports = currencyUtil;

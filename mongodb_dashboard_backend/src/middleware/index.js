@@ -1,16 +1,13 @@
 'use strict';
 /**
  * PUBLIC_INTERFACE
- * Middleware registry: export common middlewares for centralized imports if desired.
+ * Middleware registry: export common middlewares for centralized imports.
  */
-module.exports = {
-  // Legacy/Existing
+const middleware = {
   verifyAuth: require('./verifyAuth').verifyAuth,
   requireTenant: require('./requireTenant').requireTenant,
-
-  // New tenant JWT middleware and utilities
   ...require('./authTenant'),
-
-  // Organization scoping
   extractOrganization: require('./extractOrganization').extractOrganization,
 };
+
+module.exports = middleware;

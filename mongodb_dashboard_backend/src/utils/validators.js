@@ -1,7 +1,12 @@
+'use strict';
+
+/**
+// PUBLIC_INTERFACE
+ * isValidUrl
+ * Validates that a string is an http(s) URL using the URL constructor.
+ */
 function isValidUrl(value) {
   try {
-    // URL constructor will throw if invalid
-    // Allow http/https only
     const u = new URL(value);
     return u.protocol === 'http:' || u.protocol === 'https:';
   } catch {
@@ -9,8 +14,13 @@ function isValidUrl(value) {
   }
 }
 
+/**
+// PUBLIC_INTERFACE
+ * isValidEmail
+ * Lightweight email validation regex for backend gating.
+ */
 function isValidEmail(value) {
-  // Simple RFC5322-ish check sufficient for backend gating
+  // Simplified email check; avoids unnecessary escapes in character classes
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 

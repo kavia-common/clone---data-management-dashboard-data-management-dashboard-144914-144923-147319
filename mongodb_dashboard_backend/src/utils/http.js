@@ -1,5 +1,11 @@
+'use strict';
+
+/**
+ * PUBLIC_INTERFACE
+ * parsePagination
+ * Parses pagination params from query with sane defaults.
+ */
 function parsePagination(query) {
-  // Explicit pagination is considered requested only if page or limit are present in the query.
   const explicit =
     Object.prototype.hasOwnProperty.call(query, 'page') ||
     Object.prototype.hasOwnProperty.call(query, 'limit');
@@ -11,8 +17,9 @@ function parsePagination(query) {
 }
 
 /**
- * Success responder (legacy envelope).
- * Prefer not to use this for raw data when pagination isn't requested.
+ * PUBLIC_INTERFACE
+ * success
+ * Success responder with legacy envelope { success, data, meta? }.
  */
 function success(res, data, meta = undefined, status = 200) {
   const payload = { success: true, data };
@@ -21,8 +28,9 @@ function success(res, data, meta = undefined, status = 200) {
 }
 
 /**
- * Failure responder with unified error envelope.
- * Kept as envelope for clarity on errors.
+ * PUBLIC_INTERFACE
+ * failure
+ * Failure responder with envelope { success: false, message, details? }.
  */
 function failure(res, message, status = 400, details = undefined) {
   const payload = { success: false, message };
@@ -30,12 +38,16 @@ function failure(res, message, status = 400, details = undefined) {
   return res.status(status).json(payload);
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * asyncHandler
+ * Wrap an async route handler and forward errors to Express.
+ */
 function asyncHandler(fn) {
-  /** Wrap an async route handler and forward errors to Express. */
   return function wrapped(req, res, next) {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 }
 
-module.exports = { parsePagination, success, failure, asyncHandler };
+const httpUtil = { parsePagination, success, failure, asyncHandler };
+module.exports = httpUtil;
