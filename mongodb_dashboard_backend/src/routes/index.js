@@ -3,7 +3,7 @@
 const express = require('express');
 const healthController = require('../controllers/health');
 const { verifyAuth } = require('../middleware/verifyAuth');
-const { requireOrganization } = require('../middleware/requireOrganization'); // available for strict endpoints
+const { requireTenant } = require('../middleware/requireTenant');
 
 // Core route modules
 const authRoutes = require('./auth.routes');
@@ -41,25 +41,25 @@ router.use('/auth', authRoutes);
 // Note: organization middleware is applied globally in app.js; verifyAuth/requireTenant still enforce JWT tenant where needed.
 
 // Protected core routes behind auth + tenant
-router.use('/users', verifyAuth, usersRoutes);
-router.use('/tenants', verifyAuth, tenantsRoutes);
+router.use('/users', verifyAuth, requireTenant, usersRoutes);
+router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 
-router.use('/llm-costs', verifyAuth, llmCostsRoutes);
-router.use('/llm-costs-aggregate', verifyAuth, llmCostsAggregateRoutes);
-router.use('/costs', verifyAuth, costsByAgentRoutes);
-router.use('/session', verifyAuth, sessionRoutes);
-router.use('/session-tracking', verifyAuth, sessionTrackingRoutes);
-router.use('/app-deployments', verifyAuth, appDeploymentsRoutes);
+router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);
+router.use('/llm-costs-aggregate', verifyAuth, requireTenant, llmCostsAggregateRoutes);
+router.use('/costs', verifyAuth, requireTenant, costsByAgentRoutes);
+router.use('/session', verifyAuth, requireTenant, sessionRoutes);
+router.use('/session-tracking', verifyAuth, requireTenant, sessionTrackingRoutes);
+router.use('/app-deployments', verifyAuth, requireTenant, appDeploymentsRoutes);
 
 // Dashboard overview routes (protected)
-router.use('/dashboard/overview', verifyAuth, dashboardRoutes);
-router.use('/dashboard/overview', verifyAuth, dashboardModulesRoutes);
+router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardRoutes);
+router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardModulesRoutes);
 
 /**
  * Analytics overview routes protected here as well
  * This guarantees verifyAuth + requireTenant are always enforced.
  */
-router.use('/analytics', verifyAuth, analyticsOverviewRoutes);
+router.use('/analytics', verifyAuth, requireTenant, analyticsOverviewRoutes);
 
 // Counts endpoints (these are lightweight; keep public if they are used for landing)
 router.use('/', countsRoutes);

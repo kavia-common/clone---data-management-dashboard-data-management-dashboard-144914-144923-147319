@@ -1,3 +1,5 @@
+'use strict';
+
 const AnalyticsService = require('../services/analytics');
 
 /**

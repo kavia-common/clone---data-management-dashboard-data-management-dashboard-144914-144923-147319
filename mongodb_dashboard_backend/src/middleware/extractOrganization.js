@@ -8,24 +8,17 @@
  * This version is permissive and does not 400 when missing.
  */
 function extractOrganization() {
-  return function (req, res, next) {
-    const headerOrg =
-      (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) || null;
-    const qOrg =
-      (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) || null;
-    const qTenant =
-      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) || null;
-
-    // Precedence: header > organization_id > tenant_id > already set
-    const resolved = headerOrg || qOrg || qTenant || req.organizationId || req.tenantId || null;
+  return function (req, _res, next) {
+    const headerOrg = req.headers?.['x-organization-id'];
+    const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
+    const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
+    const resolved = headerOrg || qTenant || qOrg || req.organizationId || null;
 
     if (!req.context) req.context = {};
     if (resolved) {
-      const id = String(resolved);
-      req.organizationId = id;
-      req.tenantId = id;
-      req.context.organizationId = id;
-      try { res.set('x-organization-id', id); } catch (_) {}
+      req.organizationId = String(resolved);
+      req.tenantId = String(resolved);
+      req.context.organizationId = String(resolved);
     }
     return next();
   };

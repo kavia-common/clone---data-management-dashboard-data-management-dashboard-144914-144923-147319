@@ -76,11 +76,8 @@ Swagger/OpenAPI servers
 
 Tenant-scoped requests
 - When Authorization (Bearer JWT) is not provided, send x-organization-id header on tenant-scoped endpoints (e.g., /api/llm-costs).
-- You may also provide organization_id or tenant_id as a query param; header takes precedence.
-- Examples:
+- Example:
   - curl -H "x-organization-id: org_demo" http://localhost:3001/api/llm-costs
-  - curl "http://localhost:3001/api/llm-costs?organization_id=org_demo"
-  - curl "http://localhost:3001/api/llm-costs?tenant_id=org_demo"
 
 Health/readiness
 - GET /health → Fast readiness with { status: "ok", db: connected|connecting|disconnected, timestamp }
@@ -99,13 +96,3 @@ Troubleshooting
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
 - Mongo not connected:
   - /api/health will reflect db: disconnected; verify MONGODB_URI and MONGODB_DB in .env.
-
-Development robustness (low memory environments)
-- Dev scripts set:
-  - NODE_OPTIONS=--max-old-space-size=1024 to reduce OOM
-  - GENERATE_SOURCEMAP=false to avoid generating large source maps
-  - CHOKIDAR_USEPOLLING=false and WATCHPACK_POLLING=false to reduce file watching intensity
-- You can override these via environment variables if needed (e.g., NODE_OPTIONS=--max-old-space-size=2048).
-- The server includes graceful shutdown handlers (SIGINT, SIGTERM, SIGUSR2) and cleans up PID files on exit.
-- We do not use deprecated dev-server options (e.g., onBeforeSetupMiddleware/onAfterSetupMiddleware).
-- Swagger UI helper: GET /api/docs/headers explains how to add x-organization-id in Try It Out.

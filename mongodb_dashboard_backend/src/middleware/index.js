@@ -13,6 +13,4 @@ module.exports = {
 
   // Organization scoping
   extractOrganization: require('./extractOrganization').extractOrganization,
-  requireOrganization: require('./requireOrganization').requireOrganization,
-  organizationExtractor: require('./organizationExtractor').organizationExtractor,
 };

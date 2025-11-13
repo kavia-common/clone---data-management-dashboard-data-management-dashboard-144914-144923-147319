@@ -1,3 +1,5 @@
+'use strict';
+
 /**
  * PUBLIC_INTERFACE
  * Utility functions to derive a stable, deterministic identifier from a secret salt.

@@ -1,3 +1,5 @@
+'use strict';
+
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
@@ -7,7 +9,7 @@ const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
-const { organizationExtractor } = require('./middleware/organizationExtractor');
+const organizationMiddleware = require('./middleware/organization');
 
 const app = express();
 
@@ -34,12 +36,8 @@ app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-/**
- * Global organization extractor (permissive)
- * - Sets req.organizationId/req.tenantId from header/query when present
- * - Does not enforce; strict routes can use requireOrganization
- */
-app.use(organizationExtractor());
+// Attach organization/tenant id to request context for all routes
+app.use(organizationMiddleware);
 
 const buildDynamicSpec = (req) => {
   const host = req.get('host');
@@ -280,19 +278,19 @@ const devHeadersLogger = (req, res, next) => {
 app.use(devHeadersLogger);
 
 // Provide both kebab and camelCase aliases for session tracking and deployments
-app.use('/api/session-tracking', verifyAuth, require('./routes/sessionTracking.routes'));
-app.use('/api/sessionTracking', verifyAuth, require('./routes/sessionTracking.routes'));
+app.use('/api/session-tracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
+app.use('/api/sessionTracking', verifyAuth, requireTenant, require('./routes/sessionTracking.routes'));
 
 /**
  * Analytics endpoints
  * - Agents cost/usage aggregation
  * - Overview time-bucketed metrics
  */
-app.use('/api/analytics/agents', verifyAuth, analyticsAgentsRoutes);
-app.use('/api/analytics', verifyAuth, require('./routes/analytics.overview.routes'));
+app.use('/api/analytics/agents', verifyAuth, requireTenant, analyticsAgentsRoutes);
+app.use('/api/analytics', verifyAuth, requireTenant, require('./routes/analytics.overview.routes'));
 
-app.use('/api/app-deployments', verifyAuth, require('./routes/appDeployments.routes'));
-app.use('/api/appDeployments', verifyAuth, require('./routes/appDeployments.routes'));
+app.use('/api/app-deployments', verifyAuth, requireTenant, require('./routes/appDeployments.routes'));
+app.use('/api/appDeployments', verifyAuth, requireTenant, require('./routes/appDeployments.routes'));
 
 /**
  * Sample data route removed. The application now only exposes real MongoDB-backed APIs.
@@ -300,22 +298,22 @@ app.use('/api/appDeployments', verifyAuth, require('./routes/appDeployments.rout
  */
 
 // Costs aggregate endpoints (non-users analytics)
-app.use('/api/costs', verifyAuth, require('./routes/costs.byAgent.routes'));
+app.use('/api/costs', verifyAuth, requireTenant, require('./routes/costs.byAgent.routes'));
 
 /* LLM costs endpoints */
 const { verifyAuth: _verifyAuth } = require('./middleware/verifyAuth');
 const { requireTenant: _requireTenant } = require('./middleware/requireTenant');
-app.use('/api/llm-costs', _verifyAuth, require('./routes/llmCosts.routes'));
-app.use('/api/llmCosts', _verifyAuth, require('./routes/llmCosts.routes'));
+app.use('/api/llm-costs', _verifyAuth, _requireTenant, require('./routes/llmCosts.routes'));
+app.use('/api/llmCosts', _verifyAuth, _requireTenant, require('./routes/llmCosts.routes'));
 // Hierarchy analytics for LLM costs
 app.use('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 
 // Tenants, Projects, Auth, Session
-app.use('/api/tenants', verifyAuth, require('./routes/tenants.routes'));
-app.use('/api/projects', verifyAuth, require('./routes/projects.routes'));
-app.use('/api/session', verifyAuth, require('./routes/session.routes'));
-app.use('/api/dashboard', verifyAuth, require('./routes/dashboard.routes'));
-app.use('/api/dashboard/overview', verifyAuth, require('./routes/dashboard.modules.routes'));
+app.use('/api/tenants', verifyAuth, requireTenant, require('./routes/tenants.routes'));
+app.use('/api/projects', verifyAuth, requireTenant, require('./routes/projects.routes'));
+app.use('/api/session', verifyAuth, requireTenant, require('./routes/session.routes'));
+app.use('/api/dashboard', verifyAuth, requireTenant, require('./routes/dashboard.routes'));
+app.use('/api/dashboard/overview', verifyAuth, requireTenant, require('./routes/dashboard.modules.routes'));
 app.use('/api/auth', require('./routes/auth.routes'));
 
 /* Users analytics routes have been fully removed to avoid dangling references */
