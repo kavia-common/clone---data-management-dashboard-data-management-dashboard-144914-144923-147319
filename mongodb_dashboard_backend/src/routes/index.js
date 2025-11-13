@@ -15,7 +15,6 @@ const llmCostsAggregateRoutes = require('./llmCosts.aggregate.routes');
 const costsByAgentRoutes = require('./costs.byAgent.routes');
 const sessionTrackingRoutes = require('./sessionTracking.routes');
 const sessionRoutes = require('./session.routes');
-const sessionsDetailsRoutes = require('./session.details.routes');
 const appDeploymentsRoutes = require('./appDeployments.routes');
 const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
@@ -50,7 +49,6 @@ router.use('/llm-costs-aggregate', verifyAuth, llmCostsAggregateRoutes);
 router.use('/costs', verifyAuth, costsByAgentRoutes);
 router.use('/session', verifyAuth, sessionRoutes);
 router.use('/session-tracking', verifyAuth, sessionTrackingRoutes);
-router.use('/sessions', verifyAuth, sessionsDetailsRoutes);
 router.use('/app-deployments', verifyAuth, appDeploymentsRoutes);
 
 // Dashboard overview routes (protected)
