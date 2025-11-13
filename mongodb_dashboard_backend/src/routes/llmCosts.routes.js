@@ -50,6 +50,12 @@ router.use(async (req, res, next) => {
       try {
         res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
       } catch (_) {}
+      // Attempt to include a quick count for visibility (non-blocking)
+      try {
+        LLMCost.countDocuments(orgFilter).then((c) => {
+          try { res.set('X-Applied-Filter-Count', String(c)); } catch(_) {}
+        }).catch(() => {});
+      } catch (_) {}
     }
   } catch (_) {}
   next();

@@ -91,26 +91,42 @@ function mergeFilterWithTenant(filter, tenantId) {
 
   if (!tenantId) return f;
 
-  // Build a normalized tenant filter to match across possible fields (defensive)
-  // Prioritize actual schema field 'tenant_id' (indexed) and include common aliases for backward compatibility.
-  // Avoid overly-nested ambiguous paths unless known in this codebase to reduce mismatches.
+  // Normalize value and prepare case-insensitive regex to handle casing variance
   const tenantVal = String(tenantId);
+  const tenantRegex = new RegExp(`^${tenantVal}$`, 'i');
+
+  // Build a normalized tenant filter to match across possible fields (defensive)
+  // Include exact string matches and case-insensitive regex for common aliases.
   const normalizedTenantFilter = {
     $or: [
       // Primary schema (LLMCostsSchema)
       { tenant_id: tenantVal },
+      { tenant_id: { $regex: tenantRegex } },
 
       // Legacy/alias fields occasionally present in imported datasets
       { organization_id: tenantVal },
+      { organization_id: { $regex: tenantRegex } },
       { organizationId: tenantVal },
+      { organizationId: { $regex: tenantRegex } },
       { tenantId: tenantVal },
+      { tenantId: { $regex: tenantRegex } },
       { orgId: tenantVal },
+      { orgId: { $regex: tenantRegex } },
 
       // Nested shapes occasionally seen in some payloads
       { 'tenant.tenant_id': tenantVal },
+      { 'tenant.tenant_id': { $regex: tenantRegex } },
       { 'tenant.id': tenantVal },
+      { 'tenant.id': { $regex: tenantRegex } },
       { 'metadata.organizationId': tenantVal },
+      { 'metadata.organizationId': { $regex: tenantRegex } },
       { 'metadata.tenantId': tenantVal },
+      { 'metadata.tenantId': { $regex: tenantRegex } },
+      // Additional candidates occasionally used in datasets
+      { accountId: tenantVal },
+      { accountId: { $regex: tenantRegex } },
+      { workspaceId: tenantVal },
+      { workspaceId: { $regex: tenantRegex } },
     ],
   };
 
@@ -221,35 +237,57 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       let safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
 
       try {
-        // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
-        let existsSample = 'unknown';
+        // Diagnostics: fetch a single sample document to inspect tenant/org fields and timestamp
+        let sampleDoc = null;
         try {
-          const existsDoc = await Model.exists(
+          sampleDoc = await Model.findOne(
+            appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {},
+            {
+              // project only likely identifiers and timestamp to understand stored field names/types
+              tenant_id: 1,
+              organization_id: 1,
+              organizationId: 1,
+              tenantId: 1,
+              orgId: 1,
+              'tenant.tenant_id': 1,
+              'tenant.id': 1,
+              'metadata.organizationId': 1,
+              'metadata.tenantId': 1,
+              accountId: 1,
+              workspaceId: 1,
+              timestamp: 1,
+              created_at: 1,
+              _id: 1,
+            }
+          )
+            .sort({ timestamp: -1, _id: -1 })
+            .lean();
+        } catch (_) {}
+
+        // Run countDocuments directly on appliedFilter
+        let filterCount = -1;
+        try {
+          filterCount = await Model.countDocuments(
             appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
-          ).lean?.();
-          existsSample = existsDoc ? 'true' : 'false';
-        } catch {
-          // Some Mongoose versions don't support .lean on exists result; fallback
-          try {
-            const existsDoc = await Model.exists(
-              appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
-            );
-            existsSample = existsDoc ? 'true' : 'false';
-          } catch {
-            existsSample = 'error';
-          }
-        }
+          );
+        } catch (_) {}
+
+        // Expose diagnostics via headers and debug log
         try {
-          res.set('X-Exists-Sample', existsSample);
+          res.set('X-List-Filter-Count', String(filterCount));
+          if (sampleDoc) {
+            res.set('X-List-Sample', JSON.stringify(sampleDoc));
+          } else {
+            res.set('X-List-Sample', 'null');
+          }
         } catch (_) {}
 
         if (debugOn) {
           try {
             // eslint-disable-next-line no-console
-            console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
+            console.debug('[crudFactory.list] filter=', appliedFilter, 'sort=', safeSort, 'count=', filterCount, 'sample=', sampleDoc);
           } catch (_) {}
         }
-
 
         if (req.method === 'GET' && explicit) {
 
