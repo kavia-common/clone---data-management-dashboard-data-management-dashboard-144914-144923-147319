@@ -1,269 +1,68 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const swaggerJSDoc = require('swagger-jsdoc');
+const express = require('express');
+const swaggerUi = require('swagger-ui-express');
+const { getBaseOpenApiSpec } = require('./swagger'); // self-reference safe when required from app.js/server.js
 
 /**
  * PUBLIC_INTERFACE
- * Builds and returns the base Swagger/OpenAPI specification for the Express app.
- *
- * Strategy:
- * 1) Prefer prebuilt OpenAPI spec from interfaces/openapi.json
- *    - Sanitize invalid path keys (must start with '/')
- *    - Ensure required fields exist (openapi, info)
- *    - Ensure common components are present
- * 2) Fallback to JSDoc extraction from ./src/routes/*.js
- *
- * IMPORTANT: This file MUST NOT add any authentication endpoints or tags.
- * We do not merge any fragments that include /auth/*, /api/auth/*, /login, /logout, /token, /refresh, or /session.
- * Only business APIs are documented here. bearerAuth security remains available.
+ * setupSwagger(app)
+ * Sets up Swagger UI at /docs with:
+ * - persisted bearerAuth support (Authorize button)
+ * - requestInterceptor that preserves and forwards custom headers, including x-organization-id
+ * - custom title and validatorUrl disabled for air-gapped environments
  */
+function setupSwagger(app) {
+  const router = express.Router();
+  const openapiDocument = getBaseOpenApiSpec();
 
-// PUBLIC_INTERFACE
-function buildCommonComponents() {
-  /** This function defines shared components to inject when missing. */
-  return {
-    securitySchemes: {
-      bearerAuth: {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description:
-          'Provide a valid JWT as a Bearer token. When present, tenant is resolved from the token and overrides x-organization-id and query aliases.',
-      },
-    },
-    parameters: {
-      xOrganizationId: {
-        name: 'x-organization-id',
-        in: 'header',
-        required: true,
-        schema: { type: 'string', example: 'org_demo' },
-        description:
-          'Tenant (organization) identifier header for tenant-scoped endpoints when Authorization is not provided. Alternatively pass as query parameter ?organization_id (or ?tenant_id). Header takes precedence over query aliases. When Authorization (Bearer JWT) is present, the tenant is taken from the token and this header is not required.',
-      },
-      OrganizationIdQuery: {
-        in: 'query',
-        name: 'organization_id',
-        required: false,
-        schema: { type: 'string' },
-        description:
-          'Optional tenant (organization) identifier as a query parameter. Use header x-organization-id instead when possible.',
-      },
-    },
-    schemas: {
-      GenericDocument: {
-        type: 'object',
-        description: 'A generic MongoDB document with flexible fields',
-        additionalProperties: true,
-        properties: {
-          _id: { type: 'string', description: 'MongoDB ObjectId as string' },
-        },
-      },
-      ListEnvelope: {
-        type: 'object',
-        properties: {
-          success: { type: 'boolean', example: true },
-          data: {
-            type: 'array',
-            items: { $ref: '#/components/schemas/GenericDocument' },
-          },
-          meta: {
-            type: 'object',
-            properties: {
-              page: { type: 'integer', example: 1 },
-              limit: { type: 'integer', example: 20 },
-              total: { type: 'integer', example: 42 },
-            },
-          },
-        },
-      },
-    },
-  };
-}
+  // Route to serve the OpenAPI JSON directly too (for convenience in reverse proxies)
+  router.get('/openapi.json', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    return res.status(200).send(openapiDocument);
+  });
 
-/** Create a Swagger spec from JSDoc annotations as a fallback. */
-function buildJsDocSpec() {
-  const options = {
-    definition: {
-      openapi: '3.0.0',
-      info: {
-        title: process.env.SWAGGER_TITLE || 'Dashboard API',
-        version: process.env.SWAGGER_VERSION || '1.0.0',
-        description:
-          process.env.SWAGGER_DESCRIPTION ||
-          'REST API for Data Management Dashboard with MongoDB and Express.\n\nAuthentication and Tenant Scoping\n- Authentication endpoints (e.g., /auth/*, /api/auth/*, /login, /logout, /token, /refresh, /session) are managed externally and are not documented here. Use the Authorize button to provide a Bearer token (JWT).\n- Click the "Authorize" button in Swagger UI to enter your Bearer token (JWT) for Authorization.\n- For tenant-scoped endpoints, provide the tenant in the x-organization-id header; with a valid JWT, tenant is taken from the token and overrides header/query.\n- Without JWT (for demo/testing), you may use the x-organization-id header or organization_id/tenant_id query parameter to set scope. The header takes precedence over query.\n',
-      },
-      components: buildCommonComponents(),
-      security: [{ bearerAuth: [] }],
-    },
-    // Exclude auth routes from JSDoc scanning; sanitizer also prunes as a second line of defense
-    apis: ['./src/routes/*.js', '!./src/routes/auth.routes.js'],
-  };
-  return swaggerJSDoc(options);
-}
+  // Swagger UI
+  router.use(
+    '/docs',
+    swaggerUi.serve,
+    swaggerUi.setup(openapiDocument, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        displayRequestDuration: true,
+        docExpansion: 'list',
+        validatorUrl: null,
+        requestInterceptor: (req) => {
+          try {
+            // Ensure we do not strip custom headers and we forward x-organization-id if set via parameters
+            const headers = req.headers || {};
 
-/**
- * Sanitize an OpenAPI document object:
- * - Ensure "paths" contains only keys that start with '/'
- * - Ensure no auth endpoints or auth tags exist
- * - Ensure "openapi" and "info" are present
- * - Ensure reusable parameters/schemas and bearerAuth are present
- * - Ensure global security [{ bearerAuth: [] }]
- */
-function sanitizeOpenApiDoc(doc) {
-  if (!doc || typeof doc !== 'object') return null;
+            // Canonicalize x-organization-id header casing if provided through UI params
+            const xOrgHeader =
+              headers['x-organization-id'] ||
+              headers['X-Organization-Id'] ||
+              headers['x-Organization-id'] ||
+              headers['X-organization-id'];
 
-  // Remove invalid path keys and filter out auth endpoints
-  const invalidAuthPath = (p) =>
-    p === '/auth' ||
-    p === '/api/auth' ||
-    p.startsWith('/auth/') ||
-    p.startsWith('/api/auth/') ||
-    p === '/login' ||
-    p === '/logout' ||
-    p === '/token' ||
-    p === '/refresh' ||
-    p === '/session';
-  const isAuthOperation = (opObj) => {
-    if (!opObj || typeof opObj !== 'object') return false;
-    // Drop operations that are explicitly tagged as Auth
-    if (Array.isArray(opObj.tags) && opObj.tags.some((t) => String(t).toLowerCase() === 'auth')) {
-      return true;
-    }
-    return false;
-  };
+            if (xOrgHeader && !headers['x-organization-id']) {
+              headers['x-organization-id'] = xOrgHeader;
+            }
 
-  const validPaths = {};
-  if (doc.paths && typeof doc.paths === 'object') {
-    Object.entries(doc.paths).forEach(([key, val]) => {
-      if (typeof key !== 'string' || !key.startsWith('/') || invalidAuthPath(key) || !val || typeof val !== 'object') {
-        return;
-      }
-      // Filter out per-method auth-tagged operations if present
-      const filteredOps = {};
-      for (const method of Object.keys(val)) {
-        const lower = method.toLowerCase();
-        if (['get','post','put','patch','delete','options','head','trace'].includes(lower)) {
-          const op = val[method];
-          if (!isAuthOperation(op)) {
-            filteredOps[method] = op;
+            // Assign back
+            req.headers = headers;
+          } catch (_e) {
+            // no-op; keep original req
           }
-        } else {
-          // include any non-HTTP keys untouched
-          filteredOps[method] = val[method];
-        }
-      }
-      // Only keep path if at least one valid http operation remains
-      const hasHttpOps = Object.keys(filteredOps).some((m) =>
-        ['get','post','put','patch','delete','options','head','trace'].includes(m.toLowerCase())
-      );
-      if (hasHttpOps) {
-        validPaths[key] = filteredOps;
-      }
-    });
-  }
-  doc.paths = validPaths;
-
-  // Ensure info exists and update description note
-  if (!doc.openapi) doc.openapi = '3.0.0';
-  doc.info = doc.info || {};
-  doc.info.title = doc.info.title || 'Dashboard API';
-  doc.info.version = doc.info.version || '1.0.0';
-  const note =
-    'Authentication endpoints (e.g., /auth/*, /api/auth/*, /login, /logout, /token, /refresh, /session) are managed externally and are not documented here. Use the Authorize button to provide a Bearer token (JWT).';
-  const baseDesc =
-    typeof doc.info.description === 'string' && doc.info.description.length
-      ? doc.info.description
-      : 'REST API for Data Management Dashboard with MongoDB and Express.';
-  if (!baseDesc.includes('Authentication endpoints (e.g., /auth/*')) {
-    doc.info.description = `${baseDesc}\n\nAuthentication and Tenant Scoping\n- ${note}\n- Click the "Authorize" button in Swagger UI to enter your Bearer token (JWT) for Authorization.\n- For tenant-scoped endpoints, provide the tenant in the x-organization-id header field. With a valid JWT, tenant is taken from the token and overrides header/query.\n- Without JWT (for demo/testing), you may use the x-organization-id header or organization_id/tenant_id query parameter to set scope. The header takes precedence over query.\n`;
-  } else {
-    doc.info.description = baseDesc;
-  }
-
-  // Remove 'Auth' tag if present (case-insensitive safety)
-  if (Array.isArray(doc.tags)) {
-    doc.tags = doc.tags.filter((t) => t && String(t.name || '').toLowerCase() !== 'auth');
-  }
-
-  // Ensure components and bearerAuth exist
-  const commons = buildCommonComponents();
-  doc.components = doc.components || {};
-  doc.components.securitySchemes = {
-    ...(doc.components.securitySchemes || {}),
-    bearerAuth: doc.components.securitySchemes?.bearerAuth || commons.securitySchemes.bearerAuth,
-  };
-  doc.components.parameters = {
-    ...(doc.components.parameters || {}),
-    XOrganizationId:
-      doc.components.parameters?.XOrganizationId || commons.parameters.xOrganizationId,
-    OrganizationIdQuery:
-      doc.components.parameters?.OrganizationIdQuery || commons.parameters.OrganizationIdQuery,
-  };
-  doc.components.schemas = {
-    ...(doc.components.schemas || {}),
-    GenericDocument:
-      doc.components.schemas?.GenericDocument || commons.schemas.GenericDocument,
-    ListEnvelope: doc.components.schemas?.ListEnvelope || commons.schemas.ListEnvelope,
-  };
-
-  // Ensure global security is set to bearerAuth
-  if (!Array.isArray(doc.security) || doc.security.length === 0) {
-    doc.security = [{ bearerAuth: [] }];
-  }
-
-  try {
-    JSON.stringify(doc);
-  } catch {
-    return null;
-  }
-
-  return doc;
-}
-
-// Cache result
-let cachedSpec = null;
-
-// PUBLIC_INTERFACE
-function getBaseOpenApiSpec() {
-  if (cachedSpec) return cachedSpec;
-
-  try {
-    const filePath = path.resolve(__dirname, 'interfaces', 'openapi.json');
-    const raw = fs.readFileSync(filePath, 'utf8');
-    const parsed = JSON.parse(raw);
-    const sanitized = sanitizeOpenApiDoc(parsed);
-    if (sanitized) {
-      cachedSpec = sanitized;
-      return cachedSpec;
-    }
-  } catch (err) {
-    console.warn(
-      '[swagger] Could not load interfaces/openapi.json, falling back to JSDoc.',
-      err?.message
-    );
-  }
-
-  try {
-    cachedSpec = sanitizeOpenApiDoc(buildJsDocSpec()) || buildJsDocSpec();
-    return cachedSpec;
-  } catch (err) {
-    console.error('[swagger] Failed to build JSDoc spec:', err);
-    cachedSpec = {
-      openapi: '3.0.0',
-      info: {
-        title: process.env.SWAGGER_TITLE || 'Dashboard API',
-        version: process.env.SWAGGER_VERSION || '1.0.0',
-        description:
-          'REST API for Data Management Dashboard with MongoDB and Express.\n\nAuthentication and Tenant Scoping\n- Authentication endpoints (e.g., /auth/*, /api/auth/*, /login, /logout, /token, /refresh, /session) are managed externally and are not documented here. Use the Authorize button to provide a Bearer token (JWT).',
+          return req;
+        },
       },
-      paths: {},
-      security: [{ bearerAuth: [] }],
-      components: buildCommonComponents(),
-    };
-    return cachedSpec;
-  }
+      customSiteTitle: 'Dashboard API Docs',
+    })
+  );
+
+  // Backward compatible mounts commonly used in this project
+  app.use('/', router);
+  app.use('/api', router); // expose /api/docs and /api/openapi.json as well
 }
 
-module.exports = { getBaseOpenApiSpec };
+module.exports = setupSwagger;

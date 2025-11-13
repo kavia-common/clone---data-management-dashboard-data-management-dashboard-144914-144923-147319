@@ -3,7 +3,7 @@
   "info": {
     "title": "Dashboard API",
     "version": "1.0.0",
-    "description": "REST API for Data Management Dashboard with MongoDB and Express.\n\nAuthentication and Tenant Scoping\n- Authentication endpoints (e.g., /auth/*, /api/auth/*, /login, /logout, /token, /refresh, /session) are managed externally and are not documented here. Use the Authorize button to provide a Bearer token (JWT).\n- Click the \"Authorize\" button in Swagger UI to enter your Bearer token (JWT) for Authorization.\n- For tenant-scoped endpoints, provide the tenant in the x-organization-id header field shown in each request (Swagger UI will show a header input). When a valid JWT is provided, tenant is taken from the token and overrides the header or query values.\n- Without JWT (for demo/testing), you may use the x-organization-id header or organization_id/tenant_id query parameter to set scope. The header takes precedence over query.\n"
+    "description": "REST API for Data Management Dashboard with MongoDB and Express.\n\nQuick start\n- Click the Authorize button and paste your Bearer token (JWT).\n- For tenant-scoped routes, provide either the x-organization-id header (recommended) or the tenant_id query (or legacy organization_id).\n\nAuthentication and Tenant Scoping\n- Authentication endpoints (e.g., /auth/*, /api/auth/*, /login, /logout, /token, /refresh, /session) are managed externally and are not documented here. Use the Authorize button to provide a Bearer token (JWT).\n- Click the \"Authorize\" button in Swagger UI to enter your Bearer token (JWT) for Authorization.\n- For tenant-scoped endpoints, provide either the x-organization-id header (recommended) or query ?tenant_id (or legacy ?organization_id). When a valid JWT is provided, tenant is taken from the token and overrides the header or query values.\n- Without JWT (for demo/testing), you may use the x-organization-id header or organization_id/tenant_id query parameter to set scope. The header takes precedence over query.\n"
   },
   "components": {
     "securitySchemes": {
@@ -23,16 +23,27 @@
           "type": "string",
           "example": "org_demo"
         },
-        "description": "Tenant (organization) identifier header for tenant-scoped endpoints when Authorization is not provided. Alternatively pass as query parameter ?organization_id (or ?tenant_id). Header takes precedence over query aliases. When Authorization (Bearer JWT) is present, the tenant is taken from the token and this header is not required."
+        "description": "Tenant (organization) identifier header for tenant-scoped endpoints when Authorization is not provided. Alternatively pass as query parameter ?tenant_id or legacy ?organization_id. Header takes precedence over query aliases. When Authorization (Bearer JWT) is present, the tenant is taken from the token and this header is not required."
       },
-      "OrganizationIdQuery": {
+      "TenantIdQuery": {
+        "in": "query",
+        "name": "tenant_id",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "example": "org_demo"
+        },
+        "description": "Optional tenant (organization) identifier as a query parameter. Prefer header x-organization-id."
+      },
+      "OrganizationIdLegacy": {
         "in": "query",
         "name": "organization_id",
         "required": false,
         "schema": {
-          "type": "string"
+          "type": "string",
+          "example": "org_demo"
         },
-        "description": "Optional tenant (organization) identifier as a query parameter. Use header x-organization-id instead when possible."
+        "description": "Legacy optional tenant identifier query parameter. Prefer header x-organization-id or tenant_id query."
       }
     },
     "schemas": {
@@ -92,7 +103,8 @@
         "tags": ["Dev"],
         "parameters": [
           { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/OrganizationIdQuery" }
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" }
         ],
         "responses": {
           "200": {
@@ -121,6 +133,11 @@
         "description": "Aggregates the llm_cost/llm_costs collection by Agents[].\"Agent Name\", summing numeric values parsed from Agents[].\"Total Cost\" (strips leading '$'). Returns an array sorted in descending order of total_cost.\n",
         "tags": [
           "Analytics"
+        ],
+        "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" }
         ],
         "responses": {
           "200": {
@@ -160,6 +177,9 @@
           "Analytics"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
           {
             "in": "query",
             "name": "granularity",
@@ -209,15 +229,8 @@
         ],
         "parameters": [
           { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/OrganizationIdQuery" },
-          {
-            "in": "query",
-            "name": "tenant_id",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Optional tenant (organization) ID to scope results. Alias: organization_id"
-          },
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
           {
             "in": "query",
             "name": "page",
@@ -451,6 +464,11 @@
         "tags": [
           "Dashboard"
         ],
+        "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" }
+        ],
         "responses": {
           "200": {
             "description": "Totals available",
@@ -561,13 +579,8 @@
         ],
         "parameters": [
           { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/OrganizationIdQuery" },
-          {
-            "in": "query",
-            "name": "tenant_id",
-            "schema": { "type": "string" },
-            "description": "Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query. If conflicting with JWT tenant, 403 is returned."
-          },
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
           {
             "in": "query",
             "name": "page",
@@ -618,8 +631,8 @@
         "tags": [ "LLMCosts" ],
         "parameters": [
           { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/OrganizationIdQuery" },
-          { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Alias for tenant (ignored with JWT or header precedence)." }
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" }
         ],
         "requestBody": {
           "required": true,
@@ -680,8 +693,8 @@
         "tags": [ "LLMCosts" ],
         "parameters": [
           { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/OrganizationIdQuery" },
-          { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Alias for tenant (ignored with JWT or header precedence)." },
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
           { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
         ],
         "responses": {
@@ -768,7 +781,8 @@
         ],
         "parameters": [
           { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/OrganizationIdQuery" },
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
           {
             "in": "query",
             "name": "page",
@@ -987,7 +1001,8 @@
             "schema": {
               "type": "string"
             }
-          }
+          },
+          { "$ref": "#/components/parameters/XOrganizationId" }
         ],
         "responses": {
           "200": {
@@ -1448,14 +1463,8 @@
             },
             "description": "Session status filter. Default \"completed|active\"."
           },
-          {
-            "in": "query",
-            "name": "tenant_id",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Optional tenant filter to scope the trend."
-          }
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" }
         ],
         "responses": {
           "200": {
@@ -1521,15 +1530,9 @@
             },
             "description": "User identifier (normalized to string for matching)"
           },
-          {
-            "in": "query",
-            "name": "tenant_id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Tenant (organization) ID to scope the query"
-          },
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
           {
             "in": "query",
             "name": "from",
@@ -1602,6 +1605,9 @@
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
           {
             "in": "query",
             "name": "limit",
