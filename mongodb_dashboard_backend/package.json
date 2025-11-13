@@ -5,7 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node -e \"process.env.HOST=process.env.HOST||'0.0.0.0';process.env.PORT=process.env.PORT||'3001';process.env.NODE_ENV=process.env.NODE_ENV||'production';require('./src/server.js');\"",
-    "dev": "CI=${CI:-true} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} node ./src/server.js",
+    "dev": "CI=${CI:-true} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} nodemon --watch src --ext js,json --ignore node_modules --ignore dist --ignore build --ignore coverage --exec \"node src/server.js\"",
     "dev:port3001": "CI=true HOST=0.0.0.0 PORT=3001 NODE_ENV=development node ./src/server.js",
     "dev:watch": "CI=${CI:-true} HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} nodemon --watch src --ext js,json --exec \"node src/server.js\"",
     "dev:node": "HOST=${HOST:-0.0.0.0} PORT=${PORT:-3001} NODE_ENV=${NODE_ENV:-development} node src/server.js",

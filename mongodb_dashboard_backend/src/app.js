@@ -41,6 +41,10 @@ app.use(express.urlencoded({ extended: true }));
  * - /docs and /api/docs
  */
 setupSwagger(app);
+try {
+  // eslint-disable-next-line no-console
+  console.log('[startup] Swagger: /docs and /api/docs | Spec: /openapi.json and /api/openapi.json');
+} catch {}
 
 /**
  * PUBLIC_INTERFACE
@@ -385,6 +389,12 @@ if (process.env.NODE_ENV !== 'test') {
     connectDB().catch((err) => {
       // eslint-disable-next-line no-console
       console.error('Failed to connect to MongoDB on startup:', err.message);
+      // In dev, do not crash the server; allow routes like /docs and /health to work
+      if (process.env.NODE_ENV !== 'production') {
+        return;
+      }
+      // In production, rethrow to allow orchestrator to restart
+      try { throw err; } catch (_e) {}
     });
   }
 } else {

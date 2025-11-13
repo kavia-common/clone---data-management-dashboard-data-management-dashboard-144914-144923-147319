@@ -165,10 +165,23 @@ function startServerStrict() {
   process.on('unhandledRejection', (reason) => {
     // eslint-disable-next-line no-console
     console.error('[unhandledRejection]', reason);
+    // In dev, do not exit; keep server alive
+    if (process.env.NODE_ENV !== 'production') {
+      return;
+    }
+    // In production, log and exit for a clean restart
+    try { removePidFile(); } catch {}
+    process.exit(1);
   });
   process.on('uncaughtException', (err) => {
     // eslint-disable-next-line no-console
     console.error('[uncaughtException]', err);
+    // In dev, swallow after logging to avoid premature exit
+    if (process.env.NODE_ENV !== 'production') {
+      return;
+    }
+    try { removePidFile(); } catch {}
+    process.exit(1);
   });
 
   return server;
