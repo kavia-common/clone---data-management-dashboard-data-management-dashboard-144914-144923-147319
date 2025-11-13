@@ -1,8 +1,8 @@
 'use strict';
 
 const express = require('express');
-const swaggerUi = require('swagger-ui-express');
-const { getBaseOpenApiSpec } = require('../swagger');
+// Swagger UI is mounted via dedicated setup module to avoid conflicting configs
+const setupSwagger = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
 const { connectDB } = require('./config/db');
@@ -31,108 +31,21 @@ app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-const buildDynamicSpec = (req) => {
-  const host = req.get('host');
-  let protocol = req.secure ? 'https' : req.protocol;
-  const actualPort = req.socket?.localPort;
-  const hasPort = host.includes(':');
-  const needsPort =
-    !hasPort &&
-    ((protocol === 'http' && actualPort !== 80) ||
-      (protocol === 'https' && actualPort !== 443));
-  const fullHost = needsPort ? `${host}:${actualPort}` : host;
-
-  const baseSpec = getBaseOpenApiSpec();
-  return {
-    ...baseSpec,
-    info: {
-      ...baseSpec.info,
-      title: process.env.SWAGGER_TITLE || baseSpec.info?.title || 'Dashboard API',
-      version: process.env.SWAGGER_VERSION || baseSpec.info?.version || '1.0.0',
-      description:
-        process.env.SWAGGER_DESCRIPTION ||
-        baseSpec.info?.description ||
-        'REST API for Data Management Dashboard with MongoDB and Express',
-    },
-    // Use same-origin server so Swagger calls hit this backend instance
-    url: `${protocol}://${fullHost}`,
-        
-    
-    // servers: [
-    //   {
-    //     url:
-
-    //       'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-    //   },
-    // ],
-  };
-};
-
-app.get('/openapi.json', (req, res) => {
-  // Always rebuild from sanitized base spec to avoid stale cache issues at the UI layer
-  return res.json(buildDynamicSpec(req));
-});
-app.get('/api-docs.json', (req, res) => {
-  return res.json(buildDynamicSpec(req));
-});
-// Serve spec at /api/docs.json as well to meet requirement
-app.get('/api/docs.json', (req, res) => res.json(buildDynamicSpec(req)));
-
-const swaggerUiHandler = swaggerUi.setup(null, {
-  swaggerOptions: {
-    url: '/api-docs.json',
-    displayRequestDuration: true,
-    docExpansion: 'none',
-    // Ensure custom header is forwarded by Swagger "Try it out"
-    requestInterceptor: (req) => {
-      try {
-        if (!req.headers) req.headers = {};
-        // Normalize header casing and known aliases to x-organization-id
-        const h = req.headers;
-        const existing =
-          h['x-organization-id'] ||
-          h['X-Organization-Id'] ||
-          h['x-org-id'] ||
-          h['X-Org-Id'] ||
-          h['x-tenant-id'] ||
-          h['X-Tenant-Id'] ||
-          h['x-tenant'] ||
-          h['X-Tenant'];
-        if (existing && !h['x-organization-id']) {
-          h['x-organization-id'] = existing;
-        }
-        // If user provided ?organization_id in query via UI params, ensure header mirrors it when header missing
-        if (!h['x-organization-id'] && req.url && req.url.includes('?')) {
-          const q = new URLSearchParams(req.url.split('?')[1]);
-          const qOrg = q.get('organization_id') || q.get('tenant_id');
-          if (qOrg) h['x-organization-id'] = qOrg;
-        }
-      } catch (e) {}
-      return req;
-    },
-  },
-  customSiteTitle: process.env.SWAGGER_TITLE || 'Dashboard API Docs',
-  customCss: '.topbar-wrapper .link:after { content: " | Authorize with Bearer token; tenant is implicit (organization_id). If no token, use x-organization-id header."; font-size: 12px; color: #666; }',
-});
 /**
- * Swagger UI mounting
- * We serve the UI at /api/docs (aliases below). The UI fetches the local spec from /api-docs.json via swaggerOptions.url.
- * Note: This backend does not use any http-proxy-middleware nor webpack dev middleware.
+ * Swagger UI and OpenAPI mounting
+ * Centralized in ../swagger to prevent conflicting options. This exposes:
+ * - /openapi.json and /api/openapi.json
+ * - /docs and /api/docs
  */
-app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
+setupSwagger(app);
 // Preflight for Swagger UI routes to ensure custom headers are allowed
-app.options(['/api/docs', '/docs', '/api-docs', '/api-docs.json', '/openapi.json', '/api/docs/try-it-out/log'], (req, res) => {
+app.options(['/api/docs', '/docs', '/openapi.json', '/api/openapi.json'], (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,x-organization-id,x-org-id,x-tenant-id,x-tenant,Origin,User-Agent,Cache-Control,Pragma');
   res.set('Access-Control-Max-Age', '600');
   return res.status(204).send();
 });
-// Backwards-compatible mounts
-app.use('/docs', swaggerUi.serve, swaggerUiHandler);
-app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
-// Convenience: health within docs namespace
-app.get('/api-docs/health', (req, res) => res.status(200).json({ status: 'ok', via: '/api-docs/health' }));
 
 // PUBLIC_INTERFACE
 // GET /api/docs/try-it-out/log
@@ -252,6 +165,22 @@ app.get('/api/docs/headers', (req, res) => {
     ],
   });
 });
+
+/**
+ * Serve a direct copy of the OpenAPI JSON at /api/openapi.json for consumers that expect it under /api.
+ * This uses the same document that swagger.js serves at /openapi.json.
+ */
+try {
+  // eslint-disable-next-line import/no-dynamic-require, global-require
+  const openapiDocForApi = require('../interfaces/openapi.json');
+  app.get('/api/openapi.json', (req, res) => {
+    res.set('Content-Type', 'application/json');
+    return res.status(200).send(openapiDocForApi);
+  });
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.warn('[openapi] Could not load interfaces/openapi.json for /api/openapi.json mount:', e?.message || e);
+}
 
 // Dev utilities
 app.use('/api/dev', require('./routes/dev.routes'));

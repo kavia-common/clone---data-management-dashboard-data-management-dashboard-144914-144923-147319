@@ -35,6 +35,16 @@
         },
         "description": "Optional tenant (organization) identifier as a query parameter. Prefer header x-organization-id."
       },
+      "OrganizationIdQuery": {
+        "in": "query",
+        "name": "organization_id",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "example": "org_demo"
+        },
+        "description": "Alias for tenant identifier as a query parameter. Prefer header x-organization-id."
+      },
       "OrganizationIdLegacy": {
         "in": "query",
         "name": "organization_id",
