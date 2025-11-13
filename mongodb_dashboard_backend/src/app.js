@@ -86,14 +86,27 @@ const swaggerUiHandler = swaggerUi.setup(null, {
     // Ensure custom header is forwarded by Swagger "Try it out"
     requestInterceptor: (req) => {
       try {
-        // If operation defines header parameter x-organization-id, Swagger UI will put it under req.headers automatically when user fills it.
-        // As a safety, also copy from common aliases if provided in query to header.
         if (!req.headers) req.headers = {};
-        if (req.headers['x-org-id'] && !req.headers['x-organization-id']) {
-          req.headers['x-organization-id'] = req.headers['x-org-id'];
+        // Normalize header casing and known aliases to x-organization-id
+        const h = req.headers;
+        const existing =
+          h['x-organization-id'] ||
+          h['X-Organization-Id'] ||
+          h['x-org-id'] ||
+          h['X-Org-Id'] ||
+          h['x-tenant-id'] ||
+          h['X-Tenant-Id'] ||
+          h['x-tenant'] ||
+          h['X-Tenant'];
+        if (existing && !h['x-organization-id']) {
+          h['x-organization-id'] = existing;
         }
-        // If user set organization_id query, prefer header
-        if (req.loadSpec) return req;
+        // If user provided ?organization_id in query via UI params, ensure header mirrors it when header missing
+        if (!h['x-organization-id'] && req.url && req.url.includes('?')) {
+          const q = new URLSearchParams(req.url.split('?')[1]);
+          const qOrg = q.get('organization_id') || q.get('tenant_id');
+          if (qOrg) h['x-organization-id'] = qOrg;
+        }
       } catch (e) {}
       return req;
     },

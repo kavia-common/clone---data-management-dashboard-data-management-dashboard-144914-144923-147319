@@ -1,24 +1,23 @@
-# Users APIs - Additional
+# Users APIs - Tenant Header and Swagger Testing
 
-## GET /api/users/:userId/projects
+This backend expects a tenant identifier on tenant-scoped endpoints.
 
-Returns distinct projects the user has activity in, based on the `session_tracking` collection.
+Required header:
+- x-organization-id: The organization/tenant to scope requests (case-insensitive)
 
-Query parameters:
-- tenant_id: required (alias organization_id)
-- from: optional ISO date-time (inclusive)
-- to: optional ISO date-time (inclusive)
+Aliases accepted (header or query): x-org-id, x-tenant-id, x-tenant, ?organization_id, ?tenant_id
 
-Response:
-{
-  "user_id": "u1",
-  "tenant_id": "org_123",
-  "projects": [
-    { "project_id": "projA", "project_name": "My App", "last_activity": "2025-01-10T10:30:00.000Z" }
-  ]
-}
+Swagger Try it out:
+1) Open /docs (or /api/docs)
+2) Click Authorize and paste a Bearer token if available. With a token, tenant is taken from JWT and must match any explicit header/query.
+3) For GET /api/users, click Try it out and add header x-organization-id=org_demo, then Execute.
 
-Notes:
-- userId is normalized to string for matching and matched against `user_id` or `userId`.
-- tenant scope matches either `tenant_id` or legacy `organization_id`.
-- last_activity is taken from the most recent of: last_updated, timestamp, session_end, session_start, created_at.
+curl examples:
+- With Bearer + header:
+  curl -s -H "Authorization: Bearer <JWT>" -H "x-organization-id: org_demo" "https://<host>/api/users?limit=10"
+
+- Demo mode (no JWT) using header:
+  curl -s -H "x-organization-id: org_demo" "https://<host>/api/users?limit=10"
+
+If you see CORS issues from browsers, ensure response includes Access-Control-Allow-Headers with x-organization-id. This repo's CORS config has been updated accordingly.
+

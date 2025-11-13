@@ -289,7 +289,9 @@ router.get(
  */
 router.get(
   '/',
-  // Normalize org/tenant, allowing non-JWT demo mode via header/query; JWT will still be used by requireTenant at mount
+  // Normalize org/tenant from header/query for Swagger/curl when JWT is not present.
+  // Note: routes/index.js already enforces verifyAuth + requireTenant at /api/users/*.
+  // extractOrganization ensures we read req.headers['x-organization-id'] (case-insensitive) and req.query.organization_id/tenant_id.
   extractOrganization(),
   controller.list
 );

@@ -6,7 +6,7 @@
  * Ensures a tenantId is present from one of the allowed sources and attaches it to req.tenantId.
  * Precedence:
  *   1) JWT (req.auth.tenantId) when present — cannot be overridden.
- *   2) Header x-organization-id | x-tenant-id | x-tenant (also accepts organization_id header)
+ *   2) Header x-organization-id | x-tenant-id | x-tenant (also accepts organization_id header; header names are matched case-insensitively by Node)
  *   3) Query ?tenant_id=... or legacy ?organization_id=...
  *   4) Demo fallback (non-prod with ALLOW_DEMO_AUTH=true) may accept header or query.
  * On failure, responds with 400.

@@ -1204,6 +1204,20 @@
                       "$ref": "#/components/schemas/ListEnvelope"
                     }
                   ]
+                },
+                "examples": {
+                  "curl-with-header-and-bearer": {
+                    "summary": "curl with Authorization and x-organization-id",
+                    "value": {
+                      "curl": "curl -s -H 'Authorization: Bearer <JWT>' -H 'x-organization-id: org_demo' 'https://<host>/api/users?limit=10'"
+                    }
+                  },
+                  "swagger-try-it-out": {
+                    "summary": "Swagger Try it out usage",
+                    "value": {
+                      "instructions": "Click Try it out, add header x-organization-id=org_demo, optionally click Authorize and paste Bearer token. Execute."
+                    }
+                  }
                 }
               }
             }
