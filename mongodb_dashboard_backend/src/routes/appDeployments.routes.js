@@ -1,5 +1,5 @@
 const express = require('express');
-const { asyncHandler, failure } = require('../utils/http');
+const { asyncHandler } = require('../utils/http');
 const AppDeployment = require('../models/appDeployments.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 const { validateAppDeployment } = require('../middleware/validators');

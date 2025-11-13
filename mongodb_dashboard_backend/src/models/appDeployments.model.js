@@ -11,7 +11,7 @@ const { Schema, model } = mongoose;
  */
 const appDeploymentSchema = new Schema(
   {
-    tenant_id: { type: String, index: true },
+    tenant_id: { type: String, required: true, index: true },
     tenant_name: { type: String },
     project_id: { type: String, index: true },
     projectName: { type: String },
@@ -27,14 +27,10 @@ const appDeploymentSchema = new Schema(
     deployment_id: { type: String },
     job_id: { type: String },
     message: { type: String },
-    status: { type: String, default: 'success' },
+    status: { type: String, enum: ['success', 'failed', 'in-progress'], index: true, default: 'success' },
     subdomain: { type: String },
     root_path: { type: String },
-    status: { type: String, enum: ['success', 'failed', 'in-progress'], index: true },
-    subdomain: { type: String },
     task_id: { type: String },
-    tenant_id: { type: String, required: true, index: true },
-    tenant_name: { type: String },
     updated_at: { type: Date, index: true },
     artifact_count: { type: Number },
     domain_status: { type: String, enum: ['verified', 'pending', 'failed'] },
