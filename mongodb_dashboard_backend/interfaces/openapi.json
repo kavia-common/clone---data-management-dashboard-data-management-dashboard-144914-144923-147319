@@ -103,18 +103,28 @@
     }
   },
   "security": [
-    { "bearerAuth": [] }
+    {
+      "bearerAuth": []
+    }
   ],
   "paths": {
     "/api/dev/echo": {
       "get": {
         "summary": "Echo request headers and tenant resolution (dev)",
         "description": "Development helper endpoint to validate that Swagger UI sends Authorization and x-organization-id. Returns selected headers and resolved tenant values.",
-        "tags": ["Dev"],
+        "tags": [
+          "Dev"
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" }
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          }
         ],
         "responses": {
           "200": {
@@ -124,11 +134,30 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "authorization": { "type": "string", "nullable": true, "description": "Raw Authorization header" },
-                    "x_organization_id": { "type": "string", "nullable": true, "description": "x-organization-id header if provided" },
-                    "organization_id_query": { "type": "string", "nullable": true, "description": "organization_id query param if provided" },
-                    "tenant_id_query": { "type": "string", "nullable": true, "description": "tenant_id query param if provided" },
-                    "note": { "type": "string", "example": "For testing Swagger Try it out sends both headers and query params." }
+                    "authorization": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "Raw Authorization header"
+                    },
+                    "x_organization_id": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "x-organization-id header if provided"
+                    },
+                    "organization_id_query": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "organization_id query param if provided"
+                    },
+                    "tenant_id_query": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "tenant_id query param if provided"
+                    },
+                    "note": {
+                      "type": "string",
+                      "example": "For testing Swagger Try it out sends both headers and query params."
+                    }
                   }
                 }
               }
@@ -145,9 +174,15 @@
           "Analytics"
         ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" }
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          }
         ],
         "responses": {
           "200": {
@@ -187,9 +222,15 @@
           "Analytics"
         ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          },
           {
             "in": "query",
             "name": "granularity",
@@ -238,9 +279,15 @@
           "AppDeployments"
         ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          },
           {
             "in": "query",
             "name": "page",
@@ -475,9 +522,15 @@
           "Dashboard"
         ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" }
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          }
         ],
         "responses": {
           "200": {
@@ -588,31 +641,48 @@
           "LLMCosts"
         ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          },
           {
             "in": "query",
             "name": "page",
-            "schema": { "type": "integer", "minimum": 1 },
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
             "description": "Optional page number to enable envelope response"
           },
           {
             "in": "query",
             "name": "limit",
-            "schema": { "type": "integer", "minimum": 1, "maximum": 200 },
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
             "description": "Optional page size to enable envelope response"
           },
           {
             "in": "query",
             "name": "sort",
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "description": "Sort string (e.g., -timestamp or total_cost)"
           },
           {
             "in": "query",
             "name": "filter",
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "description": "JSON filter (tenant fields ignored by server; scoping enforced)"
           }
         ],
@@ -623,35 +693,68 @@
               "application/json": {
                 "schema": {
                   "oneOf": [
-                    { "type": "array", "items": { "$ref": "#/components/schemas/GenericDocument" } },
-                    { "$ref": "#/components/schemas/ListEnvelope" }
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GenericDocument"
+                      }
+                    },
+                    {
+                      "$ref": "#/components/schemas/ListEnvelope"
+                    }
                   ]
                 }
               }
             }
           },
-          "400": { "description": "Missing tenant or invalid filter" },
-          "403": { "description": "Forbidden: tenant scope mismatch when Authorization is provided" },
-          "500": { "description": "Internal server error" }
+          "400": {
+            "description": "Missing tenant or invalid filter"
+          },
+          "403": {
+            "description": "Forbidden: tenant scope mismatch when Authorization is provided"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
         }
       },
       "post": {
         "summary": "Create LLM cost record",
         "description": "Creates a new LLM cost record. Tenant scoping is enforced from JWT when Authorization is provided, otherwise x-organization-id header is required. Any tenant fields in payload are overridden server-side.",
-        "tags": [ "LLMCosts" ],
+        "tags": [
+          "LLMCosts"
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" }
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          }
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "type": "object" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
         },
         "responses": {
-          "201": { "description": "Created" },
-          "400": { "description": "Bad request or missing tenant" },
-          "422": { "description": "Validation failed" }
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Bad request or missing tenant"
+          },
+          "422": {
+            "description": "Validation failed"
+          }
         }
       }
     },
@@ -700,18 +803,41 @@
     "/api/llm-costs/{id}": {
       "get": {
         "summary": "Get an LLM cost record by ID",
-        "tags": [ "LLMCosts" ],
+        "tags": [
+          "LLMCosts"
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
-          { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "200": { "description": "OK" },
-          "400": { "description": "Invalid id" },
-          "403": { "description": "Forbidden: tenant scope mismatch when Authorization is provided" },
-          "404": { "description": "Not found" }
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Invalid id"
+          },
+          "403": {
+            "description": "Forbidden: tenant scope mismatch when Authorization is provided"
+          },
+          "404": {
+            "description": "Not found"
+          }
         }
       },
       "put": {
@@ -790,9 +916,15 @@
           "SessionTracking"
         ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          },
           {
             "in": "query",
             "name": "page",
@@ -905,8 +1037,12 @@
           "SessionTracking"
         ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/OrganizationIdQuery" },
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdQuery"
+          },
           {
             "in": "path",
             "name": "id",
@@ -1012,7 +1148,9 @@
               "type": "string"
             }
           },
-          { "$ref": "#/components/parameters/XOrganizationId" }
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          }
         ],
         "responses": {
           "200": {
@@ -1078,11 +1216,20 @@
     "/api/users/tenant-summary": {
       "get": {
         "summary": "Tenant-wise users summary",
-        "description": "Aggregates distinct active users per tenant primarily from the session_tracking collection. Accepts optional time range and status filters. If includeInactive=true, falls back to the users collection joined with known tenants to include tenants without recent activity.\n",
+        "description": "Aggregates distinct active users per tenant primarily from the session_tracking collection. Accepts optional time range and status filters. If includeInactive=true, falls back to the users collection joined with known tenants to include tenants without recent activity.\nTenant scoping: Provide x-organization-id header (preferred) or ?tenant_id (alias: ?organization_id). When Authorization (JWT) is present, tenant from token is enforced and overrides header/query.",
         "tags": [
           "Users"
         ],
         "parameters": [
+          { "$ref": "#/components/parameters/XOrganizationId" },
+          { "$ref": "#/components/parameters/TenantIdQuery" },
+          {
+            "in": "query",
+            "name": "organization_id",
+            "required": false,
+            "schema": { "type": "string", "example": "org_demo" },
+            "description": "Alias for tenant identifier (inline). Prefer header x-organization-id; JWT overrides when provided."
+          },
           {
             "in": "query",
             "name": "from",
@@ -1292,6 +1439,7 @@
         }
       }
     },
+  
     "/api/users/seed-if-empty": {
       "get": {
         "summary": "Seed demo users if collection is empty",
@@ -1341,8 +1489,12 @@
           "Users"
         ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/OrganizationIdQuery" },
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdQuery"
+          },
           {
             "in": "path",
             "name": "id",
@@ -1480,8 +1632,12 @@
             },
             "description": "Session status filter. Default \"completed|active\"."
           },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" }
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          }
         ],
         "responses": {
           "200": {
@@ -1547,14 +1703,23 @@
             },
             "description": "User identifier (normalized to string for matching)"
           },
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          },
           {
             "in": "query",
             "name": "organization_id",
             "required": false,
-            "schema": { "type": "string", "example": "org_demo" },
+            "schema": {
+              "type": "string",
+              "example": "org_demo"
+            },
             "description": "Alias for tenant identifier (inline). Prefer header x-organization-id; JWT overrides when provided."
           },
           {
@@ -1629,9 +1794,15 @@
           "Users"
         ],
         "parameters": [
-          { "$ref": "#/components/parameters/XOrganizationId" },
-          { "$ref": "#/components/parameters/TenantIdQuery" },
-          { "$ref": "#/components/parameters/OrganizationIdLegacy" },
+          {
+            "$ref": "#/components/parameters/XOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantIdQuery"
+          },
+          {
+            "$ref": "#/components/parameters/OrganizationIdLegacy"
+          },
           {
             "in": "query",
             "name": "limit",

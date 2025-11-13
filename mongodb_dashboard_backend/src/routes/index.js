@@ -38,7 +38,11 @@ router.get('/health', healthController.check.bind(healthController));
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);
 
-// Protected core routes behind auth + tenant
+/**
+ * Protected core routes behind auth + tenant.
+ * Order is important: verifyAuth populates req.auth.tenantId, then requireTenant validates/normalizes req.tenantId/organizationId,
+ * and finally usersRoutes may read req.organizationId (via extractOrganization only for demo/no-JWT flows).
+ */
 router.use('/users', verifyAuth, requireTenant, usersRoutes);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 

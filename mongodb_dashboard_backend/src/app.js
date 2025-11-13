@@ -10,6 +10,9 @@ const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
 
+const { verifyAuth } = require('./middleware/verifyAuth');
+const { requireTenant } = require('./middleware/requireTenant');
+
 const app = express();
 
 // TEMP STARTUP LOGS to trace route mounting (will be removed after verification)
@@ -300,9 +303,6 @@ app.get('/api/users/tenant-summary', async (req, res) => {
 });
 
 const analyticsAgentsRoutes = require('./routes/analyticsAgents');
-
-const { verifyAuth } = require('./middleware/verifyAuth');
-const { requireTenant } = require('./middleware/requireTenant');
 
 /**
  * Add a thin logger to confirm headers for protected API calls in development.

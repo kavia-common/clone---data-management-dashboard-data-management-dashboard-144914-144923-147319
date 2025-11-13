@@ -123,7 +123,9 @@ router.get(
 // ====== TENANT SUMMARY ======
 router.get(
   '/tenant-summary',
-  // Ensure normalized organization scope for summary aggregation
+  // Ensure normalized organization scope for summary aggregation.
+  // NOTE: verifyAuth + requireTenant are applied at the router level in routes/index.js.
+  // We only use extractOrganization here to map header/query to req.organizationId when demo/no-JWT flows are used.
   extractOrganization(),
   asyncHandler(async (req, res) => {
     const { from, to } = req.query || {};
@@ -154,7 +156,13 @@ router.get(
       timeClauses.push({ timestamp: range }, { session_start: range }, { last_updated: range });
     }
 
-    const orgMatch = { tenant_id: req.organizationId };
+    const resolvedTenant = req.organizationId || req.tenantId;
+    if (!resolvedTenant) {
+      // Should normally be enforced by requireTenant; be defensive and return meaningful 400
+      return res.status(400).json({ success: false, message: 'Missing tenant scope (x-organization-id or ?tenant_id/organization_id).' });
+    }
+    res.set('x-accepted-tenant', String(resolvedTenant));
+    const orgMatch = { tenant_id: resolvedTenant };
     const matchStage =
       timeClauses.length > 0
         ? { $match: { ...match, ...orgMatch, $or: timeClauses } }
