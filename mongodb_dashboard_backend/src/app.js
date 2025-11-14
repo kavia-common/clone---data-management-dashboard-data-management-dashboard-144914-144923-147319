@@ -17,9 +17,9 @@ const app = express();
 // ---------------------------------------------
 app.set('trust proxy', 1);
 app.use(helmetMiddleware());
-app.use(corsMiddleware());
+// app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
-app.options('/api/*', cors());
+// app.options('/api/*', cors());
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -53,12 +53,11 @@ const buildDynamicSpec = (req) => {
     // Use same-origin server so Swagger calls hit this backend instance
     // url: `${protocol}://${fullHost}`,
     servers: [
-      
       {
         url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-        description: 'Predefined dev server',
       },
     ],
+
   };
 };
 
