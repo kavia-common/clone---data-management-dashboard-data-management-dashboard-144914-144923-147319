@@ -29,7 +29,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const buildDynamicSpec = (req) => {
   const host = req.get('host');
-  let protocol = req.secure ? 'https' : req.protocol;
+  const protocol = req.secure ? 'https' : req.protocol;
   const actualPort = req.socket?.localPort;
   const hasPort = host.includes(':');
   const needsPort =
@@ -50,17 +50,10 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    // servers: [{ url: `${protocol}://${fullHost}` }],
-    servers: [
-  {
-    url:
-      process.env.SWAGGER_SERVER_URL ||
-      'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-  },
-],
-
+    servers: [{ url: `${protocol}://${fullHost}` }],
   };
 };
+
 
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
