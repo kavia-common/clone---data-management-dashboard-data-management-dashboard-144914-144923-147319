@@ -1,8 +1,10 @@
 const apiBase =
 
-  `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
-  // 'https://vscode-internal-32789-beta.beta01.cloud.kavia.ai:3001/api'
+  // // `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
+  // 'https://vscode-internal-24508-beta.beta01.cloud.kavia.ai:3001/api'
 
+  `${window.location.protocol}//${window.location.hostname}:3001/api`;
+  
 /**
  * PUBLIC_INTERFACE
  * getApiBase
