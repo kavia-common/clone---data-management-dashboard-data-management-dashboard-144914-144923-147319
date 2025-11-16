@@ -13,8 +13,8 @@ import './SessionDetailsModal.css';
  * SessionDetailsModal
  * A responsive, accessible modal that presents session details in a clean layout aligned to the Ocean Professional theme.
  *
- * Enhancement: session_breakdown is shown as a scrollable selectable list (Session 1, Session 2, ...)
- * with a details panel below showing 4 fields for the selected item:
+ * session_breakdown is shown as a simple selectable list (Session 1, Session 2, ...)
+ * with a details section below showing 4 fields for the selected item:
  *  - session_start, session_end, duration, Agent
  *
  * Props:
@@ -347,7 +347,7 @@ function SessionDetailsModal({ open, onClose, session }) {
   }, [session]);
 
   return (
-    <Modal open={open} onClose={onClose} title={title} className="session-details-modal modal--session">
+    <Modal open={open} onClose={onClose} title={title} className="session-details-modal modal--session modal--session-details">
       {/* Header */}
       <div
         className="sticky-header"
@@ -452,7 +452,7 @@ function SessionDetailsModal({ open, onClose, session }) {
           </div>
         </section>
 
-        {/* Session Breakdown List + Details Panel */}
+        {/* Session Breakdown: simple vertical list and details below (no internal scroll container) */}
         <section
           aria-label="Session breakdown"
           className="details-card"
@@ -465,123 +465,102 @@ function SessionDetailsModal({ open, onClose, session }) {
             boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(16,24,40,0.04))',
           }}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
-            <div
-              role="listbox"
-              aria-label="Sessions list"
-              style={{
-                border: '1px solid var(--border-subtle, #E5E7EB)',
-                borderRadius: 10,
-                maxHeight: 220,
-                overflow: 'auto',
-                padding: 8,
-                background: 'var(--bg-canvas, #f9fafb)',
-              }}
-            >
-              {breakdownList.length === 0 ? (
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: 'var(--text-tertiary, #6B7280)',
-                    padding: '8px 6px',
-                  }}
-                >
-                  No sessions in breakdown
-                </div>
-              ) : (
-                breakdownList.map((b, idx) => {
-                  const isActive = idx === selectedIdx;
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      role="option"
-                      aria-selected={isActive}
-                      onClick={() => setSelectedIdx(idx)}
-                      style={{
-                        width: '100%',
-                        textAlign: 'left',
-                        padding: '10px 12px',
-                        marginBottom: 6,
-                        borderRadius: 8,
-                        border: '1px solid var(--border-subtle, #E5E7EB)',
-                        background: isActive ? 'rgba(37, 99, 235, 0.08)' : '#fff',
-                        color: 'var(--text-primary, #111827)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>
-                        Session {idx + 1}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)' }}>
-                        {b.start} • {b.end}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)' }}>
-                        {b.duration} • {b.agent}
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-
-            <div
-              aria-live="polite"
-              aria-atomic="true"
-              style={{
-                border: '1px solid var(--border-subtle, #E5E7EB)',
-                borderRadius: 10,
-                padding: 12,
-                background: 'var(--bg-surface, #ffffff)',
-                minHeight: 120,
-              }}
-            >
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: 'var(--text-primary, #111827)' }}>
-                {breakdownList.length ? `Session ${selectedIdx + 1} Details` : 'Session Details'}
-              </div>
+          {/* List of sessions */}
+          <div role="listbox" aria-label="Sessions list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {breakdownList.length === 0 ? (
               <div
-                className="details-grid"
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                  columnGap: 24,
-                  rowGap: 8,
+                  fontSize: 13,
+                  color: 'var(--text-tertiary, #6B7280)',
+                  padding: '8px 6px',
                 }}
               >
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                    Session Start
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                    {selectedBreakdown ? selectedBreakdown.start : '\u2014'}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                    Session End
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                    {selectedBreakdown ? selectedBreakdown.end : '\u2014'}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                    Duration
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                    {selectedBreakdown ? selectedBreakdown.duration : '\u2014'}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                    Agent
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                    {selectedBreakdown ? selectedBreakdown.agent : '\u2014'}
-                  </div>
-                </div>
+                No sessions in breakdown
               </div>
+            ) : (
+              breakdownList.map((b, idx) => {
+                const isActive = idx === selectedIdx;
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    role="option"
+                    aria-selected={isActive}
+                    onClick={() => setSelectedIdx(idx)}
+                    style={{
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: '1px solid var(--border-subtle, #E5E7EB)',
+                      background: isActive ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
+                      color: 'var(--text-primary, #111827)',
+                      cursor: 'pointer',
+                    }}
+                    title={`Session ${idx + 1}`}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>
+                      Session {idx + 1}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)' }}>
+                      {b.start} • {b.end}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)' }}>
+                      {b.duration} • {b.agent}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {/* Selected session details below the list */}
+          <div
+            aria-live="polite"
+            aria-atomic="true"
+            style={{
+              marginTop: 12,
+              borderTop: '1px solid var(--border-subtle, #E5E7EB)',
+              paddingTop: 12,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: 'var(--text-primary, #111827)' }}>
+              {breakdownList.length ? `Session ${selectedIdx + 1} Details` : 'Session Details'}
             </div>
+
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
+              <li>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                  Session Start
+                </span>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                  {selectedBreakdown ? selectedBreakdown.start : '\u2014'}
+                </div>
+              </li>
+              <li>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                  Session End
+                </span>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                  {selectedBreakdown ? selectedBreakdown.end : '\u2014'}
+                </div>
+              </li>
+              <li>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                  Duration
+                </span>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                  {selectedBreakdown ? selectedBreakdown.duration : '\u2014'}
+                </div>
+              </li>
+              <li>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                  Agent
+                </span>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                  {selectedBreakdown ? selectedBreakdown.agent : '\u2014'}
+                </div>
+              </li>
+            </ul>
           </div>
         </section>
       </div>
