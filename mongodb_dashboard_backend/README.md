@@ -18,7 +18,6 @@ Scripts
 - start: production-style boot; same host/port defaults
 - preview: same as start
 - test: jest
-- lint: eslint . (uses flat config eslint.config.js scoped to backend; frontend files are ignored)
 
 Preview runner compatibility
 - The server binds to 0.0.0.0:PORT and logs readiness pointers: /health | /ready | /api/health | /api/docs | /api-docs

@@ -1,5 +1,7 @@
+'use strict';
+
 /**
- * PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
  * isValidUrl
  * Validates that a string is an http(s) URL using the URL constructor.
  */
@@ -13,7 +15,7 @@ function isValidUrl(value) {
 }
 
 /**
- * PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
  * isValidEmail
  * Lightweight email validation regex for backend gating.
  */
