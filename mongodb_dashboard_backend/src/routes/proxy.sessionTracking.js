@@ -15,6 +15,14 @@ const router = express.Router();
  *   Example: https://example.com/api
  * - Supports self-signed certificates if SESSION_TRACKING_UPSTREAM_INSECURE_TLS=true (development only).
  * - Returns 200 OK with JSON when upstream succeeds, or a structured error JSON when it fails.
+ *
+ * Query parameters:
+ *  - page, limit, tenant_id, session_id, sort, filter, q, pageSize
+ *
+ * Env:
+ *  - SESSION_TRACKING_UPSTREAM_BASE
+ *  - SESSION_TRACKING_UPSTREAM_INSECURE_TLS
+ *  - SESSION_TRACKING_UPSTREAM_AUTH (optional)
  */
 router.get('/session-tracking', async (req, res) => {
   // Build upstream base url
@@ -62,15 +70,22 @@ router.get('/session-tracking', async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
   try {
+    // Forward Authorization from client if present
+    const clientAuth = req.headers['authorization'];
+    // Optional static upstream auth (e.g., Bearer token) from env
+    const upstreamAuth = process.env.SESSION_TRACKING_UPSTREAM_AUTH;
+
+    const headers = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    };
+    if (clientAuth) headers.Authorization = clientAuth;
+    if (upstreamAuth && !headers.Authorization) headers.Authorization = upstreamAuth;
+
     const response = await axios.get(url, {
       timeout: 20000,
-      // Forward minimal headers that are safe/usable upstream
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
+      headers,
       httpsAgent,
-      // Allow redirects if upstream issues 30x
       maxRedirects: 3,
       validateStatus: () => true, // handle status manually to map upstream errors cleanly
     });
@@ -80,11 +95,16 @@ router.get('/session-tracking', async (req, res) => {
       return res.status(200).json(response.data);
     }
 
+    const needsAuth =
+      response.status === 401 || response.status === 403;
+
     // Upstream returned an error-like status; return structured message
     return res.status(response.status || 502).json({
       success: false,
       proxy: 'session-tracking',
-      message: 'Upstream responded with an error',
+      message: needsAuth
+        ? 'Upstream requires Authorization. Provide client Authorization or set SESSION_TRACKING_UPSTREAM_AUTH.'
+        : 'Upstream responded with an error',
       upstream_status: response.status,
       upstream_url: url,
       data: typeof response.data === 'object' ? response.data : { body: String(response.data) },

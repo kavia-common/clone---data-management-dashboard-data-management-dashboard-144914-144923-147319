@@ -92,12 +92,21 @@ Configure the upstream service via environment variables (see .env.example):
 
 - SESSION_TRACKING_UPSTREAM_BASE: Base URL of the upstream API that serves /session-tracking (e.g., https://host:3001/api)
 - SESSION_TRACKING_UPSTREAM_INSECURE_TLS: Set to true if using self-signed TLS in development (do not use in production)
+- SESSION_TRACKING_UPSTREAM_AUTH: Optional Authorization value (e.g., "Bearer <token>") if your upstream requires auth. If not set, the proxy will forward the client Authorization header when present.
 
-Example curl:
+Example curls:
 
+# Open upstream (no auth)
 curl 'http://localhost:3001/api/proxy/session-tracking?page=1&limit=50&tenant_id=b2c' -H 'Accept: application/json'
 
+# With client Authorization forwarded
+curl 'http://localhost:3001/api/proxy/session-tracking?page=1&limit=50&tenant_id=b2c' -H 'Accept: application/json' -H 'Authorization: Bearer <token>'
+
 Troubleshooting
+- 401/403 from upstream:
+  - Provide an Authorization header from the client, or set SESSION_TRACKING_UPSTREAM_AUTH in the backend .env.
+- TLS/self-signed errors:
+  - Set SESSION_TRACKING_UPSTREAM_INSECURE_TLS=true for development (do not use in production).
 - Port already in use (EADDRINUSE):
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
 - Mongo not connected:

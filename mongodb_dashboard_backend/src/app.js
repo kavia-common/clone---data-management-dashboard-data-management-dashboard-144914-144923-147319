@@ -9,33 +9,31 @@ app.use(corsMiddleware());
 app.use(express.json());
 app.use(rateLimiter());
 
-// Existing route modules (conditionally require if present)
-function safeRequire(path) {
-  try { return require(path); } catch { return null; }
+// Central router (contains most API mounts and docs)
+let indexRouter = null;
+try {
+  indexRouter = require('./routes/index');
+} catch {
+  indexRouter = null;
 }
 
-const usersRoutes = safeRequire('./routes/users');
-const llmCostsRoutes = safeRequire('./routes/llmCosts');
-const sessionTrackingRoutes = safeRequire('./routes/sessionTracking');
-const tenantsRoutes = safeRequire('./routes/tenants');
-const dashboardRoutes = safeRequire('./routes/dashboard');
-const deploymentsRoutes = safeRequire('./routes/deployments');
-const authRoutes = safeRequire('./routes/auth');
+// Explicit proxy router
+let proxySessionTracking = null;
+try {
+  proxySessionTracking = require('./routes/proxy.sessionTracking');
+} catch {
+  proxySessionTracking = null;
+}
 
-// Proxy route
-const proxySessionTracking = safeRequire('./routes/proxy.sessionTracking');
+// Mount central /api routes if available
+if (indexRouter) {
+  app.use('/api', indexRouter);
+}
 
-// Mount existing routes if available
-if (usersRoutes) app.use('/api/users', usersRoutes);
-if (llmCostsRoutes) app.use('/api/llm-costs', llmCostsRoutes);
-if (sessionTrackingRoutes) app.use('/api/session-tracking', sessionTrackingRoutes);
-if (tenantsRoutes) app.use('/api/tenants', tenantsRoutes);
-if (dashboardRoutes) app.use('/api/dashboard', dashboardRoutes);
-if (deploymentsRoutes) app.use('/api/app-deployments', deploymentsRoutes);
-if (authRoutes) app.use('/api/auth', authRoutes);
-
-// Mount proxy under /api/proxy
-if (proxySessionTracking) app.use('/api/proxy', proxySessionTracking);
+// Ensure proxy is mounted at /api/proxy even if central index is not used
+if (proxySessionTracking) {
+  app.use('/api/proxy', proxySessionTracking);
+}
 
 // Health endpoints
 app.get('/health', (req, res) => res.json({ ok: true }));
