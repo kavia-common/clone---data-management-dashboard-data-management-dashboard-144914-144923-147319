@@ -14,15 +14,9 @@ const apiRouter = require('./routes/index');
 app.use('/api', apiRouter);
 
 /**
- * Mount proxy routes (kept separate to avoid auth middleware in index for this scope)
+ * session-tracking proxy has been removed; frontend calls the external API directly now.
+ * Intentionally not mounting ./routes/proxy.sessionTracking
  */
-try {
-  const proxySessionTracking = require('./routes/proxy.sessionTracking');
-  app.use('/api/proxy', proxySessionTracking);
-} catch (e) {
-  // eslint-disable-next-line no-console
-  console.warn('[app] proxy.sessionTracking route not mounted:', e?.message || e);
-}
 
 // Health endpoints (simple readiness/liveness)
 app.get('/health', (req, res) => res.json({ ok: true }));
