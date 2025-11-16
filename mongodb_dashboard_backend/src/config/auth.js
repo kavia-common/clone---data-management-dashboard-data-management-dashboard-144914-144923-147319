@@ -78,10 +78,9 @@ function getJwtConfig() {
   };
 }
 
-const authConfig = {
+// Export named functions rather than an anonymous default object for ESLint preferences
+module.exports = {
   getTenantSaltConfig,
   getTenantConfig,
   getJwtConfig,
 };
-
-module.exports = authConfig;
