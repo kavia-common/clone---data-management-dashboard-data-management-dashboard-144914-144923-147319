@@ -3,7 +3,6 @@ import Modal from '../ui/Modal.jsx';
 import Button from '../ui/Button.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName } from '../../utils/stringFormatters.js';
-import { formatLabel } from '../../utils/formatLabel';
 import { usdToCredits, formatCredits, parseUsdToNumber } from '../../utils/currency.js';
 import { formatCurrencyAmount } from '../../utils/formatCurrency';
 import { getUserBasic } from '../../api/users';
@@ -12,39 +11,42 @@ import './SessionDetailsModal.css';
 /**
  * PUBLIC_INTERFACE
  * SessionDetailsModal
- * A responsive, accessible modal that presents session details in a clean two-column layout aligned to the Ocean Professional theme.
+ * A responsive, accessible modal that presents session details in a clean layout aligned to the Ocean Professional theme.
+ *
+ * Enhancement: session_breakdown is shown as a scrollable selectable list (Session 1, Session 2, ...)
+ * with a details panel below showing 4 fields for the selected item:
+ *  - session_start, session_end, duration, Agent
  *
  * Props:
  * - open: boolean - controls visibility
  * - onClose: function - invoked to close modal
  * - session: object - session data to render
- *
- * Design and UX:
- * - Uses parent Modal overlay; keeps sticky header within card with subtle divider
- * - Two-column responsive grid (minmax 240px, 1fr) stacking to single column <640px
- * - Labels use tertiary/secondary text color; values use primary text color
- * - Comfortable spacing, 1px borders, soft shadows; zebra striping by row for improved scanability
- * - AA contrast for text and interactive controls
  */
 function SessionDetailsModal({ open, onClose, session }) {
   const headerId = 'session-details-title';
   const contentRef = useRef(null);
   const { users } = useDataContext?.() || { users: [] };
 
-  // User name fetch state (for cases where DataContext doesn't have a match)
+  // Fetch fallback for user display name
   const [fetchedUserName, setFetchedUserName] = useState('');
   const [fetchingUserName, setFetchingUserName] = useState(false);
 
-  // Focus modal content when opened for accessibility
+  // Local selection state for session_breakdown list
+  const [selectedIdx, setSelectedIdx] = useState(0);
+
   useEffect(() => {
+    // Focus modal content when opened for accessibility
     if (open && contentRef.current) {
       contentRef.current.focus();
     }
   }, [open]);
 
-  // Helpers
-  const formatDate = (val) => {
-    // Render a formatted local date-time or an em-dash placeholder if missing/invalid.
+  useEffect(() => {
+    // Reset selection on new session
+    setSelectedIdx(0);
+  }, [session]);
+
+  const formatDateLocal = (val) => {
     if (!val) return '\u2014';
     try {
       const d = new Date(val);
@@ -56,37 +58,39 @@ function SessionDetailsModal({ open, onClose, session }) {
   };
 
   // PUBLIC_INTERFACE
-  const computeDuration = (start, end) => {
-    /** Compute human-readable duration given start and end timestamps (ms or ISO). */
-    if (!start || !end) return '\u2014';
-    try {
-      const s = new Date(start).getTime();
-      const e = new Date(end).getTime();
-      if (isNaN(s) || isNaN(e)) return '\u2014';
-      let ms = Math.max(0, e - s);
-      const secs = Math.floor(ms / 1000);
-      const h = Math.floor(secs / 3600);
-      const m = Math.floor((secs % 3600) / 60);
-      const sRem = secs % 60;
-      const parts = [];
-      if (h) parts.push(`${h}h`);
-      if (m || h) parts.push(`${m}m`);
-      parts.push(`${sRem}s`);
-      return parts.join(' ');
-    } catch {
-      return '\u2014';
-    }
+  const toHms = (seconds) => {
+    /** Convert seconds to HH:mm:ss string. */
+    const secs = Math.max(0, Math.floor(Number(seconds) || 0));
+    const h = String(Math.floor(secs / 3600)).padStart(2, '0');
+    const m = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
+    const sRem = String(secs % 60).padStart(2, '0');
+    return `${h}:${m}:${sRem}`;
   };
 
   // PUBLIC_INTERFACE
+  const computeDurationPretty = (start, end, fallbackSeconds) => {
+    /** Prefer computing from start/end; fallback to HH:mm:ss using numeric duration if available */
+    if (start && end) {
+      try {
+        const s = new Date(start).getTime();
+        const e = new Date(end).getTime();
+        if (!isNaN(s) && !isNaN(e)) {
+          const secs = Math.max(0, Math.floor((e - s) / 1000));
+          return toHms(secs);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (fallbackSeconds != null && Number.isFinite(Number(fallbackSeconds))) {
+      return toHms(Number(fallbackSeconds));
+    }
+    if (typeof fallbackSeconds === 'string' && fallbackSeconds.trim()) return fallbackSeconds.trim();
+    return '\u2014';
+  };
+
   const resolveUserName = (userRef) => {
-    /**
-     * Resolve a user-friendly name from user reference:
-     * - If an object with name/displayName/fullName/email exists, pick appropriately
-     * - If an id, search DataContext users for a matching _id/id/userId and prefer displayName/fullName/name/username/email
-     */
     if (!userRef) return 'Unknown User';
-    // If already a descriptive string (e.g., username/email)
     if (typeof userRef === 'string') {
       const candidate = users?.find?.(
         (u) => u?._id === userRef || u?.id === userRef || u?.userId === userRef
@@ -104,7 +108,6 @@ function SessionDetailsModal({ open, onClose, session }) {
       return userRef || 'Unknown User';
     }
     if (typeof userRef === 'object') {
-      // If the object has an id-like, try to match a richer record
       const candidateId = userRef._id || userRef.id || userRef.userId || userRef.user_id;
       if (candidateId) {
         const candidate = users?.find?.(
@@ -134,7 +137,6 @@ function SessionDetailsModal({ open, onClose, session }) {
     return 'Unknown User';
   };
 
-  // Utility: safely pick the first defined value by probing dot/flat aliases
   const pickFrom = (s, keys) => {
     for (const k of keys) {
       if (k.includes('.')) {
@@ -157,7 +159,7 @@ function SessionDetailsModal({ open, onClose, session }) {
     return undefined;
   };
 
-  // Extract normalized references up-front for user and timestamps
+  // Normalize some top-level fields
   const { userIdRef, displayUserResolved, createdAt, lastUpdatedAt, sessionId } = useMemo(() => {
     const s = session || {};
     const createdAtRaw = pickFrom(s, [
@@ -180,7 +182,6 @@ function SessionDetailsModal({ open, onClose, session }) {
     const normalizedCreatedAt = createdAtRaw || undefined;
     const id = pickFrom(s, ['sessionId', '_id', 'id']);
 
-    // Resolve user ID robustly (may be in different shapes)
     const uId = pickFrom(s, [
       'userId',
       'user_id',
@@ -218,13 +219,10 @@ function SessionDetailsModal({ open, onClose, session }) {
         setFetchingUserName(false);
         return;
       }
-
-      // If displayUserResolved is already meaningful (not Unknown User), skip fetch
       if (displayUserResolved && !/^unknown user$/i.test(String(displayUserResolved))) {
         setFetchedUserName('');
         return;
       }
-
       try {
         setFetchingUserName(true);
         const res = await getUserBasic(userIdRef);
@@ -245,28 +243,9 @@ function SessionDetailsModal({ open, onClose, session }) {
     };
   }, [open, userIdRef, displayUserResolved]);
 
-  // Collect required and requested details; preserve previously approved fields.
+  // Build non-breakdown core details (kept from previous behavior)
   const coreDetails = useMemo(() => {
     if (!session || typeof session !== 'object') return {};
-
-    // Compute duration using startedAt (createdAt alias) and the normalized last_updated
-    const durationStr = computeDuration(createdAt, lastUpdatedAt);
-
-    // Dev-only diagnostics per instructions
-    if (process.env.NODE_ENV !== 'production') {
-      try {
-        // eslint-disable-next-line no-console
-        console.log('[SessionDetailsModal:debug]', {
-          user_id: userIdRef,
-          last_updated: lastUpdatedAt,
-          scope: 'tenant_id',
-        });
-      } catch {
-        // ignore logging errors
-      }
-    }
-
-    // Determine display name with fetch fallback
     const nameCandidate = (() => {
       if (fetchingUserName) return 'Loading...';
       const fetched = fetchedUserName?.trim();
@@ -280,18 +259,29 @@ function SessionDetailsModal({ open, onClose, session }) {
       'User ID': userIdRef || '\u2014',
       'User Name': nameCandidate,
       'Session ID': sessionId || '\u2014',
-      'Project ID': pickFrom(session || {}, ['project_id', 'projectId', 'project', 'projectSlug']) ??
+      'Project ID':
+        pickFrom(session || {}, ['project_id', 'projectId', 'project', 'projectSlug']) ??
         pickFrom(session || {}, ['projectName', 'project_name', 'projectLabel', 'project_label']) ??
         '\u2014',
-      'Service Type': pickFrom(session || {}, ['serviceType', 'service_type', 'provider', 'modelProvider']) ?? '\u2014',
-      Tenant: pickFrom(session || {}, ['tenant', 'tenantId', 'tenant_id', 'organization', 'organization_id', 'organizationId', 'tenantName', 'tenant_name']) ?? '\u2014',
-      'Started At': formatDate(createdAt),
-      'Last Updated At': formatDate(lastUpdatedAt),
-      Duration: durationStr,
+      'Service Type':
+        pickFrom(session || {}, ['serviceType', 'service_type', 'provider', 'modelProvider']) ?? '\u2014',
+      Tenant:
+        pickFrom(session || {}, [
+          'tenant',
+          'tenantId',
+          'tenant_id',
+          'organization',
+          'organization_id',
+          'organizationId',
+          'tenantName',
+          'tenant_name',
+        ]) ?? '\u2014',
+      'Started At': formatDateLocal(createdAt),
+      'Last Updated At': formatDateLocal(lastUpdatedAt),
+      Duration: computeDurationPretty(createdAt, lastUpdatedAt),
     };
 
-    // Enhance: If the session payload includes a user cost field (any casing/spacing),
-    // render "User Cost: $X • Credits Used: N" inline without mutating data.
+    // Optional: enrich with "User Cost"
     try {
       const s = session;
       const findUserCostNumber = () => {
@@ -318,93 +308,39 @@ function SessionDetailsModal({ open, onClose, session }) {
         details['User Cost'] = `${usdText} \u2022 Credits Used: ${creditsText}`;
       }
     } catch {
-      // do not block rendering on formatter errors
-    }
-
-    // Append session_breakdown fields safely
-    // Supports two shapes:
-    // 1) An array of session objects: [{ session_start, session_end, duration, Agent: [] }, ...]
-    // 2) A single object (legacy): { session_start, session_end, duration, Agent }
-    try {
-      const rawBreakdown = session?.session_breakdown ?? null;
-
-      // Helper to HH:mm:ss for numeric seconds
-      const toHms = (seconds) => {
-        const secs = Math.max(0, Math.floor(Number(seconds) || 0));
-        const h = String(Math.floor(secs / 3600)).padStart(2, '0');
-        const m = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
-        const sRem = String(secs % 60).padStart(2, '0');
-        return `${h}:${m}:${sRem}`;
-      };
-
-      const normalizeOne = (b) => {
-        const sbStart = b?.session_start ?? b?.sessionStart ?? b?.start ?? b?.startedAt;
-        const sbEnd = b?.session_end ?? b?.sessionEnd ?? b?.end ?? b?.endedAt ?? b?.finishedAt;
-        const sbDuration = b?.duration ?? b?.total_duration ?? b?.elapsed;
-        const agentRaw = b?.Agent ?? b?.agent ?? b?.agent_name ?? b?.agentName;
-
-        // Agent per API: Agent is array of strings; also support single string fallback
-        const agentText = Array.isArray(agentRaw)
-          ? (agentRaw.length ? agentRaw.join(', ') : '\u2014')
-          : (agentRaw != null && String(agentRaw).trim() ? String(agentRaw) : '\u2014');
-
-        // Prefer computeDuration when both start/end available; else use HH:mm:ss from numeric duration
-        let durationPretty = '\u2014';
-        if (sbStart && sbEnd) {
-          durationPretty = computeDuration(sbStart, sbEnd);
-        } else if (sbDuration != null && Number.isFinite(Number(sbDuration))) {
-          durationPretty = toHms(Number(sbDuration));
-        } else if (typeof sbDuration === 'string' && sbDuration.trim()) {
-          durationPretty = sbDuration.trim();
-        }
-
-        return {
-          start: formatDate(sbStart),
-          end: formatDate(sbEnd),
-          duration: durationPretty,
-          agent: agentText,
-        };
-      };
-
-      if (Array.isArray(rawBreakdown)) {
-        if (rawBreakdown.length > 0) {
-          rawBreakdown.forEach((b, idx) => {
-            const n = normalizeOne(b);
-            const labelPrefix = `Session ${idx + 1}`;
-            details[`${labelPrefix} \u2022 Session Start`] = n.start || '\u2014';
-            details[`${labelPrefix} \u2022 Session End`] = n.end || '\u2014';
-            details[`${labelPrefix} \u2022 Duration`] = n.duration || '\u2014';
-            details[`${labelPrefix} \u2022 Agent`] = n.agent || '\u2014';
-          });
-        } else {
-          details['Breakdown \u2022 Session Start'] = '\u2014';
-          details['Breakdown \u2022 Session End'] = '\u2014';
-          details['Breakdown \u2022 Duration'] = '\u2014';
-          details['Breakdown \u2022 Agent'] = '\u2014';
-        }
-      } else if (rawBreakdown && typeof rawBreakdown === 'object') {
-        const n = normalizeOne(rawBreakdown);
-        details['Breakdown \u2022 Session Start'] = n.start || '\u2014';
-        details['Breakdown \u2022 Session End'] = n.end || '\u2014';
-        details['Breakdown \u2022 Duration'] = n.duration || '\u2014';
-        details['Breakdown \u2022 Agent'] = n.agent || '\u2014';
-      } else {
-        details['Breakdown \u2022 Session Start'] = '\u2014';
-        details['Breakdown \u2022 Session End'] = '\u2014';
-        details['Breakdown \u2022 Duration'] = '\u2014';
-        details['Breakdown \u2022 Agent'] = '\u2014';
-      }
-    } catch {
-      details['Breakdown \u2022 Session Start'] = details['Breakdown \u2022 Session Start'] ?? '\u2014';
-      details['Breakdown \u2022 Session End'] = details['Breakdown \u2022 Session End'] ?? '\u2014';
-      details['Breakdown \u2022 Duration'] = details['Breakdown \u2022 Duration'] ?? '\u2014';
-      details['Breakdown \u2022 Agent'] = details['Breakdown \u2022 Agent'] ?? '\u2014';
+      // ignore
     }
 
     return details;
   }, [session, userIdRef, displayUserResolved, fetchedUserName, fetchingUserName, createdAt, lastUpdatedAt, sessionId]);
 
-  // Title must be "Session Details - <sessionId>"
+  // Normalize and memoize session_breakdown list
+  const breakdownList = useMemo(() => {
+    const raw = session?.session_breakdown;
+    const asArray = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? [raw] : [];
+    return asArray.map((b) => {
+      const sbStart = b?.session_start ?? b?.sessionStart ?? b?.start ?? b?.startedAt;
+      const sbEnd = b?.session_end ?? b?.sessionEnd ?? b?.end ?? b?.endedAt ?? b?.finishedAt;
+      const sbDuration = b?.duration ?? b?.total_duration ?? b?.elapsed;
+      const agentRaw = b?.Agent ?? b?.agent ?? b?.agent_name ?? b?.agentName;
+      const agentText = Array.isArray(agentRaw)
+        ? agentRaw.join(', ')
+        : (agentRaw != null && String(agentRaw).trim() ? String(agentRaw) : '\u2014');
+      return {
+        startRaw: sbStart,
+        endRaw: sbEnd,
+        durationRaw: sbDuration,
+        start: formatDateLocal(sbStart),
+        end: formatDateLocal(sbEnd),
+        duration: computeDurationPretty(sbStart, sbEnd, sbDuration),
+        agent: agentText,
+      };
+    });
+  }, [session]);
+
+  // Selected breakdown item details
+  const selectedBreakdown = breakdownList[selectedIdx] || null;
+
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';
     return `Session Details - ${id || '\u2014'}`;
@@ -412,7 +348,7 @@ function SessionDetailsModal({ open, onClose, session }) {
 
   return (
     <Modal open={open} onClose={onClose} title={title} className="session-details-modal modal--session">
-      {/* Sticky Header with subtle divider and theme token background */}
+      {/* Header */}
       <div
         className="sticky-header"
         style={{
@@ -436,7 +372,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         </h2>
       </div>
 
-      {/* Scrollable content area */}
+      {/* Body */}
       <div
         ref={contentRef}
         tabIndex={-1}
@@ -455,6 +391,7 @@ function SessionDetailsModal({ open, onClose, session }) {
           background: 'var(--bg-canvas, #f9fafb)',
         }}
       >
+        {/* Core Details grid (unchanged from before) */}
         <section
           aria-label="Core details"
           className="details-card"
@@ -488,7 +425,7 @@ function SessionDetailsModal({ open, onClose, session }) {
                     style={{
                       fontSize: 12,
                       fontWeight: 600,
-                      color: 'var(--text-tertiary, #64748B)', // align with User modal
+                      color: 'var(--text-tertiary, #64748B)',
                       letterSpacing: '0.02em',
                       marginBottom: 6,
                     }}
@@ -499,10 +436,8 @@ function SessionDetailsModal({ open, onClose, session }) {
                     className="detail-value"
                     style={{
                       fontSize: 14,
-                      fontWeight: isPlaceholder ? 500 : 600, // normalize to 600 to match User Details modal
-                      color: isPlaceholder
-                        ? 'var(--text-tertiary, #6B7280)'
-                        : 'var(--text-primary, #111827)',
+                      fontWeight: isPlaceholder ? 500 : 600,
+                      color: isPlaceholder ? 'var(--text-tertiary, #6B7280)' : 'var(--text-primary, #111827)',
                       lineHeight: '20px',
                       whiteSpace: 'normal',
                       overflowWrap: 'anywhere',
@@ -514,6 +449,139 @@ function SessionDetailsModal({ open, onClose, session }) {
                 </div>
               );
             })}
+          </div>
+        </section>
+
+        {/* Session Breakdown List + Details Panel */}
+        <section
+          aria-label="Session breakdown"
+          className="details-card"
+          style={{
+            position: 'relative',
+            background: 'var(--bg-surface, #ffffff)',
+            border: '1px solid var(--border-subtle, #E5E7EB)',
+            borderRadius: 12,
+            padding: 16,
+            boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(16,24,40,0.04))',
+          }}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16 }}>
+            <div
+              role="listbox"
+              aria-label="Sessions list"
+              style={{
+                border: '1px solid var(--border-subtle, #E5E7EB)',
+                borderRadius: 10,
+                maxHeight: 220,
+                overflow: 'auto',
+                padding: 8,
+                background: 'var(--bg-canvas, #f9fafb)',
+              }}
+            >
+              {breakdownList.length === 0 ? (
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: 'var(--text-tertiary, #6B7280)',
+                    padding: '8px 6px',
+                  }}
+                >
+                  No sessions in breakdown
+                </div>
+              ) : (
+                breakdownList.map((b, idx) => {
+                  const isActive = idx === selectedIdx;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      onClick={() => setSelectedIdx(idx)}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '10px 12px',
+                        marginBottom: 6,
+                        borderRadius: 8,
+                        border: '1px solid var(--border-subtle, #E5E7EB)',
+                        background: isActive ? 'rgba(37, 99, 235, 0.08)' : '#fff',
+                        color: 'var(--text-primary, #111827)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>
+                        Session {idx + 1}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)' }}>
+                        {b.start} • {b.end}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)' }}>
+                        {b.duration} • {b.agent}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div
+              aria-live="polite"
+              aria-atomic="true"
+              style={{
+                border: '1px solid var(--border-subtle, #E5E7EB)',
+                borderRadius: 10,
+                padding: 12,
+                background: 'var(--bg-surface, #ffffff)',
+                minHeight: 120,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: 'var(--text-primary, #111827)' }}>
+                {breakdownList.length ? `Session ${selectedIdx + 1} Details` : 'Session Details'}
+              </div>
+              <div
+                className="details-grid"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  columnGap: 24,
+                  rowGap: 8,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                    Session Start
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                    {selectedBreakdown ? selectedBreakdown.start : '\u2014'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                    Session End
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                    {selectedBreakdown ? selectedBreakdown.end : '\u2014'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                    Duration
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                    {selectedBreakdown ? selectedBreakdown.duration : '\u2014'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                    Agent
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                    {selectedBreakdown ? selectedBreakdown.agent : '\u2014'}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </div>
@@ -539,42 +607,19 @@ function SessionDetailsModal({ open, onClose, session }) {
       </div>
 
       <style>{`
-        /* Responsive: single column on small screens */
         @media (max-width: 639px) {
           .details-card [aria-label="Label and value pairs"] {
             grid-template-columns: 1fr !important;
             row-gap: 0 !important;
           }
         }
-
-        /* Section dividers and zebra striping for detail items
-           Ensure striping applies by row across two columns: items (1,2), (3,4), ... */
         .details-grid .detail-item {
           padding: 10px 0;
           border-top: 1px solid var(--border-subtle, #E5E7EB);
         }
         .details-grid .detail-item:nth-child(1),
         .details-grid .detail-item:nth-child(2) {
-          border-top: none; /* First row (2 columns) has no top border */
-        }
-        /* Zebra: apply background to pairs (1,2), (5,6), (9,10) ... => 4n+1 and 4n+2 */
-        .details-grid .detail-item:nth-child(4n + 1),
-        .details-grid .detail-item:nth-child(4n + 2) {
-          background: var(
-            --zebra-row-bg,
-            color-mix(in oklab, var(--bg-canvas, #f9fafb) 92%, var(--bg-surface, #ffffff) 8%)
-          );
-        }
-        .details-grid .detail-item:nth-child(4n + 3),
-        .details-grid .detail-item:nth-child(4n + 4) {
-          background: transparent;
-        }
-
-        /* Improve focus-visible for any buttons/interactive nodes inside modal */
-        .details-card .btn:focus-visible,
-        .w-100.btn:focus-visible {
-          outline: 3px solid rgba(37, 99, 235, 0.35) !important; /* Ocean blue */
-          outline-offset: 2px !important;
+          border-top: none;
         }
       `}</style>
     </Modal>
