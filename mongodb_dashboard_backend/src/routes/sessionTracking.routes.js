@@ -307,6 +307,101 @@ router.get(
       });
     }
 
+    // New: user-centric listing of breakdown entries across sessions
+    const userIdFilter =
+      typeof req.query.user_id === 'string'
+        ? req.query.user_id.trim()
+        : typeof req.query['user/_id'] === 'string'
+        ? req.query['user/_id'].trim()
+        : '';
+
+    if (userIdFilter) {
+      // Build base filter scoped by tenant and matching breakdown subdocs for user_id
+      const matchStage = {
+        $and: [
+          {
+            $or: [
+              { tenant_id: enforcedTenant },
+              { organization_id: enforcedTenant },
+              { organizationId: enforcedTenant },
+              { tenantId: enforcedTenant },
+              { 'tenant.tenant_id': enforcedTenant },
+            ],
+          },
+          {
+            session_breakdown: { $elemMatch: { user_id: userIdFilter } },
+          },
+        ],
+      };
+
+      try {
+        // Aggregation: match sessions in tenant having breakdown for user, then unwind and filter again
+        const pipeline = [
+          { $match: matchStage },
+          { $sort: { session_start: -1 } },
+          { $unwind: { path: '$session_breakdown', preserveNullAndEmptyArrays: false } },
+          { $match: { 'session_breakdown.user_id': userIdFilter } },
+          {
+            $project: {
+              _id: 0,
+              session_id: '$_id',
+              session_start: '$session_breakdown.session_start',
+              session_end: '$session_breakdown.session_end',
+              duration: '$session_breakdown.duration',
+              agents: '$session_breakdown.Agents',
+              user_id: '$session_breakdown.user_id',
+            },
+          },
+        ];
+
+        // Pagination for flattened list
+        const countPipeline = pipeline
+          .slice(0, -1); // up to $match after unwind
+        // To count, we need a dedicated pipeline with $count; recreate minimal count pipeline
+        const totalAgg = await SessionTracking.aggregate([
+          { $match: matchStage },
+          { $unwind: { path: '$session_breakdown', preserveNullAndEmptyArrays: false } },
+          { $match: { 'session_breakdown.user_id': userIdFilter } },
+          { $count: 'total' },
+        ]);
+        const total = totalAgg?.[0]?.total || 0;
+
+        const items = await SessionTracking.aggregate([
+          ...pipeline,
+          { $skip: skip },
+          { $limit: limit },
+        ]);
+
+        // Coerce duration to number and normalize agents array
+        const normItems = items.map((it) => {
+          let d = Number(it.duration);
+          if (!Number.isFinite(d) || d < 0) {
+            const s = it.session_start ? new Date(it.session_start).getTime() : NaN;
+            const e = it.session_end ? new Date(it.session_end).getTime() : NaN;
+            d = !Number.isNaN(s) && !Number.isNaN(e) && e >= s ? Math.floor((e - s) / 1000) : 0;
+          }
+          const agents = Array.isArray(it.agents) ? it.agents : [];
+          return {
+            session_id: String(it.session_id),
+            session_start: it.session_start || null,
+            session_end: it.session_end || null,
+            duration: d,
+            agents,
+            user_id: it.user_id != null ? String(it.user_id) : null,
+          };
+        });
+
+        const meta = { page, limit, total };
+        if (debugEnabled) meta.debug = { user_id: userIdFilter, tenant: enforcedTenant };
+
+        // Always return envelope with success true and empty list on no matches (no 404)
+        return res.status(200).json({ success: true, data: normItems, meta });
+      } catch (err) {
+        const message = err?.message || 'Request failed';
+        return res.status(400).json({ success: false, message: 'Request failed', details: message });
+      }
+    }
+
     // Optional text query
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let qFilter = {};
