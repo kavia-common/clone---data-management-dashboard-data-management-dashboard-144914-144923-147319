@@ -387,17 +387,30 @@ function SessionDetailsModal({ open, onClose, session }) {
       >
         {/* Core Details grid */}
         <section
-          aria-label="Core details"
-          className="details-card"
-          style={{
-            position: 'relative',
-            background: 'var(--bg-surface, #ffffff)',
-            border: '1px solid var(--border-subtle, #E5E7EB)',
-            borderRadius: 14,
-            padding: 20,
-            boxShadow: 'var(--shadow-md, 0 8px 24px rgba(16,24,40,0.12))',
-          }}
-        >
+  aria-label="Session breakdown"
+  className="details-card"
+  style={{
+    position: 'relative',
+    background: 'var(--bg-surface, #ffffff)',
+    border: '1px solid var(--border-subtle, #E5E7EB)',
+    borderRadius: 16,
+    padding: 24,
+    boxShadow: '0 8px 24px rgba(16,24,40,0.08)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 20,
+
+    /* ⭐ Better height handling */
+    maxHeight: '520px',
+    minHeight: '240px',
+
+    /* ⭐ Smooth scrolling */
+    overflowY: 'auto',
+    overflowX: 'hidden',
+    WebkitOverflowScrolling: 'touch',
+  }}
+>
+ 
           <div
             role="group"
             aria-label="Label and value pairs"
