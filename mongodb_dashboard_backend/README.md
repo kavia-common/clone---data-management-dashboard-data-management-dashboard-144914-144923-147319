@@ -83,5 +83,10 @@ Notes on authentication and hashing
 Troubleshooting
 - Port already in use (EADDRINUSE):
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
+- Frontend API proxy/network error (EADDRNOTAVAIL):
+  - Ensure the backend binds to 0.0.0.0 (default). In .env set HOST=0.0.0.0 and PORT=3001 (or preferred).
+  - In the frontend (CRA), prefer relative API paths (/api/...) so the dev proxy forwards to the backend.
+  - If specifying target, use REACT_APP_API_BASE_URL or REACT_APP_BACKEND_PORT so setupProxy.js computes a local URL. Avoid hardcoded 127.0.0.1 when running in remote containers.
+  - Backend health endpoints for validation: /health, /api/health, and /openapi.json
 - Mongo not connected:
   - /api/health will reflect db: disconnected; verify MONGODB_URI and MONGODB_DB in .env.
