@@ -35,6 +35,14 @@ router.get('/', (req, res) => {
 router.get('/healthz', healthController.check.bind(healthController));
 router.get('/health', healthController.check.bind(healthController));
 
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/proxy/session-tracking (mounted from routes/proxy.sessionTracking.js)
+ * For API discovery, note that /api/proxy is mounted at app level.
+ * Query params supported: page, limit, tenant_id, session_id, sort, filter, q, pageSize.
+ * Returns JSON results or a structured error envelope when upstream fails.
+ */
+
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);
 

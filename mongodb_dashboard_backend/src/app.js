@@ -1,10 +1,13 @@
 const express = require('express');
-const cors = require('cors');
+const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 
 const app = express();
 
-app.use(cors());
+// Security and common middleware
+app.use(helmetMiddleware());
+app.use(corsMiddleware());
 app.use(express.json());
+app.use(rateLimiter());
 
 // Existing route modules (conditionally require if present)
 function safeRequire(path) {

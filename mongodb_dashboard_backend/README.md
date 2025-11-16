@@ -80,6 +80,23 @@ Notes on authentication and hashing
   - POST /api/auth/login
   - POST /api/auth/reset-password
 
+## Session Tracking Proxy
+
+A proxy endpoint is available for the frontend Session Details modal:
+
+- Path: GET /api/proxy/session-tracking
+- Query params: page, limit, tenant_id (required), session_id (optional), sort, filter, q, pageSize
+- Returns: 200 OK with JSON data from the upstream, or a structured error payload.
+
+Configure the upstream service via environment variables (see .env.example):
+
+- SESSION_TRACKING_UPSTREAM_BASE: Base URL of the upstream API that serves /session-tracking (e.g., https://host:3001/api)
+- SESSION_TRACKING_UPSTREAM_INSECURE_TLS: Set to true if using self-signed TLS in development (do not use in production)
+
+Example curl:
+
+curl 'http://localhost:3001/api/proxy/session-tracking?page=1&limit=50&tenant_id=b2c' -H 'Accept: application/json'
+
 Troubleshooting
 - Port already in use (EADDRINUSE):
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
