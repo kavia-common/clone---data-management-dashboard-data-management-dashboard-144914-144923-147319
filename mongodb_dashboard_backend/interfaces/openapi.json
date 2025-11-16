@@ -1027,7 +1027,7 @@
     "/api/session-tracking": {
       "get": {
         "summary": "List or get session tracking (unified)",
-        "description": "Lists session tracking documents or, when id is provided in query, returns a single session document including session_breakdown optionally filtered by startDate/endDate. If explicit pagination (page/limit) is provided, lists are wrapped with meta. When no matches are found, returns success:true with empty array for lists or data:null for id queries.",
+        "description": "Lists session tracking documents or, when id is provided in query, returns a single session document including session_breakdown optionally filtered by startDate/endDate. When user_id is provided (with tenant_id), returns ONLY an array of session_breakdown entries for that user_id across sessions in the tenant, with concise envelope { success, items, total }. If explicit pagination (page/limit) is provided for lists, envelopes include meta in other branches. When no matches are found, returns success:true with empty items/data.",
         "tags": [
           "SessionTracking"
         ],
@@ -1040,20 +1040,32 @@
           { "in": "query", "name": "q", "schema": { "type": "string" }, "description": "Case-insensitive text search applied across multiple fields: task_id, tenant_id, organization_name, user_name, project_id, container_id, service_type, status, and session_data fields (session_name, description, llm_model)." },
           { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Tenant (organization) scope. Alias: organization_id." },
           { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Alias for tenant scope. Prefer tenant_id." },
+          { "in": "query", "name": "user_id", "schema": { "type": "string" }, "description": "When provided with tenant_id, returns ONLY session_breakdown entries where entry.user_id === user_id across sessions in that tenant. Response shape: { success: true, items: [...], total }" },
           { "in": "query", "name": "id", "schema": { "type": "string" }, "description": "When provided, returns a single session matching _id (scoped by tenant if provided)." },
           { "in": "query", "name": "startDate", "schema": { "type": "string", "format": "date-time" }, "description": "When id is provided, filters session_breakdown by inclusive start of range." },
           { "in": "query", "name": "endDate", "schema": { "type": "string", "format": "date-time" }, "description": "When id is provided, filters session_breakdown by inclusive end of range." }
         ],
         "responses": {
           "200": {
-            "description": "Successful response. Lists return array or { success, data, meta }. When id is provided, returns { success: true, data: object|null } with session_breakdown filtered and session_breakdown_total_duration_seconds.",
+            "description": "Successful response. With user_id: { success, items, total }. For lists: array or { success, data, meta }. For id: { success: true, data: object|null } with session_breakdown filtered and session_breakdown_total_duration_seconds.",
             "content": {
               "application/json": {
                 "schema": {
                   "oneOf": [
                     { "type": "array", "items": { "$ref": "#/components/schemas/GenericDocument" } },
                     { "$ref": "#/components/schemas/ListEnvelope" },
-                    { "type": "object", "properties": { "success": { "type": "boolean" }, "data": { "$ref": "#/components/schemas/GenericDocument" } } }
+                    { "type": "object", "properties": { "success": { "type": "boolean" }, "data": { "$ref": "#/components/schemas/GenericDocument" } } },
+                    { "type": "object", "properties": { "success": { "type": "boolean" }, "items": { "type": "array", "items": {
+                      "type": "object",
+                      "properties": {
+                        "session_id": { "type": "string" },
+                        "session_start": { "type": "string", "format": "date-time", "nullable": true },
+                        "session_end": { "type": "string", "format": "date-time", "nullable": true },
+                        "duration": { "type": "number", "description": "Duration in seconds" },
+                        "agents": { "type": "array", "items": { "type": "object" }, "description": "Agents array from breakdown entry" },
+                        "user_id": { "type": "string" }
+                      }
+                    } }, "total": { "type": "integer" } } }
                   ]
                 }
               }
@@ -1064,6 +1076,7 @@
         "x-examples": {
           "list-paged": { "request": "/api/session-tracking?page=1&limit=20&tenant_id=org1" },
           "single-with-range": { "request": "/api/session-tracking?id=65f1234abc&startDate=2025-01-01T00:00:00.000Z&endDate=2025-01-31T23:59:59.999Z&tenant_id=org1" },
+          "user-centric": { "request": "/api/session-tracking?tenant_id=org1&user_id=u_123", "response": { "success": true, "items": [], "total": 0 } },
           "single-no-match": { "response": { "success": true, "data": null } }
         }
       },

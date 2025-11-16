@@ -328,14 +328,12 @@ router.get(
               { 'tenant.tenant_id': enforcedTenant },
             ],
           },
-          {
-            session_breakdown: { $elemMatch: { user_id: userIdFilter } },
-          },
+          { session_breakdown: { $elemMatch: { user_id: userIdFilter } } },
         ],
       };
 
       try {
-        // Aggregation: match sessions in tenant having breakdown for user, then unwind and filter again
+        // Aggregation: find matching sessions, unwind breakdown, filter to only entries for user_id
         const pipeline = [
           { $match: matchStage },
           { $sort: { session_start: -1 } },
@@ -354,10 +352,7 @@ router.get(
           },
         ];
 
-        // Pagination for flattened list
-        const countPipeline = pipeline
-          .slice(0, -1); // up to $match after unwind
-        // To count, we need a dedicated pipeline with $count; recreate minimal count pipeline
+        // Count total flattened entries for pagination
         const totalAgg = await SessionTracking.aggregate([
           { $match: matchStage },
           { $unwind: { path: '$session_breakdown', preserveNullAndEmptyArrays: false } },
@@ -372,7 +367,7 @@ router.get(
           { $limit: limit },
         ]);
 
-        // Coerce duration to number and normalize agents array
+        // Normalize fields and ensure duration is numeric seconds; agents is array
         const normItems = items.map((it) => {
           let d = Number(it.duration);
           if (!Number.isFinite(d) || d < 0) {
@@ -391,11 +386,12 @@ router.get(
           };
         });
 
-        const meta = { page, limit, total };
-        if (debugEnabled) meta.debug = { user_id: userIdFilter, tenant: enforcedTenant };
-
-        // Always return envelope with success true and empty list on no matches (no 404)
-        return res.status(200).json({ success: true, data: normItems, meta });
+        // Return concise envelope per requirement
+        return res.status(200).json({
+          success: true,
+          items: normItems,
+          total,
+        });
       } catch (err) {
         const message = err?.message || 'Request failed';
         return res.status(400).json({ success: false, message: 'Request failed', details: message });
