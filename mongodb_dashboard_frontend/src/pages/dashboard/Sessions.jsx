@@ -141,43 +141,8 @@ export default function Sessions() {
           return val == null || val === "" ? "—" : String(val);
         }
         if (k === "session_breakdown") {
-          const bd = row?.session_breakdown;
-          // Show "--" as placeholder when missing or empty, matching existing behavior
-          if (!bd || (Array.isArray(bd) && bd.length === 0)) return "—";
-          const items = Array.isArray(bd) ? bd : [bd];
-          return (
-            <div style={{ display: "grid", gap: 4 }}>
-              {items.map((b, idx) => {
-                const s = b?.session_start ?? b?.sessionStart ?? b?.start ?? b?.startedAt;
-                const e = b?.session_end ?? b?.sessionEnd ?? b?.end ?? b?.endedAt ?? b?.finishedAt;
-                const d = b?.duration ?? b?.total_duration ?? b?.elapsed;
-                const agentRaw = b?.Agent ?? b?.agent ?? b?.agent_name ?? b?.agentName;
-                const agentText = Array.isArray(agentRaw)
-                  ? (agentRaw.length ? agentRaw.join(", ") : "—")
-                  : (agentRaw != null && String(agentRaw).trim() ? String(agentRaw) : "—");
-                const durText = (s && e)
-                  ? (computeDuration(s, e) || "—")
-                  : (Number.isFinite(Number(d)) ? toHms(Number(d)) : (typeof d === "string" && d.trim() ? d.trim() : "—"));
-                return (
-                  <div key={idx} style={{ display: "grid", gap: 2 }}>
-                    <div style={{ fontWeight: 600 }}>Session {idx + 1}</div>
-                    <div style={{ fontSize: 12, color: "var(--text-tertiary, #6B7280)" }}>
-                      Breakdown • Session Start: <span style={{ color: "var(--text-primary, #111827)" }}>{formatLocal(s)}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--text-tertiary, #6B7280)" }}>
-                      Breakdown • Session End: <span style={{ color: "var(--text-primary, #111827)" }}>{formatLocal(e)}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--text-tertiary, #6B7280)" }}>
-                      Breakdown • Duration: <span style={{ color: "var(--text-primary, #111827)" }}>{durText || "—"}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--text-tertiary, #6B7280)" }}>
-                      Breakdown • Agent: <span style={{ color: "var(--text-primary, #111827)" }}>{agentText}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          );
+          // Per requirements: always show a placeholder in the main list, no inline preview.
+          return "—";
         }
         return v == null || v === "" ? "—" : String(v);
       };

@@ -13,9 +13,14 @@ import './SessionDetailsModal.css';
  * SessionDetailsModal
  * A responsive, accessible modal that presents session details in a clean layout aligned to the Ocean Professional theme.
  *
- * session_breakdown is shown as a simple selectable list (Session 1, Session 2, ...)
- * with a details section below showing 4 fields for the selected item:
- *  - session_start, session_end, duration, Agent
+ * Updated behavior:
+ * - The session_breakdown list is rendered as ALL items at once, vertically stacked and scrollable,
+ *   each block displaying:
+ *     Breakdown • Session Start
+ *     Breakdown • Session End
+ *     Breakdown • Duration
+ *     Breakdown • Agent
+ * - Dates are formatted in local time (toLocaleString). Duration is formatted as HH:mm:ss when possible.
  *
  * Props:
  * - open: boolean - controls visibility
@@ -31,9 +36,6 @@ function SessionDetailsModal({ open, onClose, session }) {
   const [fetchedUserName, setFetchedUserName] = useState('');
   const [fetchingUserName, setFetchingUserName] = useState(false);
 
-  // Local selection state for session_breakdown list
-  const [selectedIdx, setSelectedIdx] = useState(0);
-
   useEffect(() => {
     // Focus modal content when opened for accessibility
     if (open && contentRef.current) {
@@ -41,19 +43,14 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
   }, [open]);
 
-  useEffect(() => {
-    // Reset selection on new session
-    setSelectedIdx(0);
-  }, [session]);
-
   const formatDateLocal = (val) => {
-    if (!val) return '\u2014';
+    if (!val) return '—';
     try {
       const d = new Date(val);
-      if (isNaN(d.getTime())) return '\u2014';
+      if (isNaN(d.getTime())) return '—';
       return d.toLocaleString();
     } catch {
-      return '\u2014';
+      return '—';
     }
   };
 
@@ -86,7 +83,7 @@ function SessionDetailsModal({ open, onClose, session }) {
       return toHms(Number(fallbackSeconds));
     }
     if (typeof fallbackSeconds === 'string' && fallbackSeconds.trim()) return fallbackSeconds.trim();
-    return '\u2014';
+    return '—';
   };
 
   const resolveUserName = (userRef) => {
@@ -256,15 +253,15 @@ function SessionDetailsModal({ open, onClose, session }) {
     })();
 
     const details = {
-      'User ID': userIdRef || '\u2014',
+      'User ID': userIdRef || '—',
       'User Name': nameCandidate,
-      'Session ID': sessionId || '\u2014',
+      'Session ID': sessionId || '—',
       'Project ID':
         pickFrom(session || {}, ['project_id', 'projectId', 'project', 'projectSlug']) ??
         pickFrom(session || {}, ['projectName', 'project_name', 'projectLabel', 'project_label']) ??
-        '\u2014',
+        '—',
       'Service Type':
-        pickFrom(session || {}, ['serviceType', 'service_type', 'provider', 'modelProvider']) ?? '\u2014',
+        pickFrom(session || {}, ['serviceType', 'service_type', 'provider', 'modelProvider']) ?? '—',
       Tenant:
         pickFrom(session || {}, [
           'tenant',
@@ -275,7 +272,7 @@ function SessionDetailsModal({ open, onClose, session }) {
           'organizationId',
           'tenantName',
           'tenant_name',
-        ]) ?? '\u2014',
+        ]) ?? '—',
       'Started At': formatDateLocal(createdAt),
       'Last Updated At': formatDateLocal(lastUpdatedAt),
       Duration: computeDurationPretty(createdAt, lastUpdatedAt),
@@ -305,7 +302,7 @@ function SessionDetailsModal({ open, onClose, session }) {
       if (userCostNum != null) {
         const usdText = formatCurrencyAmount(userCostNum, { currency: 'USD' });
         const creditsText = formatCredits(usdToCredits(userCostNum));
-        details['User Cost'] = `${usdText} \u2022 Credits Used: ${creditsText}`;
+        details['User Cost'] = `${usdText} • Credits Used: ${creditsText}`;
       }
     } catch {
       // ignore
@@ -324,8 +321,8 @@ function SessionDetailsModal({ open, onClose, session }) {
       const sbDuration = b?.duration ?? b?.total_duration ?? b?.elapsed;
       const agentRaw = b?.Agent ?? b?.agent ?? b?.agent_name ?? b?.agentName;
       const agentText = Array.isArray(agentRaw)
-        ? agentRaw.join(', ')
-        : (agentRaw != null && String(agentRaw).trim() ? String(agentRaw) : '\u2014');
+        ? (agentRaw.length ? agentRaw.join(', ') : '—')
+        : (agentRaw != null && String(agentRaw).trim() ? String(agentRaw) : '—');
       return {
         startRaw: sbStart,
         endRaw: sbEnd,
@@ -338,12 +335,9 @@ function SessionDetailsModal({ open, onClose, session }) {
     });
   }, [session]);
 
-  // Selected breakdown item details
-  const selectedBreakdown = breakdownList[selectedIdx] || null;
-
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';
-    return `Session Details - ${id || '\u2014'}`;
+    return `Session Details - ${id || '—'}`;
   }, [session]);
 
   return (
@@ -391,7 +385,7 @@ function SessionDetailsModal({ open, onClose, session }) {
           background: 'var(--bg-canvas, #f9fafb)',
         }}
       >
-        {/* Core Details grid (unchanged from before) */}
+        {/* Core Details grid */}
         <section
           aria-label="Core details"
           className="details-card"
@@ -417,7 +411,7 @@ function SessionDetailsModal({ open, onClose, session }) {
           >
             {Object.entries(coreDetails).map(([label, value]) => {
               const isPlaceholder =
-                value === '\u2014' || value === 'Unknown User' || value === 'Not available' || value === 'Loading...';
+                value === '—' || value === 'Unknown User' || value === 'Not available' || value === 'Loading...';
               return (
                 <div key={label} className="detail-item" style={{ minWidth: 0 }}>
                   <div
@@ -452,7 +446,7 @@ function SessionDetailsModal({ open, onClose, session }) {
           </div>
         </section>
 
-        {/* Session Breakdown: simple vertical list and details below (no internal scroll container) */}
+        {/* Session Breakdown: render all sessions at once in a vertically stacked, scrollable list */}
         <section
           aria-label="Session breakdown"
           className="details-card"
@@ -463,105 +457,73 @@ function SessionDetailsModal({ open, onClose, session }) {
             borderRadius: 12,
             padding: 16,
             boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(16,24,40,0.04))',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            maxHeight: 360,
+            overflow: 'auto',
+            WebkitOverflowScrolling: 'touch',
           }}
         >
-          {/* List of sessions */}
-          <div role="listbox" aria-label="Sessions list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {breakdownList.length === 0 ? (
+          {breakdownList.length === 0 ? (
+            <div
+              style={{
+                fontSize: 13,
+                color: 'var(--text-tertiary, #6B7280)',
+                padding: '8px 6px',
+              }}
+            >
+              No sessions in breakdown
+            </div>
+          ) : (
+            breakdownList.map((b, idx) => (
               <div
+                key={idx}
+                role="group"
+                aria-label={`Session ${idx + 1}`}
                 style={{
-                  fontSize: 13,
-                  color: 'var(--text-tertiary, #6B7280)',
-                  padding: '8px 6px',
+                  border: '1px solid var(--border-subtle, #E5E7EB)',
+                  borderRadius: 10,
+                  padding: 12,
+                  background: 'transparent',
+                  display: 'grid',
+                  gap: 8,
                 }}
               >
-                No sessions in breakdown
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary, #111827)' }}>
+                  Session {idx + 1}
+                </div>
+
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                  Breakdown • Session Start
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                  {b.start || '—'}
+                </div>
+
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                  Breakdown • Session End
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                  {b.end || '—'}
+                </div>
+
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                  Breakdown • Duration
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                  {b.duration || '—'}
+                </div>
+
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
+                  Breakdown • Agent
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
+                  {b.agent || '—'}
+                </div>
               </div>
-            ) : (
-              breakdownList.map((b, idx) => {
-                const isActive = idx === selectedIdx;
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    role="option"
-                    aria-selected={isActive}
-                    onClick={() => setSelectedIdx(idx)}
-                    style={{
-                      textAlign: 'left',
-                      padding: '10px 12px',
-                      borderRadius: 8,
-                      border: '1px solid var(--border-subtle, #E5E7EB)',
-                      background: isActive ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
-                      color: 'var(--text-primary, #111827)',
-                      cursor: 'pointer',
-                    }}
-                    title={`Session ${idx + 1}`}
-                  >
-                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>
-                      Session {idx + 1}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)' }}>
-                      {b.start} • {b.end}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)' }}>
-                      {b.duration} • {b.agent}
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-
-          {/* Selected session details below the list */}
-          <div
-            aria-live="polite"
-            aria-atomic="true"
-            style={{
-              marginTop: 12,
-              borderTop: '1px solid var(--border-subtle, #E5E7EB)',
-              paddingTop: 12,
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: 'var(--text-primary, #111827)' }}>
-              {breakdownList.length ? `Session ${selectedIdx + 1} Details` : 'Session Details'}
-            </div>
-
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
-              <li>
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Session Start
-                </span>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                  {selectedBreakdown ? selectedBreakdown.start : '\u2014'}
-                </div>
-              </li>
-              <li>
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Session End
-                </span>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                  {selectedBreakdown ? selectedBreakdown.end : '\u2014'}
-                </div>
-              </li>
-              <li>
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Duration
-                </span>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                  {selectedBreakdown ? selectedBreakdown.duration : '\u2014'}
-                </div>
-              </li>
-              <li>
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Agent
-                </span>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                  {selectedBreakdown ? selectedBreakdown.agent : '\u2014'}
-                </div>
-              </li>
-            </ul>
-          </div>
+            ))
+          )}
         </section>
       </div>
 
