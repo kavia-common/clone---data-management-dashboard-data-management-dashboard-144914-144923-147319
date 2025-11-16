@@ -300,6 +300,121 @@ router.get(
  *       404: { description: Not found }
  *       400: { description: Invalid id }
  */
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/session-tracking/:id/details
+ * Returns session details including session_breakdown. Optional query params:
+ * - startDate: ISO date string (inclusive)
+ * - endDate: ISO date string (inclusive)
+ * Filters session_breakdown items where item.session_start/session_end overlap the provided range.
+ */
+router.get(
+  '/:id/details',
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    // Fetch document within tenant scope (reusing getById logic, but we need the raw doc for post-processing)
+    try {
+      const doc = await SessionTracking.findOne({
+        _id: id,
+        $or: [
+          { tenant_id: String(req.tenantId) },
+          { organization_id: String(req.tenantId) },
+          { orgId: String(req.tenantId) },
+          { tenantId: String(req.tenantId) },
+          { organizationId: String(req.tenantId) },
+          { 'tenant.tenant_id': String(req.tenantId) },
+        ],
+      }).lean();
+
+      if (!doc) {
+        return res.status(404).json({ success: false, message: 'Not found' });
+      }
+
+      // Parse optional date filters
+      const { startDate, endDate } = req.query;
+      const hasStart = typeof startDate === 'string' && startDate.trim().length > 0;
+      const hasEnd = typeof endDate === 'string' && endDate.trim().length > 0;
+
+      let startMs = null;
+      let endMs = null;
+      if (hasStart) {
+        const d = new Date(startDate);
+        if (!isNaN(d.getTime())) startMs = d.getTime();
+      }
+      if (hasEnd) {
+        const d = new Date(endDate);
+        if (!isNaN(d.getTime())) endMs = d.getTime();
+      }
+
+      const clone = { ...doc };
+      const breakdown = Array.isArray(doc.session_breakdown) ? doc.session_breakdown.slice() : [];
+
+      // Filtering logic: include segments that overlap the [startMs, endMs] window
+      const filtered = breakdown.filter((seg) => {
+        const s = seg?.session_start ? new Date(seg.session_start).getTime() : null;
+        const e = seg?.session_end ? new Date(seg.session_end).getTime() : null;
+
+        // If no filter, include all
+        if (startMs == null && endMs == null) return true;
+
+        // Normalize segment times; if missing, treat as zero-length at start
+        const segStart = Number.isFinite(s) ? s : null;
+        const segEnd = Number.isFinite(e) ? e : segStart;
+
+        // If both null, skip
+        if (segStart == null && segEnd == null) return false;
+
+        // Overlap check:
+        //  - If only startMs: segEnd >= startMs
+        //  - If only endMs: segStart <= endMs
+        //  - If both: segStart <= endMs && segEnd >= startMs
+        if (startMs != null && endMs != null) {
+          return (segStart ?? segEnd) <= endMs && (segEnd ?? segStart) >= startMs;
+        }
+        if (startMs != null) {
+          return (segEnd ?? segStart) >= startMs;
+        }
+        if (endMs != null) {
+          return (segStart ?? segEnd) <= endMs;
+        }
+        return true;
+      });
+
+      // Compute duration totals (in seconds) using provided duration when valid; else compute from times
+      function computeSegDurationSeconds(seg) {
+        const d = Number(seg?.duration);
+        if (Number.isFinite(d) && d >= 0) return d;
+        const s = seg?.session_start ? new Date(seg.session_start).getTime() : NaN;
+        const e = seg?.session_end ? new Date(seg.session_end).getTime() : NaN;
+        if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) {
+          // Prefer seconds; if upstream intended ms, UI interprets display; here we keep seconds
+          return Math.floor((e - s) / 1000);
+        }
+        return 0;
+      }
+
+      const totalDurationSeconds = filtered.reduce(
+        (acc, seg) => acc + computeSegDurationSeconds(seg),
+        0
+      );
+
+      clone.session_breakdown = filtered;
+      clone.session_breakdown_total_duration_seconds = totalDurationSeconds;
+
+      return res.status(200).json(clone);
+    } catch (err) {
+      const message = err?.message || 'Request failed';
+      if (err?.name === 'CastError' || /Cast to/.test(message)) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Invalid id', details: message });
+      }
+      return res.status(400).json({ success: false, message: 'Request failed', details: message });
+    }
+  })
+);
+
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));
 router.put('/:id', asyncHandler(controller.update));

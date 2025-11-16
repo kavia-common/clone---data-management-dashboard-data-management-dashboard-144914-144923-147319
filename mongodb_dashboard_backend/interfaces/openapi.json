@@ -1165,6 +1165,24 @@
           }
         }
       },
+      "x-notes": "Session documents may include session_breakdown: [{ session_start, session_end, duration, Agents[], user_id }]."
+    },
+    "/api/session-tracking/{id}/details": {
+      "get": {
+        "summary": "Get session details including breakdown",
+        "description": "Returns a session document with session_breakdown. Optional date filters (startDate, endDate) filter breakdown entries by their time range overlap.",
+        "tags": ["SessionTracking"],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } },
+          { "in": "query", "name": "startDate", "required": false, "schema": { "type": "string", "format": "date-time" }, "description": "Inclusive ISO start date" },
+          { "in": "query", "name": "endDate", "required": false, "schema": { "type": "string", "format": "date-time" }, "description": "Inclusive ISO end date" }
+        ],
+        "responses": {
+          "200": { "description": "Session details with breakdown and total duration seconds" },
+          "400": { "description": "Invalid id or parameters" },
+          "404": { "description": "Not found" }
+        }
+      }
       "put": {
         "summary": "Update session tracking record",
         "tags": [
