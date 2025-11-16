@@ -160,6 +160,32 @@ function getBaseOpenApiSpec() {
     const parsed = JSON.parse(raw);
     const sanitized = sanitizeOpenApiDoc(parsed);
     if (sanitized) {
+      // Inject sessions breaks endpoint if missing
+      sanitized.paths = sanitized.paths || {};
+      if (!sanitized.paths['/api/sessions/{sessionId}/breaks']) {
+        sanitized.paths['/api/sessions/{sessionId}/breaks'] = {
+          get: {
+            summary: 'Get session-break details by sessionId',
+            description:
+              'Returns a single session tracking document and its session_breakdown fields for the specified sessionId. ' +
+              'Tenant scoping: When Authorization (Bearer JWT) is present, the tenant from the JWT is enforced and overrides any header/query values. ' +
+              'Without JWT (demo/testing), x-organization-id header or query aliases (?tenant_id or ?organization_id) may be used to set scope.',
+            tags: ['SessionTracking'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              { in: 'path', name: 'sessionId', required: true, schema: { type: 'string' }, description: 'Session identifier to look up' },
+              { in: 'header', name: 'x-organization-id', required: false, schema: { type: 'string' }, description: 'Tenant (organization) ID. Required when JWT is not provided; ignored if JWT is present with tenant.' },
+              { in: 'query', name: 'organization_id', required: false, schema: { type: 'string' }, description: 'Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query.' },
+              { in: 'query', name: 'tenant_id', required: false, schema: { type: 'string' }, description: 'Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query.' },
+            ],
+            responses: {
+              200: { description: 'Session details with breakdown when found', content: { 'application/json': { schema: { $ref: '#/components/schemas/GenericDocument' } } } },
+              400: { description: 'Invalid input' },
+              404: { description: 'Session not found for the active tenant' },
+            },
+          },
+        };
+      }
       cachedSpec = sanitized;
       return cachedSpec;
     }
@@ -169,6 +195,34 @@ function getBaseOpenApiSpec() {
 
   try {
     cachedSpec = buildJsDocSpec();
+    // Inject sessions breaks endpoint if missing
+    if (cachedSpec && typeof cachedSpec === 'object') {
+      cachedSpec.paths = cachedSpec.paths || {};
+      if (!cachedSpec.paths['/api/sessions/{sessionId}/breaks']) {
+        cachedSpec.paths['/api/sessions/{sessionId}/breaks'] = {
+          get: {
+            summary: 'Get session-break details by sessionId',
+            description:
+              'Returns a single session tracking document and its session_breakdown fields for the specified sessionId. ' +
+              'Tenant scoping: When Authorization (Bearer JWT) is present, the tenant from the JWT is enforced and overrides any header/query values. ' +
+              'Without JWT (demo/testing), x-organization-id header or query aliases (?tenant_id or ?organization_id) may be used to set scope.',
+            tags: ['SessionTracking'],
+            security: [{ bearerAuth: [] }],
+            parameters: [
+              { in: 'path', name: 'sessionId', required: true, schema: { type: 'string' }, description: 'Session identifier to look up' },
+              { in: 'header', name: 'x-organization-id', required: false, schema: { type: 'string' }, description: 'Tenant (organization) ID. Required when JWT is not provided; ignored if JWT is present with tenant.' },
+              { in: 'query', name: 'organization_id', required: false, schema: { type: 'string' }, description: 'Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query.' },
+              { in: 'query', name: 'tenant_id', required: false, schema: { type: 'string' }, description: 'Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query.' },
+            ],
+            responses: {
+              200: { description: 'Session details with breakdown when found', content: { 'application/json': { schema: { $ref: '#/components/schemas/GenericDocument' } } } },
+              400: { description: 'Invalid input' },
+              404: { description: 'Session not found for the active tenant' },
+            },
+          },
+        };
+      }
+    }
     return cachedSpec;
   } catch (err) {
     console.error('[swagger] Failed to build JSDoc spec:', err);

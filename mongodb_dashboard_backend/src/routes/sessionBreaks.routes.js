@@ -4,6 +4,7 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { requireTenant } = require('../middleware/requireTenant');
 const { verifyAuth } = require('../middleware/verifyAuth');
+const { extractOrganization } = require('../middleware/extractOrganization');
 const SessionTracking = require('../models/sessionTracking.model');
 
 const router = express.Router();
@@ -37,6 +38,25 @@ const router = express.Router();
  *         schema:
  *           type: string
  *         description: Session identifier to look up
+ *     parameters:
+ *       - in: header
+ *         name: x-organization-id
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Tenant (organization) ID. Required when JWT is not provided; ignored if JWT is present with tenant.
+ *       - in: query
+ *         name: organization_id
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query.
+ *       - in: query
+ *         name: tenant_id
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query.
  *     responses:
  *       200:
  *         description: Session details with breakdown when found
@@ -53,6 +73,7 @@ const router = express.Router();
 router.get(
   '/:sessionId/breaks',
   verifyAuth(),          // attach req.user and req.tenantId if using auth
+  extractOrganization(), // fallback: derive tenant from header/query when no JWT
   requireTenant(),       // ensures req.tenantId is present
   asyncHandler(async (req, res) => {
     const { sessionId } = req.params;
