@@ -372,8 +372,8 @@ function SessionDetailsModal({ open, onClose, session }) {
         tabIndex={-1}
         id={`${headerId}-content`}
         style={{
-          padding: 20,
-          gap: 16,
+          padding: 24, // increased padding
+          gap: 16, // keep comfortable spacing
           display: 'flex',
           flexDirection: 'column',
           overflow: 'auto',
@@ -393,9 +393,9 @@ function SessionDetailsModal({ open, onClose, session }) {
             position: 'relative',
             background: 'var(--bg-surface, #ffffff)',
             border: '1px solid var(--border-subtle, #E5E7EB)',
-            borderRadius: 12,
-            padding: 16,
-            boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(16,24,40,0.04))',
+            borderRadius: 14,
+            padding: 20,
+            boxShadow: 'var(--shadow-md, 0 8px 24px rgba(16,24,40,0.12))',
           }}
         >
           <div
@@ -454,13 +454,13 @@ function SessionDetailsModal({ open, onClose, session }) {
             position: 'relative',
             background: 'var(--bg-surface, #ffffff)',
             border: '1px solid var(--border-subtle, #E5E7EB)',
-            borderRadius: 12,
-            padding: 16,
-            boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(16,24,40,0.04))',
+            borderRadius: 16, // increased from 12
+            padding: 24, // increased from 16
+            boxShadow: 'var(--shadow-md, 0 8px 24px rgba(16,24,40,0.12))', // larger shadow
             display: 'flex',
             flexDirection: 'column',
-            gap: 12,
-            maxHeight: 360,
+            gap: 16, // increased from 12
+            maxHeight: 600, // increased to allow taller card (within modal)
             overflow: 'auto',
             WebkitOverflowScrolling: 'touch',
           }}
@@ -483,11 +483,11 @@ function SessionDetailsModal({ open, onClose, session }) {
                 aria-label={`Session ${idx + 1}`}
                 style={{
                   border: '1px solid var(--border-subtle, #E5E7EB)',
-                  borderRadius: 10,
-                  padding: 12,
+                  borderRadius: 14,
+                  padding: 16,
                   background: 'transparent',
                   display: 'grid',
-                  gap: 8,
+                  gap: 12,
                 }}
               >
                 <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary, #111827)' }}>

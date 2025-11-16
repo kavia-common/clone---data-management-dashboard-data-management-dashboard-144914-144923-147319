@@ -12,7 +12,8 @@
   background: var(--sdm-bg) !important;         /* Solid dark */
   color: var(--sdm-text) !important;
   border: 1px solid var(--sdm-border) !important;
-  box-shadow: none !important;                  /* Remove heavy elevation */
+  border-radius: 16px !important;               /* slightly larger rounding */
+  box-shadow: 0 12px 32px rgba(0,0,0,0.35) !important; /* modest elevation for larger card */
 }
 
 /* Neutralize backdrop filters and gradients in headers/footers; unify background */
@@ -29,6 +30,9 @@
 .modal-card-shell.session-details-modal .modal-card-body-scroll {
   background: var(--sdm-bg) !important;
   color: var(--sdm-text) !important;
+  /* Allow a taller content area specifically for the session details modal while preserving scroll */
+  max-height: calc(100vh - var(--header-height, 60px) - 40px) !important;
+  overflow: auto !important;
 }
 
 /* Explicit content wrapper in this modal (computed id) */
