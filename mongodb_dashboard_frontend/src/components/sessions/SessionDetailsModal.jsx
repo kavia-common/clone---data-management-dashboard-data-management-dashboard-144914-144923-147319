@@ -322,51 +322,83 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
 
     // Append session_breakdown fields safely
+    // Supports two shapes:
+    // 1) An array of session objects: [{ session_start, session_end, duration, Agent: [] }, ...]
+    // 2) A single object (legacy): { session_start, session_end, duration, Agent }
     try {
-      const breakdown = session?.session_breakdown || null;
-      if (breakdown && typeof breakdown === 'object') {
-        const sbStart = breakdown.session_start ?? breakdown.sessionStart ?? breakdown.start ?? breakdown.startedAt;
-        const sbEnd = breakdown.session_end ?? breakdown.sessionEnd ?? breakdown.end ?? breakdown.endedAt ?? breakdown.finishedAt;
-        const sbDuration = breakdown.duration ?? breakdown.total_duration ?? breakdown.elapsed;
-        const sbAgent = breakdown.agent ?? breakdown.agent_name ?? breakdown.agentName;
+      const rawBreakdown = session?.session_breakdown ?? null;
 
-        details['Breakdown • Session Start'] = formatDate(sbStart);
-        details['Breakdown • Session End'] = formatDate(sbEnd);
+      // Helper to HH:mm:ss for numeric seconds
+      const toHms = (seconds) => {
+        const secs = Math.max(0, Math.floor(Number(seconds) || 0));
+        const h = String(Math.floor(secs / 3600)).padStart(2, '0');
+        const m = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
+        const sRem = String(secs % 60).padStart(2, '0');
+        return `${h}:${m}:${sRem}`;
+      };
 
+      const normalizeOne = (b) => {
+        const sbStart = b?.session_start ?? b?.sessionStart ?? b?.start ?? b?.startedAt;
+        const sbEnd = b?.session_end ?? b?.sessionEnd ?? b?.end ?? b?.endedAt ?? b?.finishedAt;
+        const sbDuration = b?.duration ?? b?.total_duration ?? b?.elapsed;
+        const agentRaw = b?.Agent ?? b?.agent ?? b?.agent_name ?? b?.agentName;
+
+        // Agent per API: Agent is array of strings; also support single string fallback
+        const agentText = Array.isArray(agentRaw)
+          ? (agentRaw.length ? agentRaw.join(', ') : '\u2014')
+          : (agentRaw != null && String(agentRaw).trim() ? String(agentRaw) : '\u2014');
+
+        // Prefer computeDuration when both start/end available; else use HH:mm:ss from numeric duration
         let durationPretty = '\u2014';
-        if (sbDuration != null) {
-          const n = Number(sbDuration);
-          if (Number.isFinite(n)) {
-            if (sbStart && sbEnd) {
-              durationPretty = computeDuration(sbStart, sbEnd);
-            } else {
-              const secs = Math.max(0, Math.floor(n));
-              const h = Math.floor(secs / 3600);
-              const m = Math.floor((secs % 3600) / 60);
-              const sRem = secs % 60;
-              const parts = [];
-              if (h) parts.push(`${h}h`);
-              if (m || h) parts.push(`${m}m`);
-              parts.push(`${sRem}s`);
-              durationPretty = parts.join(' ');
-            }
-          } else if (typeof sbDuration === 'string') {
-            durationPretty = sbDuration.trim() || '\u2014';
-          }
+        if (sbStart && sbEnd) {
+          durationPretty = computeDuration(sbStart, sbEnd);
+        } else if (sbDuration != null && Number.isFinite(Number(sbDuration))) {
+          durationPretty = toHms(Number(sbDuration));
+        } else if (typeof sbDuration === 'string' && sbDuration.trim()) {
+          durationPretty = sbDuration.trim();
         }
-        details['Breakdown • Duration'] = durationPretty;
-        details['Breakdown • Agent'] = sbAgent != null && sbAgent !== '' ? String(sbAgent) : '\u2014';
+
+        return {
+          start: formatDate(sbStart),
+          end: formatDate(sbEnd),
+          duration: durationPretty,
+          agent: agentText,
+        };
+      };
+
+      if (Array.isArray(rawBreakdown)) {
+        if (rawBreakdown.length > 0) {
+          rawBreakdown.forEach((b, idx) => {
+            const n = normalizeOne(b);
+            const labelPrefix = `Session ${idx + 1}`;
+            details[`${labelPrefix} \u2022 Session Start`] = n.start || '\u2014';
+            details[`${labelPrefix} \u2022 Session End`] = n.end || '\u2014';
+            details[`${labelPrefix} \u2022 Duration`] = n.duration || '\u2014';
+            details[`${labelPrefix} \u2022 Agent`] = n.agent || '\u2014';
+          });
+        } else {
+          details['Breakdown \u2022 Session Start'] = '\u2014';
+          details['Breakdown \u2022 Session End'] = '\u2014';
+          details['Breakdown \u2022 Duration'] = '\u2014';
+          details['Breakdown \u2022 Agent'] = '\u2014';
+        }
+      } else if (rawBreakdown && typeof rawBreakdown === 'object') {
+        const n = normalizeOne(rawBreakdown);
+        details['Breakdown \u2022 Session Start'] = n.start || '\u2014';
+        details['Breakdown \u2022 Session End'] = n.end || '\u2014';
+        details['Breakdown \u2022 Duration'] = n.duration || '\u2014';
+        details['Breakdown \u2022 Agent'] = n.agent || '\u2014';
       } else {
-        details['Breakdown • Session Start'] = '\u2014';
-        details['Breakdown • Session End'] = '\u2014';
-        details['Breakdown • Duration'] = '\u2014';
-        details['Breakdown • Agent'] = '\u2014';
+        details['Breakdown \u2022 Session Start'] = '\u2014';
+        details['Breakdown \u2022 Session End'] = '\u2014';
+        details['Breakdown \u2022 Duration'] = '\u2014';
+        details['Breakdown \u2022 Agent'] = '\u2014';
       }
     } catch {
-      details['Breakdown • Session Start'] = details['Breakdown • Session Start'] ?? '\u2014';
-      details['Breakdown • Session End'] = details['Breakdown • Session End'] ?? '\u2014';
-      details['Breakdown • Duration'] = details['Breakdown • Duration'] ?? '\u2014';
-      details['Breakdown • Agent'] = details['Breakdown • Agent'] ?? '\u2014';
+      details['Breakdown \u2022 Session Start'] = details['Breakdown \u2022 Session Start'] ?? '\u2014';
+      details['Breakdown \u2022 Session End'] = details['Breakdown \u2022 Session End'] ?? '\u2014';
+      details['Breakdown \u2022 Duration'] = details['Breakdown \u2022 Duration'] ?? '\u2014';
+      details['Breakdown \u2022 Agent'] = details['Breakdown \u2022 Agent'] ?? '\u2014';
     }
 
     return details;

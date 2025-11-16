@@ -77,7 +77,7 @@ export default function Sessions() {
   // Allowed and ordered fields (column visibility)
   // Replace Task Id column with User name per requirements
   const allowedOrdered = useMemo(
-    () => ["User_name", "tenant_id", "organization_name", "service_type"],
+    () => ["User_name", "tenant_id", "organization_name", "service_type", "session_breakdown"],
     []
   );
 
@@ -95,15 +95,42 @@ export default function Sessions() {
     const presentKeys = new Set();
     (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
 
-    return allowedOrdered.map((k) => {
-      // Special case: display-friendly label for the capitalized schema alias
-      const label =
-        k === "User_name" ? "User name" : toLabel(k);
+    function formatLocal(val) {
+      if (!val) return "—";
+      try {
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return "—";
+        return d.toLocaleString();
+      } catch {
+        return "—";
+      }
+    }
+    function toHms(seconds) {
+      const secs = Math.max(0, Math.floor(Number(seconds) || 0));
+      const h = String(Math.floor(secs / 3600)).padStart(2, "0");
+      const m = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
+      const sRem = String(secs % 60).padStart(2, "0");
+      return `${h}:${m}:${sRem}`;
+    }
+    function computeDuration(start, end) {
+      if (!start || !end) return null;
+      try {
+        const s = new Date(start).getTime();
+        const e = new Date(end).getTime();
+        if (isNaN(s) || isNaN(e)) return null;
+        const secs = Math.max(0, Math.floor((e - s) / 1000));
+        return toHms(secs);
+      } catch {
+        return null;
+      }
+    }
 
-      // Render function that can resolve alias to underlying values if API returns different casing
+    return allowedOrdered.map((k) => {
+      const label =
+        k === "User_name" ? "User name" : (k === "session_breakdown" ? "Sessions" : toLabel(k));
+
       const render = (v, row) => {
         if (k === "User_name") {
-          // Prefer explicit field if present; fall back to user_name or reasonable user references
           const val =
             row?.User_name ??
             row?.user_name ??
@@ -113,6 +140,45 @@ export default function Sessions() {
             v;
           return val == null || val === "" ? "—" : String(val);
         }
+        if (k === "session_breakdown") {
+          const bd = row?.session_breakdown;
+          // Show "--" as placeholder when missing or empty, matching existing behavior
+          if (!bd || (Array.isArray(bd) && bd.length === 0)) return "—";
+          const items = Array.isArray(bd) ? bd : [bd];
+          return (
+            <div style={{ display: "grid", gap: 4 }}>
+              {items.map((b, idx) => {
+                const s = b?.session_start ?? b?.sessionStart ?? b?.start ?? b?.startedAt;
+                const e = b?.session_end ?? b?.sessionEnd ?? b?.end ?? b?.endedAt ?? b?.finishedAt;
+                const d = b?.duration ?? b?.total_duration ?? b?.elapsed;
+                const agentRaw = b?.Agent ?? b?.agent ?? b?.agent_name ?? b?.agentName;
+                const agentText = Array.isArray(agentRaw)
+                  ? (agentRaw.length ? agentRaw.join(", ") : "—")
+                  : (agentRaw != null && String(agentRaw).trim() ? String(agentRaw) : "—");
+                const durText = (s && e)
+                  ? (computeDuration(s, e) || "—")
+                  : (Number.isFinite(Number(d)) ? toHms(Number(d)) : (typeof d === "string" && d.trim() ? d.trim() : "—"));
+                return (
+                  <div key={idx} style={{ display: "grid", gap: 2 }}>
+                    <div style={{ fontWeight: 600 }}>Session {idx + 1}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-tertiary, #6B7280)" }}>
+                      Breakdown • Session Start: <span style={{ color: "var(--text-primary, #111827)" }}>{formatLocal(s)}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-tertiary, #6B7280)" }}>
+                      Breakdown • Session End: <span style={{ color: "var(--text-primary, #111827)" }}>{formatLocal(e)}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-tertiary, #6B7280)" }}>
+                      Breakdown • Duration: <span style={{ color: "var(--text-primary, #111827)" }}>{durText || "—"}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-tertiary, #6B7280)" }}>
+                      Breakdown • Agent: <span style={{ color: "var(--text-primary, #111827)" }}>{agentText}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
         return v == null || v === "" ? "—" : String(v);
       };
 
@@ -121,6 +187,8 @@ export default function Sessions() {
         label,
         render,
         priority: 2,
+        // Slightly widen column if session list is present
+        ...(k === "session_breakdown" ? { minWidth: 280, maxWidth: 420 } : {}),
       };
     });
   }
