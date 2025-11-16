@@ -147,37 +147,165 @@ function slSet(key, payload) {
   sessionsListCache.set(key, { payload, expiresAt: Date.now() + SESS_LIST_TTL_MS });
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * Unified list/details GET /api/session-tracking
+ * Supports query params:
+ * - page, limit, pageSize: pagination (enables envelope)
+ * - sort: sort string
+ * - filter: JSON filter (tenant fields inside are ignored)
+ * - q: text search across fields
+ * - tenant_id | organization_id: tenant scoping (organization_id alias supported)
+ * - id: when provided, returns a single session document (or null) with optional session_breakdown filtering
+ * - startDate, endDate: when id is present, filters session_breakdown to entries overlapping range (inclusive)
+ *
+ * Response shape:
+ * - When id is not provided:
+ *   { success: true, data: [...], meta: { page, limit, total } } for paginated
+ *   or raw array when no explicit pagination (kept for backward compatibility)
+ *   When no matches: { success: true, data: [], meta: { ... total: 0 } } or []
+ * - When id is provided:
+ *   { success: true, data: <doc-with-filtered-breakdown> } or { success: true, data: null } if no match
+ */
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Enforce tenant scope strictly via ?tenant_id=... query param
-    // Accept legacy fallbacks only if tenant_id is not provided
-    const tenantFromQuery = typeof req.query.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
+    // Normalize tenant alias: organization_id -> tenant_id
+    const tenantQuery = (req.query.tenant_id || req.query.organization_id || '').toString().trim();
     const legacyHeaderTenant =
+      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
       (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
-      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
       (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
       '';
-    const tenantFromLegacyQuery =
-      (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) || '';
-    const enforcedTenant = tenantFromQuery || tenantFromLegacyQuery || legacyHeaderTenant || null;
-
-    // If a tenant is required for this endpoint, validate presence
-    if (!enforcedTenant) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'tenant_id is required. Provide ?tenant_id=... (legacy fallbacks: header x-tenant-id/x-organization-id or ?organization_id=...)',
-      });
-    }
+    const enforcedTenant = tenantQuery || legacyHeaderTenant || null;
 
     // Parse pagination and filter (support pageSize alias for limit)
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
+
+    const debugEnabled = String(req.query.debug || 'false') === 'true';
+
+    // If id is provided, serve single-session with optional breakdown filtering
+    const id = typeof req.query.id === 'string' ? req.query.id.trim() : '';
+    if (id) {
+      try {
+        // Build base find filter with tenant enforcement when provided
+        const findFilter = { _id: id };
+        if (enforcedTenant) {
+          findFilter.$or = [
+            { tenant_id: enforcedTenant },
+            { organization_id: enforcedTenant },
+            { organizationId: enforcedTenant },
+            { tenantId: enforcedTenant },
+            { 'tenant.tenant_id': enforcedTenant },
+          ];
+        }
+
+        const doc = await SessionTracking.findOne(findFilter).lean();
+        if (!doc) {
+          // Do not return 404; return success:true, data:null
+          return res.status(200).json({ success: true, data: null });
+        }
+
+        // Validate date filters
+        const { startDate, endDate } = req.query;
+        const hasStart = typeof startDate === 'string' && startDate.trim().length > 0;
+        const hasEnd = typeof endDate === 'string' && endDate.trim().length > 0;
+
+        let startMs = null;
+        let endMs = null;
+
+        if (hasStart) {
+          const d = new Date(startDate);
+          if (Number.isNaN(d.getTime())) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid startDate. Expect ISO date-time.',
+            });
+          }
+          startMs = d.getTime();
+        }
+        if (hasEnd) {
+          const d = new Date(endDate);
+          if (Number.isNaN(d.getTime())) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid endDate. Expect ISO date-time.',
+            });
+          }
+          endMs = d.getTime();
+        }
+        if (startMs !== null && endMs !== null && startMs > endMs) {
+          return res.status(400).json({
+            success: false,
+            message: 'startDate must be less than or equal to endDate',
+          });
+        }
+
+        const breakdown = Array.isArray(doc.session_breakdown) ? doc.session_breakdown.slice() : [];
+
+        // Filter breakdown for overlap with [startMs, endMs] inclusive
+        const filtered = breakdown.filter((seg) => {
+          const s = seg?.session_start ? new Date(seg.session_start).getTime() : null;
+          const e = seg?.session_end ? new Date(seg.session_end).getTime() : null;
+
+          if (startMs == null && endMs == null) return true;
+          const segStart = Number.isFinite(s) ? s : null;
+          const segEnd = Number.isFinite(e) ? e : segStart;
+          if (segStart == null && segEnd == null) return false;
+
+          if (startMs != null && endMs != null) {
+            return (segStart ?? segEnd) <= endMs && (segEnd ?? segStart) >= startMs;
+          }
+          if (startMs != null) {
+            return (segEnd ?? segStart) >= startMs;
+          }
+          if (endMs != null) {
+            return (segStart ?? segEnd) <= endMs;
+          }
+          return true;
+        });
+
+        // Compute total duration seconds from filtered segments
+        const computeSegDurationSeconds = (seg) => {
+          const d = Number(seg?.duration);
+          if (Number.isFinite(d) && d >= 0) return d;
+          const s = seg?.session_start ? new Date(seg.session_start).getTime() : NaN;
+          const e = seg?.session_end ? new Date(seg.session_end).getTime() : NaN;
+          if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) {
+            return Math.floor((e - s) / 1000);
+          }
+          return 0;
+        };
+        const totalDurationSeconds = filtered.reduce((acc, seg) => acc + computeSegDurationSeconds(seg), 0);
+
+        const out = {
+          ...doc,
+          session_breakdown: filtered,
+          session_breakdown_total_duration_seconds: totalDurationSeconds,
+        };
+        return res.status(200).json({ success: true, data: out });
+      } catch (err) {
+        const message = err?.message || 'Request failed';
+        if (err?.name === 'CastError' || /Cast to/.test(message)) {
+          return res.status(400).json({ success: false, message: 'Invalid id', details: message });
+        }
+        return res.status(400).json({ success: false, message: 'Request failed', details: message });
+      }
+    }
+
+    // LIST MODE
+    // Require tenant scope for list. We keep prior behavior: tenant is required to avoid cross-tenant leakage.
+    if (!enforcedTenant) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'tenant_id is required. Provide ?tenant_id=... (alias organization_id; legacy headers supported).',
+      });
+    }
 
     // Optional text query
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
@@ -189,8 +317,8 @@ router.get(
           { task_id: regex },
           { tenant_id: regex },
           { organization_name: regex },
-          { user_name: regex }, // actual field in schema
-          { User_name: regex }, // alias supported by mongoose for compatibility
+          { user_name: regex },
+          { User_name: regex },
           { project_id: regex },
           { container_id: regex },
           { service_type: regex },
@@ -201,8 +329,6 @@ router.get(
           { 'session_data.llm_model': regex },
         ],
       };
-      // TODO: Consider adding dedicated text or compound indexes for large datasets
-      // e.g., db.session_tracking.createIndex({ user_name: "text", organization_name: "text", ... })
     }
 
     const filterRaw = req.query.filter ? req.query.filter : '{}';
@@ -213,7 +339,7 @@ router.get(
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
-    // Remove any attempt to bypass org scoping
+    // Remove tenant bypass attempts
     if (filter && typeof filter === 'object') {
       delete filter.organization_id;
       delete filter.tenant_id;
@@ -221,7 +347,6 @@ router.get(
       if (Array.isArray(filter.$or)) delete filter.$or;
     }
 
-    // Build enforced tenant scope across alternate schema fields
     const enforcedScope = enforcedTenant
       ? {
           $or: [
@@ -232,16 +357,12 @@ router.get(
         }
       : {};
 
-    // Combine filters and full text query
     const combined = q && qFilter.$or && qFilter.$or.length > 0 ? { $and: [filter, qFilter] } : filter;
     const finalFilter =
       Object.keys(enforcedScope).length > 0 ? { $and: [combined, enforcedScope] } : combined;
 
-    const debugEnabled = String(req.query.debug || 'false') === 'true';
-
     try {
       if (explicit) {
-        // Micro-cache explicit list result by params
         const cacheKey = `sessions-list:${JSON.stringify({
           path: req.path,
           page,
@@ -253,7 +374,6 @@ router.get(
         if (cached) return res.status(200).json(cached);
 
         const [docs, total] = await Promise.all([
-          // Use model documents (no lean) so Mongoose applies basic casting; still normalize to be safe
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
           SessionTracking.countDocuments(finalFilter),
         ]);
@@ -272,7 +392,6 @@ router.get(
       }
       return res.status(200).json(items);
     } catch (err) {
-      // Map common cast errors to 400 to avoid 500
       const message = err?.message || 'Request failed';
       if (err?.name === 'CastError' || /Cast to/.test(message)) {
         return res
