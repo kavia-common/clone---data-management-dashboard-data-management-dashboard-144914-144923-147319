@@ -1174,15 +1174,23 @@
         "tags": ["SessionTracking"],
         "parameters": [
           { "in": "path", "name": "id", "required": true, "schema": { "type": "string" } },
-          { "in": "query", "name": "startDate", "required": false, "schema": { "type": "string", "format": "date-time" }, "description": "Inclusive ISO start date" },
-          { "in": "query", "name": "endDate", "required": false, "schema": { "type": "string", "format": "date-time" }, "description": "Inclusive ISO end date" }
+          { "in": "query", "name": "startDate", "required": false, "schema": { "type": "string", "format": "date-time" }, "description": "Inclusive ISO start datetime. If only this is provided, filters [startDate, +infinity)." },
+          { "in": "query", "name": "endDate", "required": false, "schema": { "type": "string", "format": "date-time" }, "description": "Inclusive ISO end datetime. If only this is provided, filters (-infinity, endDate]." },
+          { "in": "query", "name": "organization_id", "required": false, "schema": { "type": "string" }, "description": "Optional tenant scope when multi-tenant fields exist. Alias: tenant_id." },
+          { "in": "query", "name": "tenant_id", "required": false, "schema": { "type": "string" }, "description": "Alias for organization_id." }
         ],
         "responses": {
-          "200": { "description": "Session details with breakdown and total duration seconds" },
-          "400": { "description": "Invalid id or parameters" },
-          "404": { "description": "Not found" }
+          "200": { "description": "Session details with breakdown filtered by provided range and session_breakdown_total_duration_seconds (seconds)" },
+          "400": { "description": "Invalid id or parameters (e.g., invalid ISO date or startDate > endDate)" },
+          "404": { "description": "Session not found" }
+        },
+        "x-examples": {
+          "no-filters": { "request": "/api/session-tracking/65f1234abc/details" },
+          "start-only": { "request": "/api/session-tracking/65f1234abc/details?startDate=2025-01-01T00:00:00.000Z" },
+          "end-only": { "request": "/api/session-tracking/65f1234abc/details?endDate=2025-01-15T23:59:59.999Z" },
+          "start-end": { "request": "/api/session-tracking/65f1234abc/details?startDate=2025-01-01T00:00:00.000Z&endDate=2025-01-31T23:59:59.999Z" }
         }
-      }
+      },
       "put": {
         "summary": "Update session tracking record",
         "tags": [

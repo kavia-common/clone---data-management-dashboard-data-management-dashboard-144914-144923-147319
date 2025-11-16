@@ -308,67 +308,133 @@ router.get(
  * - endDate: ISO date string (inclusive)
  * Filters session_breakdown items where item.session_start/session_end overlap the provided range.
  */
+/**
+ * @swagger
+ * /api/session-tracking/{id}/details:
+ *   get:
+ *     summary: Get session details including breakdown
+ *     description: Returns a session document with session_breakdown. Optional date filters (startDate, endDate) filter breakdown entries by their time range overlap.
+ *     tags: [SessionTracking]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: startDate
+ *         required: false
+ *         schema: { type: string, format: date-time }
+ *         description: Inclusive ISO start datetime. If only this is provided, filters [startDate, +infinity).
+ *       - in: query
+ *         name: endDate
+ *         required: false
+ *         schema: { type: string, format: date-time }
+ *         description: Inclusive ISO end datetime. If only this is provided, filters (-infinity, endDate].
+ *       - in: query
+ *         name: organization_id
+ *         required: false
+ *         schema: { type: string }
+ *         description: Optional tenant scope when multi-tenant fields exist. Alias: tenant_id.
+ *       - in: query
+ *         name: tenant_id
+ *         required: false
+ *         schema: { type: string }
+ *         description: Optional alias for organization_id.
+ *     responses:
+ *       200:
+ *         description: Session details with filtered breakdown and session_breakdown_total_duration_seconds (seconds).
+ *       400:
+ *         description: Invalid parameters (e.g., startDate > endDate or invalid ISO date).
+ *       404:
+ *         description: Session not found
+ */
 router.get(
   '/:id/details',
   asyncHandler(async (req, res) => {
     const { id } = req.params;
 
-    // Fetch document within tenant scope (reusing getById logic, but we need the raw doc for post-processing)
     try {
-      const doc = await SessionTracking.findOne({
-        _id: id,
-        $or: [
-          { tenant_id: String(req.tenantId) },
-          { organization_id: String(req.tenantId) },
-          { orgId: String(req.tenantId) },
-          { tenantId: String(req.tenantId) },
-          { organizationId: String(req.tenantId) },
-          { 'tenant.tenant_id': String(req.tenantId) },
-        ],
-      }).lean();
+      // Resolve optional tenant/organization scope
+      const tenantFromQuery =
+        (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+        (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
+        null;
 
-      if (!doc) {
-        return res.status(404).json({ success: false, message: 'Not found' });
+      // Determine applied tenant: prefer req.tenantId (from auth) else optional query alias if provided
+      const appliedTenant =
+        (req.tenantId && String(req.tenantId)) || (tenantFromQuery ? String(tenantFromQuery) : null);
+
+      // Build base find filter
+      const findFilter = { _id: id };
+      if (appliedTenant) {
+        // Support multiple schema aliases without failing if field does not exist
+        findFilter.$or = [
+          { tenant_id: appliedTenant },
+          { organization_id: appliedTenant },
+          { organizationId: appliedTenant },
+          { tenantId: appliedTenant },
+          { 'tenant.tenant_id': appliedTenant },
+        ];
       }
 
-      // Parse optional date filters
+      const doc = await SessionTracking.findOne(findFilter).lean();
+      if (!doc) {
+        return res.status(404).json({ success: false, message: 'Session not found' });
+      }
+
+      // Validate and parse date query params
       const { startDate, endDate } = req.query;
       const hasStart = typeof startDate === 'string' && startDate.trim().length > 0;
       const hasEnd = typeof endDate === 'string' && endDate.trim().length > 0;
 
       let startMs = null;
       let endMs = null;
+
       if (hasStart) {
         const d = new Date(startDate);
-        if (!isNaN(d.getTime())) startMs = d.getTime();
+        if (Number.isNaN(d.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid startDate. Expect ISO date-time.',
+          });
+        }
+        startMs = d.getTime();
       }
       if (hasEnd) {
         const d = new Date(endDate);
-        if (!isNaN(d.getTime())) endMs = d.getTime();
+        if (Number.isNaN(d.getTime())) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid endDate. Expect ISO date-time.',
+          });
+        }
+        endMs = d.getTime();
+      }
+
+      if (startMs !== null && endMs !== null && startMs > endMs) {
+        return res.status(400).json({
+          success: false,
+          message: 'startDate must be less than or equal to endDate',
+        });
       }
 
       const clone = { ...doc };
       const breakdown = Array.isArray(doc.session_breakdown) ? doc.session_breakdown.slice() : [];
 
-      // Filtering logic: include segments that overlap the [startMs, endMs] window
+      // Include segments that overlap [startMs, endMs]
       const filtered = breakdown.filter((seg) => {
         const s = seg?.session_start ? new Date(seg.session_start).getTime() : null;
         const e = seg?.session_end ? new Date(seg.session_end).getTime() : null;
 
-        // If no filter, include all
+        // No filters provided -> include all
         if (startMs == null && endMs == null) return true;
 
-        // Normalize segment times; if missing, treat as zero-length at start
+        // Normalize segment times; if both missing skip
         const segStart = Number.isFinite(s) ? s : null;
         const segEnd = Number.isFinite(e) ? e : segStart;
-
-        // If both null, skip
         if (segStart == null && segEnd == null) return false;
 
-        // Overlap check:
-        //  - If only startMs: segEnd >= startMs
-        //  - If only endMs: segStart <= endMs
-        //  - If both: segStart <= endMs && segEnd >= startMs
+        // Overlap logic with inclusive ends
         if (startMs != null && endMs != null) {
           return (segStart ?? segEnd) <= endMs && (segEnd ?? segStart) >= startMs;
         }
@@ -381,14 +447,13 @@ router.get(
         return true;
       });
 
-      // Compute duration totals (in seconds) using provided duration when valid; else compute from times
+      // Keep duration unit in seconds as provided when valid; fallback to compute from timestamps
       function computeSegDurationSeconds(seg) {
         const d = Number(seg?.duration);
         if (Number.isFinite(d) && d >= 0) return d;
         const s = seg?.session_start ? new Date(seg.session_start).getTime() : NaN;
         const e = seg?.session_end ? new Date(seg.session_end).getTime() : NaN;
         if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) {
-          // Prefer seconds; if upstream intended ms, UI interprets display; here we keep seconds
           return Math.floor((e - s) / 1000);
         }
         return 0;
@@ -406,9 +471,7 @@ router.get(
     } catch (err) {
       const message = err?.message || 'Request failed';
       if (err?.name === 'CastError' || /Cast to/.test(message)) {
-        return res
-          .status(400)
-          .json({ success: false, message: 'Invalid id', details: message });
+        return res.status(400).json({ success: false, message: 'Invalid id', details: message });
       }
       return res.status(400).json({ success: false, message: 'Request failed', details: message });
     }
