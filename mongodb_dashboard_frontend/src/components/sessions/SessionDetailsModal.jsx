@@ -321,6 +321,54 @@ function SessionDetailsModal({ open, onClose, session }) {
       // do not block rendering on formatter errors
     }
 
+    // Append session_breakdown fields safely
+    try {
+      const breakdown = session?.session_breakdown || null;
+      if (breakdown && typeof breakdown === 'object') {
+        const sbStart = breakdown.session_start ?? breakdown.sessionStart ?? breakdown.start ?? breakdown.startedAt;
+        const sbEnd = breakdown.session_end ?? breakdown.sessionEnd ?? breakdown.end ?? breakdown.endedAt ?? breakdown.finishedAt;
+        const sbDuration = breakdown.duration ?? breakdown.total_duration ?? breakdown.elapsed;
+        const sbAgent = breakdown.agent ?? breakdown.agent_name ?? breakdown.agentName;
+
+        details['Breakdown • Session Start'] = formatDate(sbStart);
+        details['Breakdown • Session End'] = formatDate(sbEnd);
+
+        let durationPretty = '\u2014';
+        if (sbDuration != null) {
+          const n = Number(sbDuration);
+          if (Number.isFinite(n)) {
+            if (sbStart && sbEnd) {
+              durationPretty = computeDuration(sbStart, sbEnd);
+            } else {
+              const secs = Math.max(0, Math.floor(n));
+              const h = Math.floor(secs / 3600);
+              const m = Math.floor((secs % 3600) / 60);
+              const sRem = secs % 60;
+              const parts = [];
+              if (h) parts.push(`${h}h`);
+              if (m || h) parts.push(`${m}m`);
+              parts.push(`${sRem}s`);
+              durationPretty = parts.join(' ');
+            }
+          } else if (typeof sbDuration === 'string') {
+            durationPretty = sbDuration.trim() || '\u2014';
+          }
+        }
+        details['Breakdown • Duration'] = durationPretty;
+        details['Breakdown • Agent'] = sbAgent != null && sbAgent !== '' ? String(sbAgent) : '\u2014';
+      } else {
+        details['Breakdown • Session Start'] = '\u2014';
+        details['Breakdown • Session End'] = '\u2014';
+        details['Breakdown • Duration'] = '\u2014';
+        details['Breakdown • Agent'] = '\u2014';
+      }
+    } catch {
+      details['Breakdown • Session Start'] = details['Breakdown • Session Start'] ?? '\u2014';
+      details['Breakdown • Session End'] = details['Breakdown • Session End'] ?? '\u2014';
+      details['Breakdown • Duration'] = details['Breakdown • Duration'] ?? '\u2014';
+      details['Breakdown • Agent'] = details['Breakdown • Agent'] ?? '\u2014';
+    }
+
     return details;
   }, [session, userIdRef, displayUserResolved, fetchedUserName, fetchingUserName, createdAt, lastUpdatedAt, sessionId]);
 
