@@ -315,30 +315,61 @@ router.get(
         ? req.query['user/_id'].trim()
         : '';
 
+    // Optional project filter support for user-centric queries
+    const projectIdFilter =
+      typeof req.query.project_id === 'string' && req.query.project_id.trim().length > 0
+        ? req.query.project_id.trim()
+        : null;
+
     if (userIdFilter) {
       // Build base filter scoped by tenant and matching breakdown subdocs for user_id
-      const matchStage = {
-        $and: [
-          {
-            $or: [
-              { tenant_id: enforcedTenant },
-              { organization_id: enforcedTenant },
-              { organizationId: enforcedTenant },
-              { tenantId: enforcedTenant },
-              { 'tenant.tenant_id': enforcedTenant },
-            ],
-          },
-          { session_breakdown: { $elemMatch: { user_id: userIdFilter } } },
+      const tenantScope = {
+        $or: [
+          { tenant_id: enforcedTenant },
+          { organization_id: enforcedTenant },
+          { organizationId: enforcedTenant },
+          { tenantId: enforcedTenant },
+          { 'tenant.tenant_id': enforcedTenant },
         ],
       };
 
+      const andConditions = [tenantScope, { session_breakdown: { $elemMatch: { user_id: userIdFilter } } }];
+      if (projectIdFilter) {
+        // project_id can be on root doc or inside breakdown depending on producer; match both
+        andConditions.push({
+          $or: [
+            { project_id: projectIdFilter },
+            { 'session_breakdown.project_id': projectIdFilter },
+            { 'session_data.project_id': projectIdFilter },
+            { 'project.id': projectIdFilter },
+          ],
+        });
+      }
+
+      const matchStage = { $and: andConditions };
+
       try {
-        // Aggregation: find matching sessions, unwind breakdown, filter to only entries for user_id
+        // Aggregation: find matching sessions, unwind breakdown, filter to only entries for user_id (+ optional project)
+        const unwindStage = { $unwind: { path: '$session_breakdown', preserveNullAndEmptyArrays: false } };
+        const postUnwindMatch = projectIdFilter
+          ? {
+              $match: {
+                'session_breakdown.user_id': userIdFilter,
+                $or: [
+                  { 'session_breakdown.project_id': projectIdFilter },
+                  { project_id: projectIdFilter },
+                  { 'session_data.project_id': projectIdFilter },
+                  { 'project.id': projectIdFilter },
+                ],
+              },
+            }
+          : { $match: { 'session_breakdown.user_id': userIdFilter } };
+
         const pipeline = [
           { $match: matchStage },
           { $sort: { session_start: -1 } },
-          { $unwind: { path: '$session_breakdown', preserveNullAndEmptyArrays: false } },
-          { $match: { 'session_breakdown.user_id': userIdFilter } },
+          unwindStage,
+          postUnwindMatch,
           {
             $project: {
               _id: 0,
@@ -346,8 +377,17 @@ router.get(
               session_start: '$session_breakdown.session_start',
               session_end: '$session_breakdown.session_end',
               duration: '$session_breakdown.duration',
-              agents: '$session_breakdown.Agents',
+              // Normalize Agents (producer may use Agents vs agents)
+              agents: {
+                $ifNull: ['$session_breakdown.Agents', { $ifNull: ['$session_breakdown.agents', []] }],
+              },
               user_id: '$session_breakdown.user_id',
+              project_id: {
+                $ifNull: [
+                  '$session_breakdown.project_id',
+                  { $ifNull: ['$project_id', { $ifNull: ['$session_data.project_id', null] }] },
+                ],
+              },
             },
           },
         ];
@@ -355,8 +395,8 @@ router.get(
         // Count total flattened entries for pagination
         const totalAgg = await SessionTracking.aggregate([
           { $match: matchStage },
-          { $unwind: { path: '$session_breakdown', preserveNullAndEmptyArrays: false } },
-          { $match: { 'session_breakdown.user_id': userIdFilter } },
+          unwindStage,
+          postUnwindMatch,
           { $count: 'total' },
         ]);
         const total = totalAgg?.[0]?.total || 0;
@@ -366,6 +406,21 @@ router.get(
           { $skip: skip },
           { $limit: limit },
         ]);
+
+        // Minimal debug header to surface mismatched param names/shapes
+        try {
+          if (String(req.query.debug || 'false') === 'true') {
+            res.setHeader(
+              'X-Debug-UserSessions',
+              JSON.stringify({
+                tenantApplied: enforcedTenant,
+                user_id_param: userIdFilter,
+                project_id_param: projectIdFilter,
+                note: 'agents normalized from Agents/agents',
+              })
+            );
+          }
+        } catch {}
 
         // Normalize fields and ensure duration is numeric seconds; agents is array
         const normItems = items.map((it) => {
@@ -383,6 +438,7 @@ router.get(
             duration: d,
             agents,
             user_id: it.user_id != null ? String(it.user_id) : null,
+            project_id: it.project_id != null ? String(it.project_id) : null,
           };
         });
 
@@ -480,6 +536,23 @@ router.get(
       const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
       if (debugEnabled) {
         res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort }));
+        try {
+          // surface common field shape mismatches
+          const sample = items?.[0] || {};
+          res.setHeader(
+            'X-Debug-Session-Shape',
+            JSON.stringify({
+              hasAgentsRoot: !!sample.agent_costs,
+              breakdownAgentsField: Array.isArray(sample?.session_breakdown?.[0]?.Agents)
+                ? 'Agents'
+                : Array.isArray(sample?.session_breakdown?.[0]?.agents)
+                ? 'agents'
+                : 'none',
+              tenantParam: req.query.tenant_id || null,
+              orgParam: req.query.organization_id || null,
+            })
+          );
+        } catch {}
       }
       return res.status(200).json(items);
     } catch (err) {
