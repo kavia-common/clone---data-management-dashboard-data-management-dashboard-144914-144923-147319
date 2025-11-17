@@ -53,7 +53,7 @@ const buildDynamicSpec = (req) => {
     // Use same-origin server so Swagger calls hit this backend instance
     // url: `${protocol}://${fullHost}`,
     servers: [
-      
+
       {
         url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
         description: 'Predefined dev server',

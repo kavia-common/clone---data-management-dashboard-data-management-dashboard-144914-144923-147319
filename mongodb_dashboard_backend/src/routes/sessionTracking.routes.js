@@ -4,6 +4,7 @@ const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 // Use the existing generic CRUD factory with tenant enforcement
 const { buildCrudController } = require('../controllers/crudFactory');
+const { isValidISODate, parseISODateSafe, startOfDayUTC, addDaysUTC } = require('../utils/date');
 
 const router = express.Router();
 // Build controller for SessionTracking with default sort by -session_start
@@ -108,14 +109,29 @@ function normalizeSessionDoc(doc) {
  *       - in: query
  *         name: filter
  *         schema: { type: string }
- *         description: JSON filter (e.g., {"tenant_id":"org1","status":"active"}). Any tenant_id/organization_id keys are ignored server-side; tenant is enforced from ?tenant_id or fallbacks.
+ *         description: JSON filter (e.g., {"tenant_id":"org1","status":"active"}). Any tenant_id/organization_id keys are ignored server-side.
  *       - in: query
  *         name: q
  *         schema: { type: string }
  *         description: >
- *           Case-insensitive text search applied across multiple fields:
- *           task_id, tenant_id, organization_name, user_name, project_id, container_id,
- *           service_type, status, and session_data fields (session_name, description, llm_model).
+ *           Case-insensitive text search across task_id, tenant_id, organization_name, user_name, project_id, container_id,
+ *           service_type, status, user_id and session_data fields (session_name, description, llm_model).
+ *       - in: query
+ *         name: userId
+ *         schema: { type: string }
+ *         description: Filter sessions by user identifier (matches user_id or user_email/email fields when present)
+ *       - in: query
+ *         name: email
+ *         schema: { type: string }
+ *         description: Alias for user email filter (matches user_email/email fields when present)
+ *       - in: query
+ *         name: startDate
+ *         schema: { type: string, format: date-time }
+ *         description: ISO start datetime (inclusive). If only startDate is provided, end defaults to now.
+ *       - in: query
+ *         name: endDate
+ *         schema: { type: string, format: date-time }
+ *         description: ISO end datetime (inclusive end-of-day). When provided without startDate, last 30 days are used.
  *     responses:
  *       200:
  *         description: Successful response (array or envelope based on pagination params)
@@ -151,25 +167,19 @@ function slSet(key, payload) {
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Enforce tenant scope strictly via ?tenant_id=... query param
-    // Accept legacy fallbacks only if tenant_id is not provided
-    const tenantFromQuery = typeof req.query.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
-    const legacyHeaderTenant =
+    // Resolve tenant from middleware if available; keep legacy fallbacks for safety
+    const enforcedTenant = req.tenantId ||
+      (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+      (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
-      '';
-    const tenantFromLegacyQuery =
-      (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) || '';
-    const enforcedTenant = tenantFromQuery || tenantFromLegacyQuery || legacyHeaderTenant || null;
+      null;
 
-    // If a tenant is required for this endpoint, validate presence
     if (!enforcedTenant) {
       return res.status(400).json({
         success: false,
         message:
-          'tenant_id is required. Provide ?tenant_id=... (legacy fallbacks: header x-tenant-id/x-organization-id or ?organization_id=...)',
+          'tenant_id is required. Provide ?tenant_id=... (or header x-organization-id / x-tenant-id).',
       });
     }
 
@@ -189,8 +199,8 @@ router.get(
           { task_id: regex },
           { tenant_id: regex },
           { organization_name: regex },
-          { user_name: regex }, // actual field in schema
-          { User_name: regex }, // alias supported by mongoose for compatibility
+          { user_name: regex },
+          { User_name: regex },
           { project_id: regex },
           { container_id: regex },
           { service_type: regex },
@@ -201,10 +211,9 @@ router.get(
           { 'session_data.llm_model': regex },
         ],
       };
-      // TODO: Consider adding dedicated text or compound indexes for large datasets
-      // e.g., db.session_tracking.createIndex({ user_name: "text", organization_name: "text", ... })
     }
 
+    // Base filter (JSON string)
     const filterRaw = req.query.filter ? req.query.filter : '{}';
     let filter = {};
     try {
@@ -212,8 +221,6 @@ router.get(
     } catch {
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
-
-    // Remove any attempt to bypass org scoping
     if (filter && typeof filter === 'object') {
       delete filter.organization_id;
       delete filter.tenant_id;
@@ -232,16 +239,70 @@ router.get(
         }
       : {};
 
-    // Combine filters and full text query
-    const combined = q && qFilter.$or && qFilter.$or.length > 0 ? { $and: [filter, qFilter] } : filter;
-    const finalFilter =
-      Object.keys(enforcedScope).length > 0 ? { $and: [combined, enforcedScope] } : combined;
+    // Build time range filter (UTC, inclusive end-of-day)
+    const now = new Date();
+    const DEFAULT_WINDOW_DAYS = 30;
+    const hasStart = isValidISODate(req.query.startDate);
+    const hasEnd = isValidISODate(req.query.endDate);
+    let start = null;
+    let end = null;
+
+    if (hasStart && hasEnd) {
+      start = parseISODateSafe(req.query.startDate);
+      // inclusive end of day: endDate 23:59:59.999 UTC
+      const endInput = parseISODateSafe(req.query.endDate);
+      end = addDaysUTC(startOfDayUTC(endInput), 1); // exclusive upper bound next day 00:00 UTC
+    } else if (hasStart && !hasEnd) {
+      start = parseISODateSafe(req.query.startDate);
+      end = now;
+    } else if (!hasStart && hasEnd) {
+      // If only endDate is provided, default start to endDate - 30 days
+      const endInput = parseISODateSafe(req.query.endDate);
+      end = addDaysUTC(startOfDayUTC(endInput), 1);
+      start = new Date(end.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    } else {
+      // Default: last 30 days until now
+      end = now;
+      start = new Date(now.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    }
+
+    const timeFilter = {
+      $or: [
+        // Prefer last_updated if present
+        { last_updated: { $gte: start, $lt: end } },
+        // Fallback to session_start when last_updated not available/populated
+        { session_start: { $gte: start, $lt: end } },
+      ],
+    };
+
+    // Build user filter: userId or email
+    const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
+    const email = typeof req.query.email === 'string' ? req.query.email.trim() : '';
+    const userFilter =
+      userId || email
+        ? {
+            $or: [
+              ...(userId ? [{ user_id: userId }, { 'user.id': userId }] : []),
+              ...(email ? [{ user_email: email }, { email }, { 'user.email': email }] : []),
+            ],
+          }
+        : {};
+
+    // Combine filters: base filter + q + tenant scope + time + user
+    const parts = [];
+    const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
+    if (!isEmpty(filter)) parts.push(filter);
+    if (!isEmpty(qFilter)) parts.push(qFilter);
+    if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
+    if (!isEmpty(timeFilter)) parts.push(timeFilter);
+    if (!isEmpty(userFilter)) parts.push(userFilter);
+
+    const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
     const debugEnabled = String(req.query.debug || 'false') === 'true';
 
     try {
       if (explicit) {
-        // Micro-cache explicit list result by params
         const cacheKey = `sessions-list:${JSON.stringify({
           path: req.path,
           page,
@@ -253,13 +314,12 @@ router.get(
         if (cached) return res.status(200).json(cached);
 
         const [docs, total] = await Promise.all([
-          // Use model documents (no lean) so Mongoose applies basic casting; still normalize to be safe
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
           SessionTracking.countDocuments(finalFilter),
         ]);
         const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
         const meta = { page, limit, total };
-        if (debugEnabled) meta.debug = { finalFilter, sort, skip, limit };
+        if (debugEnabled) meta.debug = { finalFilter, sort, skip, limit, start, end };
         const payload = { success: true, data: items, meta };
         slSet(cacheKey, payload);
         return res.status(200).json(payload);
@@ -268,11 +328,10 @@ router.get(
       const docs = await SessionTracking.find(finalFilter).sort(sort);
       const items = docs.map((d) => normalizeSessionDoc(d.toObject({ getters: true })));
       if (debugEnabled) {
-        res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort }));
+        res.setHeader('X-Debug-Final-Filter', JSON.stringify({ filter: finalFilter, sort, start, end }));
       }
       return res.status(200).json(items);
     } catch (err) {
-      // Map common cast errors to 400 to avoid 500
       const message = err?.message || 'Request failed';
       if (err?.name === 'CastError' || /Cast to/.test(message)) {
         return res
