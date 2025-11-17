@@ -49,21 +49,27 @@ export default function Sessions() {
   const [tenantIdOptions, setTenantIdOptions] = useState([]);
 
   // Keep URL query params in sync for dropdowns (so back/forward works)
+  // IMPORTANT: only sync filters to URL. Do NOT mutate current dataset from here.
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
     if (filterUserName) usp.set("user_name", filterUserName);
     else usp.delete("user_name");
     if (filterTenantId) usp.set("tenant_id", filterTenantId);
     else usp.delete("tenant_id");
-    if (startDate) usp.set("from", startDate);
-    else usp.delete("from");
-    if (endDate) usp.set("to", endDate);
-    else usp.delete("to");
+
+    // Date query string sync note:
+    // We persist raw YYYY-MM-DD values in URL for UX. The API serialization to UTC ISO is done in load().
+    if (startDate) usp.set("startDate", startDate);
+    else usp.delete("startDate");
+    if (endDate) usp.set("endDate", endDate);
+    else usp.delete("endDate");
+
     const next = `${window.location.pathname}?${usp.toString()}`;
     window.history.replaceState({}, "", next);
   }, [filterUserName, filterTenantId, startDate, endDate]);
 
   // Initialize dropdown selections from URL on first mount
+  // Regression note: prefer startDate/endDate over from/to; both accepted for back-compat.
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
     const initialUser = usp.get("user_name") || "";
@@ -178,6 +184,7 @@ export default function Sessions() {
     /**
      * Fetch sessions data across multiple pages (capped) and build client-side aggregates
      * for charts: by organization_name and by session_type.
+     * Mirrors the same UTC date serialization behavior used in load().
      */
     setAggLoading(true);
     setAggError("");
@@ -186,20 +193,46 @@ export default function Sessions() {
       const maxPages = 10;
       let page = 1;
       const all = [];
+
+      const toUtcIso = (d) => {
+        if (!d) return null;
+        if (!/T/.test(d)) {
+          const parts = d.split("-");
+          const year = Number(parts[0] || 0);
+          const month = Number(parts[1] || 1) - 1;
+          const day = Number(parts[2] || 1);
+          return new Date(Date.UTC(year, month, day, 0, 0, 0, 0)).toISOString();
+        }
+        return new Date(d).toISOString();
+      };
+      const toUtcIsoEndOfDay = (d) => {
+        if (!d) return null;
+        if (!/T/.test(d)) {
+          const parts = d.split("-");
+          const year = Number(parts[0] || 0);
+          const month = Number(parts[1] || 1) - 1;
+          const day = Number(parts[2] || 1);
+          return new Date(Date.UTC(year, month, day, 23, 59, 59, 999)).toISOString();
+        }
+        return new Date(d).toISOString();
+      };
+
       while (page <= maxPages) {
         const params = { page, limit, q: qStr };
-        if (startDate) {
-          params.from = new Date(startDate).toISOString();
-          params.start = params.from;
+
+        const startIso = toUtcIso(startDate);
+        const endIso = toUtcIsoEndOfDay(endDate);
+        if (startIso) {
+          params.startDate = startIso;
+          params.from = startIso;
+          params.start = startIso;
         }
-        if (endDate) {
-          const endIso =
-            endDate && !/T/.test(endDate)
-              ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
-              : new Date(endDate).toISOString();
+        if (endIso) {
+          params.endDate = endIso;
           params.to = endIso;
           params.end = endIso;
         }
+
         const res = await listSessions(params);
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
@@ -285,49 +318,83 @@ export default function Sessions() {
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
     /**
      * Load sessions from server with pagination, optional query string, and server-driven sorting.
-     * When sortKey is provided, pass `sort` using:
-     *  - asc: field
-     *  - desc: -field
+     * IMPORTANT:
+     * - Serialize dates as UTC ISO.
+     * - Apply endDate as inclusive end-of-day (23:59:59.999) on client.
+     * - Do not re-filter or re-expand data on the client: render exactly the API response.
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
     try {
       const sortFieldMap = {
-        // Map UI column keys to backend fields
-        User_name: "user_name", // prefer lowercase field in DB
+        User_name: "user_name",
         tenant_id: "tenant_id",
         organization_name: "organization_name",
         service_type: "service_type",
-        task_id: "task_id", // legacy, not used in current allowedOrdered
+        task_id: "task_id",
       };
-      // include optional date range as both from/to and start/end
+
       const params = { page, limit, q: qStr };
 
-      // Date range params: prefer from/to (backend supports on some endpoints), also include start/end aliases
-      if (startDate) {
-        params.from = new Date(startDate).toISOString();
-        params.start = params.from;
+      // Normalize to UTC ISO. Handle pure date input by constructing UTC date boundaries.
+      const toUtcIso = (d) => {
+        if (!d) return null;
+        // If no time component, treat as YYYY-MM-DD in local and convert to UTC ISO at 00:00:00.000Z
+        if (!/T/.test(d)) {
+          const parts = d.split("-");
+          const year = Number(parts[0] || 0);
+          const month = Number(parts[1] || 1) - 1; // 0-based
+          const day = Number(parts[2] || 1);
+          // Construct as UTC explicitly to avoid TZ skew
+          const date = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+          return date.toISOString();
+        }
+        return new Date(d).toISOString();
+      };
+      const toUtcIsoEndOfDay = (d) => {
+        if (!d) return null;
+        if (!/T/.test(d)) {
+          const parts = d.split("-");
+          const year = Number(parts[0] || 0);
+          const month = Number(parts[1] || 1) - 1;
+          const day = Number(parts[2] || 1);
+          const date = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
+          return date.toISOString();
+        }
+        // If time component supplied, assume caller provided correct bound
+        return new Date(d).toISOString();
+      };
+
+      // For session-tracking, use startDate/endDate query param names per request notes.
+      const startIso = toUtcIso(startDate);
+      const endIso = toUtcIsoEndOfDay(endDate);
+      if (startIso) {
+        params.startDate = startIso;
       }
-      if (endDate) {
-        // include end at end-of-day if only date supplied
-        const endIso =
-          endDate && !/T/.test(endDate)
-            ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
-            : new Date(endDate).toISOString();
+      if (endIso) {
+        params.endDate = endIso;
+      }
+
+      // Also include generic aliases for broader backend compatibility (non-breaking)
+      if (startIso) {
+        params.from = startIso;
+        params.start = startIso;
+      }
+      if (endIso) {
         params.to = endIso;
         params.end = endIso;
       }
 
-      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
+      // Server-side filter for tenant and user
       const filter = {};
       if (filterTenantId && filterTenantId.trim()) {
         filter.tenant_id = filterTenantId.trim();
       }
       if (filterUserName && filterUserName.trim()) {
+        // Note: filter by user_id instead of user_name; UI provides user id from distinct list
         filter.user_id = filterUserName.trim();
       }
-
       if (Object.keys(filter).length > 0) {
         params.filter = filter;
       }
@@ -336,55 +403,18 @@ export default function Sessions() {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
       }
+
       const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
 
-      // Client-side fallback date filtering
-      let filtered = Array.isArray(arr) ? arr : [];
-      if (startDate || endDate) {
-        const fromMs = startDate ? new Date(startDate).getTime() : null;
-        const toMs = endDate
-          ? (/T/.test(endDate)
-              ? new Date(endDate).getTime()
-              : new Date(new Date(endDate).setHours(23, 59, 59, 999)).getTime())
-          : null;
-        filtered = filtered.filter((it) => {
-          // derive session start and end
-          const s =
-            it?.session_start ||
-            it?.start_time ||
-            it?.started_at ||
-            it?.created_at ||
-            it?.timestamp ||
-            null;
-          const e =
-            it?.session_end ||
-            it?.end_time ||
-            it?.completed_at ||
-            it?.last_updated ||
-            null;
-
-          const sMs = s ? new Date(s).getTime() : null;
-          const eMs = e ? new Date(e).getTime() : null;
-
-          // If only start exists, check it against window
-          const inFrom = fromMs == null || (sMs != null ? sMs >= fromMs : eMs != null ? eMs >= fromMs : false);
-          const inTo = toMs == null || (sMs != null ? sMs <= toMs : eMs != null ? eMs <= toMs : true);
-          return inFrom && inTo;
-        });
-      }
-
-      setItems(filtered);
+      // Render exactly what server returned; do not client-filter.
+      setItems(Array.isArray(arr) ? arr : []);
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,
-        total:
-          res?.meta?.total ??
-          (Array.isArray(filtered) ? filtered.length : Array.isArray(arr) ? arr.length : 0),
+        total: typeof res?.meta?.total === "number" ? res.meta.total : (Array.isArray(arr) ? arr.length : 0),
       });
-      // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
@@ -411,6 +441,7 @@ export default function Sessions() {
     const q = (debouncedQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, q, key, dir);
+    // Aggregates should reflect same API filters; keep but ensure they use the same date params logic internally.
     loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, startDate, endDate]);
@@ -507,6 +538,7 @@ export default function Sessions() {
       </div>
 
       {/* Existing table card remains below charts */}
+      {/* Regression guard: Rendering exactly the API response. No client-side date re-filtering or merging. */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <input
@@ -576,6 +608,7 @@ export default function Sessions() {
             {error}
           </div>
         )}
+        {/* Render exactly API response without local re-filtering or dataset merging */}
         <DataTable
           columns={columns}
           data={items}

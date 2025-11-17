@@ -21,6 +21,8 @@ export async function fetchSessionTracking(params = {}) {
   if (safeParams.filter && typeof safeParams.filter === 'object') {
     safeParams.filter = JSON.stringify(safeParams.filter);
   }
+  // Ensure we serialize startDate/endDate as plain query params while preserving any provided filter/sort/page.
+  // This is a thin wrapper; Sessions.jsx already constructs correct UTC ISO values.
   const qs = buildQueryString(safeParams);
   const url = `/api/session-tracking${qs}`;
   const res = await getApiClient().get(url);
