@@ -11,6 +11,7 @@
     "health": "curl -sSf http://127.0.0.1:${PORT:-3001}/health || true",
     "test": "jest",
     "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "gen:openapi": "node generate_openapi.js"
   },
   "dependencies": {
