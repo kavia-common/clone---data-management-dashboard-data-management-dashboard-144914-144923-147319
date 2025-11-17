@@ -77,7 +77,7 @@ export default function Sessions() {
   // Allowed and ordered fields (column visibility)
   // Replace Task Id column with User name per requirements
   const allowedOrdered = useMemo(
-    () => ["User_name", "tenant_id", "organization_name", "service_type", "session_breakdown"],
+    () => ["User_name", "tenant_id", "organization_name", "service_type"],
     []
   );
 
@@ -126,8 +126,7 @@ export default function Sessions() {
     }
 
     return allowedOrdered.map((k) => {
-      const label =
-        k === "User_name" ? "User name" : (k === "session_breakdown" ? "Sessions" : toLabel(k));
+      const label = k === "User_name" ? "User name" : toLabel(k);
 
       const render = (v, row) => {
         if (k === "User_name") {
@@ -140,10 +139,7 @@ export default function Sessions() {
             v;
           return val == null || val === "" ? "—" : String(val);
         }
-        if (k === "session_breakdown") {
-          // Per requirements: always show a placeholder in the main list, no inline preview.
-          return "—";
-        }
+
         return v == null || v === "" ? "—" : String(v);
       };
 
@@ -153,7 +149,7 @@ export default function Sessions() {
         render,
         priority: 2,
         // Slightly widen column if session list is present
-        ...(k === "session_breakdown" ? { minWidth: 280, maxWidth: 420 } : {}),
+
       };
     });
   }

@@ -387,30 +387,31 @@ function SessionDetailsModal({ open, onClose, session }) {
       >
         {/* Core Details grid */}
         <section
-  aria-label="Session breakdown"
-  className="details-card"
-  style={{
-    position: 'relative',
-    background: 'var(--bg-surface, #ffffff)',
-    border: '1px solid var(--border-subtle, #E5E7EB)',
-    borderRadius: 16,
-    padding: 24,
-    boxShadow: '0 8px 24px rgba(16,24,40,0.08)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 20,
+          aria-label="Session breakdown"
+          className="details-card"
+          style={{
+            position: 'relative',
+            background: 'var(--bg-surface, #ffffff)',
+            border: '1px solid var(--border-subtle, #E5E7EB)',
+            borderRadius: 16,
+            padding: 24,
+            boxShadow: '0 8px 24px rgba(16,24,40,0.08)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 20,
 
-    /* ⭐ Better height handling */
-    maxHeight: '520px',
-    minHeight: '240px',
+            /* ⭐ Better height handling */
+            maxHeight: '520px',
+            minHeight: '240px',
 
-    /* ⭐ Smooth scrolling */
-    overflowY: 'auto',
-    overflowX: 'hidden',
-    WebkitOverflowScrolling: 'touch',
-  }}
->
- 
+            /* ⭐ Smooth scrolling */
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+
+
           <div
             role="group"
             aria-label="Label and value pairs"
@@ -458,6 +459,16 @@ function SessionDetailsModal({ open, onClose, session }) {
             })}
           </div>
         </section>
+         <h3
+            style={{
+              fontSize: 16,
+              fontWeight: 700,
+              color: 'var(--text-primary, #111827)',
+              marginBottom: 8,
+            }}
+          >
+            Session Breakdowns
+          </h3>
 
         {/* Session Breakdown: render all sessions at once in a vertically stacked, scrollable list */}
         <section
@@ -468,16 +479,17 @@ function SessionDetailsModal({ open, onClose, session }) {
             background: 'var(--bg-surface, #ffffff)',
             border: '1px solid var(--border-subtle, #E5E7EB)',
             borderRadius: 16, // increased from 12
-            padding: 24, // increased from 16
+            padding: 10, // increased from 16
             boxShadow: 'var(--shadow-md, 0 8px 24px rgba(16,24,40,0.12))', // larger shadow
             display: 'flex',
             flexDirection: 'column',
-            gap: 16, // increased from 12
+            gap: 10, // increased from 12
             maxHeight: 600, // increased to allow taller card (within modal)
             overflow: 'auto',
             WebkitOverflowScrolling: 'touch',
           }}
         >
+         
           {breakdownList.length === 0 ? (
             <div
               style={{
@@ -508,28 +520,28 @@ function SessionDetailsModal({ open, onClose, session }) {
                 </div>
 
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Breakdown • Session Start
+                  Session Start
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
                   {b.start || '—'}
                 </div>
 
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Breakdown • Session End
+                  Session End
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
                   {b.end || '—'}
                 </div>
 
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Breakdown • Duration
+                  Duration
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
                   {b.duration || '—'}
                 </div>
 
                 <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Breakdown • Agent
+                  Agent
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
                   {b.agent || '—'}
