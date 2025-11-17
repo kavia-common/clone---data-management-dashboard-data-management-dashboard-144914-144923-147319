@@ -489,6 +489,56 @@ function SessionDetailsModal({ open, onClose, session }) {
             WebkitOverflowScrolling: 'touch',
           }}
         >
+          {/* Total Duration summary row */}
+          {(() => {
+            // Sum durations from the raw breakdown entries: prefer numeric duration if present, else compute from start/end
+            const totalSeconds = (session?.session_breakdown && Array.isArray(session.session_breakdown)
+              ? session.session_breakdown
+              : (session?.session_breakdown && typeof session.session_breakdown === 'object' ? [session.session_breakdown] : [])
+            ).reduce((acc, b) => {
+              const raw = b?.duration ?? b?.total_duration ?? b?.elapsed;
+              let secs = Number(raw);
+              if (!Number.isFinite(secs)) {
+                try {
+                  const s = new Date(b?.session_start ?? b?.sessionStart ?? b?.start ?? b?.startedAt).getTime();
+                  const e = new Date(b?.session_end ?? b?.sessionEnd ?? b?.end ?? b?.endedAt ?? b?.finishedAt).getTime();
+                  if (!isNaN(s) && !isNaN(e)) {
+                    secs = Math.max(0, Math.floor((e - s) / 1000));
+                  } else {
+                    secs = 0;
+                  }
+                } catch {
+                  secs = 0;
+                }
+              }
+              return acc + Math.max(0, Math.floor(secs || 0));
+            }, 0);
+            const totalHms = toHms(totalSeconds);
+
+            return (
+              <div
+                role="row"
+                aria-label="Total Duration"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto',
+                  alignItems: 'center',
+                  border: '1px solid var(--border-subtle, #E5E7EB)',
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                  background: 'transparent',
+                  marginBottom: 4,
+                }}
+              >
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 700, letterSpacing: '0.02em' }}>
+                  Total Duration
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary, #111827)' }} title={totalHms}>
+                  {totalHms}
+                </div>
+              </div>
+            );
+          })()}
          
           {breakdownList.length === 0 ? (
             <div
