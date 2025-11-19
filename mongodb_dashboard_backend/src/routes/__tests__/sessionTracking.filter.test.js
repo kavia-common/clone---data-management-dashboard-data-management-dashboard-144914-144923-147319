@@ -71,6 +71,32 @@ describe('SessionTracking list filtering (date range, user)', () => {
     expect(userIds).toEqual(['u1', 'u2']); // exclude u3 and cross-tenant
   });
 
+  test('filters by both from/to and start/end ignores from/to', async () => {
+    // Seed two sessions in two distinct days
+    const d1 = new Date(Date.UTC(2024, 2, 15, 10, 0, 0)); // March 15
+    const d2 = new Date(Date.UTC(2024, 2, 21, 10, 0, 0)); // March 21
+    await SessionTracking.insertMany([
+      { tenant_id: tenant, user_id: 'f1', status: 'active', last_updated: d1, session_start: d1 },
+      { tenant_id: tenant, user_id: 'f2', status: 'active', last_updated: d2, session_start: d2 }
+    ]);
+
+    // If start/end = 2024-03-15 to 2024-03-15, but from/to is 2024-03-21, ONLY d1 should show up.
+    const res = await request(app)
+      .get('/api/session-tracking')
+      .query({
+        start: '2024-03-15T00:00:00.000Z',
+        end:   '2024-03-15T23:59:59.999Z',
+        from:  '2024-03-21T00:00:00.000Z',
+        to:    '2024-03-21T23:59:59.999Z',
+        page: 1, limit: 20
+      })
+      .set(authHeaders(tenant));
+    expect(res.status).toBe(200);
+    const items = Array.isArray(res.body) ? res.body : res.body.data;
+    const userIds = items.map(x => x.user_id);
+    expect(userIds).toEqual(['f1']); // Should only match the date range from start/end, not from/to
+  });
+
   test('filters by userId within default window', async () => {
     const now = new Date();
     const recent = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
