@@ -10,17 +10,27 @@ import { buildQueryString } from './util';
  * @param {Object} params
  * @param {number} [params.page]
  * @param {number} [params.limit]
+ * @param {string} [params.tenant_id]
+ * @param {string} [params.start] ISO string (optional - inclusive lower bound)
+ * @param {string} [params.end] ISO string (optional - inclusive upper bound)
  * @param {string} [params.sort]
  * @param {Object|string} [params.filter] JSON string or object for server-side filtering
  * @param {string} [params.q] Text search query
  * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
  */
 export async function fetchSessionTracking(params = {}) {
-  const safeParams = { ...params };
-  // stringify filter object if necessary
-  if (safeParams.filter && typeof safeParams.filter === 'object') {
-    safeParams.filter = JSON.stringify(safeParams.filter);
-  }
+  // Only allow allowed keys through (no from/to support)
+  const { page, limit, tenant_id, start, end, sort, filter, q } = params;
+  const safeParams = {};
+  if (page !== undefined) safeParams.page = page;
+  if (limit !== undefined) safeParams.limit = limit;
+  if (tenant_id !== undefined) safeParams.tenant_id = tenant_id;
+  if (start !== undefined) safeParams.start = start;
+  if (end !== undefined) safeParams.end = end;
+  if (sort !== undefined) safeParams.sort = sort;
+  if (filter !== undefined) safeParams.filter = typeof filter === 'object' ? JSON.stringify(filter) : filter;
+  if (q !== undefined) safeParams.q = q;
+  // Only these allowed; do NOT include from/to!
   const qs = buildQueryString(safeParams);
   const url = `/api/session-tracking${qs}`;
   const res = await getApiClient().get(url);
