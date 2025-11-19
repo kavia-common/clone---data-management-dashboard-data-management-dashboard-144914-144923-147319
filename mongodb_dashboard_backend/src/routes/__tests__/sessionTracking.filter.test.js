@@ -22,6 +22,7 @@ function authHeaders(tenant) {
   };
 }
 
+// This test suite now only supports start/end for date range filtering
 describe('SessionTracking list filtering (date range, user)', () => {
   let app;
   const tenant = 'orgFilters';
@@ -40,7 +41,7 @@ describe('SessionTracking list filtering (date range, user)', () => {
     await SessionTracking.deleteMany({});
   });
 
-  test('filters by startDate/endDate inclusive end-of-day (UTC)', async () => {
+  test('filters by start/end date inclusive end-of-day (UTC)', async () => {
     // Seed three days: 2024-01-01, 2024-01-02, 2024-01-03
     const d1 = new Date(Date.UTC(2024, 0, 1, 10, 0, 0));
     const d2 = new Date(Date.UTC(2024, 0, 2, 12, 0, 0));
@@ -57,8 +58,8 @@ describe('SessionTracking list filtering (date range, user)', () => {
     const res = await request(app)
       .get('/api/session-tracking')
       .query({
-        startDate: '2024-01-01T00:00:00.000Z',
-        endDate: '2024-01-02T23:59:59.999Z', // any time on the day; server normalizes to end-of-day inclusive
+        start: '2024-01-01T00:00:00.000Z',
+        end: '2024-01-02T23:59:59.999Z',
         page: 1,
         limit: 100,
       })
