@@ -188,17 +188,15 @@ export default function Sessions() {
       const all = [];
       while (page <= maxPages) {
         const params = { page, limit, q: qStr };
+        // Use ONLY start/end for date range API request
         if (startDate) {
-          params.from = new Date(startDate).toISOString();
-          params.start = params.from;
+          params.start = new Date(startDate).toISOString();
         }
         if (endDate) {
-          const endIso =
+          params.end =
             endDate && !/T/.test(endDate)
               ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
               : new Date(endDate).toISOString();
-          params.to = endIso;
-          params.end = endIso;
         }
         const res = await listSessions(params);
         const arr = Array.isArray(res?.items) ? res.items : [];
@@ -304,19 +302,16 @@ export default function Sessions() {
       // include optional date range as both from/to and start/end
       const params = { page, limit, q: qStr };
 
-      // Date range params: prefer from/to (backend supports on some endpoints), also include start/end aliases
+      // Date range params: ONLY send start/end, never from/to (backend expects only start/end)
       if (startDate) {
-        params.from = new Date(startDate).toISOString();
-        params.start = params.from;
+        params.start = new Date(startDate).toISOString();
       }
       if (endDate) {
-        // include end at end-of-day if only date supplied
-        const endIso =
+        // end as end-of-day
+        params.end =
           endDate && !/T/.test(endDate)
             ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
             : new Date(endDate).toISOString();
-        params.to = endIso;
-        params.end = endIso;
       }
 
       // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
