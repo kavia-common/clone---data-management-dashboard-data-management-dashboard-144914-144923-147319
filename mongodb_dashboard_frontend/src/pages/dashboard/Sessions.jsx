@@ -1,13 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { listSessions } from "../../api";
+import { fetchSessionTracking } from "../../api/sessionTracking";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
-
-
 
 // Simple helper to get distinct, sorted, non-empty values
 function distinctSorted(arr) {
@@ -21,16 +19,8 @@ function distinctSorted(arr) {
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
-  /**
-   * Sessions page with server-side search and pagination.
-   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
-   * - Keeps existing pagination using server-provided meta.total and page/limit.
-   * - Minimal loading and error states shown within the table and above toolbar.
-   */
+  // Sessions state and filters
   const [items, setItems] = useState([]);
-
-
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -40,106 +30,60 @@ export default function Sessions() {
   const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
 
-  // Date filters: start date and optional end date (range)
+  // Only start/end filter for date range
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  // Dropdown options populated from fetched session data (distinct lists)
+  // Dropdown options fetched from session aggregate
   const [userNameOptions, setUserNameOptions] = useState([]);
   const [tenantIdOptions, setTenantIdOptions] = useState([]);
 
-  // Keep URL query params in sync for dropdowns (so back/forward works)
+  // Initial dropdown/URL logic (trimmed to only needed params)
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
     if (filterUserName) usp.set("user_name", filterUserName);
     else usp.delete("user_name");
     if (filterTenantId) usp.set("tenant_id", filterTenantId);
     else usp.delete("tenant_id");
-    if (startDate) usp.set("from", startDate);
-    else usp.delete("from");
-    if (endDate) usp.set("to", endDate);
-    else usp.delete("to");
+    if (startDate) usp.set("start", startDate);
+    else usp.delete("start");
+    if (endDate) usp.set("end", endDate);
+    else usp.delete("end");
     const next = `${window.location.pathname}?${usp.toString()}`;
     window.history.replaceState({}, "", next);
   }, [filterUserName, filterTenantId, startDate, endDate]);
 
-  // Initialize dropdown selections from URL on first mount
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
     const initialUser = usp.get("user_name") || "";
     const initialTenant = usp.get("tenant_id") || "";
-    const urlFrom = usp.get("from") || "";
-    const urlTo = usp.get("to") || "";
+    const urlStart = usp.get("start") || "";
+    const urlEnd = usp.get("end") || "";
     if (initialUser) setFilterUserName(initialUser);
     if (initialTenant) setFilterTenantId(initialTenant);
-    if (urlFrom) setStartDate(urlFrom);
-    if (urlTo) setEndDate(urlTo);
+    if (urlStart) setStartDate(urlStart);
+    if (urlEnd) setEndDate(urlEnd);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Details modal state (session details; unrelated to deprecated "View All" costs modal)
+  // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  // Lock to prevent race conditions when multiple loads are inflight (e.g., debounce vs pagination)
   const activeRequestRef = useRef(0);
-  // Remember the last known sort so search/debounced reloads preserve sort order across pages
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
-  // Allowed and ordered fields (column visibility)
-  // Replace Task Id column with User name per requirements
+  // Table columns (restricted set)
   const allowedOrdered = useMemo(
     () => ["User_name", "tenant_id", "organization_name", "service_type"],
     []
   );
-
-  // PUBLIC_INTERFACE
   function toLabel(key) {
-    /** Convert snake_case to Title Case label. */
-    return String(key || "")
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (m) => m.toUpperCase());
+    return String(key || "").replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
   }
-
-  // PUBLIC_INTERFACE
   function buildRestrictedColumns(rows = []) {
-    /** Build DataTable columns strictly from the allowed list, preserving order. */
-    const presentKeys = new Set();
-    (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
-
-    function formatLocal(val) {
-      if (!val) return "—";
-      try {
-        const d = new Date(val);
-        if (isNaN(d.getTime())) return "—";
-        return d.toLocaleString();
-      } catch {
-        return "—";
-      }
-    }
-    function toHms(seconds) {
-      const secs = Math.max(0, Math.floor(Number(seconds) || 0));
-      const h = String(Math.floor(secs / 3600)).padStart(2, "0");
-      const m = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
-      const sRem = String(secs % 60).padStart(2, "0");
-      return `${h}:${m}:${sRem}`;
-    }
-    function computeDuration(start, end) {
-      if (!start || !end) return null;
-      try {
-        const s = new Date(start).getTime();
-        const e = new Date(end).getTime();
-        if (isNaN(s) || isNaN(e)) return null;
-        const secs = Math.max(0, Math.floor((e - s) / 1000));
-        return toHms(secs);
-      } catch {
-        return null;
-      }
-    }
-
     return allowedOrdered.map((k) => {
       const label = k === "User_name" ? "User name" : toLabel(k);
-
       const render = (v, row) => {
         if (k === "User_name") {
           const val =
@@ -149,36 +93,29 @@ export default function Sessions() {
             row?.username ??
             row?.email ??
             v;
-          return val == null || val === "" ? "—" : String(val);
+          return val == null || val === "" ? "\u2014" : String(val);
         }
-
-        return v == null || v === "" ? "—" : String(v);
+        return v == null || v === "" ? "\u2014" : String(v);
       };
-
       return {
         key: k,
         label,
         render,
         priority: 2,
-        // Slightly widen column if session list is present
-
       };
     });
   }
 
   const [columns, setColumns] = useState(buildRestrictedColumns([]));
 
-  // Aggregates for charts
+  // Chart/aggregate states
   const [aggLoading, setAggLoading] = useState(false);
   const [aggError, setAggError] = useState("");
-  const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
-  const [byType, setByType] = useState([]); // [{ session_type, session_count }]
+  const [byOrg, setByOrg] = useState([]);
+  const [byType, setByType] = useState([]);
 
+  // Aggregate loader (still paginates to collect max rows, but only applies start/end filters)
   async function loadAggregates(qStr = "") {
-    /**
-     * Fetch sessions data across multiple pages (capped) and build client-side aggregates
-     * for charts: by organization_name and by session_type.
-     */
     setAggLoading(true);
     setAggError("");
     try {
@@ -187,27 +124,26 @@ export default function Sessions() {
       let page = 1;
       const all = [];
       while (page <= maxPages) {
-        const params = { page, limit, q: qStr };
-        if (startDate) {
-          params.from = new Date(startDate).toISOString();
-          params.start = params.from;
-        }
+        // Only supply start/end, tenant_id, and q (no from/to/page/limit)
+        const params = {};
+        if (startDate) params.start = new Date(startDate).toISOString();
         if (endDate) {
-          const endIso =
-            endDate && !/T/.test(endDate)
-              ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
-              : new Date(endDate).toISOString();
-          params.to = endIso;
-          params.end = endIso;
+          params.end = !/T/.test(endDate)
+            ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
+            : new Date(endDate).toISOString();
         }
-        const res = await listSessions(params);
+        if (filterTenantId && filterTenantId.trim()) params.tenant_id = filterTenantId.trim();
+        if (qStr) params.q = qStr;
+
+        const res = await fetchSessionTracking(params);
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
+        // If less than limit, assume last page
         if (arr.length < limit) break;
         page += 1;
       }
 
-      // Aggregate by organization
+      // By organization
       const orgCounts = new Map();
       all.forEach((it) => {
         let org =
@@ -223,7 +159,7 @@ export default function Sessions() {
         .map(([organization_name, session_count]) => ({ organization_name, session_count }))
         .sort((a, b) => b.session_count - a.session_count);
 
-      // Aggregate by type
+      // By type
       const typeCounts = new Map();
       all.forEach((it) => {
         let t = it?.session_type || it?.type || it?.service_type || "";
@@ -234,15 +170,10 @@ export default function Sessions() {
       const typeArr = Array.from(typeCounts.entries())
         .map(([session_type, session_count]) => ({ session_type, session_count }))
         .sort((a, b) => b.session_count - a.session_count);
-
       setByOrg(orgArr);
       setByType(typeArr);
 
-      // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
-      // Keep pairs of { id, name } for filtering
-      // ✅ Build distinct options for dropdowns from the aggregated dataset (all collected pages)
-
-      // Build unique user list with IDs and names
+      // User and tenant options for dropdowns
       const userPairs = all
         .map((it) => ({
           id: it?.user_id,
@@ -255,7 +186,6 @@ export default function Sessions() {
             "",
         }))
         .filter((u) => u.id && u.name);
-
       const uniqueUsers = [];
       const seen = new Set();
       userPairs.forEach((u) => {
@@ -264,14 +194,9 @@ export default function Sessions() {
           uniqueUsers.push(u);
         }
       });
-
-      // Build distinct tenant IDs
       const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
-
-      // Update dropdown options
       setUserNameOptions(uniqueUsers);
       setTenantIdOptions(tenantIds);
-
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -281,110 +206,45 @@ export default function Sessions() {
     }
   }
 
-  // PUBLIC_INTERFACE
-  async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
-    /**
-     * Load sessions from server with pagination, optional query string, and server-driven sorting.
-     * When sortKey is provided, pass `sort` using:
-     *  - asc: field
-     *  - desc: -field
-     */
+  // Perform session fetches with only supported query params (no from/to/page/limit)
+  async function load(qStr = "", sortKey, sortDir) {
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
     try {
       const sortFieldMap = {
-        // Map UI column keys to backend fields
-        User_name: "user_name", // prefer lowercase field in DB
+        User_name: "user_name",
         tenant_id: "tenant_id",
         organization_name: "organization_name",
         service_type: "service_type",
-        task_id: "task_id", // legacy, not used in current allowedOrdered
+        task_id: "task_id",
       };
-      // include optional date range as both from/to and start/end
-      const params = { page, limit, q: qStr };
 
-      // Date range params: prefer from/to (backend supports on some endpoints), also include start/end aliases
-      if (startDate) {
-        params.from = new Date(startDate).toISOString();
-        params.start = params.from;
-      }
+      // Only include supported filters
+      const params = {};
+      if (startDate) params.start = new Date(startDate).toISOString();
       if (endDate) {
-        // include end at end-of-day if only date supplied
-        const endIso =
-          endDate && !/T/.test(endDate)
-            ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
-            : new Date(endDate).toISOString();
-        params.to = endIso;
-        params.end = endIso;
+        params.end = !/T/.test(endDate)
+          ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
+          : new Date(endDate).toISOString();
       }
-
-      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
-      const filter = {};
-      if (filterTenantId && filterTenantId.trim()) {
-        filter.tenant_id = filterTenantId.trim();
-      }
-      if (filterUserName && filterUserName.trim()) {
-        filter.user_id = filterUserName.trim();
-      }
-
-      if (Object.keys(filter).length > 0) {
-        params.filter = filter;
-      }
+      if (filterTenantId && filterTenantId.trim()) params.tenant_id = filterTenantId.trim();
+      if (qStr) params.q = qStr;
 
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
       }
-      const res = await listSessions(params);
+
+      const res = await fetchSessionTracking(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
-
-      // Client-side fallback date filtering
-      let filtered = Array.isArray(arr) ? arr : [];
-      if (startDate || endDate) {
-        const fromMs = startDate ? new Date(startDate).getTime() : null;
-        const toMs = endDate
-          ? (/T/.test(endDate)
-              ? new Date(endDate).getTime()
-              : new Date(new Date(endDate).setHours(23, 59, 59, 999)).getTime())
-          : null;
-        filtered = filtered.filter((it) => {
-          // derive session start and end
-          const s =
-            it?.session_start ||
-            it?.start_time ||
-            it?.started_at ||
-            it?.created_at ||
-            it?.timestamp ||
-            null;
-          const e =
-            it?.session_end ||
-            it?.end_time ||
-            it?.completed_at ||
-            it?.last_updated ||
-            null;
-
-          const sMs = s ? new Date(s).getTime() : null;
-          const eMs = e ? new Date(e).getTime() : null;
-
-          // If only start exists, check it against window
-          const inFrom = fromMs == null || (sMs != null ? sMs >= fromMs : eMs != null ? eMs >= fromMs : false);
-          const inTo = toMs == null || (sMs != null ? sMs <= toMs : eMs != null ? eMs <= toMs : true);
-          return inFrom && inTo;
-        });
-      }
-
-      setItems(filtered);
+      setItems(Array.isArray(arr) ? arr : []);
       setMeta({
-        page: res?.meta?.page || page,
-        limit: res?.meta?.limit || limit,
-        total:
-          res?.meta?.total ??
-          (Array.isArray(filtered) ? filtered.length : Array.isArray(arr) ? arr.length : 0),
+        page: 1,
+        limit: arr.length,
+        total: arr.length,
       });
-      // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
@@ -396,37 +256,26 @@ export default function Sessions() {
     }
   }
 
-  // Initial load
   useEffect(() => {
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, "", key, dir);
+    load("", "", "asc");
     loadAggregates("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // initial mount only
+  }, []); // initial
 
-  // Debounced server-side search on query change (250ms default)
+  // Debounce search effect for query
   const debouncedQuery = useDebouncedValue(query, 250);
-  // Debounced text search only
   useEffect(() => {
-    const q = (debouncedQuery || "").trim();
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    loadAggregates(q);
+    load(debouncedQuery, "", "asc");
+    loadAggregates(debouncedQuery);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, startDate, endDate]);
 
-  // Immediate refetch when dropdown filters change (no debounce)
   useEffect(() => {
-    const q = (query || "").trim();
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
+    load(query, "", "asc");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterUserName, filterTenantId, startDate, endDate]);
 
-
-
-  // Toggle global dimming class while modal is open (align with user modal UX)
+  // Modal open/close effect
   useEffect(() => {
     if (detailsOpen) {
       document.body.classList.add("modal-open");
@@ -436,17 +285,7 @@ export default function Sessions() {
     return () => document.body.classList.remove("modal-open");
   }, [detailsOpen]);
 
-  // Row click -> open modal
   const handleRowClick = (row) => {
-    if (process.env.NODE_ENV !== "production") {
-      try {
-        const keys = Object.keys(row || {});
-        // eslint-disable-next-line no-console
-        console.debug("[Sessions] Row clicked (tenant_id scoped) -> opening details modal with keys:", keys);
-      } catch {
-        // ignore logging errors
-      }
-    }
     setSelectedSession(row);
     setDetailsOpen(true);
   };
@@ -463,7 +302,7 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts stacked vertically (normal flow, with spacing below so table doesn't overlap) */}
+      {/* Charts */}
       <div
         className="sessions-charts"
         role="region"
@@ -472,7 +311,7 @@ export default function Sessions() {
           display: "flex",
           flexDirection: "column",
           gap: 24,
-          marginBottom: 32, // ensure spacing before the table card
+          marginBottom: 32,
         }}
       >
         <Card
@@ -488,13 +327,11 @@ export default function Sessions() {
             />
           </div>
         </Card>
-
         <Card
           className="chart-card"
           title="Sessions by Type"
           subtitle="Count of sessions per type"
         >
-          {/* Wrapper participates in normal flow; no absolute positioning */}
           <div className="chart-wrapper" style={{ minHeight: 320 }}>
             <SessionsByType
               data={byType}
@@ -506,7 +343,7 @@ export default function Sessions() {
         </Card>
       </div>
 
-      {/* Existing table card remains below charts */}
+      {/* Main Table */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <input
@@ -531,7 +368,6 @@ export default function Sessions() {
               <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>
-
           <label htmlFor="filter-tenant" className="sr-only">Filter by Tenant ID</label>
           <select
             id="filter-tenant"
@@ -546,7 +382,6 @@ export default function Sessions() {
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
-
           {/* Date range controls */}
           <div role="group" aria-label="Date filters" style={{ display: "inline-flex", gap: 8, alignItems: "center", marginLeft: 8 }}>
             <label htmlFor="start-date" style={{ fontSize: 12, color: "#374151" }}>Start</label>
@@ -568,7 +403,6 @@ export default function Sessions() {
               onChange={(e) => setEndDate(e.target.value)}
             />
           </div>
-
           <div className="spacer" style={{ flex: 1 }} />
         </div>
         {error && (
@@ -580,22 +414,19 @@ export default function Sessions() {
           columns={columns}
           data={items}
           loading={loading}
-
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
-          fetchPage={async (page, limit, sortKey, sortDir) => {
-            // Remember current sort so external triggers (search) keep ordering consistent
+          fetchPage={async (_page, _limit, sortKey, sortDir) => {
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
             } else if (!lastSortRef.current) {
               lastSortRef.current = { key: "", dir: "asc" };
             }
-            await load(page, limit, (query || "").trim(), sortKey, sortDir);
+            await load(query, sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
-
         />
       </Card>
     </div>
