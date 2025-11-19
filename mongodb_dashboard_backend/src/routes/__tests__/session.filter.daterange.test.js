@@ -12,21 +12,25 @@ describe("Session date range filtering", () => {
   });
 
   it("returns only sessions in date range", async () => {
+    // Clean up any existing data first
+    await SessionTrackingModel.deleteMany({});
     // Insert test data
     await SessionTrackingModel.create([
-      { session_start: "2024-03-01T00:00:00.000Z", foo: "bar" },
-      { session_start: "2024-03-10T00:00:00.000Z", foo: "baz" },
-      { session_start: "2024-03-20T00:00:00.000Z", foo: "qux" },
+      { session_start: "2024-03-01T00:00:00.000Z", foo: "bar", tenant_id: "t1" },
+      { session_start: "2024-03-10T00:00:00.000Z", foo: "baz", tenant_id: "t1" },
+      { session_start: "2024-03-20T00:00:00.000Z", foo: "qux", tenant_id: "t1" },
     ]);
-    const res = await request(server).get("/api/sessions").query({
-      filter: JSON.stringify({
-        session_start: "2024-03-05T00:00:00.000Z",
-        session_end: "2024-03-15T23:59:59.000Z",
-      }),
-    });
+    const res = await request(server)
+      .get("/api/session-tracking")
+      .query({
+        tenant_id: "t1",
+        startDate: "2024-03-05T00:00:00.000Z",
+        endDate: "2024-03-15T23:59:59.000Z",
+      });
+
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
-    // Should contain only middle session
+    // Should contain only the middle session
     expect(res.body).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ session_start: "2024-03-10T00:00:00.000Z" }),

@@ -247,32 +247,30 @@ router.get(
     let start = null;
     let end = null;
 
+    // Patch: Always create inclusive range for session_start ONLY using $gte and $lte.
     if (hasStart && hasEnd) {
       start = parseISODateSafe(req.query.startDate);
-      // inclusive end of day: endDate 23:59:59.999 UTC
+      // inclusive end-of-day for 'endDate'
       const endInput = parseISODateSafe(req.query.endDate);
-      end = addDaysUTC(startOfDayUTC(endInput), 1); // exclusive upper bound next day 00:00 UTC
+      // Set to 23:59:59.999Z for inclusive upper bound
+      endInput.setUTCHours(23, 59, 59, 999);
+      end = endInput;
     } else if (hasStart && !hasEnd) {
       start = parseISODateSafe(req.query.startDate);
       end = now;
     } else if (!hasStart && hasEnd) {
-      // If only endDate is provided, default start to endDate - 30 days
       const endInput = parseISODateSafe(req.query.endDate);
-      end = addDaysUTC(startOfDayUTC(endInput), 1);
+      endInput.setUTCHours(23, 59, 59, 999);
+      end = endInput;
       start = new Date(end.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     } else {
-      // Default: last 30 days until now
       end = now;
       start = new Date(now.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
     }
 
+    // Construct: { session_start: { $gte: start, $lte: end } }
     const timeFilter = {
-      $or: [
-        // Prefer last_updated if present
-        { last_updated: { $gte: start, $lt: end } },
-        // Fallback to session_start when last_updated not available/populated
-        { session_start: { $gte: start, $lt: end } },
-      ],
+      session_start: { $gte: start, $lte: end },
     };
 
     // Build user filter: userId or email
