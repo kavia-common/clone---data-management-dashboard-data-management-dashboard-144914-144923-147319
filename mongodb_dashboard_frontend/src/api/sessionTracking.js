@@ -1,22 +1,28 @@
 import { getApiClient } from './baseClient';
+import { buildQueryString } from './util';
 
 /**
  * PUBLIC_INTERFACE
- * Fetch session tracking records using only start and end (and optionally tenant_id).
- * Omits legacy and pagination params.
- * @typedef {Object} SessionTrackingParams
- * @property {string|Date} start - ISO date string or Date instance (inclusive)
- * @property {string|Date} end - ISO date string or Date instance (inclusive)
- * @property {string} [tenant_id] - optional tenant_id for multi-tenant apps
+ * fetchSessionTracking
+ * Fetch session tracking records with optional filters, pagination, and sorting.
+ * Returns normalized { items, total, meta } envelope regardless of backend envelope/array shape.
+ *
+ * @param {Object} params
+ * @param {number} [params.page]
+ * @param {number} [params.limit]
+ * @param {string} [params.sort]
+ * @param {Object|string} [params.filter] JSON string or object for server-side filtering
+ * @param {string} [params.q] Text search query
  * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
  */
-export async function fetchSessionTracking({ start, end, tenant_id } = {}) {
-  const params = new URLSearchParams();
-  if (start) params.append("start", new Date(start).toISOString());
-  if (end) params.append("end", new Date(end).toISOString());
-  if (tenant_id) params.append("tenant_id", tenant_id);
-
-  const url = `/api/session-tracking?${params.toString()}`;
+export async function fetchSessionTracking(params = {}) {
+  const safeParams = { ...params };
+  // stringify filter object if necessary
+  if (safeParams.filter && typeof safeParams.filter === 'object') {
+    safeParams.filter = JSON.stringify(safeParams.filter);
+  }
+  const qs = buildQueryString(safeParams);
+  const url = `/api/session-tracking${qs}`;
   const res = await getApiClient().get(url);
   const payload = res?.data ?? res;
 
