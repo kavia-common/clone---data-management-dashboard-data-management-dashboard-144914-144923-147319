@@ -117,6 +117,9 @@ function sanitizeOpenApiDoc(doc) {
         process.env.SWAGGER_DESCRIPTION ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     };
+  } else if (typeof doc.info.description === 'string') {
+    // Keep description readable without unnecessary escape sequences
+    doc.info.description = doc.info.description.replace(/\s+/g, ' ').trim();
   }
 
   // Inject common components if missing
@@ -164,6 +167,7 @@ function getBaseOpenApiSpec() {
       return cachedSpec;
     }
   } catch (err) {
+    // eslint-disable-next-line no-console
     console.warn('[swagger] Could not load interfaces/openapi.json, falling back to JSDoc.', err?.message);
   }
 
@@ -171,6 +175,7 @@ function getBaseOpenApiSpec() {
     cachedSpec = buildJsDocSpec();
     return cachedSpec;
   } catch (err) {
+    // eslint-disable-next-line no-console
     console.error('[swagger] Failed to build JSDoc spec:', err);
     cachedSpec = {
       openapi: '3.0.0',

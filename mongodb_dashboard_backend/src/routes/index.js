@@ -59,10 +59,18 @@ router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardModulesRou
  */
 router.use('/analytics', verifyAuth, requireTenant, analyticsOverviewRoutes);
 
-// Counts endpoints (these are lightweight; keep public if they are used for landing)
+/**
+ * Counts endpoints (these are lightweight; keep public if they are used for landing)
+ * Keep these last so more specific routes above take precedence.
+ */
 router.use('/', countsRoutes);
 
 // Sample tenant-scoped demo endpoints
+// No a11y attributes here; a11y for backend is via OpenAPI docs and headers only.
 router.use('/', require('./tenantSample.routes'));
 
+// PUBLIC_INTERFACE
+/**
+ * Exports the API router for mounting under /api in the main app.
+ */
 module.exports = router;

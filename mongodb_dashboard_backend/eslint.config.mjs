@@ -8,7 +8,7 @@ import globals from "globals";
 export default [
   {
     name: "root",
-    files: ["**/*.js"],
+    files: ["src/**/*.js", "swagger.js"],
     ignores: [
       "node_modules/**",
       "dist/**",
