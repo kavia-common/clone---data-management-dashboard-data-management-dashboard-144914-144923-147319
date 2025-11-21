@@ -97,35 +97,53 @@ router.get(
         }
       : {};
 
-    // NEW: Accept only start/end for date filtering
-    let start = null;
-    let end = null;
+    // CONDITIONAL TIME FILTERING
+    // - hasDateParams: when start/end provided, normalize and apply as filter on session_start.
+    // - explicit pagination (page/limit present) WITHOUT start/end: DO NOT apply default 30-day filter; return full history for the tenant.
+    // - non-paginated requests WITHOUT start/end: apply default 30-day window to protect raw responses from unbounded results.
+    const hasDateParams = Boolean(req.query.start || req.query.end);
+
+    let timeFilter = {};
     const now = new Date();
     const DEFAULT_WINDOW_DAYS = 30;
-    if (req.query.start || req.query.end) {
+
+    if (hasDateParams) {
+      // Normalize provided start/end and use inclusive end-of-day for 'end'
+      let start = null;
+      let end = null;
+
       if (req.query.start && isValidISODate(req.query.start)) {
         start = parseISODateSafe(req.query.start);
       }
       if (req.query.end && isValidISODate(req.query.end)) {
-        // The backend expects inclusive end-of-day as in previous implementation
         const parsedEnd = parseISODateSafe(req.query.end);
         parsedEnd.setUTCHours(23, 59, 59, 999);
         end = parsedEnd;
       }
+
+      // Fill missing bounds if only one provided
+      if (!start && !end) {
+        // Safety fallback: shouldn't happen due to hasDateParams true, but keep guard
+        const guardEnd = now;
+        const guardStart = new Date(now.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+        timeFilter = { session_start: { $gte: guardStart, $lte: guardEnd } };
+      } else if (start && !end) {
+        timeFilter = { session_start: { $gte: start, $lte: now } };
+      } else if (!start && end) {
+        const computedStart = new Date(end.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+        timeFilter = { session_start: { $gte: computedStart, $lte: end } };
+      } else {
+        timeFilter = { session_start: { $gte: start, $lte: end } };
+      }
+    } else if (!explicit) {
+      // No date params and NOT paginated -> apply default last 30 days window
+      const start = new Date(now.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+      const end = now;
+      timeFilter = { session_start: { $gte: start, $lte: end } };
+    } else {
+      // explicit pagination without dates -> no time filter (full history within tenant)
+      timeFilter = {};
     }
-    // If either is missing, fallback to default 30d window
-    if (!start && !end) {
-      end = now;
-      start = new Date(now.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    } else if (start && !end) {
-      end = now; // until now
-    } else if (!start && end) {
-      start = new Date(end.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    }
-    // Date filter applied to session_start only
-    const timeFilter = {
-      session_start: { $gte: start, $lte: end },
-    };
 
     // Combine filters: base filter + search + tenant scope + time
     const parts = [];
@@ -140,6 +158,8 @@ router.get(
     // Ready to query
     try {
       if (explicit) {
+        // meta.total reflects the same finalFilter. Since we drop the default time filter
+        // for explicit pagination without start/end, total will represent full tenant history.
         const [docs, total] = await Promise.all([
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
           SessionTracking.countDocuments(finalFilter)
