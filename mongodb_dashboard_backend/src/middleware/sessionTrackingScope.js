@@ -51,6 +51,7 @@ function sessionTrackingScope(req, res, next) {
   } catch {}
 
   // Do not mutate incoming query/body here beyond attaching forced filter;
+  // IMPORTANT: Do not add any date/time constraints here. Date filtering is handled in the route.
   // the controller will merge and override tenant_id to this value.
   return next();
 }

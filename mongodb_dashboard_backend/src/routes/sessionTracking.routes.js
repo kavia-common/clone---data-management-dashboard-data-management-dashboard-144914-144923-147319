@@ -20,12 +20,16 @@ const controller = buildCrudController(SessionTracking, '-session_start');
  * Accepts: page, limit, tenant_id, start, end, filter, sort, q
  * Filters results between session_start >= start and session_start <= end if provided.
  * Deprecated: from, to (NO LONGER SUPPORTED -- only start/end valid).
+ *
+ * Behavior notes:
+ * - No default date filter for paginated requests; only last-30-days applied for non-paginated requests to protect payload size.
  */
 router.get(
   '/',
   asyncHandler(async (req, res) => {
     // Resolve tenant from middleware if available; keep legacy fallbacks for safety
-    const enforcedTenant = req.tenantId ||
+    const enforcedTenant =
+      req.tenantId ||
       (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
       (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
@@ -153,7 +157,17 @@ router.get(
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
     if (!isEmpty(timeFilter)) parts.push(timeFilter);
 
-    const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
+    const finalFilter = parts.length > 1 ? { $and: parts } : parts[0] || {};
+
+    // Optional debug logging of the final filter; controlled by env (default off)
+    // Set REACT_APP_LOG_LEVEL=debug to enable. Note: not enabled by default.
+    const enableDebug = String(process.env.REACT_APP_LOG_LEVEL || '').toLowerCase() === 'debug';
+    if (enableDebug) {
+      try {
+        // eslint-disable-next-line no-console
+        console.debug('[session-tracking] finalFilter=', JSON.stringify(finalFilter));
+      } catch (_) {}
+    }
 
     // Ready to query
     try {
@@ -162,7 +176,7 @@ router.get(
         // for explicit pagination without start/end, total will represent full tenant history.
         const [docs, total] = await Promise.all([
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
-          SessionTracking.countDocuments(finalFilter)
+          SessionTracking.countDocuments(finalFilter),
         ]);
         return res.json({ success: true, data: docs, meta: { page, limit, total } });
       }
@@ -170,11 +184,13 @@ router.get(
       const docs = await SessionTracking.find(finalFilter).sort(sort);
       return res.json(docs);
     } catch (err) {
-      const message = err?.message || "Request failed";
-      if (err?.name === "CastError" || /Cast to/.test(message)) {
-        return res.status(400).json({ success: false, message: "Invalid value provided (list)", details: message });
+      const message = err?.message || 'Request failed';
+      if (err?.name === 'CastError' || /Cast to/.test(message)) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Invalid value provided (list)', details: message });
       }
-      return res.status(400).json({ success: false, message: "Request failed", details: message });
+      return res.status(400).json({ success: false, message: 'Request failed', details: message });
     }
   })
 );

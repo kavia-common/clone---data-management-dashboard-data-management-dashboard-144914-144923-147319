@@ -79,6 +79,7 @@ function sanitizePayloadWithTenant(req) {
 
 /**
  * Merge filter safely with enforced tenant_id, ignoring any client-provided tenant keys.
+ * Note: This helper MUST NOT introduce any date constraints implicitly. Date filtering is controlled by routes.
  */
 function mergeFilterWithTenant(filter, tenantId) {
   const f = filter && typeof filter === 'object' ? { ...filter } : {};
