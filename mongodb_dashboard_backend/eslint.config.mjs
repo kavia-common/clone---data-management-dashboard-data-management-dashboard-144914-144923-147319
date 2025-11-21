@@ -19,6 +19,9 @@ export default [
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "script",
+      parserOptions: {
+        ecmaVersion: 2022
+      },
       globals: {
         ...globals.node,
         ...globals.es2022,
@@ -26,6 +29,7 @@ export default [
       },
     },
     rules: {
+      // Core hygiene
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "no-undef": "error",
       "no-console": "off",
@@ -34,6 +38,8 @@ export default [
       "prefer-const": "warn",
       "no-var": "error",
       "object-shorthand": ["warn", "always"],
+      // Avoid depending on plugins not installed (like eslint-plugin-import).
+      // We intentionally do not reference rules like "import/no-dynamic-require".
     },
   },
 ];

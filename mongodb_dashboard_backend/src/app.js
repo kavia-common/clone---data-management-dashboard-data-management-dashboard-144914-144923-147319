@@ -30,8 +30,8 @@ app.use(express.urlencoded({ extended: true }));
 const buildDynamicSpec = (req) => {
   const host = req.get('host');
   const protocol = req.secure ? 'https' : req.protocol;
-  const actualPort = req.socket?.localPort;
-  const hasPort = host.includes(':');
+  const actualPort = req.socket && req.socket.localPort;
+  const hasPort = typeof host === 'string' && host.includes(':');
   const needsPort =
     !hasPort &&
     ((protocol === 'http' && actualPort !== 80) ||
@@ -43,25 +43,17 @@ const buildDynamicSpec = (req) => {
     ...baseSpec,
     info: {
       ...baseSpec.info,
-      title: process.env.SWAGGER_TITLE || baseSpec.info?.title || 'Dashboard API',
-      version: process.env.SWAGGER_VERSION || baseSpec.info?.version || '1.0.0',
+      title: process.env.SWAGGER_TITLE || (baseSpec.info && baseSpec.info.title) || 'Dashboard API',
+      version: process.env.SWAGGER_VERSION || (baseSpec.info && baseSpec.info.version) || '1.0.0',
       description:
         process.env.SWAGGER_DESCRIPTION ||
-        baseSpec.info?.description ||
+        (baseSpec.info && baseSpec.info.description) ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
     // Use same-origin server so Swagger calls hit this backend instance
     url: `${protocol}://${fullHost}`,
-    // servers: [
-
-    //   {
-    //     url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-    //     description: 'Predefined dev server',
-    //   },
-    // ],
   };
 };
-
 
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
@@ -87,7 +79,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 // ---------------------------------------------
 const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
-  const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+  const db = ready === 1 ? 'connected' : (ready === 2 ? 'connecting' : 'disconnected');
   const payload = { status: 'ok', db, timestamp: new Date().toISOString() };
   if (db !== 'connected') {
     payload.hint = 'Database not connected. Ensure MONGODB_URI is set.';
@@ -101,7 +93,9 @@ app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler
 // Routers
 // ---------------------------------------------
 const safeUse = (path, router) => {
-  if (router && typeof router === 'function') app.use(path, router);
+  if (router && typeof router === 'function') {
+    app.use(path, router);
+  }
 };
 
 const baseRouter = require('./routes');
@@ -121,9 +115,13 @@ app.get('/api/users/tenant-summary', async (req, res) => {
       json(payload) { this._sent = true; this._payload = payload; return this; },
     };
     await getUsersTenantSummary(req, fakeRes);
-    if (!fakeRes._sent) return res.status(500).json({ success: false, message: 'Controller did not respond' });
-    if (fakeRes._status !== 200) return res.status(fakeRes._status).json(fakeRes._payload);
-    const items = Array.isArray(fakeRes._payload?.items) ? fakeRes._payload.items : [];
+    if (!fakeRes._sent) {
+      return res.status(500).json({ success: false, message: 'Controller did not respond' });
+    }
+    if (fakeRes._status !== 200) {
+      return res.status(fakeRes._status).json(fakeRes._payload);
+    }
+    const items = Array.isArray(fakeRes._payload && fakeRes._payload.items) ? fakeRes._payload.items : [];
     const mapped = items.map((it) => ({
       tenant: it.tenant_name || it.tenant_id || '',
       count: typeof it.user_count === 'number' ? it.user_count : 0,
@@ -141,7 +139,10 @@ const { verifyAuth } = require('./middleware/verifyAuth');
 const { requireTenant } = require('./middleware/requireTenant');
 
 app.use((req, res, next) => {
-  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+  if (
+    process.env.NODE_ENV !== 'production' ||
+    String(process.env.DEBUG || '').toLowerCase() === 'true'
+  ) {
     if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
       // Developer debug headers (disabled logs)
     }
@@ -182,14 +183,16 @@ app.use(errorHandler);
 // ---------------------------------------------
 if (process.env.NODE_ENV !== 'test') {
   if (!process.env.MONGODB_URI) {
+    // eslint-disable-next-line no-console
     console.warn('[startup] MONGODB_URI not set. Starting without DB connection.');
   } else {
-    connectDB().catch((err) =>
-      console.error('Failed to connect to MongoDB on startup:', err.message)
-    );
+    connectDB().catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error('Failed to connect to MongoDB on startup:', (err && err.message) || err);
+    });
   }
 } else {
-  try { mongoose.set('bufferCommands', false); } catch { }
+  try { mongoose.set('bufferCommands', false); } catch (e) { /* noop */ }
 }
 
 module.exports = app;
