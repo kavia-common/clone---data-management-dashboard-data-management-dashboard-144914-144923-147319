@@ -3,7 +3,7 @@ import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
-
+import UsersAnalyticsPanel from "../../modules/users/UsersAnalyticsPanel.jsx";
 
 export default function Users() {
   const [open, setOpen] = useState(false);
@@ -11,7 +11,7 @@ export default function Users() {
   const [defaultTab, setDefaultTab] = useState("details");
   const [rangeDays, setRangeDays] = useState(30);
 
-  // Compute quick range for charts (no URL dates)
+  // Compute quick range for the UsersByTenantChart only (kept from existing UI).
   const { fromIso, toIso } = useMemo(() => {
     const now = new Date();
     const from = new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000);
@@ -39,7 +39,7 @@ export default function Users() {
     setOpen(false);
   }
 
-  // ✅ Accessibility toggle for modal overlay
+  // Accessibility toggle for modal overlay
   useEffect(() => {
     document.body.classList.toggle("modal-open--dim-header", open);
     const headerEl = document.querySelector(".app-headbar, .topbar");
@@ -76,7 +76,10 @@ export default function Users() {
 
   return (
     <div>
-      {/* Users by Tenant Chart */}
+      {/* New Users Analytics Panel with independent filters */}
+      <UsersAnalyticsPanel style={{ marginBottom: 12 }} />
+
+      {/* Existing Users by Tenant Chart (unchanged) */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
           <div className="card-header" style={{ paddingBottom: 0 }}>
@@ -98,7 +101,7 @@ export default function Users() {
         </div>
       </div>
 
-      {/* Users by Department Chart */}
+      {/* Users by Department Chart (existing) */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
           <div className="card-header" style={{ paddingBottom: 0 }}>
@@ -111,7 +114,7 @@ export default function Users() {
         </div>
       </div>
 
-      {/* Users List */}
+      {/* Users List (unchanged) */}
       <UsersList
         title="Users"
         subtitle="All users"
