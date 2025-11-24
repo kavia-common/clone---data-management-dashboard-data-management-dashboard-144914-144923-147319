@@ -19,6 +19,7 @@ import { useUsers } from "../../hooks/useUsers";
 import { getApiClient } from "../../api";
 import { getActiveTenant } from "../../utils/tenantClient";
 import Card from "../../components/ui/Card";
+import Skeleton from "../../components/ui/Skeleton";
 
 /**
  * PUBLIC_INTERFACE
@@ -334,9 +335,9 @@ export default function UsersAnalyticsPanel({
               <div className="card-content" style={{ height: 340 }}>
                 {usersLoading || projectsLoading ? (
                   <div aria-busy="true">
-                    <div className="skeleton" style={{ height: 14, width: "60%", marginBottom: 8 }} />
-                    <div className="skeleton" style={{ height: 12, width: "50%", marginBottom: 8 }} />
-                    <div className="skeleton" style={{ height: 320, width: "100%" }} />
+                    <Skeleton width="60%" height={14} className="mb-2" />
+                    <Skeleton width="50%" height={12} className="mb-2" />
+                    <Skeleton width="100%" height={300} />
                   </div>
                 ) : usersError ? (
                   <div className="error" role="alert">{usersError.message || "Failed to load users"}</div>
@@ -411,9 +412,9 @@ export default function UsersAnalyticsPanel({
               <div className="card-content" style={{ height: 320 }}>
                 {usersLoading || projectsLoading ? (
                   <div aria-busy="true">
-                    <div className="skeleton" style={{ height: 14, width: "60%", marginBottom: 8 }} />
-                    <div className="skeleton" style={{ height: 12, width: "50%", marginBottom: 8 }} />
-                    <div className="skeleton" style={{ height: 286, width: "100%" }} />
+                    <Skeleton width="60%" height={14} className="mb-2" />
+                    <Skeleton width="50%" height={12} className="mb-2" />
+                    <Skeleton width="100%" height={286} />
                   </div>
                 ) : usersError ? (
                   <div className="error" role="alert">{usersError.message || "Failed to load users"}</div>
