@@ -314,5 +314,5 @@ export default {
   listDeployments,
   listLlmCosts,
   health,
-  getTenantUsersSummaryStrict,
+  getTenantUsersSummaryStrict
 };

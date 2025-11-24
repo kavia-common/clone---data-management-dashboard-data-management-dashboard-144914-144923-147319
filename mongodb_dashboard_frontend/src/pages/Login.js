@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchUserOrganizationsByEmail, loginWithOrgEmailPassword } from '../api/authClient';
 import { useAuth } from '../context/AuthContext';
-import Card from '../components/ui/Card.jsx';
+
 import Input from '../components/ui/Input.jsx';
 import Button from '../components/ui/Button.jsx';
 import './Login.css';

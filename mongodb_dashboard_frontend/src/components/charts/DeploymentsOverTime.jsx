@@ -135,7 +135,7 @@ function DeploymentsOverTime({ height = 320, className = "" }) {
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
     return arr;
-  }, [raw, range]);
+  }, [raw, range, applyTimeRange]);
 
   return (
     <Card

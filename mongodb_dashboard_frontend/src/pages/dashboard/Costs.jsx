@@ -267,41 +267,69 @@ export default function Costs() {
     return cols.length ? cols : [{ key: "_id", label: "ID" }];
   }
 
-  async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
-    /**
-     * Loads costs with optional server-side sorting.
-     * When sortKey is provided, we pass `sort` param to backend using the format:
-     *  - asc: field
-     *  - desc: -field
-     */
-    setLoading(true);
-    setError("");
-    try {
-      const params = { page, limit };
-      if (sortKey) {
-        params.sort = sortDir === "desc" ? `-${sortKey}` : String(sortKey);
+  const load = React.useCallback(
+    async (page = 1, limit = meta.limit || 10, sortKey, sortDir) => {
+      /**
+       * Loads costs with optional server-side sorting.
+       * When sortKey is provided, we pass `sort` param to backend using the format:
+       *  - asc: field
+       *  - desc: -field
+       */
+      setLoading(true);
+      setError("");
+      try {
+        const params = { page, limit };
+        if (sortKey) {
+          params.sort = sortDir === "desc" ? `-${sortKey}` : String(sortKey);
+        }
+        const res = await listLlmCosts(params);
+        const arr = res?.items ?? (Array.isArray(res) ? res : []);
+        setAllItems(arr);
+        setItems(arr);
+        setMeta({
+          page: res?.meta?.page || page,
+          limit: res?.meta?.limit || limit,
+          total: res?.meta?.total ?? arr.length,
+        });
+      } catch (e) {
+        setAllItems([]);
+        setItems([]);
+        setError(e?.response?.data?.message || e?.message || "Failed to load LLM costs.");
+      } finally {
+        setLoading(false);
       }
-      const res = await listLlmCosts(params);
-      const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      setAllItems(arr);
-      setItems(arr);
-      setMeta({
-        page: res?.meta?.page || page,
-        limit: res?.meta?.limit || limit,
-        total: res?.meta?.total ?? arr.length,
-      });
-    } catch (e) {
-      setAllItems([]);
-      setItems([]);
-      setError(e?.response?.data?.message || e?.message || "Failed to load LLM costs.");
+    },
+    [meta.limit, listLlmCosts]
+  );
+````   
+````edit file="data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/pages/dashboard/Costs.jsx"      
+<<<<<<< SEARCH
     } finally {
       setLoading(false);
     }
-  }
+  }, [meta.limit]);
+=======
+    } finally {
+      setLoading(false);
+    }
+  }, [meta.limit, listLlmCosts]);
+
+````   
+````edit file="data-management-dashboard-144914-144924/mongodb_dashboard_frontend/src/pages/dashboard/Costs.jsx"      
+<<<<<<< SEARCH
+  const columns = useMemo(() => {
+    const base = buildColumnsFromSample(items || []);
+    return base.slice();
+  }, [items, buildColumnsFromSample]);
+=======
+  const columns = useMemo(() => {
+    const base = buildColumnsFromSample(items || []);
+    return base.slice();
+  }, [items, buildColumnsFromSample]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
@@ -310,13 +338,10 @@ export default function Costs() {
       return;
     }
     const filtered = (allItems || []).filter((doc) => {
-      return Object.entries(doc || {}).some(([k, v]) => {
+      return Object.entries(doc || {}).some(([, v]) => {
         if (v == null) return false;
         try {
-          const s =
-            typeof v === "object"
-              ? JSON.stringify(v)
-              : String(v);
+          const s = typeof v === "object" ? JSON.stringify(v) : String(v);
           return s.toLowerCase().includes(q);
         } catch {
           return false;
@@ -325,11 +350,6 @@ export default function Costs() {
     });
     setItems(filtered);
   }, [query, allItems]);
-
-  const columns = useMemo(() => {
-    const base = buildColumnsFromSample(items || []);
-    return base.slice();
-  }, [items]);
 
   return (
     <div>
