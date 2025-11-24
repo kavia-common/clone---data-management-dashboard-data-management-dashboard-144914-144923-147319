@@ -1,25 +1,25 @@
 import { getApiBase } from './utilBase';
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * fetchOverviewAnalytics
+ * Fetch time-bucketed overview analytics with time range controls.
+ */
 export async function fetchOverviewAnalytics({ metric = 'creates', range = '7d', from, to } = {}) {
-  /** Fetch time-bucketed overview analytics.
-   * Params:
-   * - metric: 'creates' | 'updates' | 'deletes' | 'total'
-   * - range: '7d' | '14d' | '30d' | '12w' | '12m' | 'custom'
-   * - from/to: ISO date-time bounds when range='custom'
-   * Returns: { buckets: [{ label, value }], kpis: { totalRecords, newInRange, updatesInRange, deletionsInRange } }
-   */
+  // Build query string
   const query = new URLSearchParams();
-  if (metric) query.set('metric', metric);
-  if (range) query.set('range', range);
-  if (range === 'custom' && from) query.set('from', typeof from === 'string' ? from : new Date(from).toISOString());
-  if (range === 'custom' && to) query.set('to', typeof to === 'string' ? to : new Date(to).toISOString());
-  const params = query.toString();
+  query.set('metric', metric || 'creates');
+  query.set('range', range || '7d');
+  if (range === 'custom') {
+    if (from) query.set('from', typeof from === 'string' ? from : new Date(from).toISOString());
+    if (to) query.set('to', typeof to === 'string' ? to : new Date(to).toISOString());
+  }
   const base = getApiBase(); // e.g., http://localhost:3001
-  const url = `${base}/api/analytics/overview?${params}`;
+  const url = `${base}/api/analytics/overview?${query.toString()}`;
+
   const res = await fetch(url, { credentials: 'include' });
   if (!res.ok) {
-    // Gracefully fallback with empty payload if endpoint is missing
+    // Return empty dataset but in expected shape to avoid front-end breakage
     return { buckets: [], kpis: { totalRecords: 0, newInRange: 0, updatesInRange: 0, deletionsInRange: 0 } };
   }
   return res.json();

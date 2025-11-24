@@ -35,6 +35,7 @@ export default function OverviewTimeControls({ range, setRange, metric, setMetri
         borderRadius: 12,
         boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
       }}
+      aria-label="Overview time controls"
     >
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} role="group" aria-label="Overview time range">
         {RANGES.map((r) => (

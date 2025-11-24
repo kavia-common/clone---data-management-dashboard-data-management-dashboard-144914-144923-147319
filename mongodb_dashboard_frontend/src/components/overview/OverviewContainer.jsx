@@ -10,7 +10,7 @@ import './overview.css';
 // PUBLIC_INTERFACE
 export default function OverviewContainer() {
   /** Container for time-based analytics on Overview tab */
-  const [range, setRange] = useState('7d'); // '7d' | '14d' | '30d' | '12w' | '12m' | 'custom'
+  const [range, setRange] = useState('7d'); // default to daily preset
   const [metric, setMetric] = useState('creates');
   const [loading, setLoading] = useState(false);
   const [kpis, setKpis] = useState(null);
