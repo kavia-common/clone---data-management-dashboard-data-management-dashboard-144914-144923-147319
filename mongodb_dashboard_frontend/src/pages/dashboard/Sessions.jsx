@@ -6,6 +6,7 @@ import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
+import SessionsChartsPanel from "../../components/charts/SessionsChartsPanel.jsx";
 
 
 
@@ -458,50 +459,14 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts stacked vertically (normal flow, with spacing below so table doesn't overlap) */}
-      <div
-        className="sessions-charts"
-        role="region"
-        aria-label="Session insights"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 24,
-          marginBottom: 32, // ensure spacing before the table card
-        }}
-      >
-        <Card
-          className="chart-card"
-          title="Sessions by Organization"
-          subtitle="Count of sessions per organization"
-        >
-          <div className="chart-wrapper" style={{ height: 320 }}>
-            <SessionsByOrganization
-              data={byOrg}
-              loading={aggLoading}
-              error={aggError}
-            />
-          </div>
-        </Card>
+      {/* New: Charts panel above the table */}
+      <SessionsChartsPanel
+        sessions={items}
+        aggLoading={aggLoading}
+        aggError={aggError}
+      />
 
-        <Card
-          className="chart-card"
-          title="Sessions by Type"
-          subtitle="Count of sessions per type"
-        >
-          {/* Wrapper participates in normal flow; no absolute positioning */}
-          <div className="chart-wrapper" style={{ minHeight: 320 }}>
-            <SessionsByType
-              data={byType}
-              loading={aggLoading}
-              error={aggError}
-              maxItems={5}
-            />
-          </div>
-        </Card>
-      </div>
-
-      {/* Existing table card remains below charts */}
+      {/* Existing table card remains below charts (no change) */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <input
