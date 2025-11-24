@@ -34,8 +34,6 @@ export default [
       "prefer-const": "warn",
       "no-var": "error",
       "object-shorthand": ["warn", "always"],
-      // Ensure warnings do not fail CI builds if npm scripts treat warnings as errors downstream
-      "no-warning-comments": "off"
     },
   },
 ];
