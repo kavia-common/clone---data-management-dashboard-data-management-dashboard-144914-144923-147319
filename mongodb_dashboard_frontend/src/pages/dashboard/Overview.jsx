@@ -411,25 +411,62 @@ export default function Overview() {
     );
   }
 
+  // Memoized locale-formatted date range label derived from startISO/endISO
+  const dateRangeLabel = useMemo(() => {
+    if (!startISO || !endISO) return "";
+    const start = new Date(startISO);
+    const end = new Date(endISO);
+    // Use consistent locale formatting options
+    const opts = { year: "numeric", month: "short", day: "numeric" };
+    const fromStr = start.toLocaleDateString(undefined, opts);
+    const toStr = end.toLocaleDateString(undefined, opts);
+    return `Filtered: ${fromStr} — ${toStr}`;
+  }, [startISO, endISO]);
+
+  // Reusable compact badge style for the date-range label (Ocean Professional)
+  const labelPill = (
+    <span
+      aria-live="polite"
+      aria-atomic="true"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 8px",
+        borderRadius: 999,
+        fontSize: 12,
+        color: "#374151", // subtle text
+        background: "#F3F4F6", // light gray pill
+        border: "1px solid #E5E7EB",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {dateRangeLabel}
+    </span>
+  );
+
   const timeRangeSelector = (
-    <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
-      {["7d", "14d", "30d", "custom"].map((key) => (
-        <button
-          key={key}
-          onClick={() => setRangeKey(key)}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 6,
-            border: "none",
-            background: rangeKey === key ? "#2563EB" : "transparent",
-            color: rangeKey === key ? "#fff" : "#111827",
-            cursor: "pointer",
-          }}
-          aria-pressed={rangeKey === key}
-        >
-          {key.toUpperCase()}
-        </button>
-      ))}
+    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
+        {["7d", "14d", "30d", "custom"].map((key) => (
+          <button
+            key={key}
+            onClick={() => setRangeKey(key)}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "none",
+              background: rangeKey === key ? "#2563EB" : "transparent",
+              color: rangeKey === key ? "#fff" : "#111827",
+              cursor: "pointer",
+            }}
+            aria-pressed={rangeKey === key}
+          >
+            {key.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      {labelPill}
     </div>
   );
 
