@@ -6,7 +6,8 @@ import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
-import { SessionTrackingChart } from "../../components/sessions/SessionTrackingChart.jsx";
+
+
 
 // Simple helper to get distinct, sorted, non-empty values
 function distinctSorted(arr) {
@@ -27,6 +28,8 @@ export default function Sessions() {
    * - Minimal loading and error states shown within the table and above toolbar.
    */
   const [items, setItems] = useState([]);
+
+
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -74,15 +77,17 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Details modal state
+  // Details modal state (session details; unrelated to deprecated "View All" costs modal)
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  // Lock for concurrent load protection
+  // Lock to prevent race conditions when multiple loads are inflight (e.g., debounce vs pagination)
   const activeRequestRef = useRef(0);
+  // Remember the last known sort so search/debounced reloads preserve sort order across pages
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
-  // Allowed and ordered fields
+  // Allowed and ordered fields (column visibility)
+  // Replace Task Id column with User name per requirements
   const allowedOrdered = useMemo(
     () => ["User_name", "tenant_id", "organization_name", "service_type"],
     []
@@ -103,13 +108,13 @@ export default function Sessions() {
     (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
 
     function formatLocal(val) {
-      if (!val) return "\u2014";
+      if (!val) return "—";
       try {
         const d = new Date(val);
-        if (isNaN(d.getTime())) return "\u2014";
+        if (isNaN(d.getTime())) return "—";
         return d.toLocaleString();
       } catch {
-        return "\u2014";
+        return "—";
       }
     }
     function toHms(seconds) {
@@ -144,9 +149,10 @@ export default function Sessions() {
             row?.username ??
             row?.email ??
             v;
-          return val == null || val === "" ? "\u2014" : String(val);
+          return val == null || val === "" ? "—" : String(val);
         }
-        return v == null || v === "" ? "\u2014" : String(v);
+
+        return v == null || v === "" ? "—" : String(v);
       };
 
       return {
@@ -154,6 +160,8 @@ export default function Sessions() {
         label,
         render,
         priority: 2,
+        // Slightly widen column if session list is present
+
       };
     });
   }
@@ -180,6 +188,7 @@ export default function Sessions() {
       const all = [];
       while (page <= maxPages) {
         const params = { page, limit, q: qStr };
+        // Use ONLY start/end for date range API request
         if (startDate) {
           params.start = new Date(startDate).toISOString();
         }
@@ -228,6 +237,10 @@ export default function Sessions() {
       setByType(typeArr);
 
       // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+      // Keep pairs of { id, name } for filtering
+      // ✅ Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+
+      // Build unique user list with IDs and names
       const userPairs = all
         .map((it) => ({
           id: it?.user_id,
@@ -253,6 +266,7 @@ export default function Sessions() {
       // Build distinct tenant IDs
       const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
 
+      // Update dropdown options
       setUserNameOptions(uniqueUsers);
       setTenantIdOptions(tenantIds);
 
@@ -269,28 +283,38 @@ export default function Sessions() {
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
     /**
      * Load sessions from server with pagination, optional query string, and server-driven sorting.
+     * When sortKey is provided, pass `sort` using:
+     *  - asc: field
+     *  - desc: -field
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
     try {
       const sortFieldMap = {
-        User_name: "user_name",
+        // Map UI column keys to backend fields
+        User_name: "user_name", // prefer lowercase field in DB
         tenant_id: "tenant_id",
         organization_name: "organization_name",
         service_type: "service_type",
-        task_id: "task_id",
+        task_id: "task_id", // legacy, not used in current allowedOrdered
       };
+      // include optional date range as both from/to and start/end
       const params = { page, limit, q: qStr };
+
+      // Date range params: ONLY send start/end, never from/to (backend expects only start/end)
       if (startDate) {
         params.start = new Date(startDate).toISOString();
       }
       if (endDate) {
+        // end as end-of-day
         params.end =
           endDate && !/T/.test(endDate)
             ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
             : new Date(endDate).toISOString();
       }
+
+      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
       const filter = {};
       if (filterTenantId && filterTenantId.trim()) {
         filter.tenant_id = filterTenantId.trim();
@@ -298,26 +322,31 @@ export default function Sessions() {
       if (filterUserName && filterUserName.trim()) {
         filter.user_id = filterUserName.trim();
       }
+
       if (Object.keys(filter).length > 0) {
         params.filter = filter;
       }
+
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
       }
       const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
+      // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
+
+      // Client-side fallback date filtering
       let filtered = Array.isArray(arr) ? arr : [];
       if (startDate || endDate) {
         const fromMs = startDate ? new Date(startDate).getTime() : null;
-        const toMs =
-          endDate
-            ? (/T/.test(endDate)
-                ? new Date(endDate).getTime()
-                : new Date(new Date(endDate).setHours(23, 59, 59, 999)).getTime())
-            : null;
+        const toMs = endDate
+          ? (/T/.test(endDate)
+              ? new Date(endDate).getTime()
+              : new Date(new Date(endDate).setHours(23, 59, 59, 999)).getTime())
+          : null;
         filtered = filtered.filter((it) => {
+          // derive session start and end
           const s =
             it?.session_start ||
             it?.start_time ||
@@ -331,13 +360,17 @@ export default function Sessions() {
             it?.completed_at ||
             it?.last_updated ||
             null;
+
           const sMs = s ? new Date(s).getTime() : null;
           const eMs = e ? new Date(e).getTime() : null;
+
+          // If only start exists, check it against window
           const inFrom = fromMs == null || (sMs != null ? sMs >= fromMs : eMs != null ? eMs >= fromMs : false);
           const inTo = toMs == null || (sMs != null ? sMs <= toMs : eMs != null ? eMs <= toMs : true);
           return inFrom && inTo;
         });
       }
+
       setItems(filtered);
       setMeta({
         page: res?.meta?.page || page,
@@ -346,6 +379,7 @@ export default function Sessions() {
           res?.meta?.total ??
           (Array.isArray(filtered) ? filtered.length : Array.isArray(arr) ? arr.length : 0),
       });
+      // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
@@ -363,10 +397,11 @@ export default function Sessions() {
     load(1, meta.limit || 10, "", key, dir);
     loadAggregates("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // initial mount only
 
   // Debounced server-side search on query change (250ms default)
   const debouncedQuery = useDebouncedValue(query, 250);
+  // Debounced text search only
   useEffect(() => {
     const q = (debouncedQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
@@ -380,10 +415,13 @@ export default function Sessions() {
     const q = (query || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, q, key, dir);
+    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterUserName, filterTenantId, startDate, endDate]);
 
-  // Toggle global dimming class while modal is open
+
+
+  // Toggle global dimming class while modal is open (align with user modal UX)
   useEffect(() => {
     if (detailsOpen) {
       document.body.classList.add("modal-open");
@@ -408,74 +446,6 @@ export default function Sessions() {
     setDetailsOpen(true);
   };
 
-  // --- Additional: Add new SessionTrackingChart section ---
-
-  // Chart filter state and chart data
-  const [chartFilters, setChartFilters] = useState({});
-  const availableEventTypes = Array.from(new Set(items.map(s => s.event_type).filter(Boolean)));
-  const availableBrowsers = Array.from(new Set(items.map(s => s.browser).filter(Boolean)));
-  const availableDevices = Array.from(new Set(items.map(s => s.device).filter(Boolean)));
-  const dateField = "session_start" in (items[0] || {}) ? "session_start" : "created_at";
-  const minDate = items.length ? new Date(Math.min(...items.map(s => new Date(s[dateField] || Infinity)))) : null;
-  const maxDate = items.length ? new Date(Math.max(...items.map(s => new Date(s[dateField] || 0)))) : null;
-  function handleChartFilterChange(filters) {
-    setChartFilters(filters);
-  }
-  let chartData = items;
-  if (chartFilters.event_type) {
-    chartData = chartData.filter(s => s.event_type === chartFilters.event_type);
-  }
-  if (chartFilters.browser) {
-    chartData = chartData.filter(s => s.browser === chartFilters.browser);
-  }
-  if (chartFilters.device) {
-    chartData = chartData.filter(s => s.device === chartFilters.device);
-  }
-  if (chartFilters.date) {
-    chartData = chartData.filter(s => {
-      const d = s[dateField] ? s[dateField].slice(0, 10) : "";
-      return d === chartFilters.date;
-    });
-  }
-  function buildBarData(data) {
-    const byEvent = {};
-    for (let s of data) {
-      const key = s.event_type || "Unknown";
-      byEvent[key] = (byEvent[key] || 0) + 1;
-    }
-    return Object.entries(byEvent).map(([k, v]) => ({
-      x: k,
-      y: v
-    }));
-  }
-  const chartFiltersConfig = {
-    fields: [
-      ...(availableEventTypes.length ? [{
-        name: "event_type", label: "Event Type", type: "string", options: availableEventTypes
-      }] : []),
-      ...(availableBrowsers.length ? [{
-        name: "browser", label: "Browser", type: "string", options: availableBrowsers
-      }] : []),
-      ...(availableDevices.length ? [{
-        name: "device", label: "Device", type: "string", options: availableDevices
-      }] : []),
-      ...(minDate && maxDate ? [{
-        name: "date", label: "Date", type: "string", options: (() => {
-          const result = [];
-          let d = new Date(minDate);
-          while (d <= maxDate) {
-            result.push(d.toISOString().slice(0,10));
-            d.setDate(d.getDate() + 1);
-          }
-          return result;
-        })()
-      }] : [])
-    ],
-    xKey: "x",
-    yKey: "y",
-    initialFilters: {}
-  };
-
   return (
     <div>
       {/* Details Modal */}
@@ -488,24 +458,7 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* New Chart Section */}
-      <div className="mb-3">
-        <SessionTrackingChart
-          data={buildBarData(items)}
-          loading={loading}
-          error={error}
-          chartType="bar"
-          filtersConfig={chartFiltersConfig}
-          ariaLabel="Session Event Overview"
-          label="Session Activity Distribution"
-          onFilterChange={handleChartFilterChange}
-          theme={{
-            colors: ["#2563EB", "#F59E0B", "#EF4444", "#4ade80"]
-          }}
-        />
-      </div>
-
-      {/* Existing charts and table */}
+      {/* Charts stacked vertically (normal flow, with spacing below so table doesn't overlap) */}
       <div
         className="sessions-charts"
         role="region"
@@ -514,7 +467,7 @@ export default function Sessions() {
           display: "flex",
           flexDirection: "column",
           gap: 24,
-          marginBottom: 32,
+          marginBottom: 32, // ensure spacing before the table card
         }}
       >
         <Card
@@ -536,6 +489,7 @@ export default function Sessions() {
           title="Sessions by Type"
           subtitle="Count of sessions per type"
         >
+          {/* Wrapper participates in normal flow; no absolute positioning */}
           <div className="chart-wrapper" style={{ minHeight: 320 }}>
             <SessionsByType
               data={byType}
@@ -546,6 +500,8 @@ export default function Sessions() {
           </div>
         </Card>
       </div>
+
+      {/* Existing table card remains below charts */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <input
@@ -619,10 +575,12 @@ export default function Sessions() {
           columns={columns}
           data={items}
           loading={loading}
+
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
+            // Remember current sort so external triggers (search) keep ordering consistent
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
             } else if (!lastSortRef.current) {
@@ -632,6 +590,7 @@ export default function Sessions() {
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
+
         />
       </Card>
     </div>
