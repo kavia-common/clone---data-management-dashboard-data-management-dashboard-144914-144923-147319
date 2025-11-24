@@ -258,5 +258,5 @@ module.exports = {
   ensureTenantOrgSalt,
   // New public wrappers
   hashPassword,
-  verifyAndMigrate,
+  verifyAndMigrate
 };
