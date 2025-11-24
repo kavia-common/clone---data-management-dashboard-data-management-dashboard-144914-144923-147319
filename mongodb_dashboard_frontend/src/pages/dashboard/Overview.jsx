@@ -389,14 +389,46 @@ export default function Overview() {
 
   // UI for custom range minimal placeholder (could be replaced with a datepicker later)
   function CustomRangeControls() {
+    // Ocean Professional accent colors
+    const pillStyles = {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      padding: "4px 8px",
+      borderRadius: 999,
+      fontSize: 12,
+      color: "#1F2937",
+      background: "#EFF6FF", // subtle blue background
+      border: "1px solid #BFDBFE",
+      whiteSpace: "nowrap",
+    };
+
+    // Compute a live label based on partial selection if custom is active
+    const liveLabel = useMemo(() => {
+      // Always reflect what's currently chosen in the pickers (partial-safe)
+      const opts = { year: "numeric", month: "short", day: "numeric" };
+      const hasStart = Boolean(customRange.start);
+      const hasEnd = Boolean(customRange.end);
+
+      const fmtStart = hasStart ? new Date(customRange.start).toLocaleDateString(undefined, opts) : null;
+      const fmtEnd = hasEnd ? new Date(customRange.end).toLocaleDateString(undefined, opts) : null;
+
+      if (hasStart && hasEnd) return `Filtered: ${fmtStart} — ${fmtEnd}`;
+      if (hasStart) return `From ${fmtStart}`;
+      if (hasEnd) return `Until ${fmtEnd}`;
+      return "Select a custom range";
+    }, [customRange.start, customRange.end]);
+
     return (
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <label style={{ fontSize: 12, color: "#6B7280" }}>
           Start:
           <input
             type="date"
             onChange={(e) => setCustomRange((r) => ({ ...r, start: e.target.value }))}
+            value={customRange.start || ""}
             style={{ marginLeft: 6 }}
+            aria-label="Custom range start date"
           />
         </label>
         <label style={{ fontSize: 12, color: "#6B7280" }}>
@@ -404,15 +436,34 @@ export default function Overview() {
           <input
             type="date"
             onChange={(e) => setCustomRange((r) => ({ ...r, end: e.target.value }))}
+            value={customRange.end || ""}
             style={{ marginLeft: 6 }}
+            aria-label="Custom range end date"
           />
         </label>
+        <span aria-live="polite" aria-atomic="true" style={pillStyles}>
+          {liveLabel}
+        </span>
       </div>
     );
   }
 
   // Memoized locale-formatted date range label derived from startISO/endISO
   const dateRangeLabel = useMemo(() => {
+    // While picking custom dates, prefer showing partial label based on pickers
+    if (rangeKey === "custom") {
+      const opts = { year: "numeric", month: "short", day: "numeric" };
+      const hasStart = Boolean(customRange.start);
+      const hasEnd = Boolean(customRange.end);
+      const fmtStart = hasStart ? new Date(customRange.start).toLocaleDateString(undefined, opts) : null;
+      const fmtEnd = hasEnd ? new Date(customRange.end).toLocaleDateString(undefined, opts) : null;
+      if (hasStart && hasEnd) return `Filtered: ${fmtStart} — ${fmtEnd}`;
+      if (hasStart) return `From ${fmtStart}`;
+      if (hasEnd) return `Until ${fmtEnd}`;
+      // Fallback to empty so we don't show a confusing default before any selection
+      return "";
+    }
+
     if (!startISO || !endISO) return "";
     const start = new Date(startISO);
     const end = new Date(endISO);
@@ -421,7 +472,7 @@ export default function Overview() {
     const fromStr = start.toLocaleDateString(undefined, opts);
     const toStr = end.toLocaleDateString(undefined, opts);
     return `Filtered: ${fromStr} — ${toStr}`;
-  }, [startISO, endISO]);
+  }, [rangeKey, customRange.start, customRange.end, startISO, endISO]);
 
   // Reusable compact badge style for the date-range label (Ocean Professional)
   const labelPill = (
@@ -435,9 +486,9 @@ export default function Overview() {
         padding: "4px 8px",
         borderRadius: 999,
         fontSize: 12,
-        color: "#374151", // subtle text
-        background: "#F3F4F6", // light gray pill
-        border: "1px solid #E5E7EB",
+        color: "#1F2937",
+        background: "#EFF6FF",
+        border: "1px solid #BFDBFE",
         whiteSpace: "nowrap",
       }}
     >
@@ -459,6 +510,7 @@ export default function Overview() {
               background: rangeKey === key ? "#2563EB" : "transparent",
               color: rangeKey === key ? "#fff" : "#111827",
               cursor: "pointer",
+              transition: "background 120ms ease, color 120ms ease",
             }}
             aria-pressed={rangeKey === key}
           >
