@@ -301,7 +301,7 @@ export default function Costs() {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, []);
 
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
@@ -329,7 +329,7 @@ export default function Costs() {
   const columns = useMemo(() => {
     const base = buildColumnsFromSample(items || []);
     return base.slice();
-  }, [items, buildColumnsFromSample]);
+  }, [items]);
 
   return (
     <div>

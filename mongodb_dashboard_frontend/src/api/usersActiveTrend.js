@@ -1,4 +1,4 @@
-import { baseClient } from './baseClient';
+import baseClient from './baseClient';
 import { getApiBase } from './config';
 
 /**
@@ -75,7 +75,7 @@ export async function getActiveUsersTrend(params = {}) {
   return res;
 }
 
-export const usersActiveTrendApi = {
+export default {
   // PUBLIC_INTERFACE
   getActiveUsersTrend,
 };

@@ -157,4 +157,4 @@ export async function getOverviewMetrics() {
   };
 }
 
-export const modulesClient = { getModules, getOverviewMetrics };
+export default { getModules, getOverviewMetrics };
