@@ -7,7 +7,6 @@ import { usdToCredits, formatCredits, parseUsdToNumber } from '../../utils/curre
 import { formatCurrencyAmount } from '../../utils/formatCurrency';
 import { getUserBasic } from '../../api/users';
 import './SessionDetailsModal.css';
-import SessionDetailCharts from '../charts/SessionDetailCharts.jsx';
 
 /**
  * PUBLIC_INTERFACE
@@ -600,35 +599,6 @@ function SessionDetailsModal({ open, onClose, session }) {
               </div>
             ))
           )}
-        </section>
-
-        {/* Charts section: additive, uses the same session prop */}
-        <h3
-          style={{
-            fontSize: 16,
-            fontWeight: 700,
-            color: 'var(--text-primary, #111827)',
-            margin: '8px 0',
-          }}
-        >
-          Visual Breakdown
-        </h3>
-        <section
-          aria-label="Session charts"
-          className="details-card"
-          style={{
-            position: 'relative',
-            background: 'var(--bg-surface, #ffffff)',
-            border: '1px solid var(--border-subtle, #E5E7EB)',
-            borderRadius: 16,
-            padding: 12,
-            boxShadow: 'var(--shadow-md, 0 8px 24px rgba(16,24,40,0.12))',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12,
-          }}
-        >
-          <SessionDetailCharts session={session} />
         </section>
       </div>
 
