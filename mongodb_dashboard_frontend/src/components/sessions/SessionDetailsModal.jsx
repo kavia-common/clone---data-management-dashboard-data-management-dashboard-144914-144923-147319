@@ -333,7 +333,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         agent: agentText,
       };
     });
-  }, [session, computeDurationPretty]);
+  }, [session]);
 
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';

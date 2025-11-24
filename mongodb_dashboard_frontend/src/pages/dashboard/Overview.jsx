@@ -10,7 +10,7 @@ export default function Overview() {
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
   const [error, setError] = useState("");
-
+  const [apiStatus, setApiStatus] = useState("checking");
 
   useEffect(() => {
     async function fetchData() {
@@ -40,12 +40,12 @@ export default function Overview() {
     let mounted = true;
     async function ping() {
       try {
-        await health();
+        const info = await health();
         if (!mounted) return;
-        // health checked; no state set to avoid unused state warnings
+        setApiStatus(info ? "ok" : "error");
       } catch {
         if (!mounted) return;
-        // ignore errors; UI already surfaces data errors via metrics loader
+        setApiStatus("error");
       }
     }
     ping();

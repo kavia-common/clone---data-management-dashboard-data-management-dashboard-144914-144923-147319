@@ -74,11 +74,11 @@ export function toTitleCaseName(value) {
   // Capitalize first letter of each word and letter after an apostrophe.
   // Use a Latin letter class that includes common accents.
   const latinLetter = "A-Za-zÀ-ÖØ-öø-ÿ";
-  const wordStart = new RegExp(`\\b([${latinLetter}])`, 'g');
-  const afterApostrophe = new RegExp(`([’'])(\\s*)([${latinLetter}])`, 'g');
   const titleCased = lower
-    .replace(wordStart, (_, ch) => ch.toUpperCase())
-    .replace(afterApostrophe, (_, quote, spaces, ch) => quote + spaces + ch.toUpperCase());
+    // Start-of-word capitalization
+    .replace(new RegExp(`\\b([${latinLetter}])`, 'g'), (_, ch) => ch.toUpperCase())
+    // After apostrophe (straight or curly)
+    .replace(new RegExp(`([’'])(\\s*)([${latinLetter}])`, 'g'), (_, quote, spaces, ch) => quote + spaces + ch.toUpperCase());
 
   return titleCased;
 }

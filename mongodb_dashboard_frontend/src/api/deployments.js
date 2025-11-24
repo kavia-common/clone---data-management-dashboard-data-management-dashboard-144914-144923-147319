@@ -124,5 +124,5 @@
 
  export default {
    fetchProjectNameByProjectId,
-   fetchDeploymentStatusCounts
+   fetchDeploymentStatusCounts,
  };
