@@ -1,7 +1,7 @@
 const apiBase =
 
   // `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
-  'https://vscode-internal-33743-beta.beta01.cloud.kavia.ai:3001/api'
+  'https://vscode-internal-35399-beta.beta01.cloud.kavia.ai:3001/api'
 
 
 /**

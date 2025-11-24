@@ -1,10 +1,16 @@
 import React from 'react';
 
 const RANGES = [
-  { key: '7d', label: 'Last 7 days (daily)' },
-  { key: '30d', label: 'Last 30 days (daily)' },
-  { key: '12w', label: 'Last 12 weeks (weekly)' },
-  { key: '12m', label: 'Last 12 months (monthly)' },
+  // Daily presets
+  { key: '7d', label: 'Last 7 days' },
+  { key: '14d', label: 'Last 14 days' },
+  { key: '30d', label: 'Last 30 days' },
+  // Weekly preset
+  { key: '12w', label: 'Last 12 weeks' },
+  // Monthly preset
+  { key: '12m', label: 'Last 12 months' },
+  // Custom picker
+  { key: 'custom', label: 'Custom' },
 ];
 
 const METRICS = [
@@ -30,11 +36,12 @@ export default function OverviewTimeControls({ range, setRange, metric, setMetri
         boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
       }}
     >
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} role="group" aria-label="Overview time range">
         {RANGES.map((r) => (
           <button
             key={r.key}
             onClick={() => setRange(r.key)}
+            aria-pressed={range === r.key}
             style={{
               padding: '8px 12px',
               borderRadius: 10,
@@ -43,6 +50,7 @@ export default function OverviewTimeControls({ range, setRange, metric, setMetri
               color: range === r.key ? '#fff' : '#111827',
               transition: 'all 160ms ease',
               cursor: 'pointer',
+              boxShadow: range === r.key ? '0 1px 2px rgba(37,99,235,0.35)' : 'none',
             }}
           >
             {r.label}
