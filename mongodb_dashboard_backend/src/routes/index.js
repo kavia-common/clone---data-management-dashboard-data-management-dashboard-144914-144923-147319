@@ -1,5 +1,3 @@
-'use strict';
-
 const express = require('express');
 const healthController = require('../controllers/health');
 const { verifyAuth } = require('../middleware/verifyAuth');

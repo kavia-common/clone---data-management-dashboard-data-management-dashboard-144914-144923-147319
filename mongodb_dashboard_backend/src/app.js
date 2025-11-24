@@ -1,5 +1,3 @@
-'use strict';
-
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
@@ -101,7 +99,9 @@ app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler
 // Routers
 // ---------------------------------------------
 const safeUse = (path, router) => {
-  if (router && typeof router === 'function') app.use(path, router);
+  if (router && typeof router === 'function') {
+    app.use(path, router);
+  }
 };
 
 const baseRouter = require('./routes');
