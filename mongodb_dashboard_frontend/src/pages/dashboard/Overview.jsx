@@ -215,16 +215,17 @@ export default function Overview() {
     };
   }, [startISO, endISO, granularity]);
 
-  // Users trend fetcher — uses /api/users/active-trend when available; falls back to client-side aggregation from sessions
+  // Users trend fetcher — prefer users collection; fallback to backend sessions-based endpoint
   useEffect(() => {
     let aborted = false;
     async function loadUsers() {
       setUsersLoading(true);
       setUsersError(null);
       try {
-        // Prefer backend active users trend (granularity day|week)
+        // Prefer backend active users trend (from users collection) if available
         const backendGranularity = granularity === "weekly" ? "week" : "day";
         let items = [];
+        let backendOk = false;
         try {
           const resp = await getActiveUsersTrend({
             from: startISO,
@@ -232,37 +233,62 @@ export default function Overview() {
             granularity: backendGranularity,
           });
           items = Array.isArray(resp?.items) ? resp.items : [];
+          backendOk = items.length > 0 || Array.isArray(resp?.items);
         } catch {
-          // fallback to sessions list and compute distinct users per bucket
-          const { items: sessions } = await fetchSessionTracking({
-            start: startISO,
-            end: endISO,
-            limit: 500,
-            sort: "-session_start",
+          backendOk = false;
+        }
+
+        if (!backendOk) {
+          // Client-side aggregation from /api/users
+          // Active user definition: updated_at within [startISO, endISO], status !== 'deleted'
+          // Bucket by day/week based on updated_at and count distinct users per bucket.
+          const filter = {
+            $and: [
+              {
+                $or: [
+                  { updated_at: { $gte: startISO, $lte: endISO } },
+                  { updatedAt: { $gte: startISO, $lte: endISO } },
+                  { last_activity_at: { $gte: startISO, $lte: endISO } },
+                  { lastActivityAt: { $gte: startISO, $lte: endISO } },
+                ],
+              },
+              {
+                $or: [
+                  { status: { $exists: false } },
+                  { status: { $ne: "deleted" } },
+                ],
+              },
+            ],
+          };
+
+          // listUsers is already imported for KPIs; we reuse it for fetching raw users
+          const usersRes = await listUsers({
+            filter: JSON.stringify(filter),
+            limit: 1000,
+            sort: "-updated_at",
           });
-          const byBucketUsers = new Map();
-          (sessions || []).forEach((it) => {
-            // normalize timestamp and user id fields
+
+          const users = usersRes?.items || (Array.isArray(usersRes) ? usersRes : []);
+          const bucketUsers = new Map();
+          users.forEach((u) => {
             const t =
-              it.session_start ||
-              it.last_updated ||
-              it.updated_at ||
-              it.startedAt ||
-              it.createdAt ||
-              it.timestamp ||
-              it.lastActivityAt ||
-              it.endedAt ||
-              it.date;
+              u.updated_at ||
+              u.updatedAt ||
+              u.last_activity_at ||
+              u.lastActivityAt ||
+              u.created_at ||
+              u.createdAt ||
+              u.date;
             const d = t ? new Date(t) : null;
             if (!d || Number.isNaN(d.getTime())) return;
             const key = granularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
-            const uid = String(it.user_id ?? it.userId ?? it.user ?? it.owner_id ?? "");
+            const uid = String(u._id ?? u.id ?? u.user_id ?? u.userId ?? u.email ?? "");
             if (!uid) return;
-            if (!byBucketUsers.has(key)) byBucketUsers.set(key, new Set());
-            byBucketUsers.get(key).add(uid);
+            if (!bucketUsers.has(key)) bucketUsers.set(key, new Set());
+            bucketUsers.get(key).add(uid);
           });
-          // transform to array of {date,label,total}
-          items = Array.from(byBucketUsers.entries()).map(([date, set]) => ({
+
+          items = Array.from(bucketUsers.entries()).map(([date, set]) => ({
             date,
             total: (set && set.size) || 0,
           }));
@@ -270,7 +296,6 @@ export default function Overview() {
 
         if (aborted) return;
 
-        // If backend provided items per date, transform to label/value with fill
         const map = new Map();
         (items || []).forEach((row) => {
           const label = row.date || row.label || row.day || row.week;
