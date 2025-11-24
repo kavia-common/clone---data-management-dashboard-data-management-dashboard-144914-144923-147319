@@ -168,15 +168,15 @@ export default function Overview() {
   // Derived ISO ranges for each chart
   const sessionsRange = useMemo(
     () => computeRange(sessionsRangeKey, sessionsCustomRange),
-    [sessionsRangeKey, sessionsCustomRange.start, sessionsCustomRange.end]
+    [sessionsRangeKey, sessionsCustomRange]
   );
   const usersRange = useMemo(
     () => computeRange(usersRangeKey, usersCustomRange),
-    [usersRangeKey, usersCustomRange.start, usersCustomRange.end]
+    [usersRangeKey, usersCustomRange]
   );
   const costsRange = useMemo(
     () => computeRange(costsRangeKey, costsCustomRange),
-    [costsRangeKey, costsCustomRange.start, costsCustomRange.end]
+    [costsRangeKey, costsCustomRange]
   );
 
   // Sessions trend fetcher — independent

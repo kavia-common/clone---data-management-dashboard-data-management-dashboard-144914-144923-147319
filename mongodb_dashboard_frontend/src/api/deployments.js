@@ -122,7 +122,7 @@
    return fetchStatusCountsClientSide({ pageLimit, maxPages });
  }
 
- export default {
+ export const deploymentsApi = {
    fetchProjectNameByProjectId,
    fetchDeploymentStatusCounts,
  };

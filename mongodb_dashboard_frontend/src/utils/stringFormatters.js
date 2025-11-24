@@ -24,7 +24,7 @@ export function toCamelCaseName(value) {
 
   const normalized = value
     .trim()
-    .replace(/[_\-]+/g, ' ')  // underscores/hyphens -> space
+    .replace(/[_-]+/g, ' ')  // underscores/hyphens -> space
     .replace(/\s+/g, ' ');    // collapse multiple spaces
 
   if (!normalized) return '';

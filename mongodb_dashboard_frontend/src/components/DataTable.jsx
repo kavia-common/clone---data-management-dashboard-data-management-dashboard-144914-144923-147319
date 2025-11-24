@@ -341,19 +341,27 @@ export default function DataTable({
             <tr>
               {columns.map((c) => {
                 const thClass = `th ${c.priority ? `col-priority-${c.priority}` : ""} ${c.className || ""}`.trim();
+                const isSorted = sortKey === c.key;
+                const ariaSort = isSorted ? (sortDir === "asc" ? "ascending" : "descending") : "none";
                 return (
                   <th
                     key={c.key}
-                    onClick={() => toggleSort(c.key)}
-                    role="button"
                     className={thClass}
                     scope="col"
-                    aria-sort={sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-                    title="Click to sort"
+                    aria-sort={ariaSort}
                     style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
                   >
-                    {c.label}
-                    {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
+                    <button
+                      type="button"
+                      className="th-button-sort"
+                      onClick={() => toggleSort(c.key)}
+                      title="Click to sort"
+                      aria-label={`Sort by ${c.label}${isSorted ? `, ${ariaSort}` : ""}`}
+                      style={{ all: "unset", cursor: "pointer" }}
+                    >
+                      {c.label}
+                      {isSorted && (sortDir === "asc" ? " ▲" : " ▼")}
+                    </button>
                   </th>
                 );
               })}

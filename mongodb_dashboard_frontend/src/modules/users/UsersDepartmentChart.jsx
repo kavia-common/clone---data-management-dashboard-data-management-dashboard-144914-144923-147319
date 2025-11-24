@@ -15,7 +15,7 @@ import {
 import { aggregateUsersByDepartment, useUsers } from '../../hooks/useUsers';
 import Card from '../../components/ui/Card';
 import '../../styles/theme.css';
-import { motion } from 'framer-motion';
+
 import { getOceanTheme } from '../../theme/oceanTheme';
 
 // Ocean Professional theme tokens

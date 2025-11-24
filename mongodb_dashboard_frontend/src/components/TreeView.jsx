@@ -52,7 +52,7 @@ const TreeView = forwardRef(function TreeView(
   // - all expandable paths (objects/arrays)
   // - paths that match search (keys or primitive values)
   // - ancestor paths for matches (for auto-expand)
-  const { allPaths, matchPaths, autoExpandPaths } = useMemo(() => {
+  const { allPaths, autoExpandPaths } = useMemo(() => {
     const expandablePaths = new Set();
     const matches = new Set();
     const autoExpand = new Set();

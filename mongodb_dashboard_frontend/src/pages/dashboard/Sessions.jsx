@@ -107,35 +107,7 @@ export default function Sessions() {
     const presentKeys = new Set();
     (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
 
-    function formatLocal(val) {
-      if (!val) return "—";
-      try {
-        const d = new Date(val);
-        if (isNaN(d.getTime())) return "—";
-        return d.toLocaleString();
-      } catch {
-        return "—";
-      }
-    }
-    function toHms(seconds) {
-      const secs = Math.max(0, Math.floor(Number(seconds) || 0));
-      const h = String(Math.floor(secs / 3600)).padStart(2, "0");
-      const m = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
-      const sRem = String(secs % 60).padStart(2, "0");
-      return `${h}:${m}:${sRem}`;
-    }
-    function computeDuration(start, end) {
-      if (!start || !end) return null;
-      try {
-        const s = new Date(start).getTime();
-        const e = new Date(end).getTime();
-        if (isNaN(s) || isNaN(e)) return null;
-        const secs = Math.max(0, Math.floor((e - s) / 1000));
-        return toHms(secs);
-      } catch {
-        return null;
-      }
-    }
+
 
     return allowedOrdered.map((k) => {
       const label = k === "User_name" ? "User name" : toLabel(k);
