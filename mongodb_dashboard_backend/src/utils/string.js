@@ -1,4 +1,3 @@
-'use strict';
 
 /**
  * Utility string helpers with safe, minimal transforms used by backend only.
