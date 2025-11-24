@@ -371,7 +371,7 @@ export default function UsersAnalyticsPanel({
                   <div aria-busy="true">
                     <div className="skeleton" style={{ height: 14, width: "60%", marginBottom: 8 }} />
                     <div className="skeleton" style={{ height: 12, width: "50%", marginBottom: 8 }} />
-                    <div className="skeleton" style={{ height: 320, width: "100%" }} />
+                    <div className="skeleton" style={{ height: 250, width: "100%" }} />
                   </div>
                 ) : usersError ? (
                   <div className="error" role="alert">{usersError.message || "Failed to load users"}</div>
@@ -414,7 +414,7 @@ export default function UsersAnalyticsPanel({
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
                     <Skeleton width="50%" height={12} className="mb-2" />
-                    <Skeleton width="100%" height={286} />
+                    <Skeleton width="100%" height={260} />
                   </div>
                 ) : usersError ? (
                   <div className="error" role="alert">{usersError.message || "Failed to load users"}</div>
