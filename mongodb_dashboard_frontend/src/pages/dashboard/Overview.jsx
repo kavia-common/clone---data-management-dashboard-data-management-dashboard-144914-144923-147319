@@ -66,17 +66,18 @@ export default function Overview() {
   const [, setApiStatus] = useState("checking");
 
   // Sessions controls (independent)
-  const [sessionsRangeKey, setSessionsRangeKey] = useState("7d"); // '7d' | '14d' | '30d' | 'custom'
+  const [sessionsRangeKey, setSessionsRangeKey] = useState("30d"); // default last 30 days
   const [sessionsCustomRange, setSessionsCustomRange] = useState({ start: null, end: null });
-  const [sessionsGranularity, setSessionsGranularity] = useState("daily"); // 'daily' | 'weekly'
+  const [sessionsGranularity, setSessionsGranularity] = useState("daily"); // 'daily' | 'weekly' (monthly maps to weekly)
 
   // Users controls (independent)
-  const [usersRangeKey, setUsersRangeKey] = useState("7d");
+  const [usersRangeKey, setUsersRangeKey] = useState("30d");
   const [usersCustomRange, setUsersCustomRange] = useState({ start: null, end: null });
   const [usersGranularity, setUsersGranularity] = useState("daily");
+  const [usersStatus, setUsersStatus] = useState("active"); // 'active' | 'all'
 
-  // Costs controls (kept shared with sessions by default to preserve existing behavior)
-  const [costsRangeKey, setCostsRangeKey] = useState("7d");
+  // Costs controls (kept separate)
+  const [costsRangeKey, setCostsRangeKey] = useState("30d");
   const [costsCustomRange, setCostsCustomRange] = useState({ start: null, end: null });
   const [costsGranularity, setCostsGranularity] = useState("daily");
 
@@ -188,8 +189,8 @@ export default function Overview() {
       try {
         const { startISO, endISO } = sessionsRange;
         const { items } = await fetchSessionTracking({
-          start: startISO,
-          end: endISO,
+          start_date: startISO, // map to start_date per requirement
+          end_date: endISO,     // map to end_date per requirement
           limit: 200,
           sort: "-session_start",
         });
@@ -249,6 +250,8 @@ export default function Overview() {
       try {
         const { startISO, endISO } = usersRange;
         const backendGranularity = usersGranularity === "weekly" ? "week" : "day";
+        const statusParam = usersStatus === "active" ? "completed|active" : undefined;
+
         let items = [];
         let backendOk = false;
         try {
@@ -256,6 +259,7 @@ export default function Overview() {
             from: startISO,
             to: endISO,
             granularity: backendGranularity,
+            status: statusParam,
           });
           items = Array.isArray(resp?.items) ? resp.items : [];
           backendOk = items.length > 0 || Array.isArray(resp?.items);
@@ -264,39 +268,32 @@ export default function Overview() {
         }
 
         if (!backendOk) {
-          const filter = {
+          // Fallback: derive from users collection using created_at for bucketing plus status filter
+          const createdFilter = {
             $and: [
               {
                 $or: [
-                  { updated_at: { $gte: startISO, $lte: endISO } },
-                  { updatedAt: { $gte: startISO, $lte: endISO } },
-                  { last_activity_at: { $gte: startISO, $lte: endISO } },
-                  { lastActivityAt: { $gte: startISO, $lte: endISO } },
+                  { created_at: { $gte: startISO, $lte: endISO } },
+                  { createdAt: { $gte: startISO, $lte: endISO } },
                 ],
               },
-              {
-                $or: [{ status: { $exists: false } }, { status: { $ne: "deleted" } }],
-              },
+              // status filter: if 'active' exclude deleted; if 'all' do not filter
+              ...(usersStatus === "active"
+                ? [{ $or: [{ status: { $exists: false } }, { status: { $nin: ["deleted", "inactive"] } }] }]
+                : []),
             ],
           };
 
           const usersRes = await listUsers({
-            filter: JSON.stringify(filter),
-            limit: 1000,
-            sort: "-updated_at",
+            filter: JSON.stringify(createdFilter),
+            limit: 2000,
+            sort: "-created_at",
           });
 
           const users = usersRes?.items || (Array.isArray(usersRes) ? usersRes : []);
           const bucketUsers = new Map();
           users.forEach((u) => {
-            const t =
-              u.updated_at ||
-              u.updatedAt ||
-              u.last_activity_at ||
-              u.lastActivityAt ||
-              u.created_at ||
-              u.createdAt ||
-              u.date;
+            const t = u.created_at || u.createdAt || u.date;
             const d = t ? new Date(t) : null;
             if (!d || Number.isNaN(d.getTime())) return;
             const key = usersGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
@@ -336,7 +333,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [usersRange.startISO, usersRange.endISO, usersGranularity, fillSeries]);
+  }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
 
   // Costs trend fetcher — independent (kept separate to avoid coupling)
   useEffect(() => {
@@ -471,13 +468,14 @@ export default function Overview() {
         options={[
           { value: "daily", label: "Daily" },
           { value: "weekly", label: "Weekly" },
+          { value: "monthly", label: "Monthly" },
         ]}
       />
     </div>
   );
 
   const UsersControls = (
-    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
         {["7d", "14d", "30d", "custom"].map((key) => (
           <button
@@ -505,8 +503,45 @@ export default function Overview() {
         options={[
           { value: "daily", label: "Daily" },
           { value: "weekly", label: "Weekly" },
+          { value: "monthly", label: "Monthly" },
         ]}
       />
+      <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8, alignItems: "center" }}>
+        <label htmlFor="users-status-filter" style={{ fontSize: 12, color: "#6B7280" }}>
+          Status
+        </label>
+        <div
+          id="users-status-filter"
+          role="group"
+          aria-label="Users status filter"
+          style={{ display: "inline-flex", border: "1px solid #E5E7EB", borderRadius: 8, overflow: "hidden", background: "#fff" }}
+        >
+          {[
+            { key: "active", label: "Active" },
+            { key: "all", label: "All" },
+          ].map((opt, idx) => {
+            const active = usersStatus === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setUsersStatus(opt.key)}
+                aria-pressed={active}
+                style={{
+                  padding: "6px 10px",
+                  border: "none",
+                  background: active ? "#0EA5E9" : "transparent",
+                  color: active ? "#fff" : "#111827",
+                  borderRight: idx === 0 ? "1px solid #E5E7EB" : "none",
+                  cursor: "pointer",
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 
@@ -539,6 +574,7 @@ export default function Overview() {
         options={[
           { value: "daily", label: "Daily" },
           { value: "weekly", label: "Weekly" },
+          { value: "monthly", label: "Monthly" },
         ]}
       />
     </div>
