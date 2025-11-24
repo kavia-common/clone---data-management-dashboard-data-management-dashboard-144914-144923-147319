@@ -1,16 +1,18 @@
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
+import { listUsers, listSessions, listDeployments, listLlmCosts, health } from "../../api";
+import { fetchSessionTracking } from "../../api/sessionTracking";
 import LoadingState from "../../components/common/LoadingState";
 import ErrorState from "../../components/common/ErrorState";
 import KPIChart from "../../components/charts/KPIChart.jsx";
-import { listUsers, listSessions, listDeployments, listLlmCosts, health } from "../../api";
-import { fetchSessionTracking } from "../../api/sessionTracking";
+import TimeBucketFilter from "../../components/common/TimeBucketFilter.jsx";
 import { getActiveUsersTrend } from "../../api/usersActiveTrend";
-import "../../styles/globals.css";
 
 /**
- * Helper, get YYYY-MM-DD string for a Date.
+ * Utility functions to bucket timestamps by day/week and compute counts.
+ * We normalize dates to YYYY-MM-DD for day buckets and ISO week start for weekly buckets.
+ * These mirror utils/sessions/bucketing.js to avoid cross-import churn in this page.
  */
 function toYMD(date) {
   const d = new Date(date);
@@ -20,9 +22,6 @@ function toYMD(date) {
   return `${y}-${m}-${da}`;
 }
 
-/**
- * Helper, get start of week (Monday).
- */
 function startOfWeek(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -32,79 +31,95 @@ function startOfWeek(date) {
 }
 
 /**
- * Helper, format date to API ISO, or empty string if invalid/null/etc.
+ * Compute ISO start/end based on a range key and optional custom date inputs.
  */
-function formatDateISO(dt) {
-  if (!dt) return "";
-  try {
-    const asDate = dt instanceof Date ? dt : new Date(dt);
-    return asDate.toISOString().slice(0, 10);
-  } catch {
-    return "";
+function computeRange(rangeKey, customRange) {
+  const now = new Date();
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  let start = new Date(end);
+  if (rangeKey === "7d") start.setDate(end.getDate() - 6);
+  else if (rangeKey === "14d") start.setDate(end.getDate() - 13);
+  else if (rangeKey === "30d") start.setDate(end.getDate() - 29);
+  else if (rangeKey === "custom" && customRange.start && customRange.end) {
+    const s = new Date(customRange.start);
+    const e = new Date(customRange.end);
+    s.setHours(0, 0, 0, 0);
+    e.setHours(23, 59, 59, 999);
+    return { startISO: s.toISOString(), endISO: e.toISOString() };
+  } else {
+    start.setDate(end.getDate() - 29);
   }
-}
-
-/**
- * Chart granularity and defaults.
- */
-const GRANULARITY_OPTIONS = [
-  { value: "day", label: "Day" },
-  { value: "week", label: "Week" },
-  { value: "month", label: "Month" },
-];
-const DEFAULT_GRANULARITY = "day";
-const DEFAULT_RANGE_KEY = "last30";
-const PRESETS = [
-  { key: "last7", label: "Last 7 days", getRange: () => ({ from: toYMD(new Date(Date.now() - 6 * 24 * 3600 * 1000)), to: toYMD(new Date()) }) },
-  { key: "last30", label: "Last 30 days", getRange: () => ({ from: toYMD(new Date(Date.now() - 29 * 24 * 3600 * 1000)), to: toYMD(new Date()) }) },
-  { key: "thisMonth", label: "This month", getRange: () => {
-    const d = new Date(); return { from: toYMD(new Date(d.getFullYear(), d.getMonth(), 1)), to: toYMD(d) };
-  } },
-];
-
-const STATUS_OPTIONS = [
-  { value: "active", label: "Active" },
-  { value: "all", label: "All" }
-];
-
-function getPresetRangeByKey(key) {
-  const match = PRESETS.find((p) => p.key === key);
-  return match ? match.getRange() : PRESETS[1].getRange(); // default last30
-}
-
-function DateInput({ label, value, onChange, max, min }) {
-  return (
-    <label style={{ fontSize: 12, color: "#374151", marginRight: 12 }}>
-      {label}
-      <input
-        type="date"
-        value={value}
-        min={min}
-        max={max}
-        onChange={e => onChange(e.target.value)}
-        style={{
-          marginLeft: 6,
-          borderRadius: 6,
-          border: "1px solid #cfd3da",
-          padding: "2px 6px",
-          fontSize: 14,
-          background: "#fff"
-        }}
-      />
-    </label>
-  );
+  start.setHours(0, 0, 0, 0);
+  return { startISO: start.toISOString(), endISO: end.toISOString() };
 }
 
 /**
  * PUBLIC_INTERFACE
- * Overview Page with per-chart Filters
+ * Overview
  */
 export default function Overview() {
-  // Top-of-page KPIs (total cards)
+  /** Overview page with KPIs and three trend charts (Sessions, Users, Costs). */
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
   const [error, setError] = useState("");
   const [, setApiStatus] = useState("checking");
+
+  // Sessions controls (independent)
+  const [sessionsRangeKey, setSessionsRangeKey] = useState("30d"); // default last 30 days
+  const [sessionsCustomRange, setSessionsCustomRange] = useState({ start: null, end: null });
+  const [sessionsGranularity, setSessionsGranularity] = useState("daily"); // 'daily' | 'weekly' (monthly maps to weekly)
+
+  // Users controls (independent)
+  const [usersRangeKey, setUsersRangeKey] = useState("30d");
+  const [usersCustomRange, setUsersCustomRange] = useState({ start: null, end: null });
+  const [usersGranularity, setUsersGranularity] = useState("daily");
+  const [usersStatus, setUsersStatus] = useState("active"); // 'active' | 'all'
+
+  // Costs controls (kept separate)
+  const [costsRangeKey, setCostsRangeKey] = useState("30d");
+  const [costsCustomRange, setCostsCustomRange] = useState({ start: null, end: null });
+  const [costsGranularity, setCostsGranularity] = useState("daily");
+
+  // Sessions chart state
+  const [sessionsSeries, setSessionsSeries] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState(null);
+
+  // Users chart state
+  const [usersSeries, setUsersSeries] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState(null);
+
+  // Costs chart state
+  const [costsSeries, setCostsSeries] = useState([]);
+  const [costsLoading, setCostsLoading] = useState(false);
+  const [costsError, setCostsError] = useState(null);
+
+  // KPI metrics
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      setError("");
+      try {
+        const [users, sessions, deployments] = await Promise.all([
+          listUsers({ limit: 5 }),
+          listSessions({ limit: 5 }),
+          listDeployments({ limit: 5 }),
+        ]);
+        setMetrics({
+          users: users?.total || users?.length || 0,
+          sessions: sessions?.total || sessions?.length || 0,
+          deployments: deployments?.total || deployments?.length || 0,
+        });
+      } catch (e) {
+        setError(e?.response?.data?.message || e?.message || "Failed to load overview data.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
 
   // Backend health check (non-blocking)
   useEffect(() => {
@@ -120,414 +135,616 @@ export default function Overview() {
       }
     }
     ping();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // Load metrics
-  useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
-      setError("");
-      try {
-        const [users, sessions, deployments] = await Promise.all([
-          listUsers({ limit: 1 }),
-          listSessions({ limit: 1 }),
-          listDeployments({ limit: 1 }),
-        ]);
-        setMetrics({
-          users: users?.total || users?.length || 0,
-          sessions: sessions?.total || sessions?.length || 0,
-          deployments: deployments?.total || deployments?.length || 0,
-        });
-      } catch (e) {
-        setError(e?.message || "Failed to load overview data.");
-      } finally {
-        setLoading(false);
+  // Helper to fill continuous daily/weekly series from a Map
+  const fillSeries = useCallback(function fillSeries(map, start, end, bucket = "daily") {
+    const s = new Date(start);
+    const e = new Date(end);
+    const series = [];
+    if (bucket === "weekly") {
+      let c = startOfWeek(s);
+      while (c <= e) {
+        const key = toYMD(c);
+        series.push({ label: key, value: map.get(key) || 0 });
+        c = new Date(c);
+        c.setDate(c.getDate() + 7);
+      }
+    } else {
+      let c = new Date(s);
+      c.setHours(0, 0, 0, 0);
+      while (c <= e) {
+        const key = toYMD(c);
+        series.push({ label: key, value: map.get(key) || 0 });
+        c = new Date(c);
+        c.setDate(c.getDate() + 1);
       }
     }
-    fetchData();
+    return series;
   }, []);
 
-  // --- Session Trend Chart State/Controls ---
-  const [sessionsGranularity, setSessionsGranularity] = useState(DEFAULT_GRANULARITY);
-  const [sessionsRangePreset, setSessionsRangePreset] = useState(DEFAULT_RANGE_KEY);
-  const [sessionsCustomRange, setSessionsCustomRange] = useState(() => getPresetRangeByKey(DEFAULT_RANGE_KEY));
-  const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [sessionsData, setSessionsData] = useState([]);
-  const [sessionsError, setSessionsError] = useState(null);
+  // Derived ISO ranges for each chart
+  const sessionsRange = useMemo(
+    () => computeRange(sessionsRangeKey, sessionsCustomRange),
+    [sessionsRangeKey, sessionsCustomRange.start, sessionsCustomRange.end]
+  );
+  const usersRange = useMemo(
+    () => computeRange(usersRangeKey, usersCustomRange),
+    [usersRangeKey, usersCustomRange.start, usersCustomRange.end]
+  );
+  const costsRange = useMemo(
+    () => computeRange(costsRangeKey, costsCustomRange),
+    [costsRangeKey, costsCustomRange.start, costsCustomRange.end]
+  );
 
-  // --- Users Chart State/Controls ---
-  const [usersGranularity, setUsersGranularity] = useState(DEFAULT_GRANULARITY);
-  const [usersRangePreset, setUsersRangePreset] = useState(DEFAULT_RANGE_KEY);
-  const [usersCustomRange, setUsersCustomRange] = useState(() => getPresetRangeByKey(DEFAULT_RANGE_KEY));
-  const [usersStatus, setUsersStatus] = useState("active");
-  const [usersLoading, setUsersLoading] = useState(false);
-  const [usersData, setUsersData] = useState([]);
-  const [usersError, setUsersError] = useState(null);
-
-  // --- Costs Chart State/Controls ---
-  const [costsGranularity, setCostsGranularity] = useState(DEFAULT_GRANULARITY);
-  const [costsRangePreset, setCostsRangePreset] = useState(DEFAULT_RANGE_KEY);
-  const [costsCustomRange, setCostsCustomRange] = useState(() => getPresetRangeByKey(DEFAULT_RANGE_KEY));
-  const [costsLoading, setCostsLoading] = useState(false);
-  const [costsData, setCostsData] = useState([]);
-  const [costsError, setCostsError] = useState(null);
-
-  // --- Fetch: Sessions Trend ---
+  // Sessions trend fetcher — independent
   useEffect(() => {
     let aborted = false;
-    async function fetchSessions() {
-      setSessionsLoading(true); setSessionsError(null);
+    async function loadSessions() {
+      setSessionsLoading(true);
+      setSessionsError(null);
       try {
-        const from = sessionsCustomRange.from;
-        const to = sessionsCustomRange.to;
-        // Use fetchSessionTracking (API mapped to start_date/end_date and granularity)
+        const { startISO, endISO } = sessionsRange;
         const { items } = await fetchSessionTracking({
-          start_date: from,
-          end_date: to,
-          granularity: sessionsGranularity,
+          start_date: startISO, // map to start_date per requirement
+          end_date: endISO,     // map to end_date per requirement
           limit: 200,
+          sort: "-session_start",
         });
         if (aborted) return;
-        // Map and fill series (date, count)
+
+        const pts = (items || [])
+          .map((it) => {
+            const t =
+              it.session_start ||
+              it.last_updated ||
+              it.updated_at ||
+              it.startedAt ||
+              it.createdAt ||
+              it.timestamp ||
+              it.lastActivityAt ||
+              it.endedAt ||
+              it.date;
+            return t ? new Date(t) : null;
+          })
+          .filter((d) => d && !Number.isNaN(d.getTime()));
+
         const map = new Map();
-        (items || []).forEach(it => {
-          const d = it.date || it.session_start || it.created_at || it.createdAt || it.timestamp;
-          const date = d ? formatDateISO(d) : "";
-          if (!date) return;
-          map.set(date, (map.get(date) || 0) + 1);
-        });
-        // Create time-bucketed series
-        let s = new Date(from), e = new Date(to), series = [];
-        while (s <= e) {
-          const label = formatDateISO(s);
-          series.push({ label, value: map.get(label) || 0 });
-          s.setDate(s.getDate() + (sessionsGranularity === "day" ? 1 : sessionsGranularity === "week" ? 7 : 30));
+        if (sessionsGranularity === "weekly") {
+          pts.forEach((d) => {
+            const wk = startOfWeek(d);
+            const k = toYMD(wk);
+            map.set(k, (map.get(k) || 0) + 1);
+          });
+        } else {
+          pts.forEach((d) => {
+            const k = toYMD(d);
+            map.set(k, (map.get(k) || 0) + 1);
+          });
         }
-        setSessionsData(series);
+
+        setSessionsSeries(fillSeries(map, sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity));
       } catch (e) {
-        if (!aborted) {
-          setSessionsError(e); setSessionsData([]);
-        }
+        if (aborted) return;
+        setSessionsError(e);
+        setSessionsSeries([]);
       } finally {
         if (!aborted) setSessionsLoading(false);
       }
     }
-    fetchSessions();
-    return () => { aborted = true; };
-  }, [sessionsGranularity, sessionsCustomRange.from, sessionsCustomRange.to]);
+    if (sessionsRange.startISO && sessionsRange.endISO) loadSessions();
+    return () => {
+      aborted = true;
+    };
+  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
 
-  // --- Fetch: Users Trend ---
+  // Users trend fetcher — independent
   useEffect(() => {
     let aborted = false;
-    async function fetchUsers() {
-      setUsersLoading(true); setUsersError(null);
+    async function loadUsers() {
+      setUsersLoading(true);
+      setUsersError(null);
       try {
-        const from = usersCustomRange.from;
-        const to = usersCustomRange.to;
-        const gran = usersGranularity === "month" ? "week" : usersGranularity;
+        const { startISO, endISO } = usersRange;
+        const backendGranularity = usersGranularity === "weekly" ? "week" : "day";
         const statusParam = usersStatus === "active" ? "completed|active" : undefined;
+
         let items = [];
+        let backendOk = false;
         try {
-          // getActiveUsersTrend API (created_at range and status)
           const resp = await getActiveUsersTrend({
-            from: from,
-            to: to,
-            granularity: gran,
+            from: startISO,
+            to: endISO,
+            granularity: backendGranularity,
             status: statusParam,
           });
           items = Array.isArray(resp?.items) ? resp.items : [];
-        } catch (e) {
-          items = [];
+          backendOk = items.length > 0 || Array.isArray(resp?.items);
+        } catch {
+          backendOk = false;
         }
+
+        if (!backendOk) {
+          // Fallback: derive from users collection using created_at for bucketing plus status filter
+          const createdFilter = {
+            $and: [
+              {
+                $or: [
+                  { created_at: { $gte: startISO, $lte: endISO } },
+                  { createdAt: { $gte: startISO, $lte: endISO } },
+                ],
+              },
+              // status filter: if 'active' exclude deleted; if 'all' do not filter
+              ...(usersStatus === "active"
+                ? [{ $or: [{ status: { $exists: false } }, { status: { $nin: ["deleted", "inactive"] } }] }]
+                : []),
+            ],
+          };
+
+          const usersRes = await listUsers({
+            filter: JSON.stringify(createdFilter),
+            limit: 2000,
+            sort: "-created_at",
+          });
+
+          const users = usersRes?.items || (Array.isArray(usersRes) ? usersRes : []);
+          const bucketUsers = new Map();
+          users.forEach((u) => {
+            const t = u.created_at || u.createdAt || u.date;
+            const d = t ? new Date(t) : null;
+            if (!d || Number.isNaN(d.getTime())) return;
+            const key = usersGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+            const uid = String(u._id ?? u.id ?? u.user_id ?? u.userId ?? u.email ?? "");
+            if (!uid) return;
+            if (!bucketUsers.has(key)) bucketUsers.set(key, new Set());
+            bucketUsers.get(key).add(uid);
+          });
+
+          items = Array.from(bucketUsers.entries()).map(([date, set]) => ({
+            date,
+            total: (set && set.size) || 0,
+          }));
+        }
+
+        if (aborted) return;
+
         const map = new Map();
         (items || []).forEach((row) => {
-          const date = row.date || row.label || row.day || row.week;
+          const label = row.date || row.label || row.day || row.week;
           const total = Number(row.total ?? row.count ?? row.value ?? 0);
-          if (!date) return;
-          map.set(String(date), Number.isFinite(total) ? total : 0);
+          if (!label) return;
+          map.set(String(label), (map.get(String(label)) || 0) + (Number.isFinite(total) ? total : 0));
         });
-        // Fill series for selected granularity
-        let s = new Date(from), e = new Date(to), series = [];
-        while (s <= e) {
-          const label = formatDateISO(s);
-          series.push({ label, value: map.get(label) || 0 });
-          s.setDate(s.getDate() + (usersGranularity === "day" ? 1 : usersGranularity === "week" ? 7 : 30));
-        }
-        setUsersData(series);
+
+        const series = fillSeries(map, usersRange.startISO, usersRange.endISO, usersGranularity);
+        setUsersSeries(series);
       } catch (e) {
-        if (!aborted) { setUsersError(e); setUsersData([]); }
+        if (aborted) return;
+        setUsersError(e);
+        setUsersSeries([]);
       } finally {
         if (!aborted) setUsersLoading(false);
       }
     }
-    fetchUsers();
-    return () => { aborted = true; };
-  }, [usersGranularity, usersCustomRange.from, usersCustomRange.to, usersStatus]);
+    if (usersRange.startISO && usersRange.endISO) loadUsers();
+    return () => {
+      aborted = true;
+    };
+  }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
 
-  // --- Fetch: Costs Trend ---
+  // Costs trend fetcher — independent (kept separate to avoid coupling)
   useEffect(() => {
     let aborted = false;
-    async function fetchCosts() {
-      setCostsLoading(true); setCostsError(null);
+    async function loadCosts() {
+      setCostsLoading(true);
+      setCostsError(null);
       try {
-        const from = costsCustomRange.from;
-        const to = costsCustomRange.to;
-        // listLlmCosts, grouping by date buckets
+        const { startISO, endISO } = costsRange;
         const filter = {
           $or: [
-            { timestamp: { $gte: from, $lte: to } },
-            { created_at: { $gte: from, $lte: to } },
-            { createdAt: { $gte: from, $lte: to } }
-          ]
+            { timestamp: { $gte: startISO, $lte: endISO } },
+            { created_at: { $gte: startISO, $lte: endISO } },
+            { createdAt: { $gte: startISO, $lte: endISO } },
+          ],
         };
         const res = await listLlmCosts({
           filter: JSON.stringify(filter),
           limit: 500,
           sort: "-timestamp",
         });
+
         const items = res?.items || (Array.isArray(res) ? res : []);
+        if (aborted) return;
+
         const map = new Map();
-        (items || []).forEach(doc => {
-          const d = doc.timestamp || doc.created_at || doc.createdAt || doc.date;
-          const date = d ? formatDateISO(d) : "";
+        (items || []).forEach((doc) => {
+          const t = doc.timestamp || doc.created_at || doc.createdAt || doc.date;
+          const d = t ? new Date(t) : null;
+          if (!d || Number.isNaN(d.getTime())) return;
+
           const raw =
-            doc.total_cost ?? doc.total_usd ?? doc.usd ?? doc.amount_usd ?? doc.cost ?? doc.price ?? doc.amount ?? 0;
+            doc.total_cost ??
+            doc.total_usd ??
+            doc.usd ??
+            doc.amount_usd ??
+            doc.cost ??
+            doc.price ??
+            doc.amount ??
+            0;
           const num = typeof raw === "number" ? raw : Number(String(raw).replace(/[$,]/g, ""));
           const value = Number.isFinite(num) ? num : 0;
-          if (!date) return;
-          map.set(date, (map.get(date) || 0) + value);
+
+          const key = costsGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+          map.set(key, (map.get(key) || 0) + value);
         });
-        // Fill series for buckets
-        let s = new Date(from), e = new Date(to), series = [];
-        while (s <= e) {
-          const label = formatDateISO(s);
-          series.push({ label, value: map.get(label) || 0 });
-          s.setDate(s.getDate() + (costsGranularity === "day" ? 1 : costsGranularity === "week" ? 7 : 30));
-        }
-        setCostsData(series);
+
+        const series = fillSeries(map, startISO, endISO, costsGranularity);
+        setCostsSeries(series);
       } catch (e) {
-        if (!aborted) { setCostsError(e); setCostsData([]); }
+        if (aborted) return;
+        setCostsError(e);
+        setCostsSeries([]);
       } finally {
         if (!aborted) setCostsLoading(false);
       }
     }
-    fetchCosts();
-    return () => { aborted = true; };
-  }, [costsGranularity, costsCustomRange.from, costsCustomRange.to]);
+    if (costsRange.startISO && costsRange.endISO) loadCosts();
+    return () => {
+      aborted = true;
+    };
+  }, [costsRange.startISO, costsRange.endISO, costsGranularity, fillSeries]);
 
-  // --- Chart Controls Components ---
-  function GranularitySelector({ granularity, setGranularity }) {
-    return (
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <span style={{ fontSize: 13, marginRight: 4, fontWeight: 500 }}>Granularity:</span>
-        {GRANULARITY_OPTIONS.map(opt => (
+  // Reusable controls renderers (per-chart)
+  const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {
+    if (rangeKey === "custom") {
+      const opts = { year: "numeric", month: "short", day: "numeric" };
+      const hasStart = Boolean(customRange.start);
+      const hasEnd = Boolean(customRange.end);
+      const fmtStart = hasStart ? new Date(customRange.start).toLocaleDateString(undefined, opts) : null;
+      const fmtEnd = hasEnd ? new Date(customRange.end).toLocaleDateString(undefined, opts) : null;
+      if (hasStart && hasEnd) return `Filtered: ${fmtStart} — ${fmtEnd}`;
+      if (hasStart) return `From ${fmtStart}`;
+      if (hasEnd) return `Until ${fmtEnd}`;
+      return "";
+    }
+    if (!range?.startISO || !range?.endISO) return "";
+    const start = new Date(range.startISO);
+    const end = new Date(range.endISO);
+    const opts = { year: "numeric", month: "short", day: "numeric" };
+    return `Filtered: ${start.toLocaleDateString(undefined, opts)} — ${end.toLocaleDateString(undefined, opts)}`;
+  }, []);
+
+  const DateRangePill = ({ label }) => (
+    <span
+      aria-live="polite"
+      aria-atomic="true"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 8px",
+        borderRadius: 999,
+        fontSize: 12,
+        color: "#1F2937",
+        background: "#EFF6FF",
+        border: "1px solid #BFDBFE",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
+
+  // Per-chart time range selectors and bucket toggles
+  const SessionsControls = (
+    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
+        {["7d", "14d", "30d", "custom"].map((key) => (
           <button
-            key={opt.value}
-            type="button"
-            onClick={() => setGranularity(opt.value)}
+            key={key}
+            onClick={() => setSessionsRangeKey(key)}
             style={{
-              fontWeight: granularity === opt.value ? 700 : 400,
-              padding: "7px 13px",
-              borderRadius: 15,
-              border: granularity === opt.value ? "2px solid #2563EB" : "1.5px solid #E0E7EF",
-              background: granularity === opt.value ? "#EFF6FF" : "#fff",
-              color: granularity === opt.value ? "#2563EB" : "#111827",
-              fontSize: 13,
-              marginRight: 2,
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "none",
+              background: sessionsRangeKey === key ? "#2563EB" : "transparent",
+              color: sessionsRangeKey === key ? "#fff" : "#111827",
               cursor: "pointer",
-              outline: "none",
-              transition: "all 0.13s"
+              transition: "background 120ms ease, color 120ms ease",
             }}
-            aria-pressed={granularity === opt.value}
+            aria-pressed={sessionsRangeKey === key}
           >
-            {opt.label}
+            {key.toUpperCase()}
           </button>
         ))}
       </div>
-    );
-  }
+      <DateRangePill label={renderDateRangeLabel(sessionsRangeKey, sessionsCustomRange, sessionsRange)} />
+      <TimeBucketFilter
+        value={sessionsGranularity}
+        onChange={(v) => setSessionsGranularity(v === "monthly" ? "weekly" : v)}
+        options={[
+          { value: "daily", label: "Daily" },
+          { value: "weekly", label: "Weekly" },
+          { value: "monthly", label: "Monthly" },
+        ]}
+      />
+    </div>
+  );
 
-  function DateRangeControls({ preset, setPreset, customRange, setCustomRange, min, max }) {
-    return (
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        {PRESETS.map(p =>
+  const UsersControls = (
+    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
+        {["7d", "14d", "30d", "custom"].map((key) => (
           <button
-            key={p.key}
-            onClick={() => {
-              setPreset(p.key);
-              setCustomRange(p.getRange());
-            }}
-            aria-pressed={preset === p.key}
+            key={key}
+            onClick={() => setUsersRangeKey(key)}
             style={{
-              padding: "6px 13px",
-              borderRadius: 12,
-              border: preset === p.key ? "2px solid #2563EB" : "1.3px solid #E0E7EF",
-              background: preset === p.key ? "#DBEAFE" : "#fff",
-              color: preset === p.key ? "#2563EB" : "#111827",
-              fontWeight: preset === p.key ? 700 : 500,
-              marginRight: 3,
-              cursor: "pointer", fontSize: 13
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "none",
+              background: usersRangeKey === key ? "#2563EB" : "transparent",
+              color: usersRangeKey === key ? "#fff" : "#111827",
+              cursor: "pointer",
+              transition: "background 120ms ease, color 120ms ease",
             }}
+            aria-pressed={usersRangeKey === key}
           >
-            {p.label}
-          </button>)}
-        <DateInput
-          label="From"
-          value={customRange.from}
-          min={min}
-          max={customRange.to}
-          onChange={d => {
-            setPreset(null);
-            setCustomRange(r => ({ ...r, from: d }));
-          }}
-        />
-        <DateInput
-          label="To"
-          value={customRange.to}
-          min={customRange.from}
-          max={max}
-          onChange={d => {
-            setPreset(null);
-            setCustomRange(r => ({ ...r, to: d }));
-          }}
-        />
+            {key.toUpperCase()}
+          </button>
+        ))}
       </div>
-    )
-  }
-
-  function StatusSelector({ status, setStatus }) {
-    return (
-      <div>
-        <span style={{ fontSize: 13, fontWeight: 600, marginRight: 8 }}>Status:</span>
-        <select value={status} onChange={e => setStatus(e.target.value)} style={{
-          padding: "6px 10px",
-          borderRadius: 8,
-          border: "1px solid #cfd3da",
-          background: "#fff"
-        }}>
-          {STATUS_OPTIONS.map(opt => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
+      <DateRangePill label={renderDateRangeLabel(usersRangeKey, usersCustomRange, usersRange)} />
+      <TimeBucketFilter
+        value={usersGranularity}
+        onChange={(v) => setUsersGranularity(v === "monthly" ? "weekly" : v)}
+        options={[
+          { value: "daily", label: "Daily" },
+          { value: "weekly", label: "Weekly" },
+          { value: "monthly", label: "Monthly" },
+        ]}
+      />
+      <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8, alignItems: "center" }}>
+        <label htmlFor="users-status-filter" style={{ fontSize: 12, color: "#6B7280" }}>
+          Status
+        </label>
+        <div
+          id="users-status-filter"
+          role="group"
+          aria-label="Users status filter"
+          style={{ display: "inline-flex", border: "1px solid #E5E7EB", borderRadius: 8, overflow: "hidden", background: "#fff" }}
+        >
+          {[
+            { key: "active", label: "Active" },
+            { key: "all", label: "All" },
+          ].map((opt, idx) => {
+            const active = usersStatus === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setUsersStatus(opt.key)}
+                aria-pressed={active}
+                style={{
+                  padding: "6px 10px",
+                  border: "none",
+                  background: active ? "#0EA5E9" : "transparent",
+                  color: active ? "#fff" : "#111827",
+                  borderRight: idx === 0 ? "1px solid #E5E7EB" : "none",
+                  cursor: "pointer",
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // --- Main Render ---
+  const CostsControls = (
+    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
+        {["7d", "14d", "30d", "custom"].map((key) => (
+          <button
+            key={key}
+            onClick={() => setCostsRangeKey(key)}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "none",
+              background: costsRangeKey === key ? "#2563EB" : "transparent",
+              color: costsRangeKey === key ? "#fff" : "#111827",
+              cursor: "pointer",
+              transition: "background 120ms ease, color 120ms ease",
+            }}
+            aria-pressed={costsRangeKey === key}
+          >
+            {key.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <DateRangePill label={renderDateRangeLabel(costsRangeKey, costsCustomRange, costsRange)} />
+      <TimeBucketFilter
+        value={costsGranularity}
+        onChange={(v) => setCostsGranularity(v === "monthly" ? "weekly" : v)}
+        options={[
+          { value: "daily", label: "Daily" },
+          { value: "weekly", label: "Weekly" },
+          { value: "monthly", label: "Monthly" },
+        ]}
+      />
+    </div>
+  );
+
   return (
-    <div className="dashboard overview-page" style={{ paddingBottom: 24 }}>
-      {/* --- KPI Row --- */}
-      <div style={{ display: "flex", gap: 18, marginBottom: 16, flexWrap: "wrap" }}>
-        <Card title="Users" className="kpi-card">
-          <div className="kpi">
-            <div className="kpi-value">
-              {loading ? (<Skeleton width={72} height={28} aria-label="Loading users metric" />) : metrics.users}
-            </div>
-            <div className="kpi-label">Users</div>
+    <div className="grid">
+      {/* KPI cards row */}
+      <Card title="Users" subtitle="Total referral users" className="kpi-card">
+        <div className="kpi">
+          <div className="kpi-value">
+            {loading ? (
+              <Skeleton width={72} height={28} aria-label="Loading users metric" />
+            ) : (
+              metrics.users
+            )}
           </div>
-        </Card>
-        <Card title="Sessions" className="kpi-card">
-          <div className="kpi">
-            <div className="kpi-value">
-              {loading ? (<Skeleton width={72} height={28} aria-label="Loading sessions metric" />) : metrics.sessions}
-            </div>
-            <div className="kpi-label">Sessions</div>
+          <div className="kpi-label">Users</div>
+        </div>
+      </Card>
+
+      <Card title="Sessions" subtitle="Active and historical sessions" className="kpi-card">
+        <div className="kpi">
+          <div className="kpi-value">
+            {loading ? (
+              <Skeleton width={72} height={28} aria-label="Loading sessions metric" />
+            ) : (
+              metrics.sessions
+            )}
           </div>
-        </Card>
-        <Card title="Deployments" className="kpi-card">
-          <div className="kpi">
-            <div className="kpi-value">
-              {loading ? (<Skeleton width={72} height={28} aria-label="Loading deployments metric" />) : metrics.deployments}
-            </div>
-            <div className="kpi-label">Deployments</div>
+          <div className="kpi-label">Sessions</div>
+        </div>
+      </Card>
+
+      <Card title="Deployments" subtitle="Recent app deployments" className="kpi-card">
+        <div className="kpi">
+          <div className="kpi-value">
+            {loading ? (
+              <Skeleton width={72} height={28} aria-label="Loading deployments metric" />
+            ) : (
+              metrics.deployments
+            )}
           </div>
+          <div className="kpi-label">Deployments</div>
+        </div>
+      </Card>
+
+      {/* Sessions Trend */}
+      <div className="block-full" style={{ gridColumn: "1 / -1" }}>
+        <Card
+          title="Sessions Trend"
+          subtitle="Session counts over time"
+          actions={SessionsControls}
+        >
+          {sessionsRangeKey === "custom" ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  Start:
+                  <input
+                    type="date"
+                    onChange={(e) => setSessionsCustomRange((r) => ({ ...r, start: e.target.value }))}
+                    value={sessionsCustomRange.start || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Sessions custom range start date"
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  End:
+                  <input
+                    type="date"
+                    onChange={(e) => setSessionsCustomRange((r) => ({ ...r, end: e.target.value }))}
+                    value={sessionsCustomRange.end || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Sessions custom range end date"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
+          {sessionsLoading && <LoadingState message="Loading sessions trend…" height={220} />}
+          {sessionsError && <ErrorState message={sessionsError?.message || "Failed to load sessions."} />}
+          {!sessionsLoading && !sessionsError && (
+            <KPIChart data={sessionsSeries} xKey="label" yKey="value" color="#2563EB" />
+          )}
         </Card>
       </div>
 
-      {/* --- Sessions Trend Chart --- */}
-      <Card
-        title="Sessions trend"
-        subtitle="Session count over time"
-        actions={(
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-            <GranularitySelector granularity={sessionsGranularity} setGranularity={setSessionsGranularity} />
-            <DateRangeControls
-              preset={sessionsRangePreset}
-              setPreset={setSessionsRangePreset}
-              customRange={sessionsCustomRange}
-              setCustomRange={setSessionsCustomRange}
-              min="2020-01-01"
-              max={toYMD(new Date())}
-            />
-          </div>
-        )}
-      >
-        {sessionsLoading ? (
-          <LoadingState message="Loading sessions trend…" height={220} />
-        ) : sessionsError ? (
-          <ErrorState message={sessionsError?.message || "Failed to load sessions."} />
-        ) : (
-          <KPIChart data={sessionsData} xKey="label" yKey="value" color="#2563EB" />
-        )}
-      </Card>
+      {/* Users Trend */}
+      <div className="block-full" style={{ gridColumn: "1 / -1" }}>
+        <Card
+          title="Users over time"
+          subtitle="Distinct active users by day/week"
+          actions={UsersControls}
+        >
+          {usersRangeKey === "custom" ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  Start:
+                  <input
+                    type="date"
+                    onChange={(e) => setUsersCustomRange((r) => ({ ...r, start: e.target.value }))}
+                    value={usersCustomRange.start || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Users custom range start date"
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  End:
+                  <input
+                    type="date"
+                    onChange={(e) => setUsersCustomRange((r) => ({ ...r, end: e.target.value }))}
+                    value={usersCustomRange.end || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Users custom range end date"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
+          {usersLoading && <LoadingState message="Loading users trend…" height={220} />}
+          {usersError && <ErrorState message={usersError?.message || "Failed to load users trend."} />}
+          {!usersLoading && !usersError && (
+            <KPIChart data={usersSeries} xKey="label" yKey="value" color="#0EA5E9" />
+          )}
+        </Card>
+      </div>
 
-      {/* --- Users over time Chart --- */}
-      <Card
-        title="Users over time"
-        subtitle="Active users trend"
-        actions={(
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-            <GranularitySelector granularity={usersGranularity} setGranularity={setUsersGranularity} />
-            <DateRangeControls
-              preset={usersRangePreset}
-              setPreset={setUsersRangePreset}
-              customRange={usersCustomRange}
-              setCustomRange={setUsersCustomRange}
-              min="2020-01-01"
-              max={toYMD(new Date())}
-            />
-            <StatusSelector status={usersStatus} setStatus={setUsersStatus} />
-          </div>
-        )}
-      >
-        {usersLoading ? (
-          <LoadingState message="Loading users trend…" height={220} />
-        ) : usersError ? (
-          <ErrorState message={usersError?.message || "Failed to load users trend."} />
-        ) : (
-          <KPIChart data={usersData} xKey="label" yKey="value" color="#0EA5E9" />
-        )}
-      </Card>
+      {/* Costs Trend */}
+      <div className="block-full" style={{ gridColumn: "1 / -1" }}>
+        <Card
+          title="Costs over time"
+          subtitle="Total USD by day/week"
+          actions={CostsControls}
+        >
+          {costsRangeKey === "custom" ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  Start:
+                  <input
+                    type="date"
+                    onChange={(e) => setCostsCustomRange((r) => ({ ...r, start: e.target.value }))}
+                    value={costsCustomRange.start || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Costs custom range start date"
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  End:
+                  <input
+                    type="date"
+                    onChange={(e) => setCostsCustomRange((r) => ({ ...r, end: e.target.value }))}
+                    value={costsCustomRange.end || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Costs custom range end date"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
+          {costsLoading && <LoadingState message="Loading costs trend…" height={220} />}
+          {costsError && <ErrorState message={costsError?.message || "Failed to load costs trend."} />}
+          {!costsLoading && !costsError && (
+            <KPIChart data={costsSeries} xKey="label" yKey="value" color="#F59E0B" />
+          )}
+        </Card>
+      </div>
 
-      {/* --- Costs over time Chart --- */}
-      <Card
-        title="Costs over time"
-        subtitle="Total USD by time"
-        actions={(
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-            <GranularitySelector granularity={costsGranularity} setGranularity={setCostsGranularity} />
-            <DateRangeControls
-              preset={costsRangePreset}
-              setPreset={setCostsRangePreset}
-              customRange={costsCustomRange}
-              setCustomRange={setCostsCustomRange}
-              min="2020-01-01"
-              max={toYMD(new Date())}
-            />
-          </div>
-        )}
-      >
-        {costsLoading ? (
-          <LoadingState message="Loading costs trend…" height={220} />
-        ) : costsError ? (
-          <ErrorState message={costsError?.message || "Failed to load costs trend."} />
-        ) : (
-          <KPIChart data={costsData} xKey="label" yKey="value" color="#F59E0B" />
-        )}
-      </Card>
-
-      {/* Global overview error */}
       {error && (
         <div className="block-full" role="alert" style={{ alignSelf: "start" }}>
           <div className="error">{error}</div>

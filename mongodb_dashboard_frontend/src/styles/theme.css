@@ -23,31 +23,6 @@
   --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
 }
 
-/* Overview preset segmented control styles */
-.overview-preset-btn {
-    font-family: inherit;
-    background: #fff;
-    border: 1.5px solid #E0E7EF;
-    border-radius: 22px;
-    color: #111827;
-    font-weight: 500;
-    transition: all 0.16s;
-    box-shadow: none;
-    cursor: pointer;
-    font-size: 15px;
-    outline: none;
-}
-.overview-preset-btn.selected {
-    border: 2px solid #2563EB;
-    background: linear-gradient(93deg, #2563EB15 0%, #FBFCFE 100%);
-    color: #2563EB;
-    font-weight: 600;
-    box-shadow: 0 1.5px 7px rgba(37,99,235,0.10);
-}
-.overview-preset-btn:focus {
-    outline: 2px solid #2563EB33;
-}
-
 /* SessionsByType spacing helper */
 .sessions-by-type-container {
   /* default already applied inline; keep class for future utility overrides */
