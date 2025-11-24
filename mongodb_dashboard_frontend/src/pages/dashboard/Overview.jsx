@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, listLlmCosts, health } from "../../api";
@@ -24,12 +24,34 @@ function toYMD(date) {
 
 function startOfWeek(date) {
   const d = new Date(date);
-  // normalize to midnight
   d.setHours(0, 0, 0, 0);
-  // week starts on Monday; getDay(): 0..6 (Sun..Sat)
-  const diff = (d.getDay() + 6) % 7; // 0 for Monday
+  const diff = (d.getDay() + 6) % 7;
   d.setDate(d.getDate() - diff);
   return d;
+}
+
+/**
+ * Compute ISO start/end based on a range key and optional custom date inputs.
+ */
+function computeRange(rangeKey, customRange) {
+  const now = new Date();
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  let start = new Date(end);
+  if (rangeKey === "7d") start.setDate(end.getDate() - 6);
+  else if (rangeKey === "14d") start.setDate(end.getDate() - 13);
+  else if (rangeKey === "30d") start.setDate(end.getDate() - 29);
+  else if (rangeKey === "custom" && customRange.start && customRange.end) {
+    const s = new Date(customRange.start);
+    const e = new Date(customRange.end);
+    s.setHours(0, 0, 0, 0);
+    e.setHours(23, 59, 59, 999);
+    return { startISO: s.toISOString(), endISO: e.toISOString() };
+  } else {
+    start.setDate(end.getDate() - 29);
+  }
+  start.setHours(0, 0, 0, 0);
+  return { startISO: start.toISOString(), endISO: end.toISOString() };
 }
 
 /**
@@ -43,10 +65,20 @@ export default function Overview() {
   const [error, setError] = useState("");
   const [, setApiStatus] = useState("checking");
 
-  // Chart controls
-  const [rangeKey, setRangeKey] = useState("7d"); // '7d' | '14d' | '30d' | 'custom'
-  const [granularity, setGranularity] = useState("daily"); // 'daily' | 'weekly'
-  const [customRange, setCustomRange] = useState({ start: null, end: null }); // ISO-like yyyy-mm-dd from input[type="date"]
+  // Sessions controls (independent)
+  const [sessionsRangeKey, setSessionsRangeKey] = useState("7d"); // '7d' | '14d' | '30d' | 'custom'
+  const [sessionsCustomRange, setSessionsCustomRange] = useState({ start: null, end: null });
+  const [sessionsGranularity, setSessionsGranularity] = useState("daily"); // 'daily' | 'weekly'
+
+  // Users controls (independent)
+  const [usersRangeKey, setUsersRangeKey] = useState("7d");
+  const [usersCustomRange, setUsersCustomRange] = useState({ start: null, end: null });
+  const [usersGranularity, setUsersGranularity] = useState("daily");
+
+  // Costs controls (kept shared with sessions by default to preserve existing behavior)
+  const [costsRangeKey, setCostsRangeKey] = useState("7d");
+  const [costsCustomRange, setCostsCustomRange] = useState({ start: null, end: null });
+  const [costsGranularity, setCostsGranularity] = useState("daily");
 
   // Sessions chart state
   const [sessionsSeries, setSessionsSeries] = useState([]);
@@ -63,30 +95,7 @@ export default function Overview() {
   const [costsLoading, setCostsLoading] = useState(false);
   const [costsError, setCostsError] = useState(null);
 
-  // Derived start/end from chosen range (explicit ISO, end set to 23:59:59.999)
-  const { startISO, endISO } = useMemo(() => {
-    const now = new Date();
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-    let start = new Date(end);
-    if (rangeKey === "7d") start.setDate(end.getDate() - 6);
-    else if (rangeKey === "14d") start.setDate(end.getDate() - 13);
-    else if (rangeKey === "30d") start.setDate(end.getDate() - 29);
-    else if (rangeKey === "custom" && customRange.start && customRange.end) {
-      const s = new Date(customRange.start);
-      const e = new Date(customRange.end);
-      s.setHours(0, 0, 0, 0);
-      e.setHours(23, 59, 59, 999);
-      return { startISO: s.toISOString(), endISO: e.toISOString() };
-    } else {
-      // default 30d
-      start.setDate(end.getDate() - 29);
-    }
-    start.setHours(0, 0, 0, 0);
-    return { startISO: start.toISOString(), endISO: end.toISOString() };
-  }, [rangeKey, customRange.start, customRange.end]);
-
-  // Fetch KPI metric counts (kept minimal)
+  // KPI metrics
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
@@ -131,7 +140,7 @@ export default function Overview() {
   }, []);
 
   // Helper to fill continuous daily/weekly series from a Map
-  function fillSeries(map, start, end, bucket = "daily") {
+  const fillSeries = useCallback(function fillSeries(map, start, end, bucket = "daily") {
     const s = new Date(start);
     const e = new Date(end);
     const series = [];
@@ -154,15 +163,30 @@ export default function Overview() {
       }
     }
     return series;
-  }
+  }, []);
 
-  // Sessions trend fetcher — respects explicit start/end and tenant via base client
+  // Derived ISO ranges for each chart
+  const sessionsRange = useMemo(
+    () => computeRange(sessionsRangeKey, sessionsCustomRange),
+    [sessionsRangeKey, sessionsCustomRange.start, sessionsCustomRange.end]
+  );
+  const usersRange = useMemo(
+    () => computeRange(usersRangeKey, usersCustomRange),
+    [usersRangeKey, usersCustomRange.start, usersCustomRange.end]
+  );
+  const costsRange = useMemo(
+    () => computeRange(costsRangeKey, costsCustomRange),
+    [costsRangeKey, costsCustomRange.start, costsCustomRange.end]
+  );
+
+  // Sessions trend fetcher — independent
   useEffect(() => {
     let aborted = false;
     async function loadSessions() {
       setSessionsLoading(true);
       setSessionsError(null);
       try {
+        const { startISO, endISO } = sessionsRange;
         const { items } = await fetchSessionTracking({
           start: startISO,
           end: endISO,
@@ -171,23 +195,24 @@ export default function Overview() {
         });
         if (aborted) return;
 
-        // Normalize timestamps (prefer session_start; fallbacks)
-        const pts = (items || []).map((it) => {
-          const t =
-            it.session_start ||
-            it.last_updated ||
-            it.updated_at ||
-            it.startedAt ||
-            it.createdAt ||
-            it.timestamp ||
-            it.lastActivityAt ||
-            it.endedAt ||
-            it.date;
-          return t ? new Date(t) : null;
-        }).filter((d) => d && !Number.isNaN(d.getTime()));
+        const pts = (items || [])
+          .map((it) => {
+            const t =
+              it.session_start ||
+              it.last_updated ||
+              it.updated_at ||
+              it.startedAt ||
+              it.createdAt ||
+              it.timestamp ||
+              it.lastActivityAt ||
+              it.endedAt ||
+              it.date;
+            return t ? new Date(t) : null;
+          })
+          .filter((d) => d && !Number.isNaN(d.getTime()));
 
         const map = new Map();
-        if (granularity === "weekly") {
+        if (sessionsGranularity === "weekly") {
           pts.forEach((d) => {
             const wk = startOfWeek(d);
             const k = toYMD(wk);
@@ -200,7 +225,7 @@ export default function Overview() {
           });
         }
 
-        setSessionsSeries(fillSeries(map, startISO, endISO, granularity));
+        setSessionsSeries(fillSeries(map, sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity));
       } catch (e) {
         if (aborted) return;
         setSessionsError(e);
@@ -209,21 +234,21 @@ export default function Overview() {
         if (!aborted) setSessionsLoading(false);
       }
     }
-    if (startISO && endISO) loadSessions();
+    if (sessionsRange.startISO && sessionsRange.endISO) loadSessions();
     return () => {
       aborted = true;
     };
-  }, [startISO, endISO, granularity]);
+  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
 
-  // Users trend fetcher — prefer users collection; fallback to backend sessions-based endpoint
+  // Users trend fetcher — independent
   useEffect(() => {
     let aborted = false;
     async function loadUsers() {
       setUsersLoading(true);
       setUsersError(null);
       try {
-        // Prefer backend active users trend (from users collection) if available
-        const backendGranularity = granularity === "weekly" ? "week" : "day";
+        const { startISO, endISO } = usersRange;
+        const backendGranularity = usersGranularity === "weekly" ? "week" : "day";
         let items = [];
         let backendOk = false;
         try {
@@ -239,9 +264,6 @@ export default function Overview() {
         }
 
         if (!backendOk) {
-          // Client-side aggregation from /api/users
-          // Active user definition: updated_at within [startISO, endISO], status !== 'deleted'
-          // Bucket by day/week based on updated_at and count distinct users per bucket.
           const filter = {
             $and: [
               {
@@ -253,15 +275,11 @@ export default function Overview() {
                 ],
               },
               {
-                $or: [
-                  { status: { $exists: false } },
-                  { status: { $ne: "deleted" } },
-                ],
+                $or: [{ status: { $exists: false } }, { status: { $ne: "deleted" } }],
               },
             ],
           };
 
-          // listUsers is already imported for KPIs; we reuse it for fetching raw users
           const usersRes = await listUsers({
             filter: JSON.stringify(filter),
             limit: 1000,
@@ -281,7 +299,7 @@ export default function Overview() {
               u.date;
             const d = t ? new Date(t) : null;
             if (!d || Number.isNaN(d.getTime())) return;
-            const key = granularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+            const key = usersGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
             const uid = String(u._id ?? u.id ?? u.user_id ?? u.userId ?? u.email ?? "");
             if (!uid) return;
             if (!bucketUsers.has(key)) bucketUsers.set(key, new Set());
@@ -304,7 +322,7 @@ export default function Overview() {
           map.set(String(label), (map.get(String(label)) || 0) + (Number.isFinite(total) ? total : 0));
         });
 
-        const series = fillSeries(map, startISO, endISO, granularity);
+        const series = fillSeries(map, usersRange.startISO, usersRange.endISO, usersGranularity);
         setUsersSeries(series);
       } catch (e) {
         if (aborted) return;
@@ -314,23 +332,21 @@ export default function Overview() {
         if (!aborted) setUsersLoading(false);
       }
     }
-    if (startISO && endISO) loadUsers();
+    if (usersRange.startISO && usersRange.endISO) loadUsers();
     return () => {
       aborted = true;
     };
-  }, [startISO, endISO, granularity]);
+  }, [usersRange.startISO, usersRange.endISO, usersGranularity, fillSeries]);
 
-  // Costs trend fetcher — list /api/llm-costs and aggregate total_cost by bucket client-side
+  // Costs trend fetcher — independent (kept separate to avoid coupling)
   useEffect(() => {
     let aborted = false;
     async function loadCosts() {
       setCostsLoading(true);
       setCostsError(null);
       try {
-        // Fetch costs within explicit time range; base client ensures tenant scope
-        // The /api/llm-costs supports 'filter' where server enforces tenant scoping; we pass explicit range filter.
+        const { startISO, endISO } = costsRange;
         const filter = {
-          // Try common timestamp fields on backend: timestamp, created_at, createdAt
           $or: [
             { timestamp: { $gte: startISO, $lte: endISO } },
             { created_at: { $gte: startISO, $lte: endISO } },
@@ -338,7 +354,6 @@ export default function Overview() {
           ],
         };
         const res = await listLlmCosts({
-          // server ignores tenant fields in filter and enforces by header/JWT; base client will add organization_id header
           filter: JSON.stringify(filter),
           limit: 500,
           sort: "-timestamp",
@@ -347,14 +362,12 @@ export default function Overview() {
         const items = res?.items || (Array.isArray(res) ? res : []);
         if (aborted) return;
 
-        // Build bucket map summing numeric cost
         const map = new Map();
         (items || []).forEach((doc) => {
           const t = doc.timestamp || doc.created_at || doc.createdAt || doc.date;
           const d = t ? new Date(t) : null;
           if (!d || Number.isNaN(d.getTime())) return;
 
-          // Normalize cost fields; handle string like "$0.12"
           const raw =
             doc.total_cost ??
             doc.total_usd ??
@@ -367,11 +380,11 @@ export default function Overview() {
           const num = typeof raw === "number" ? raw : Number(String(raw).replace(/[$,]/g, ""));
           const value = Number.isFinite(num) ? num : 0;
 
-          const key = granularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+          const key = costsGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
           map.set(key, (map.get(key) || 0) + value);
         });
 
-        const series = fillSeries(map, startISO, endISO, granularity);
+        const series = fillSeries(map, startISO, endISO, costsGranularity);
         setCostsSeries(series);
       } catch (e) {
         if (aborted) return;
@@ -381,76 +394,14 @@ export default function Overview() {
         if (!aborted) setCostsLoading(false);
       }
     }
-    if (startISO && endISO) loadCosts();
+    if (costsRange.startISO && costsRange.endISO) loadCosts();
     return () => {
       aborted = true;
     };
-  }, [startISO, endISO, granularity]);
+  }, [costsRange.startISO, costsRange.endISO, costsGranularity, fillSeries]);
 
-  // UI for custom range minimal placeholder (could be replaced with a datepicker later)
-  function CustomRangeControls() {
-    // Ocean Professional accent colors
-    const pillStyles = {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6,
-      padding: "4px 8px",
-      borderRadius: 999,
-      fontSize: 12,
-      color: "#1F2937",
-      background: "#EFF6FF", // subtle blue background
-      border: "1px solid #BFDBFE",
-      whiteSpace: "nowrap",
-    };
-
-    // Compute a live label based on partial selection if custom is active
-    const liveLabel = useMemo(() => {
-      // Always reflect what's currently chosen in the pickers (partial-safe)
-      const opts = { year: "numeric", month: "short", day: "numeric" };
-      const hasStart = Boolean(customRange.start);
-      const hasEnd = Boolean(customRange.end);
-
-      const fmtStart = hasStart ? new Date(customRange.start).toLocaleDateString(undefined, opts) : null;
-      const fmtEnd = hasEnd ? new Date(customRange.end).toLocaleDateString(undefined, opts) : null;
-
-      if (hasStart && hasEnd) return `Filtered: ${fmtStart} — ${fmtEnd}`;
-      if (hasStart) return `From ${fmtStart}`;
-      if (hasEnd) return `Until ${fmtEnd}`;
-      return "Select a custom range";
-    }, [customRange.start, customRange.end]);
-
-    return (
-      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <label style={{ fontSize: 12, color: "#6B7280" }}>
-          Start:
-          <input
-            type="date"
-            onChange={(e) => setCustomRange((r) => ({ ...r, start: e.target.value }))}
-            value={customRange.start || ""}
-            style={{ marginLeft: 6 }}
-            aria-label="Custom range start date"
-          />
-        </label>
-        <label style={{ fontSize: 12, color: "#6B7280" }}>
-          End:
-          <input
-            type="date"
-            onChange={(e) => setCustomRange((r) => ({ ...r, end: e.target.value }))}
-            value={customRange.end || ""}
-            style={{ marginLeft: 6 }}
-            aria-label="Custom range end date"
-          />
-        </label>
-        <span aria-live="polite" aria-atomic="true" style={pillStyles}>
-          {liveLabel}
-        </span>
-      </div>
-    );
-  }
-
-  // Memoized locale-formatted date range label derived from startISO/endISO
-  const dateRangeLabel = useMemo(() => {
-    // While picking custom dates, prefer showing partial label based on pickers
+  // Reusable controls renderers (per-chart)
+  const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {
     if (rangeKey === "custom") {
       const opts = { year: "numeric", month: "short", day: "numeric" };
       const hasStart = Boolean(customRange.start);
@@ -460,22 +411,16 @@ export default function Overview() {
       if (hasStart && hasEnd) return `Filtered: ${fmtStart} — ${fmtEnd}`;
       if (hasStart) return `From ${fmtStart}`;
       if (hasEnd) return `Until ${fmtEnd}`;
-      // Fallback to empty so we don't show a confusing default before any selection
       return "";
     }
-
-    if (!startISO || !endISO) return "";
-    const start = new Date(startISO);
-    const end = new Date(endISO);
-    // Use consistent locale formatting options
+    if (!range?.startISO || !range?.endISO) return "";
+    const start = new Date(range.startISO);
+    const end = new Date(range.endISO);
     const opts = { year: "numeric", month: "short", day: "numeric" };
-    const fromStr = start.toLocaleDateString(undefined, opts);
-    const toStr = end.toLocaleDateString(undefined, opts);
-    return `Filtered: ${fromStr} — ${toStr}`;
-  }, [rangeKey, customRange.start, customRange.end, startISO, endISO]);
+    return `Filtered: ${start.toLocaleDateString(undefined, opts)} — ${end.toLocaleDateString(undefined, opts)}`;
+  }, []);
 
-  // Reusable compact badge style for the date-range label (Ocean Professional)
-  const labelPill = (
+  const DateRangePill = ({ label }) => (
     <span
       aria-live="polite"
       aria-atomic="true"
@@ -492,45 +437,111 @@ export default function Overview() {
         whiteSpace: "nowrap",
       }}
     >
-      {dateRangeLabel}
+      {label}
     </span>
   );
 
-  const timeRangeSelector = (
-    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+  // Per-chart time range selectors and bucket toggles
+  const SessionsControls = (
+    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
       <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
         {["7d", "14d", "30d", "custom"].map((key) => (
           <button
             key={key}
-            onClick={() => setRangeKey(key)}
+            onClick={() => setSessionsRangeKey(key)}
             style={{
               padding: "6px 10px",
               borderRadius: 6,
               border: "none",
-              background: rangeKey === key ? "#2563EB" : "transparent",
-              color: rangeKey === key ? "#fff" : "#111827",
+              background: sessionsRangeKey === key ? "#2563EB" : "transparent",
+              color: sessionsRangeKey === key ? "#fff" : "#111827",
               cursor: "pointer",
               transition: "background 120ms ease, color 120ms ease",
             }}
-            aria-pressed={rangeKey === key}
+            aria-pressed={sessionsRangeKey === key}
           >
             {key.toUpperCase()}
           </button>
         ))}
       </div>
-      {labelPill}
+      <DateRangePill label={renderDateRangeLabel(sessionsRangeKey, sessionsCustomRange, sessionsRange)} />
+      <TimeBucketFilter
+        value={sessionsGranularity}
+        onChange={(v) => setSessionsGranularity(v === "monthly" ? "weekly" : v)}
+        options={[
+          { value: "daily", label: "Daily" },
+          { value: "weekly", label: "Weekly" },
+        ]}
+      />
     </div>
   );
 
-  const bucketToggle = (
-    <TimeBucketFilter
-      value={granularity}
-      onChange={(v) => setGranularity(v === "monthly" ? "weekly" : v)} // only allow daily/weekly
-      options={[
-        { value: "daily", label: "Daily" },
-        { value: "weekly", label: "Weekly" },
-      ]}
-    />
+  const UsersControls = (
+    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
+        {["7d", "14d", "30d", "custom"].map((key) => (
+          <button
+            key={key}
+            onClick={() => setUsersRangeKey(key)}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "none",
+              background: usersRangeKey === key ? "#2563EB" : "transparent",
+              color: usersRangeKey === key ? "#fff" : "#111827",
+              cursor: "pointer",
+              transition: "background 120ms ease, color 120ms ease",
+            }}
+            aria-pressed={usersRangeKey === key}
+          >
+            {key.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <DateRangePill label={renderDateRangeLabel(usersRangeKey, usersCustomRange, usersRange)} />
+      <TimeBucketFilter
+        value={usersGranularity}
+        onChange={(v) => setUsersGranularity(v === "monthly" ? "weekly" : v)}
+        options={[
+          { value: "daily", label: "Daily" },
+          { value: "weekly", label: "Weekly" },
+        ]}
+      />
+    </div>
+  );
+
+  const CostsControls = (
+    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
+        {["7d", "14d", "30d", "custom"].map((key) => (
+          <button
+            key={key}
+            onClick={() => setCostsRangeKey(key)}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "none",
+              background: costsRangeKey === key ? "#2563EB" : "transparent",
+              color: costsRangeKey === key ? "#fff" : "#111827",
+              cursor: "pointer",
+              transition: "background 120ms ease, color 120ms ease",
+            }}
+            aria-pressed={costsRangeKey === key}
+          >
+            {key.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <DateRangePill label={renderDateRangeLabel(costsRangeKey, costsCustomRange, costsRange)} />
+      <TimeBucketFilter
+        value={costsGranularity}
+        onChange={(v) => setCostsGranularity(v === "monthly" ? "weekly" : v)}
+        options={[
+          { value: "daily", label: "Daily" },
+          { value: "weekly", label: "Weekly" },
+        ]}
+      />
+    </div>
   );
 
   return (
@@ -580,14 +591,34 @@ export default function Overview() {
         <Card
           title="Sessions Trend"
           subtitle="Session counts over time"
-          actions={
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              {timeRangeSelector}
-              {bucketToggle}
-            </div>
-          }
+          actions={SessionsControls}
         >
-          {rangeKey === "custom" ? <CustomRangeControls /> : null}
+          {sessionsRangeKey === "custom" ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  Start:
+                  <input
+                    type="date"
+                    onChange={(e) => setSessionsCustomRange((r) => ({ ...r, start: e.target.value }))}
+                    value={sessionsCustomRange.start || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Sessions custom range start date"
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  End:
+                  <input
+                    type="date"
+                    onChange={(e) => setSessionsCustomRange((r) => ({ ...r, end: e.target.value }))}
+                    value={sessionsCustomRange.end || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Sessions custom range end date"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
           {sessionsLoading && <LoadingState message="Loading sessions trend…" height={220} />}
           {sessionsError && <ErrorState message={sessionsError?.message || "Failed to load sessions."} />}
           {!sessionsLoading && !sessionsError && (
@@ -601,14 +632,34 @@ export default function Overview() {
         <Card
           title="Users over time"
           subtitle="Distinct active users by day/week"
-          actions={
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              {timeRangeSelector}
-              {bucketToggle}
-            </div>
-          }
+          actions={UsersControls}
         >
-          {rangeKey === "custom" ? <CustomRangeControls /> : null}
+          {usersRangeKey === "custom" ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  Start:
+                  <input
+                    type="date"
+                    onChange={(e) => setUsersCustomRange((r) => ({ ...r, start: e.target.value }))}
+                    value={usersCustomRange.start || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Users custom range start date"
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  End:
+                  <input
+                    type="date"
+                    onChange={(e) => setUsersCustomRange((r) => ({ ...r, end: e.target.value }))}
+                    value={usersCustomRange.end || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Users custom range end date"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
           {usersLoading && <LoadingState message="Loading users trend…" height={220} />}
           {usersError && <ErrorState message={usersError?.message || "Failed to load users trend."} />}
           {!usersLoading && !usersError && (
@@ -622,14 +673,34 @@ export default function Overview() {
         <Card
           title="Costs over time"
           subtitle="Total USD by day/week"
-          actions={
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              {timeRangeSelector}
-              {bucketToggle}
-            </div>
-          }
+          actions={CostsControls}
         >
-          {rangeKey === "custom" ? <CustomRangeControls /> : null}
+          {costsRangeKey === "custom" ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  Start:
+                  <input
+                    type="date"
+                    onChange={(e) => setCostsCustomRange((r) => ({ ...r, start: e.target.value }))}
+                    value={costsCustomRange.start || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Costs custom range start date"
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  End:
+                  <input
+                    type="date"
+                    onChange={(e) => setCostsCustomRange((r) => ({ ...r, end: e.target.value }))}
+                    value={costsCustomRange.end || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Costs custom range end date"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
           {costsLoading && <LoadingState message="Loading costs trend…" height={220} />}
           {costsError && <ErrorState message={costsError?.message || "Failed to load costs trend."} />}
           {!costsLoading && !costsError && (
