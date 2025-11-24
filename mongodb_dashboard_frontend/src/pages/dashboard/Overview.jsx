@@ -65,22 +65,22 @@ export default function Overview() {
   const [error, setError] = useState("");
   const [, setApiStatus] = useState("checking");
 
-  // Sessions controls (independent)
+  // --- Unified granularity state for ALL charts: "day"|"week"|"month" ---
+  // Default: "day"
+  const [granularity, setGranularity] = useState("day"); // "day", "week", "month"
+
+  // Sessions controls (range etc, granularity driven by unified selector)
   const [sessionsRangeKey, setSessionsRangeKey] = useState("30d"); // default last 30 days
   const [sessionsCustomRange, setSessionsCustomRange] = useState({ start: null, end: null });
-  const [sessionsGranularity, setSessionsGranularity] = useState("daily"); // 'daily' | 'weekly' (monthly maps to weekly)
 
-  // Users controls (independent)
+  // Users controls (range, status, granularity by unified)
   const [usersRangeKey, setUsersRangeKey] = useState("30d");
   const [usersCustomRange, setUsersCustomRange] = useState({ start: null, end: null });
-  const [usersGranularity, setUsersGranularity] = useState("daily");
   const [usersStatus, setUsersStatus] = useState("active"); // 'active' | 'all'
 
-  // Costs controls (kept separate)
+  // Costs controls (range, granularity by unified)
   const [costsRangeKey, setCostsRangeKey] = useState("30d");
   const [costsCustomRange, setCostsCustomRange] = useState({ start: null, end: null });
-  const [costsGranularity, setCostsGranularity] = useState("daily");
-
   // Sessions chart state
   const [sessionsSeries, setSessionsSeries] = useState([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -120,6 +120,60 @@ export default function Overview() {
     }
     fetchData();
   }, []);
+
+  // Granularity selector options/theme
+  const GRANULARITY_OPTIONS = [
+    { value: "day", label: "Day" },
+    { value: "week", label: "Week" },
+    { value: "month", label: "Month" },
+  ];
+  const renderGranularitySelector = () => (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 18,
+        margin: "0 0 22px 2px",
+        background: "#fff",
+        border: "1px solid #E5E7EB",
+        borderRadius: 16,
+        boxShadow: "0 1px 2px rgba(0,0,48,0.03)",
+        padding: "10px 16px 10px 12px",
+        width: "fit-content",
+      }}
+    >
+      <span style={{ fontWeight: 600, color: "#2563EB", letterSpacing: 0.2, fontSize: 15 }}>
+        Granularity
+      </span>
+      <div style={{ display: "flex", gap: 10 }}>
+        {GRANULARITY_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            style={{
+              padding: "7px 16px",
+              borderRadius: 8,
+              border: "none",
+              background: granularity === opt.value ? "#2563EB" : "#F3F4F6",
+              color: granularity === opt.value ? "#fff" : "#111827",
+              boxShadow: granularity === opt.value ? "0 0 4px #2563EB20" : "none",
+              cursor: "pointer",
+              transition: "all 120ms",
+              fontWeight: granularity === opt.value ? 700 : 400,
+              letterSpacing: "0.01em",
+              fontSize: "15px",
+              outline: "none",
+            }}
+            aria-pressed={granularity === opt.value}
+            onClick={() => setGranularity(opt.value)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   // Backend health check (non-blocking)
   useEffect(() => {
@@ -188,9 +242,10 @@ export default function Overview() {
       setSessionsError(null);
       try {
         const { startISO, endISO } = sessionsRange;
+        const bucket = granularity === "month" ? "week" : granularity; // fallback for unsupported "month"
         const { items } = await fetchSessionTracking({
-          start_date: startISO, // map to start_date per requirement
-          end_date: endISO,     // map to end_date per requirement
+          start_date: startISO,
+          end_date: endISO,
           limit: 200,
           sort: "-session_start",
         });
@@ -213,7 +268,7 @@ export default function Overview() {
           .filter((d) => d && !Number.isNaN(d.getTime()));
 
         const map = new Map();
-        if (sessionsGranularity === "weekly") {
+        if (bucket === "week") {
           pts.forEach((d) => {
             const wk = startOfWeek(d);
             const k = toYMD(wk);
@@ -226,7 +281,7 @@ export default function Overview() {
           });
         }
 
-        setSessionsSeries(fillSeries(map, sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity));
+        setSessionsSeries(fillSeries(map, sessionsRange.startISO, sessionsRange.endISO, bucket));
       } catch (e) {
         if (aborted) return;
         setSessionsError(e);
@@ -239,7 +294,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
+  }, [sessionsRange.startISO, sessionsRange.endISO, granularity, fillSeries]);
 
   // Users trend fetcher — independent
   useEffect(() => {
@@ -249,7 +304,8 @@ export default function Overview() {
       setUsersError(null);
       try {
         const { startISO, endISO } = usersRange;
-        const backendGranularity = usersGranularity === "weekly" ? "week" : "day";
+        const backendGranularity =
+          granularity === "day" ? "day" : granularity === "week" ? "week" : "week"; // "month" fallback to "week"
         const statusParam = usersStatus === "active" ? "completed|active" : undefined;
 
         let items = [];
@@ -277,7 +333,6 @@ export default function Overview() {
                   { createdAt: { $gte: startISO, $lte: endISO } },
                 ],
               },
-              // status filter: if 'active' exclude deleted; if 'all' do not filter
               ...(usersStatus === "active"
                 ? [{ $or: [{ status: { $exists: false } }, { status: { $nin: ["deleted", "inactive"] } }] }]
                 : []),
@@ -296,7 +351,8 @@ export default function Overview() {
             const t = u.created_at || u.createdAt || u.date;
             const d = t ? new Date(t) : null;
             if (!d || Number.isNaN(d.getTime())) return;
-            const key = usersGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+            const key = granularity === "week" || granularity === "month"
+              ? toYMD(startOfWeek(d)) : toYMD(d);
             const uid = String(u._id ?? u.id ?? u.user_id ?? u.userId ?? u.email ?? "");
             if (!uid) return;
             if (!bucketUsers.has(key)) bucketUsers.set(key, new Set());
@@ -319,7 +375,7 @@ export default function Overview() {
           map.set(String(label), (map.get(String(label)) || 0) + (Number.isFinite(total) ? total : 0));
         });
 
-        const series = fillSeries(map, usersRange.startISO, usersRange.endISO, usersGranularity);
+        const series = fillSeries(map, usersRange.startISO, usersRange.endISO, granularity === "month" ? "week" : granularity);
         setUsersSeries(series);
       } catch (e) {
         if (aborted) return;
@@ -333,7 +389,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
+  }, [usersRange.startISO, usersRange.endISO, granularity, usersStatus, fillSeries]);
 
   // Costs trend fetcher — independent (kept separate to avoid coupling)
   useEffect(() => {
@@ -377,11 +433,12 @@ export default function Overview() {
           const num = typeof raw === "number" ? raw : Number(String(raw).replace(/[$,]/g, ""));
           const value = Number.isFinite(num) ? num : 0;
 
-          const key = costsGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+          const bucket = granularity === "month" ? "week" : granularity;
+          const key = bucket === "week" ? toYMD(startOfWeek(d)) : toYMD(d);
           map.set(key, (map.get(key) || 0) + value);
         });
 
-        const series = fillSeries(map, startISO, endISO, costsGranularity);
+        const series = fillSeries(map, startISO, endISO, granularity === "month" ? "week" : granularity);
         setCostsSeries(series);
       } catch (e) {
         if (aborted) return;
@@ -395,7 +452,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [costsRange.startISO, costsRange.endISO, costsGranularity, fillSeries]);
+  }, [costsRange.startISO, costsRange.endISO, granularity, fillSeries]);
 
   // Reusable controls renderers (per-chart)
   const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {
@@ -462,15 +519,7 @@ export default function Overview() {
         ))}
       </div>
       <DateRangePill label={renderDateRangeLabel(sessionsRangeKey, sessionsCustomRange, sessionsRange)} />
-      <TimeBucketFilter
-        value={sessionsGranularity}
-        onChange={(v) => setSessionsGranularity(v === "monthly" ? "weekly" : v)}
-        options={[
-          { value: "daily", label: "Daily" },
-          { value: "weekly", label: "Weekly" },
-          { value: "monthly", label: "Monthly" },
-        ]}
-      />
+      {/* Removed chart-local granularity filter, unified at page level */}
     </div>
   );
 
@@ -497,15 +546,7 @@ export default function Overview() {
         ))}
       </div>
       <DateRangePill label={renderDateRangeLabel(usersRangeKey, usersCustomRange, usersRange)} />
-      <TimeBucketFilter
-        value={usersGranularity}
-        onChange={(v) => setUsersGranularity(v === "monthly" ? "weekly" : v)}
-        options={[
-          { value: "daily", label: "Daily" },
-          { value: "weekly", label: "Weekly" },
-          { value: "monthly", label: "Monthly" },
-        ]}
-      />
+      {/* Granularity filter unified; usersGranularity removed */}
       <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8, alignItems: "center" }}>
         <label htmlFor="users-status-filter" style={{ fontSize: 12, color: "#6B7280" }}>
           Status
@@ -568,20 +609,17 @@ export default function Overview() {
         ))}
       </div>
       <DateRangePill label={renderDateRangeLabel(costsRangeKey, costsCustomRange, costsRange)} />
-      <TimeBucketFilter
-        value={costsGranularity}
-        onChange={(v) => setCostsGranularity(v === "monthly" ? "weekly" : v)}
-        options={[
-          { value: "daily", label: "Daily" },
-          { value: "weekly", label: "Weekly" },
-          { value: "monthly", label: "Monthly" },
-        ]}
-      />
+      {/* Granularity filter unified */}
     </div>
   );
 
   return (
     <div className="grid">
+      {/* Top-level granularity selector */}
+      <div style={{ gridColumn: "1 / -1", marginBottom: 8 }}>
+        {renderGranularitySelector()}
+      </div>
+
       {/* KPI cards row */}
       <Card title="Users" subtitle="Total referral users" className="kpi-card">
         <div className="kpi">
