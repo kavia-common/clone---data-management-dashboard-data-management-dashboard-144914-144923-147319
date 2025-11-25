@@ -35,52 +35,52 @@ function toNumber(val) {
  */
 async function getAggregatedCosts(req, res) {
   try {
+    const tenantId = (req?.tenantScopeDisabled || req?.allTenants || req?.costsAggregateAllTenantsBypass)
+      ? null
+      : (req?.tenantId || req?.organizationId || null);
     const bypass = !!(req?.tenantScopeDisabled || req?.allTenants || req?.costsAggregateAllTenantsBypass);
-    const tenantId = bypass ? null : (req?.tenantId || req?.organizationId || null);
-
     if (bypass) {
       try { res.set('X-All-Tenants', 'true'); } catch (_) {}
-    }
-    console.log('[llmCostsAggregate.controller] scope', { tenantId: tenantId || 'all-tenants', bypassApplied: bypass });
-
-    // Defensive defaults for any incoming filters (not used here but future-proof)
-    let safeFilter = {};
-    try {
-      if (typeof req.query?.filter === 'string' && req.query.filter.trim()) {
-        safeFilter = JSON.parse(req.query.filter);
-      }
-    } catch {
-      safeFilter = {};
-    }
-    // Strip tenant hints from filter regardless (we rely on tenantId above)
-    if (safeFilter && typeof safeFilter === 'object') {
-      delete safeFilter.tenant_id;
-      delete safeFilter.organization_id;
-      delete safeFilter.organizationId;
-      delete safeFilter.tenantId;
+      console.log('[llmCostsAggregate.controller] bypass active: returning data across all tenants');
+    } else {
+      console.log('[llmCostsAggregate.controller] tenant scoped', { tenantId });
     }
 
+    // Fetch minimal set of fields but include fallbacks; schema is strict:false so extra fields may exist.
     const [rawUsers, rawProjects] = await Promise.all([
+      // Try to include typical identity fields if they exist; relying on permissive model
       User.find(tenantId ? { tenant_id: String(tenantId) } : {}, { name: 1, email: 1, user_cost: 1, organization_name: 1, tenant_id: 1 }).lean(),
       Project.find(tenantId ? { tenant_id: String(tenantId) } : {}, { project_name: 1, name: 1, project_cost: 1, owner_user_id: 1, ownerUserId: 1, project_id: 1, tenant_id: 1 }).lean(),
     ]);
 
     const users = (rawUsers || []).map((u) => {
       const user_cost = toNumber(u?.user_cost || 0);
+      // keep common identity fields if present
       const name = u?.name || u?.user_name || u?.full_name || null;
       const email = u?.email || u?.user_email || null;
-      return { ...u, name, email, user_cost };
+      return {
+        ...u,
+        name,
+        email,
+        user_cost,
+      };
     });
 
     const projects = (rawProjects || []).map((p) => {
       const project_cost = toNumber(p?.project_cost || 0);
       const ownerUserId = p?.ownerUserId ?? p?.owner_user_id ?? null;
       const name = p?.project_name || p?.name || p?.project_id || null;
-      return { ...p, name, ownerUserId, project_cost };
+      return {
+        ...p,
+        name,
+        ownerUserId,
+        project_cost,
+      };
     });
 
     return res.status(200).json({ users, projects });
   } catch (err) {
+     
     console.error('GET /api/llm-costs failed:', err?.message || err);
     return res.status(500).json({ message: err?.message || 'Failed to fetch aggregated LLM costs' });
   }
