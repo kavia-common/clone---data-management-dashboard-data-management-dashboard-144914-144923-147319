@@ -93,6 +93,9 @@ function verifyAuth(req, res, next) {
     // Normalize req.auth to guarantee presence of sub and tenantId
     // IMPORTANT: Do not allow header to override tenant_id when token is present
     const tenantFromHeader = req.headers['x-tenant-id'] || req.headers['x-tenant'];
+    const allTenantsHeader = String(req.headers['x-all-tenants'] || '').toLowerCase().trim();
+    const allTenantsQuery = String(req.query?.all_tenants || '').toLowerCase().trim();
+    const wantsAllTenants = ['1','true','yes','on'].includes(allTenantsHeader) || ['1','true','yes','on'].includes(allTenantsQuery);
 
     // Robust tenantId extraction:
     // - Support common names: tenantId, tenant_id, organization_id, orgId
@@ -123,18 +126,25 @@ function verifyAuth(req, res, next) {
 
     req.auth = {
       ...payload,
-      // sub is the canonical user identifier used across the app
       sub: payload.sub || payload.user_id || payload.userId || payload.id || 'user',
-      // tenantId is used by scoping middleware and controllers (prefer JWT strictly)
       tenantId: extractedTenantId || (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
       scope: payload.scope || payload.scp || [],
       roles: Array.isArray(payload.roles)
         ? payload.roles
         : (payload.role ? [payload.role] : (Array.isArray(payload['https://roles']) ? payload['https://roles'] : [])),
       demo: false,
-      // include original header only for debugging (not used for auth)
       _tenantHeader: tenantFromHeader || null,
     };
+
+    // If Super Admin and all-tenants requested, set flags on req (not on auth)
+    try {
+      const rolesArr = Array.isArray(req.auth.roles) ? req.auth.roles : [];
+      const isSA = rolesArr.map((r) => String(r).toLowerCase()).includes('super admin');
+      if (isSA && wantsAllTenants) {
+        req.tenantScopeDisabled = true;
+        req.allTenants = true;
+      }
+    } catch {}
 
     // Dev-only concise logs: computed tenant and subject for troubleshooting
     try {

@@ -18,7 +18,12 @@ const controller = buildCrudController(User, '-created_at');
  */
 router.use((req, res, next) => {
   try {
-    if (req.tenantId) {
+    if (req.tenantScopeDisabled || req.allTenants) {
+      res.set('X-All-Tenants', 'true');
+      res.set('X-Applied-Tenant', 'all-tenants');
+      res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
+      try { res.set('X-Model-Collection', User.collection?.name || 'users'); } catch(_) {}
+    } else if (req.tenantId) {
       res.set('X-Applied-Tenant', String(req.tenantId));
       res.set('x-applied-organization-id', String(req.tenantId));
       const tenant = String(req.tenantId);
@@ -34,7 +39,6 @@ router.use((req, res, next) => {
       };
       res.set('X-Applied-Filter', JSON.stringify(orgFilter));
       try {
-        // also surface model collection for this router
         res.set('X-Model-Collection', User.collection?.name || 'users');
       } catch (_) {}
     }

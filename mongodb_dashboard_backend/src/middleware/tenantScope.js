@@ -30,8 +30,11 @@ function filterObject(obj, tenantId) {
 }
 
 // PUBLIC_INTERFACE
-function filterQuery(query, tenantId) {
-  if (!tenantId || !query) {return query;}
+function filterQuery(query, tenantId, req) {
+  if (!query) {return query;}
+  // Skip tenant filters in global/all-tenants mode
+  if (req && (req.tenantScopeDisabled || req.allTenants)) { return query; }
+  if (!tenantId) {return query;}
   if (isMongooseQuery(query)) {
     try {
       const existing = query.getQuery ? query.getQuery() : {};
@@ -46,15 +49,14 @@ function filterQuery(query, tenantId) {
 }
 
 // PUBLIC_INTERFACE
-function applyToAggregation(pipeline, tenantId) {
-  if (!tenantId) {return Array.isArray(pipeline) ? pipeline : [];}
+function applyToAggregation(pipeline, tenantId, req) {
   const pl = Array.isArray(pipeline) ? [...pipeline] : [];
-  // If first stage is a $match containing tenant_id, keep as-is; else prepend tenant match
+  // Skip tenant match entirely in global/all-tenants mode
+  if (req && (req.tenantScopeDisabled || req.allTenants)) { return pl; }
+  if (!tenantId) {return pl;}
   const first = pl[0] || {};
   const hasTenantMatch =
-    first &&
-    first.$match &&
-    Object.prototype.hasOwnProperty.call(first.$match, 'tenant_id');
+    first && first.$match && Object.prototype.hasOwnProperty.call(first.$match, 'tenant_id');
 
   if (!hasTenantMatch) {
     pl.unshift({ $match: { tenant_id: tenantId } });
@@ -63,10 +65,11 @@ function applyToAggregation(pipeline, tenantId) {
 }
 
 // PUBLIC_INTERFACE
-function stampCreate(doc, tenantId) {
+function stampCreate(doc, tenantId, req) {
   if (!doc || typeof doc !== 'object') {return doc;}
+  // In global/all-tenants mode, do not stamp tenant automatically
+  if (req && (req.tenantScopeDisabled || req.allTenants)) { return doc; }
   if (tenantId && !Object.prototype.hasOwnProperty.call(doc, 'tenant_id')) {
-    // ignore any client-provided tenant_id, always set to auth tenant
     doc.tenant_id = tenantId;
   }
   return doc;
@@ -83,13 +86,14 @@ function tenantScope() {
    *   req.stampTenant(doc)
    * - log the computed tenant filter (debug) for temporary verification
    */
-  return function (req, _res, next) {
-    if (req.tenantScopeDisabled) {
+  return function (req, res, next) {
+    if (req.tenantScopeDisabled || req.allTenants) {
       // Super Admin bypass: no tenant scoping applied
       req.tenantFilter = {};
       req.withTenantFilter = (objOrQuery) => objOrQuery;
       req.withTenantAggregation = (pipeline) => (Array.isArray(pipeline) ? pipeline : []);
       req.stampTenant = (doc) => doc;
+      try { if (res && typeof res.set === 'function') { res.set('X-All-Tenants', 'true'); } } catch {}
       return next();
     }
 
@@ -97,17 +101,16 @@ function tenantScope() {
     req.tenantFilter = tenantId ? { tenant_id: String(tenantId) } : {};
     // helpers
     req.withTenantFilter = (objOrQuery) => {
-      if (isMongooseQuery(objOrQuery)) {return filterQuery(objOrQuery, tenantId);}
+      if (isMongooseQuery(objOrQuery)) {return filterQuery(objOrQuery, tenantId, req);}
       return filterObject(objOrQuery || {}, tenantId);
     };
-    req.withTenantAggregation = (pipeline) => applyToAggregation(pipeline, tenantId);
-    req.stampTenant = (doc) => stampCreate(doc, tenantId);
+    req.withTenantAggregation = (pipeline) => applyToAggregation(pipeline, tenantId, req);
+    req.stampTenant = (doc) => stampCreate(doc, tenantId, req);
 
     // Debug log (temporary)
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
       try {
-         
-        console.debug(`[tenantScope] ${req.method} ${req.originalUrl} tenantFilter=`, req.tenantFilter);
+        console.debug(`[tenantScope] ${req.method} ${req.originalUrl} tenantFilter=`, req.tenantFilter, 'allTenants=', !!req.allTenants);
       } catch {}
     }
     next();

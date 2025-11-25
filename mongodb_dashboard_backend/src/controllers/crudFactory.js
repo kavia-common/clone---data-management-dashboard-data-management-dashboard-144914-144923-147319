@@ -168,8 +168,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       }
 
       // Enforce tenant BEFORE any sort to promote index usage.
-      // Guard: ensure tenantId exists as routes mount verifyAuth + requireTenant.
-      if (!req.tenantId) {
+      // Allow Super Admin global mode to bypass tenant checks
+      const bypass = !!(req.tenantScopeDisabled || req.allTenants);
+      try { if (bypass) { res.set('X-All-Tenants', 'true'); } } catch(_) {}
+      if (!bypass && !req.tenantId) {
         return failure(res, 'Missing tenant scope', 400);
       }
 
@@ -184,13 +186,12 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         '';
 
       const hasAuthHeader = !!req.headers?.authorization;
-      if (hasAuthHeader && clientRequestedTenant && String(clientRequestedTenant) !== String(req.tenantId)) {
-        // JWT tenant takes precedence; block cross-tenant access
+      if (!bypass && hasAuthHeader && clientRequestedTenant && String(clientRequestedTenant) !== String(req.tenantId)) {
         return failure(res, 'Forbidden: tenant scope mismatch', 403);
       }
 
       // Build final applied filter with robust tenant alias removal and normalized OR across aliases
-      const appliedFilter = mergeFilterWithTenant(filter, req.tenantId);
+      const appliedFilter = (req.tenantScopeDisabled || req.allTenants) ? (filter && typeof filter === 'object' ? filter : {}) : mergeFilterWithTenant(filter, req.tenantId);
 
       // Expose applied filter, model collection and quick existence probe for diagnostics
       try {
@@ -267,19 +268,21 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
     async getById(req, res) {
       const { id } = req.params;
       try {
-        const doc = await Model.findOne(
-          {
-            _id: id,
-            $or: [
-              { tenant_id: String(req.tenantId) },
-              { organization_id: String(req.tenantId) },
-              { orgId: String(req.tenantId) },
-              { tenantId: String(req.tenantId) },
-              { organizationId: String(req.tenantId) },
-              { 'tenant.tenant_id': String(req.tenantId) },
-            ],
-          }
-        ).lean();
+        const bypass = !!(req.tenantScopeDisabled || req.allTenants);
+        const match = bypass
+          ? { _id: id }
+          : {
+              _id: id,
+              $or: [
+                { tenant_id: String(req.tenantId) },
+                { organization_id: String(req.tenantId) },
+                { orgId: String(req.tenantId) },
+                { tenantId: String(req.tenantId) },
+                { organizationId: String(req.tenantId) },
+                { 'tenant.tenant_id': String(req.tenantId) },
+              ],
+            };
+        const doc = await Model.findOne(match).lean();
         if (!doc) {return failure(res, 'Not found', 404);}
         return res.status(200).json(doc);
       } catch (err) {
@@ -305,21 +308,21 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const clean = sanitizePayloadWithTenant(req);
       if (!clean) {return failure(res, 'Bad request: payload must be an object', 400);}
       try {
-        const doc = await Model.findOneAndUpdate(
-          {
-            _id: id,
-            $or: [
-              { tenant_id: String(req.tenantId) },
-              { organization_id: String(req.tenantId) },
-              { orgId: String(req.tenantId) },
-              { tenantId: String(req.tenantId) },
-              { organizationId: String(req.tenantId) },
-              { 'tenant.tenant_id': String(req.tenantId) },
-            ],
-          },
-          clean,
-          { new: true }
-        ).lean();
+        const bypass = !!(req.tenantScopeDisabled || req.allTenants);
+        const match = bypass
+          ? { _id: id }
+          : {
+              _id: id,
+              $or: [
+                { tenant_id: String(req.tenantId) },
+                { organization_id: String(req.tenantId) },
+                { orgId: String(req.tenantId) },
+                { tenantId: String(req.tenantId) },
+                { organizationId: String(req.tenantId) },
+                { 'tenant.tenant_id': String(req.tenantId) },
+              ],
+            };
+        const doc = await Model.findOneAndUpdate(match, clean, { new: true }).lean();
         if (!doc) {return failure(res, 'Not found', 404);}
         return res.status(200).json(doc);
       } catch (err) {
@@ -331,17 +334,21 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
     async remove(req, res) {
       const { id } = req.params;
       try {
-        const doc = await Model.findOneAndDelete({
-          _id: id,
-          $or: [
-            { tenant_id: String(req.tenantId) },
-            { organization_id: String(req.tenantId) },
-            { orgId: String(req.tenantId) },
-            { tenantId: String(req.tenantId) },
-            { organizationId: String(req.tenantId) },
-            { 'tenant.tenant_id': String(req.tenantId) },
-          ],
-        }).lean();
+        const bypass = !!(req.tenantScopeDisabled || req.allTenants);
+        const match = bypass
+          ? { _id: id }
+          : {
+              _id: id,
+              $or: [
+                { tenant_id: String(req.tenantId) },
+                { organization_id: String(req.tenantId) },
+                { orgId: String(req.tenantId) },
+                { tenantId: String(req.tenantId) },
+                { organizationId: String(req.tenantId) },
+                { 'tenant.tenant_id': String(req.tenantId) },
+              ],
+            };
+        const doc = await Model.findOneAndDelete(match).lean();
         if (!doc) {return failure(res, 'Not found', 404);}
         return res.status(200).json({ _id: id });
       } catch (err) {

@@ -231,4 +231,53 @@ router.post(
   })
 );
 
+/**
+ * PUBLIC_INTERFACE
+ * POST /api/session/all-tenants
+ * Toggle Super Admin global mode so backend skips tenant filters for the session/request context.
+ * Body: { enabled: true|false }
+ * Notes:
+ *  - Only Super Admin can enable this; non-super admins get 403.
+ *  - For stateless tokens, this acts per-request and returns headers clients can persist and send on subsequent calls.
+ */
+router.post(
+  '/all-tenants',
+  requireAuth(),
+  asyncHandler(async (req, res) => {
+    const enabled = String((req.body?.enabled ?? '')).toLowerCase();
+    const val = enabled === 'true' || enabled === '1' || enabled === 'yes' || enabled === 'on';
+
+    if (!isSuperAdmin(req)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: Only Super Admin can toggle all-tenants' });
+    }
+
+    // Set flags for this request; clients should persist via header X-All-Tenants on future requests
+    req.tenantScopeDisabled = !!val;
+    req.allTenants = !!val;
+    if (req.user) { req.user.allTenants = !!val; }
+
+    try {
+      res.set('X-All-Tenants', val ? 'true' : 'false');
+      res.set('X-Applied-Tenant', val ? 'all-tenants' : (req.tenantId ? String(req.tenantId) : 'unset'));
+    } catch {}
+
+    // Audit (best-effort)
+    await AuditLog.create({
+      action: 'UPDATE',
+      resource: 'session.all-tenants',
+      path: req.originalUrl,
+      method: req.method,
+      user_id: req.user?.id || null,
+      ip: req.ip,
+      user_agent: req.headers['user-agent'] || '',
+      before: { enabled: !val },
+      after: { enabled: val },
+      outcome: 'SUCCESS',
+      trace_id: req.traceId || null,
+    }).catch(() => {});
+
+    return res.status(200).json({ success: true, enabled: val });
+  })
+);
+
 module.exports = router;

@@ -18,13 +18,25 @@
  */
 const { isSuperAdmin, normalizeTenantId } = require('../utils/access');
 
+function parseAllTenantsFlag(req) {
+  const hdr = String(req.headers['x-all-tenants'] || '').toLowerCase().trim();
+  const q = String(req.query?.all_tenants || '').toLowerCase().trim();
+  const truthy = ['1', 'true', 'yes', 'on'];
+  return truthy.includes(hdr) || truthy.includes(q);
+}
+
 function requireTenant(req, res, next) {
-  // Super Admin bypass: disable tenant scoping
-  if (isSuperAdmin(req)) {
+  // Determine if all-tenants mode is requested and user is Super Admin
+  const wantsAll = parseAllTenantsFlag(req);
+  const isSA = isSuperAdmin(req);
+  if (isSA && wantsAll) {
+    // Enable global scope bypass when Super Admin explicitly requests
     req.tenantScopeDisabled = true;
+    req.allTenants = true;
     try {
+      res.set('X-All-Tenants', 'true');
       res.set('X-Applied-Tenant', 'all-tenants');
-      res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin)' }));
+      res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
     } catch (_) {}
     return next();
   }
