@@ -96,9 +96,9 @@ export default function Sidebar() {
           <NavLink to="/dashboard/sessions" className="nav-link">
             <span className="nav-label">Session Tracking</span>
           </NavLink>
-          <NavLink to="/dashboard/deployments" className="nav-link">
+          {/* <NavLink to="/dashboard/deployments" className="nav-link">
             <span className="nav-label">App Deployments</span>
-          </NavLink>
+          </NavLink> */}
           <NavLink to="/dashboard/costs" className="nav-link">
             <span className="nav-label">Costs</span>
           </NavLink>
