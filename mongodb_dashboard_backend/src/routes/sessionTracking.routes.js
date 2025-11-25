@@ -315,41 +315,19 @@ router.get(
     }
 
     // --------------------------------------------------
-    // Filter parsing (tolerant)
+    // Filter parsing
     // --------------------------------------------------
     let filter = {};
-    let filterSource = 'none';
-    if (typeof req.query.filter !== 'undefined') {
-      const raw = req.query.filter;
-      if (typeof raw === 'object') {
-        filter = raw || {};
-        filterSource = 'object';
-      } else if (typeof raw === 'string') {
-        try {
-          filter = JSON.parse(raw);
-          filterSource = 'raw-json';
-        } catch (e1) {
-          try {
-            const decoded = decodeURIComponent(raw);
-            filter = JSON.parse(decoded);
-            filterSource = 'url-encoded-json';
-          } catch (e2) {
-            console.warn('[session-tracking] filter parse failed; will fallback to time params', {
-              error1: e1?.message, error2: e2?.message, raw
-            });
-            filter = {};
-            filterSource = 'fallback-time';
-          }
-        }
-      }
+    try {
+      filter = req.query.filter ? JSON.parse(req.query.filter) : {};
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
-    // remove tenant keys; enforce on server
-    if (filter && typeof filter === 'object') {
-      delete filter.tenant_id;
-      delete filter.organization_id;
-      delete filter.organizationId;
-      if (Array.isArray(filter.$or)) delete filter.$or;
-    }
+
+    delete filter.tenant_id;
+    delete filter.organization_id;
+    delete filter.organizationId;
+    if (Array.isArray(filter.$or)) delete filter.$or;
 
     // --------------------------------------------------
     // FIXED: Single enforcedScope variable
@@ -365,37 +343,27 @@ router.get(
       : {};
 
     // --------------------------------------------------
-    // Date filter (tolerant + from/to mapping)
-    // session-tracking maps time filters to session_start/session_end fields
+    // Date filter (explicit only)
     // --------------------------------------------------
     let timeFilter = {};
-    // Prefer explicit start/end if provided
-    let startVal = req.query.start;
-    let endVal = req.query.end;
 
-    // Fallback to from/to if start/end not provided
-    if (!startVal && typeof req.query.from === 'string') startVal = req.query.from;
-    if (!endVal && typeof req.query.to === 'string') endVal = req.query.to;
+    if (req.query.start || req.query.end) {
+      let start = null;
+      let end = null;
 
-    let start = null;
-    let end = null;
+      if (req.query.start && isValidISODate(req.query.start)) {
+        start = parseISODateSafe(req.query.start);
+      }
 
-    if (startVal && isValidISODate(startVal)) {
-      start = parseISODateSafe(startVal);
-    }
-    if (endVal && isValidISODate(endVal)) {
-      end = parseISODateSafe(endVal);
-      // inclusive end-of-day
-      end.setUTCHours(23, 59, 59, 999);
-    }
+      if (req.query.end && isValidISODate(req.query.end)) {
+        end = parseISODateSafe(req.query.end);
+        end.setUTCHours(23, 59, 59, 999);
+      }
 
-    if (start || end) {
       if (start && !end) end = new Date();
       if (end && !start) start = new Date(0);
+
       timeFilter = { session_start: { $gte: start, $lte: end } };
-      console.log('[session-tracking] timeFilter from params', {
-        source: filterSource, start: start?.toISOString?.(), end: end?.toISOString?.()
-      });
     }
 
     // --------------------------------------------------
@@ -410,11 +378,6 @@ router.get(
     if (!isEmpty(timeFilter)) parts.push(timeFilter);
 
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
-
-    try {
-      res.set('X-Parsed-Filter-Source', String(filterSource));
-      console.log('[session-tracking] parsed filter', { filterSource, filterPreview: JSON.stringify(filter).slice(0, 500) });
-    } catch {}
 
     // --------------------------------------------------
     // Execute
