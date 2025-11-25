@@ -3,6 +3,7 @@ import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, listLlmCosts, health } from "../../api";
 import { fetchSessionTracking } from "../../api/sessionTracking";
+import { buildFilterParam } from "../../api/buildFilterParam";
 import LoadingState from "../../components/common/LoadingState";
 import ErrorState from "../../components/common/ErrorState";
 import KPIChart from "../../components/charts/KPIChart.jsx";
@@ -189,10 +190,20 @@ export default function Overview() {
       try {
         const { startISO, endISO } = sessionsRange;
         const { items } = await fetchSessionTracking({
-          start_date: startISO, // map to start_date per requirement
-          end_date: endISO,     // map to end_date per requirement
+          // Provide multiple shapes: from/to and start/end plus convenience keys
+          from: startISO,
+          to: endISO,
+          start_date: startISO,
+          end_date: endISO,
           limit: 200,
           sort: "-session_start",
+          // Fallback server filter if direct params ignored
+          filter: {
+            $or: [
+              { session_start: { $gte: startISO, $lte: endISO } },
+              { session_end: { $gte: startISO, $lte: endISO } },
+            ],
+          },
         });
         if (aborted) return;
 
@@ -285,7 +296,7 @@ export default function Overview() {
           };
 
           const usersRes = await listUsers({
-            filter: JSON.stringify(createdFilter),
+            filter: buildFilterParam(createdFilter) || JSON.stringify(createdFilter),
             limit: 2000,
             sort: "-created_at",
           });
@@ -351,7 +362,7 @@ export default function Overview() {
           ],
         };
         const res = await listLlmCosts({
-          filter: JSON.stringify(filter),
+          filter: buildFilterParam(filter) || JSON.stringify(filter),
           limit: 500,
           sort: "-timestamp",
         });
@@ -471,6 +482,18 @@ export default function Overview() {
           { value: "monthly", label: "Monthly" },
         ]}
       />
+      <button
+        type="button"
+        onClick={() => {
+          setSessionsRangeKey("7d");
+          setSessionsCustomRange({ start: null, end: null });
+        }}
+        className="btn btn-ghost"
+        aria-label="Clear sessions filters"
+        style={{ marginLeft: 8 }}
+      >
+        Clear
+      </button>
     </div>
   );
 
@@ -542,6 +565,20 @@ export default function Overview() {
           })}
         </div>
       </div>
+      <button
+        type="button"
+        onClick={() => {
+          setUsersRangeKey("7d");
+          setUsersCustomRange({ start: null, end: null });
+          setUsersGranularity("daily");
+          setUsersStatus("active");
+        }}
+        className="btn btn-ghost"
+        aria-label="Clear users filters"
+        style={{ marginLeft: 8 }}
+      >
+        Clear
+      </button>
     </div>
   );
 
@@ -577,6 +614,19 @@ export default function Overview() {
           { value: "monthly", label: "Monthly" },
         ]}
       />
+      <button
+        type="button"
+        onClick={() => {
+          setCostsRangeKey("7d");
+          setCostsCustomRange({ start: null, end: null });
+          setCostsGranularity("daily");
+        }}
+        className="btn btn-ghost"
+        aria-label="Clear costs filters"
+        style={{ marginLeft: 8 }}
+      >
+        Clear
+      </button>
     </div>
   );
 
@@ -654,7 +704,13 @@ export default function Overview() {
                 </label>
               </div>
             </div>
-          ) : null}
+          ) : (
+            sessionsRangeKey === "custom" && (!sessionsCustomRange.start || !sessionsCustomRange.end) ? (
+              <div style={{ marginBottom: 8, color: "#6B7280", fontSize: 12 }}>
+                Select start and end dates to apply custom range.
+              </div>
+            ) : null
+          )}
           {sessionsLoading && <LoadingState message="Loading sessions trend…" height={220} />}
           {sessionsError && <ErrorState message={sessionsError?.message || "Failed to load sessions."} />}
           {!sessionsLoading && !sessionsError && (
@@ -695,7 +751,13 @@ export default function Overview() {
                 </label>
               </div>
             </div>
-          ) : null}
+          ) : (
+            usersRangeKey === "custom" && (!usersCustomRange.start || !usersCustomRange.end) ? (
+              <div style={{ marginBottom: 8, color: "#6B7280", fontSize: 12 }}>
+                Select start and end dates to apply custom range.
+              </div>
+            ) : null
+          )}
           {usersLoading && <LoadingState message="Loading users trend…" height={220} />}
           {usersError && <ErrorState message={usersError?.message || "Failed to load users trend."} />}
           {!usersLoading && !usersError && (
@@ -736,7 +798,13 @@ export default function Overview() {
                 </label>
               </div>
             </div>
-          ) : null}
+          ) : (
+            costsRangeKey === "custom" && (!costsCustomRange.start || !costsCustomRange.end) ? (
+              <div style={{ marginBottom: 8, color: "#6B7280", fontSize: 12 }}>
+                Select start and end dates to apply custom range.
+              </div>
+            ) : null
+          )}
           {costsLoading && <LoadingState message="Loading costs trend…" height={220} />}
           {costsError && <ErrorState message={costsError?.message || "Failed to load costs trend."} />}
           {!costsLoading && !costsError && (
