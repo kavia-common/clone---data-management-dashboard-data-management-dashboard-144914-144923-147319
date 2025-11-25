@@ -1,7 +1,7 @@
 const apiBase =
 
   // `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
-  'https://vscode-internal-24499-beta.beta01.cloud.kavia.ai:3001/api'
+  'https://vscode-internal-35399-beta.beta01.cloud.kavia.ai:3001/api'
 
 
 /**
@@ -14,9 +14,4 @@ export function getApiBase() {
   return apiBase;
 }
 
-// PUBLIC_INTERFACE
-export function apiDebugLoggingEnabled() {
-  return process.env.REACT_APP_API_DEBUG === '1';
-}
-
-export default { getApiBase, apiDebugLoggingEnabled };
+export default { getApiBase };
