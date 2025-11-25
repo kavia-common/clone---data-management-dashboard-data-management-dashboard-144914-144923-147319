@@ -98,8 +98,10 @@ export function getRootTenantId() {
   return ROOT_TENANT_ID;
 }
 
-export default {
+export const HashUtils = {
   encryptTenantId,
   decryptTenantId,
 };
+
+export default HashUtils;
  

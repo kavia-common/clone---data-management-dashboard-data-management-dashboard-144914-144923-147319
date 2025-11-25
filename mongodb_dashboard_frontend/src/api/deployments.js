@@ -122,7 +122,12 @@
    return fetchStatusCountsClientSide({ pageLimit, maxPages });
  }
 
- export default {
-   fetchProjectNameByProjectId,
-   fetchDeploymentStatusCounts,
- };
+/**
+ * Named API aggregate to avoid anonymous default-export.
+ */
+export const DeploymentsApi = {
+  fetchProjectNameByProjectId,
+  fetchDeploymentStatusCounts,
+};
+
+export default DeploymentsApi;

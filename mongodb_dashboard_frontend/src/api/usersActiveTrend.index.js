@@ -1,8 +1,8 @@
 import { getActiveUsersTrend } from './usersActiveTrend';
 
 // PUBLIC_INTERFACE
-export const usersActiveTrendApi = {
+export const UsersActiveTrendIndex = {
   getActiveTrend: getActiveUsersTrend,
 };
 
-export default usersActiveTrendApi;
+export default UsersActiveTrendIndex;
