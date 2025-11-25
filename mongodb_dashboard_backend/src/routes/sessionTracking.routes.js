@@ -177,22 +177,122 @@ const { isValidISODate, parseISODateSafe } = require('../utils/date');
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
 
+/**
+ * Early bypass detector for GET /api/session-tracking
+ * Mirrors /api/users logic. Detects T0000 via header->query->auth precedence.
+ */
+function sessionsEarlyBypassDetector(req, res, next) {
+  if (req.method !== 'GET' || req.path !== '/') return next();
+
+  const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
+  const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
+  const hdrOrg =
+    (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id']) ||
+    (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id']) ||
+    (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id']) ||
+    (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant']) ||
+    undefined;
+  const authTenant =
+    (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId) ||
+    (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id) ||
+    undefined;
+
+  const requestedTenant = hdrOrg || qOrg || qTenant || authTenant;
+  const isT0000 = requestedTenant === 'T0000';
+
+  let bypassApplied = false;
+  if (isT0000) {
+    req.tenantScopeDisabled = true;
+    req.allTenants = true;
+    req.sessionsAllTenantsBypass = true;
+    bypassApplied = true;
+
+    try {
+      res.set('X-Tenant-Bypass', 'true');
+      res.set('X-Requested-Tenant', 'T0000');
+      res.set('X-All-Tenants', 'true');
+      res.set('X-Applied-Tenant', 'all-tenants');
+      res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
+    } catch {}
+  } else {
+    try {
+      res.set('X-Tenant-Bypass', 'false');
+      if (requestedTenant) res.set('X-Requested-Tenant', String(requestedTenant));
+    } catch {}
+  }
+
+  console.log('[sessionTracking.routes][GET /api/session-tracking] earlyBypassDetector', {
+    qOrg, qTenant, hdrOrg, authTenant, requestedTenant, isT0000, bypassApplied,
+  });
+
+  return next();
+}
+
+/**
+ * Expose applied tenant/filter headers for diagnostics on this router.
+ */
+router.use((req, res, next) => {
+  try {
+    if (req.tenantScopeDisabled || req.allTenants) {
+      res.set('X-All-Tenants', 'true');
+      res.set('X-Applied-Tenant', 'all-tenants');
+      res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
+      try { res.set('X-Model-Collection', SessionTracking.collection?.name || 'session_tracking'); } catch(_) {}
+    } else if (req.tenantId) {
+      const tenant = String(req.tenantId);
+      const orgFilter = {
+        $or: [
+          { tenant_id: tenant },
+          { organization_id: tenant },
+          { organizationId: tenant },
+        ],
+      };
+      res.set('X-Applied-Tenant', tenant);
+      res.set('x-applied-organization-id', tenant);
+      res.set('X-Applied-Filter', JSON.stringify(orgFilter));
+      try { res.set('X-Model-Collection', SessionTracking.collection?.name || 'session_tracking'); } catch(_) {}
+    }
+  } catch (_) {}
+  next();
+});
+
 router.get(
   '/',
+  // Place early detector first
+  sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
-    const enforcedTenant = req.tenantId ||
-      (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-      (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
-      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-      null;
+    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.sessionsAllTenantsBypass);
+    const enforcedTenant = bypass
+      ? null
+      : req.tenantId ||
+        (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+        (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
+        (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+        (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+        null;
 
-    if (!enforcedTenant) {
+    if (!bypass && !enforcedTenant) {
       return res.status(400).json({
         success: false,
         message: 'tenant_id is required. Provide ?tenant_id=...'
       });
     }
+
+    try {
+      res.set('X-Sessions-Bypass', String(!!req.sessionsAllTenantsBypass));
+      res.set('X-All-Tenants', String(!!(req.tenantScopeDisabled || req.allTenants)));
+      const applied = bypass ? 'all-tenants' : (enforcedTenant || '');
+      res.set('X-Applied-Tenant', String(applied));
+      console.log('[sessions:list] handler-entry', {
+        qOrg: req.query?.organization_id,
+        qTenant: req.query?.tenant_id,
+        hdrOrg: req.headers?.['x-organization-id'],
+        authTenant: req?.auth?.tenantId,
+        sessionsBypass: !!req.sessionsAllTenantsBypass,
+        allTenants: !!(req.tenantScopeDisabled || req.allTenants),
+        appliedTenant: String(applied || ''),
+      });
+    } catch {}
 
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) {rawQuery.limit = rawQuery.pageSize;}
@@ -239,7 +339,7 @@ router.get(
     if (Array.isArray(filter.$or)) {delete filter.$or;}
 
     // ---- Tenant Scope ----
-    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
+    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.sessionsAllTenantsBypass || req?.user?.isSuperAdmin);
     const enforcedScope = (enforcedTenant && !bypass)
       ? {
         $or: [

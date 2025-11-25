@@ -163,18 +163,35 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       if (debugOn) {
         try {
-          const routeBypass = !!req.usersAllTenantsBypass;
+          const routeBypass =
+            !!req.usersAllTenantsBypass ||
+            !!req.sessionsAllTenantsBypass ||
+            !!req.deploymentsAllTenantsBypass;
           const globalBypass = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
           const bypassAny = routeBypass || globalBypass;
           console.debug(
             `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'} bypass=${bypassAny} (routeBypass=${routeBypass}, globalBypass=${globalBypass})`
           );
-          // Explicit console.log for /api/users to confirm bypass visibility in terminal
+          // Explicit console.log for specific routes to confirm bypass visibility in terminal
           const isUsersRoute = (req.baseUrl || '').endsWith('/users') || (req.originalUrl || '').includes('/api/users');
+          const isSessionsRoute = (req.baseUrl || '').endsWith('/session-tracking') || (req.originalUrl || '').includes('/api/session-tracking');
+          const isDeploymentsRoute = (req.baseUrl || '').endsWith('/app-deployments') || (req.originalUrl || '').includes('/api/app-deployments');
           if (isUsersRoute) {
             console.log('[crudFactory.list:/api/users] bypass trace', {
               bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
               usersAllTenantsBypass: !!req.usersAllTenantsBypass
+            });
+          }
+          if (isSessionsRoute) {
+            console.log('[crudFactory.list:/api/session-tracking] bypass trace', {
+              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
+              sessionsAllTenantsBypass: !!req.sessionsAllTenantsBypass
+            });
+          }
+          if (isDeploymentsRoute) {
+            console.log('[crudFactory.list:/api/app-deployments] bypass trace', {
+              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
+              deploymentsAllTenantsBypass: !!req.deploymentsAllTenantsBypass
             });
           }
         } catch (_) {}
@@ -196,7 +213,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Enforce tenant BEFORE any sort to promote index usage.
       // Allow Super Admin global mode to bypass tenant checks
-      const bypass = !!(req.tenantScopeDisabled || req.allTenants);
+      const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass || req.sessionsAllTenantsBypass || req.deploymentsAllTenantsBypass);
       try { if (bypass) { res.set('X-All-Tenants', 'true'); } } catch(_) {}
       if (!bypass && !req.tenantId) {
         return failure(res, 'Missing tenant scope', 400);

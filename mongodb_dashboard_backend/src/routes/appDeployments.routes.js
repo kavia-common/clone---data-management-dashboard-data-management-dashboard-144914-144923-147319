@@ -116,7 +116,74 @@ function extractNormalizedProjectId(payload) {
  *                 - $ref: '#/components/schemas/ListEnvelope'
  *       400: { description: Invalid filter }
  */
-router.get('/', verifyAuth, requireTenant, asyncHandler(controller.list));
+/**
+ * Early bypass detector for GET /api/app-deployments list
+ * Mirrors /api/users T0000 bypass behavior.
+ */
+function deploymentsEarlyBypassDetector(req, res, next) {
+  if (req.method !== 'GET' || req.path !== '/') return next();
+
+  const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
+  const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
+  const hdrOrg =
+    (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id']) ||
+    (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id']) ||
+    (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id']) ||
+    (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant']) ||
+    undefined;
+  const authTenant =
+    (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId) ||
+    (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id) ||
+    undefined;
+
+  const requestedTenant = hdrOrg || qOrg || qTenant || authTenant;
+  const isT0000 = requestedTenant === 'T0000';
+
+  let bypassApplied = false;
+  if (isT0000) {
+    req.tenantScopeDisabled = true;
+    req.allTenants = true;
+    req.deploymentsAllTenantsBypass = true;
+    bypassApplied = true;
+    try {
+      res.set('X-Tenant-Bypass', 'true');
+      res.set('X-Requested-Tenant', 'T0000');
+      res.set('X-All-Tenants', 'true');
+      res.set('X-Applied-Tenant', 'all-tenants');
+      res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
+    } catch {}
+  } else {
+    try {
+      res.set('X-Tenant-Bypass', 'false');
+      if (requestedTenant) res.set('X-Requested-Tenant', String(requestedTenant));
+    } catch {}
+  }
+
+  console.log('[appDeployments.routes][GET /api/app-deployments] earlyBypassDetector', {
+    qOrg, qTenant, hdrOrg, authTenant, requestedTenant, isT0000, bypassApplied,
+  });
+
+  return next();
+}
+
+router.get('/', deploymentsEarlyBypassDetector, verifyAuth, requireTenant, asyncHandler(async (req, res, next) => {
+  try {
+    res.set('X-Deployments-Bypass', String(!!req.deploymentsAllTenantsBypass));
+    res.set('X-All-Tenants', String(!!(req.tenantScopeDisabled || req.allTenants)));
+    const applied = (req.tenantScopeDisabled || req.allTenants) ? 'all-tenants' : (req.tenantId || '');
+    res.set('X-Applied-Tenant', String(applied));
+    console.log('[deployments:list] handler-entry', {
+      qOrg: req.query?.organization_id,
+      qTenant: req.query?.tenant_id,
+      hdrOrg: req.headers?.['x-organization-id'],
+      authTenant: req?.auth?.tenantId,
+      deploymentsBypass: !!req.deploymentsAllTenantsBypass,
+      allTenants: !!(req.tenantScopeDisabled || req.allTenants),
+      appliedTenant: String(applied || ''),
+    });
+  } catch {}
+  return controller.list(req, res, next);
+}));
 
 /**
  * @swagger
