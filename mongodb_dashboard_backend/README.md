@@ -9,6 +9,7 @@ Quick start (development)
 - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
 - npm ci        # or: npm install
 - npm run dev   # binds to 0.0.0.0:3001; dotenv is loaded programmatically
+- npm run dev:watch   # hot reload via nodemon (if installed)
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state
 
@@ -83,5 +84,6 @@ Notes on authentication and hashing
 Troubleshooting
 - Port already in use (EADDRINUSE):
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
+  - If you see this during preview/CI, it usually means the server is already healthy. Use the health endpoints to confirm (GET /health).
 - Mongo not connected:
   - /api/health will reflect db: disconnected; verify MONGODB_URI and MONGODB_DB in .env.
