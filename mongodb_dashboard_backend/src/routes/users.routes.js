@@ -286,72 +286,107 @@ router.get(
  */
 router.get(
   '/',
-  // Use extractOrganization but allow T0000 super-admin bypass only for this route
-  function tolerantExtractOrg(req, res, next) {
-    const { extractOrganization } = require('../middleware/extractOrganization');
+  // Special pre-middleware: apply T0000 bypass BEFORE any organization extraction/tenant scoping for this route only.
+  function preUsersBypass(req, res, next) {
     const { isSuperAdmin } = require('../utils/access');
 
-    // Prefer req.log if provided by middleware; else fallback to console.info
-    const logger = (req && req.log && typeof req.log.info === 'function')
-      ? req.log
-      : { info: (...args) => { try { console.info(...args); } catch (_) {} } };
+    // Logger setup
+    const logger =
+      req?.log && typeof req.log.info === 'function'
+        ? req.log
+        : { info: (...args) => { try { console.info(...args); } catch {} }, error: (...args) => { try { console.error(...args); } catch {} } };
 
-    // Detect T0000 from query/header/req.auth similar to this route's existing extraction.
-    // Priority: query params first (organization_id or tenant_id), then headers, then req.auth
-    const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
-    const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
+    // Raw values without trimming per requirement (strict equality)
+    const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
+    const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
     const hdrOrg =
-      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
-      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
-      '';
+      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id']) ||
+      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id']) ||
+      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id']) ||
+      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant']) ||
+      undefined;
     const authTenant =
-      (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId.trim()) ||
-      (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id.trim()) ||
-      '';
+      (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId) ||
+      (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id) ||
+      undefined;
 
     const requestedTenant = qOrg || qTenant || hdrOrg || authTenant;
-    const isT0000 = requestedTenant === 'T0000';
+    const isT0000 = requestedTenant === 'T0000'; // strict equality, no trimming
     const superAdmin = !!isSuperAdmin(req);
 
-    // Pre-decision evaluation log (avoid sensitive data; just IDs/flags)
+    // Emit diagnostic snapshot prior to any bypass decision
     try {
       logger.info(
-        { route: '/api/users', qOrg, qTenant, hdrOrg, authTenant, requestedTenant, isT0000, isSuper: superAdmin },
-        'users:list tenant-eval'
+        {
+          route: '/api/users',
+          method: req.method,
+          qOrg,
+          qTenant,
+          hdrOrg,
+          authTenant,
+          requestedTenant,
+          isT0000,
+          isSuper: superAdmin,
+        },
+        'users:list pre-bypass-eval'
       );
-    } catch (_) {}
+    } catch {}
 
+    let bypassApplied = false;
     if (isT0000 || superAdmin) {
-      // TEMPORARY: super-admin bypass keyed to exact "T0000" for GET /api/users only.
-      // Do not propagate tenant; mark scope disabled so controller.list returns all users.
+      // Set explicit route-local flags first
       req.tenantScopeDisabled = true;
       req.allTenants = true;
+      req.usersAllTenantsBypass = true; // controller/service can read this
+      bypassApplied = true;
+
+      // Set response headers for observability
       try {
         res.set('X-All-Tenants', 'true');
         res.set('X-Applied-Tenant', 'all-tenants');
-        res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
-      } catch (_) {}
-      // Decision log: bypass branch
+        res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (users route T0000 bypass)' }));
+        res.set('X-Users-Bypass', 'true');
+      } catch {}
+
       try {
-        logger.info({ route: '/api/users', bypass: true }, 'users:list super-admin bypass active');
-      } catch (_) {}
-      return next();
+        logger.info(
+          { route: '/api/users', bypassApplied, qOrg, qTenant, hdrOrg, authTenant, requestedTenant },
+          'users:list bypass-activated'
+        );
+      } catch {}
+      return next(); // do not run extractOrganization when bypassed
     }
 
-    // Decision log: else branch (filter applied)
+    // Not bypassing, record in logs and continue to extraction
     try {
       logger.info(
-        { route: '/api/users', bypass: false, appliedTenant: requestedTenant || 'none' },
-        'users:list tenant filter applied'
+        { route: '/api/users', bypassApplied, qOrg, qTenant, hdrOrg, authTenant, requestedTenant },
+        'users:list bypass-not-applied'
       );
-    } catch (_) {}
+    } catch {}
 
-    // Fallback to normal extraction when not T0000 and not super admin
+    return next();
+  },
+  // If preUsersBypass did not set bypass, run normal extraction
+  function conditionalExtractOrg(req, res, next) {
+    if (req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass) {
+      // Already bypassed; skip extraction
+      return next();
+    }
+    const { extractOrganization } = require('../middleware/extractOrganization');
     return extractOrganization()(req, res, next);
   },
-  controller.list
+  // Final handler
+  function usersListHandler(req, res, next) {
+    // Ensure headers reflect the final state at handler entry
+    try {
+      res.set('X-Users-Bypass', String(!!req.usersAllTenantsBypass));
+      res.set('X-All-Tenants', String(!!(req.tenantScopeDisabled || req.allTenants)));
+      const applied = req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : (req.tenantId || '');
+      res.set('X-Applied-Tenant', String(applied));
+    } catch {}
+    return controller.list(req, res, next);
+  }
 );
 /**
  * PUBLIC_INTERFACE

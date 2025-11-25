@@ -27,7 +27,13 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
     timeClauses.push(makeRange('last_updated'));
   }
 
-  const bypass = !!(req && (req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin));
+  const bypass = !!(req && (req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin || req.usersAllTenantsBypass));
+  try {
+    if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+      // Route-level visibility: show when usersAllTenantsBypass is set
+      console.debug(`[users.service] getUserProjectsFromSessions bypass=${bypass} (usersAllTenantsBypass=${!!(req && req.usersAllTenantsBypass)})`);
+    }
+  } catch {}
   const baseMatch = {
     $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
     ...(timeClauses.length

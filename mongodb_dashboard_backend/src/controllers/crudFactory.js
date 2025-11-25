@@ -163,9 +163,11 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       if (debugOn) {
         try {
-          
+          const routeBypass = !!req.usersAllTenantsBypass;
+          const globalBypass = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
+          const bypassAny = routeBypass || globalBypass;
           console.debug(
-            `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'} bypass=${!!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin)}`
+            `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'} bypass=${bypassAny} (routeBypass=${routeBypass}, globalBypass=${globalBypass})`
           );
         } catch (_) {}
       }
