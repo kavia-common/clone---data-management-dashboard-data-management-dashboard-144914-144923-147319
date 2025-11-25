@@ -21,7 +21,7 @@ function isMongooseQuery(obj) {
 
 // PUBLIC_INTERFACE
 function filterObject(obj, tenantId) {
-  if (!tenantId) {return obj || {};}
+  if (!tenantId) { return obj || {}; }
   const o = obj && typeof obj === 'object' ? { ...obj } : {};
   if (!Object.prototype.hasOwnProperty.call(o, 'tenant_id')) {
     o.tenant_id = tenantId;
@@ -31,10 +31,10 @@ function filterObject(obj, tenantId) {
 
 // PUBLIC_INTERFACE
 function filterQuery(query, tenantId, req) {
-  if (!query) {return query;}
+  if (!query) { return query; }
   // Skip tenant filters in global/all-tenants mode
   if (req && (req.tenantScopeDisabled || req.allTenants)) { return query; }
-  if (!tenantId) {return query;}
+  if (!tenantId) { return query; }
   if (isMongooseQuery(query)) {
     try {
       const existing = query.getQuery ? query.getQuery() : {};
@@ -53,7 +53,7 @@ function applyToAggregation(pipeline, tenantId, req) {
   const pl = Array.isArray(pipeline) ? [...pipeline] : [];
   // Skip tenant match entirely in global/all-tenants mode
   if (req && (req.tenantScopeDisabled || req.allTenants)) { return pl; }
-  if (!tenantId) {return pl;}
+  if (!tenantId) { return pl; }
   const first = pl[0] || {};
   const hasTenantMatch =
     first && first.$match && Object.prototype.hasOwnProperty.call(first.$match, 'tenant_id');
@@ -66,7 +66,7 @@ function applyToAggregation(pipeline, tenantId, req) {
 
 // PUBLIC_INTERFACE
 function stampCreate(doc, tenantId, req) {
-  if (!doc || typeof doc !== 'object') {return doc;}
+  if (!doc || typeof doc !== 'object') { return doc; }
   // In global/all-tenants mode, do not stamp tenant automatically
   if (req && (req.tenantScopeDisabled || req.allTenants)) { return doc; }
   if (tenantId && !Object.prototype.hasOwnProperty.call(doc, 'tenant_id')) {
@@ -87,25 +87,42 @@ function tenantScope() {
    * - log the computed tenant filter (debug) for temporary verification
    */
   return function (req, res, next) {
+    // Super Admin bypass is determined by:
+    //  - req.user.isSuperAdmin flag (set by auth middleware) OR
+    //  - req.tenantScopeDisabled / req.allTenants flags (set by verifyAuth/requireTenant)
     // If previous middleware didn't set bypass but user is Super Admin and auth indicates special T0000, activate bypass
+    // try {
+    //   const roles = (Array.isArray(req?.user?.roles) && req.user.roles) ||
+    //     (Array.isArray(req?.auth?.roles) && req.auth.roles) ||
+    //     (typeof req?.auth?.role === 'string' ? [req.auth.role] : []) || [];
+    //   const isSA = roles.map(r => String(r).toLowerCase()).includes('super admin');
+    //   const t = req?.auth?.tenantId;
+    //   if (isSA && (t && /^T0+$/i.test(String(t).trim()))) {
+    //     req.tenantScopeDisabled = true;
+    //     req.allTenants = true;
+    //   }
+    // } catch {}
+    // NEW: Always enable full tenant bypass if user is Super Admin
     try {
       const roles = (Array.isArray(req?.user?.roles) && req.user.roles) ||
         (Array.isArray(req?.auth?.roles) && req.auth.roles) ||
         (typeof req?.auth?.role === 'string' ? [req.auth.role] : []) || [];
+
       const isSA = roles.map(r => String(r).toLowerCase()).includes('super admin');
-      const t = req?.auth?.tenantId;
-      if (isSA && (t && /^T0+$/i.test(String(t).trim()))) {
+
+      if (isSA) {
         req.tenantScopeDisabled = true;
         req.allTenants = true;
       }
-    } catch {}
+    } catch { }
+
     if (req.tenantScopeDisabled || req.allTenants) {
       // Super Admin bypass: no tenant scoping applied
       req.tenantFilter = {};
       req.withTenantFilter = (objOrQuery) => objOrQuery;
       req.withTenantAggregation = (pipeline) => (Array.isArray(pipeline) ? pipeline : []);
       req.stampTenant = (doc) => doc;
-      try { if (res && typeof res.set === 'function') { res.set('X-All-Tenants', 'true'); } } catch {}
+      try { if (res && typeof res.set === 'function') { res.set('X-All-Tenants', 'true'); } } catch { }
       return next();
     }
 
@@ -113,7 +130,7 @@ function tenantScope() {
     req.tenantFilter = tenantId ? { tenant_id: String(tenantId) } : {};
     // helpers
     req.withTenantFilter = (objOrQuery) => {
-      if (isMongooseQuery(objOrQuery)) {return filterQuery(objOrQuery, tenantId, req);}
+      if (isMongooseQuery(objOrQuery)) { return filterQuery(objOrQuery, tenantId, req); }
       return filterObject(objOrQuery || {}, tenantId);
     };
     req.withTenantAggregation = (pipeline) => applyToAggregation(pipeline, tenantId, req);
@@ -123,7 +140,7 @@ function tenantScope() {
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
       try {
         console.debug(`[tenantScope] ${req.method} ${req.originalUrl} tenantFilter=`, req.tenantFilter, 'allTenants=', !!req.allTenants);
-      } catch {}
+      } catch { }
     }
     next();
   };

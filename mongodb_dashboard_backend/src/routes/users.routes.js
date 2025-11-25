@@ -353,6 +353,7 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
       userId,
       from,
       to,
+      req, // allow service to detect super admin bypass
     });
 
     // Ensure projects is always an array for safety

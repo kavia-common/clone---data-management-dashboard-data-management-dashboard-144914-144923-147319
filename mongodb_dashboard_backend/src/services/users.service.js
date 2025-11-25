@@ -8,7 +8,7 @@ const Project = require('../models/project.model');
  * getUserProjectsFromSessions
  * Aggregates distinct projects for a given user within a tenant using session_tracking data.
  */
-async function getUserProjectsFromSessions({ tenantId, userId, from, to }) {
+async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = undefined }) {
   const userIdString = String(userId);
 
   const timeClauses = [];
@@ -27,21 +27,23 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to }) {
     timeClauses.push(makeRange('last_updated'));
   }
 
+  const bypass = !!(req && (req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin));
+  const baseMatch = {
+    $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
+    ...(timeClauses.length
+      ? {
+          $or: timeClauses.map((clause) => {
+            const key = Object.keys(clause)[0];
+            const cond = clause[key];
+            if (!cond.$gte && !cond.$lte) {return { [key]: { $exists: true } };}
+            return clause;
+          }),
+        }
+      : {}),
+  };
+
   const matchStage = {
-    $match: {
-      tenant_id: tenantId,
-      $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
-      ...(timeClauses.length
-        ? {
-            $or: timeClauses.map((clause) => {
-              const key = Object.keys(clause)[0];
-              const cond = clause[key];
-              if (!cond.$gte && !cond.$lte) {return { [key]: { $exists: true } };}
-              return clause;
-            }),
-          }
-        : {}),
-    },
+    $match: bypass ? baseMatch : { ...baseMatch, tenant_id: tenantId },
   };
 
   const pipeline = [

@@ -36,7 +36,10 @@ router.get('/health', healthController.check.bind(healthController));
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);
 
-// Protected core routes behind auth + tenant
+/**
+ * Protected core routes behind auth + tenant
+ * Note: Super Admins (req.user.isSuperAdmin or T0000) are allowed to bypass tenant scoping by requireTenant/verifyAuth.
+ */
 router.use('/users', verifyAuth, requireTenant, usersRoutes);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 

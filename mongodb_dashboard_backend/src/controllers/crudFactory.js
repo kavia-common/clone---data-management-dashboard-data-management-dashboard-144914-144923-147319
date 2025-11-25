@@ -154,11 +154,18 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Developer-mode log
       const debugOn = process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true';
+
+      // Expose bypass status for tests/diagnostics
+      try {
+        const bypassHeader = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
+        res.set('X-Tenant-Bypass', String(bypassHeader));
+      } catch (_) {}
+
       if (debugOn) {
         try {
-           
+          
           console.debug(
-            `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'}`
+            `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'} bypass=${!!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin)}`
           );
         } catch (_) {}
       }
@@ -242,7 +249,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
         if (debugOn) {
           try {
-             
+            
             console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
           } catch (_) {}
         }

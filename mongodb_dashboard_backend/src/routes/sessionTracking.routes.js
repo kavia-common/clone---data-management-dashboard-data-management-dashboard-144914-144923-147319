@@ -239,7 +239,8 @@ router.get(
     if (Array.isArray(filter.$or)) {delete filter.$or;}
 
     // ---- Tenant Scope ----
-    const enforcedScope = enforcedTenant
+    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
+    const enforcedScope = (enforcedTenant && !bypass)
       ? {
         $or: [
           { tenant_id: enforcedTenant },

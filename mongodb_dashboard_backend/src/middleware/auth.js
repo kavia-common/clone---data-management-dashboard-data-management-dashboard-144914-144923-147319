@@ -94,10 +94,29 @@ function attachAuthContext() {
         roles: Array.isArray(dbUser?.roles)
           ? dbUser.roles
           : (typeof dbUser?.role === 'string' ? [dbUser.role] : undefined),
+        // Derive active tenant from user record if stored (optional)
+        tenant_id: (dbUser && (dbUser.tenant_id || dbUser.organization_id || dbUser.organizationId)) || undefined,
         raw: dbUser || undefined,
       };
 
+      // PUBLIC_INTERFACE
+      // Mark Super Admin: either role contains "Super Admin" OR explicit tenant_id === "T0000"
+      try {
+        const roles = Array.isArray(user.roles) ? user.roles : [];
+        const roleIsSA = roles.map((r) => String(r).toLowerCase()).includes('super admin');
+        const isT0000 = typeof user.tenant_id === 'string' && /^T0+$/i.test(String(user.tenant_id).trim());
+        user.isSuperAdmin = !!(roleIsSA || isT0000);
+      } catch { user.isSuperAdmin = false; }
+
       req.user = user;
+
+      // Dev-only trace
+      if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+        try {
+          console.debug('[auth.attachAuthContext] user.id=', user.id, 'isSuperAdmin=', !!user.isSuperAdmin);
+        } catch {}
+      }
+
       return next();
     } catch (e) {
        
