@@ -132,13 +132,14 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
     if (name === 'ValidationError') {
       return failure(res, 'Validation failed', 422, { error: message, details: err?.errors || undefined });
     }
+    try { res.set('X-List-Error', (message || '').slice(0, 120)); } catch (_) {}
     return failure(res, 'Request failed', 400, { error: message });
   }
 
   return {
     // PUBLIC_INTERFACE
     async list(req, res) {
-      console.debug("print the data -------------->>>>>>",req.params)
+      // concise debug only in dev is handled below; avoid noisy param dump here
       // Determine effective tenant from JWT-backed middleware
       const effectiveTenant = req?.tenantId ? String(req.tenantId) : undefined;
 
@@ -209,14 +210,18 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
       const hardCappedLimit = clampLimit(parsedLimit, 500);
 
-      // Parse filter safely
+      // Parse filter safely with defensive fallback instead of failing with 400
       const filterRaw = req.query.filter ? req.query.filter : '{}';
-      console.log('----------->>>>>',req.query)
       let filter = {};
       try {
-        filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
+        filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : (filterRaw || {});
       } catch (err) {
-        return failure(res, 'Invalid filter JSON', 400);
+        // Defensive: fallback to empty filter and log concise reason
+        console.warn('[crudFactory.list] filter parse failed; using empty filter', {
+          route: req.originalUrl,
+          reason: err?.message?.slice(0, 120) || 'parse error'
+        });
+        filter = {};
       }
 
       // Enforce tenant BEFORE any sort to promote index usage.
@@ -224,6 +229,23 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass || req.sessionsAllTenantsBypass || req.deploymentsAllTenantsBypass);
       try { if (bypass) { res.set('X-All-Tenants', 'true'); } } catch(_) {}
       if (!bypass && !req.tenantId) {
+        // Defensive behavior: return empty dataset with 200 to avoid breaking charts when tenant not resolved.
+        // Add concise console log and diagnostics header; do not leak sensitive details.
+        try {
+          console.warn('[crudFactory.list] missing tenant scope; returning empty results', {
+            route: req.originalUrl
+          });
+          res.set('X-Missing-Tenant', 'true');
+        } catch (_) {}
+
+        if (req.method === 'GET') {
+          const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
+          const hardCappedLimit = clampLimit(parsedLimit, 500);
+          if (explicit) {
+            return res.status(200).json({ success: true, data: [], meta: { page, limit: hardCappedLimit, total: 0 } });
+          }
+          return res.status(200).json([]);
+        }
         return failure(res, 'Missing tenant scope', 400);
       }
 
@@ -258,7 +280,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
       const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
-      console.log('below try ---->')
       try {
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
         let existsSample = 'unknown';
@@ -288,18 +309,18 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
           } catch (_) {}
         }
-          console.log('below if ---->')
 
         if (req.method === 'GET' && explicit) {
-                    console.log('inside if  ---->')
 
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
           if (cached) {return res.status(200).json(cached);}
           
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
+          let query = Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit);
+          try { if (typeof query.allowDiskUse === 'function') { query = query.allowDiskUse(true); } } catch (_) {}
           const [items, total] = await Promise.all([
-            Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean(),
+            query.lean(),
             Model.countDocuments(appliedFilter),
           ]);
           console.debug('get data from db---->',items)
@@ -308,8 +329,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           return res.status(200).json(payload);
         }
 
-        // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
-        const items = await Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        // Non-paginated path: enforce safeSort; allowDiskUse when available.
+        let queryNP = Model.find(appliedFilter).sort(safeSort);
+        try { if (typeof queryNP.allowDiskUse === 'function') { queryNP = queryNP.allowDiskUse(true); } } catch (_) {}
+        const items = await queryNP.lean();
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
