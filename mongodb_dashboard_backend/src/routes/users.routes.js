@@ -286,31 +286,43 @@ router.get(
  */
 router.get(
   '/',
-  // Use extractOrganization but allow Super Admin bypass without requiring org
+  // Use extractOrganization but allow T0000 super-admin bypass only for this route
   function tolerantExtractOrg(req, res, next) {
     const { extractOrganization } = require('../middleware/extractOrganization');
     const { isSuperAdmin } = require('../utils/access');
-    if (isSuperAdmin(req)) {
-      // Wrap res.status to intercept 400 from inner middleware and convert to bypass
-      let sent = false;
-      const origStatus = res.status.bind(res);
-      res.status = (code) => {
-        if (code === 400) {
-          // convert to bypass for super admin
-          req.tenantScopeDisabled = true;
-          req.allTenants = true;
-          sent = true;
-          return { json: () => next() };
-        }
-        return origStatus(code);
-      };
-      const inner = extractOrganization();
-      return inner(req, res, (...args) => {
-        // restore res.status
-        if (!sent) { res.status = origStatus; }
-        next(...args);
-      });
+
+    // Detect T0000 from query/header/req.auth similar to this route's existing extraction.
+    // Priority: query params first (organization_id or tenant_id), then headers, then req.auth
+    const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
+    const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
+    const hdrOrg =
+      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
+      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+      '';
+    const authTenant =
+      (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId.trim()) ||
+      (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id.trim()) ||
+      '';
+
+    const requestedTenant = qOrg || qTenant || hdrOrg || authTenant;
+    const isT0000 = requestedTenant === 'T0000';
+
+    if (isT0000 || isSuperAdmin(req)) {
+      // TEMPORARY: super-admin bypass keyed to exact "T0000" for GET /api/users only.
+      // Do not propagate tenant; mark scope disabled so controller.list returns all users.
+      req.tenantScopeDisabled = true;
+      req.allTenants = true;
+      try {
+        res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
+        res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
+      } catch (_) {}
+      return next();
     }
+
+    // Fallback to normal extraction when not T0000 and not super admin
     return extractOrganization()(req, res, next);
   },
   controller.list
