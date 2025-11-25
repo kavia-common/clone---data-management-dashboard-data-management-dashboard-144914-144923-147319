@@ -7,7 +7,8 @@ try { require('dotenv').config(); } catch {}
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
-const app = require('./app');
+const createApp = require('./app');
+const app = createApp();
 const mongoose = require('mongoose');
 
 const PORT = Number(process.env.PORT) || 3001;
