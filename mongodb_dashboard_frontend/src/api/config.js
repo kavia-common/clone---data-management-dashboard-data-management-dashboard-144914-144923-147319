@@ -14,7 +14,4 @@ export function getApiBase() {
   return apiBase;
 }
 
-// Provide a named export object for consumers that previously used default object patterns.
-export const Config = { getApiBase };
-
-export default Config;
+export default { getApiBase };

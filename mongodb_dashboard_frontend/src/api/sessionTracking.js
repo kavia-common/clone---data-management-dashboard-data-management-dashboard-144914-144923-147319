@@ -45,5 +45,4 @@ export async function fetchSessionTracking(params = {}) {
   return { items, total, meta };
 }
 
-export const SessionTrackingApi = { fetchSessionTracking };
-export default SessionTrackingApi;
+export default { fetchSessionTracking };

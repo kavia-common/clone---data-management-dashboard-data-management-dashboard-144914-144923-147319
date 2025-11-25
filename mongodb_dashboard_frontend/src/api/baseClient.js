@@ -307,10 +307,7 @@ export async function getTenantUsersSummaryStrict() {
   return res.data;
 }
 
-/**
- * Named client aggregation to avoid anonymous default-export violations while keeping a default alias.
- */
-export const BaseClient = {
+export default {
   getApiClient,
   listUsers,
   listSessions,
@@ -319,5 +316,3 @@ export const BaseClient = {
   health,
   getTenantUsersSummaryStrict,
 };
-
-export default BaseClient;

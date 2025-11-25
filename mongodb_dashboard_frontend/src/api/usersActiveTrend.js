@@ -75,9 +75,7 @@ export async function getActiveUsersTrend(params = {}) {
   return res;
 }
 
-export const UsersActiveTrendApi = {
+export default {
   // PUBLIC_INTERFACE
   getActiveUsersTrend,
 };
-
-export default UsersActiveTrendApi;
