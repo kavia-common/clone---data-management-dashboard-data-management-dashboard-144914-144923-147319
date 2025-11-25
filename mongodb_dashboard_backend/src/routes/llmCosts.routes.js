@@ -26,36 +26,42 @@ const controller = buildCrudController(LLMCost, '-timestamp'); // default indexe
  */
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 
-// Route-local super admin (T0000) bypass detector
+ // Route-local super admin (T0000) bypass detector and normalization from organization_id/tenant_id
 router.use((req, res, next) => {
   try {
-    const hdr = (req.headers?.['x-organization-id'] || '').toString();
-    const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
+    const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
+    const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
+    const hdr =
+      (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      (typeof req.headers?.['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
+      (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+      '';
     const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
-    const requestedTenant = hdr || qOrg || authTenant || '';
-    const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
+    const normalized = hdr || qOrg || qTenant || authTenant || '';
 
+    const isT0000 = normalized === 'T0000';
+    let bypassApplied = false;
     if (isT0000) {
       req.tenantScopeDisabled = true;
       req.allTenants = true;
       req.costsAllTenantsBypass = true;
+      bypassApplied = true;
       try {
         res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
       } catch (_) {}
-      console.log('[llmCosts.routes] SuperAdmin bypass applied', {
-        inputs: { hdr, qOrg, authTenant },
-        requestedTenant,
-        isT0000,
-        bypassApplied: true,
-      });
-    } else {
-      console.log('[llmCosts.routes] No bypass', {
-        inputs: { hdr, qOrg, authTenant },
-        requestedTenant,
-        isT0000,
-        bypassApplied: false,
-      });
+    } else if (normalized) {
+      req.organizationId = normalized;
+      req.tenantId = normalized;
+      try { res.set('X-Applied-Tenant', String(normalized)); } catch(_) {}
     }
+
+    console.log('[llmCosts.routes] tenant normalization', {
+      organization_id: qOrg || null,
+      tenant_id: qTenant || null,
+      normalizedTenant: normalized || null,
+      bypassApplied,
+    });
   } catch (e) {
     // non-fatal
   }

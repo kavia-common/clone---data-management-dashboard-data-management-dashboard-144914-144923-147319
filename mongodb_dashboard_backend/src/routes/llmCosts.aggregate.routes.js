@@ -14,21 +14,33 @@ const router = express.Router();
  */
 router.use(requireTenant, tenantScopeEnforcer());
 
-// Route-local super admin (T0000) bypass detector for analytics aggregate
+ // Route-local super admin (T0000) bypass detector for analytics aggregate + normalization
 router.use((req, res, next) => {
   try {
-    const hdr = (req.headers?.['x-organization-id'] || '').toString();
-    const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
+    const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
+    const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
+    const hdr =
+      (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      (typeof req.headers?.['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
+      (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+      '';
     const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
-    const requestedTenant = hdr || qOrg || authTenant || '';
-    const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
+    const normalized = hdr || qOrg || qTenant || authTenant || '';
+    const isT0000 = normalized === 'T0000';
     if (isT0000) {
       req.tenantScopeDisabled = true;
       req.allTenants = true;
       req.costsAggregateAllTenantsBypass = true;
-      try { res.set('X-All-Tenants', 'true'); } catch (_) {}
+      try { 
+        res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
+      } catch (_) {}
+    } else if (normalized) {
+      req.organizationId = normalized;
+      req.tenantId = normalized;
+      try { res.set('X-Applied-Tenant', String(normalized)); } catch(_) {}
     }
-    console.log('[llmCosts.aggregate.routes] bypass check', { requestedTenant, isT0000, bypassApplied: !!isT0000 });
+    console.log('[llmCosts.aggregate.routes] tenant normalization', { organization_id: qOrg || null, tenant_id: qTenant || null, normalizedTenant: normalized || null, bypassApplied: isT0000 });
   } catch (_) {}
   next();
 });

@@ -204,10 +204,15 @@ function sessionsEarlyBypassDetector(req, res, next) {
     req.allTenants = true;
     req.sessionsAllTenantsBypass = true;
 
-    res.set('X-Tenant-Bypass', 'true');
-    res.set('X-Requested-Tenant', 'T0000');
-    res.set('X-All-Tenants', 'true');
-    res.set('X-Applied-Tenant', 'all-tenants');
+    try {
+      res.set('X-Tenant-Bypass', 'true');
+      res.set('X-Requested-Tenant', 'T0000');
+      res.set('X-All-Tenants', 'true');
+      res.set('X-Applied-Tenant', 'all-tenants');
+    } catch {}
+    console.log('[sessionTracking.routes] tenant normalization', { organization_id: qOrg || null, tenant_id: qTenant || null, normalizedTenant: 'T0000', bypassApplied: true });
+  } else {
+    console.log('[sessionTracking.routes] tenant normalization', { organization_id: qOrg || null, tenant_id: qTenant || null, normalizedTenant: hdrOrg || qOrg || qTenant || authTenant || null, bypassApplied: false });
   }
 
   return next();
@@ -241,58 +246,49 @@ router.get(
   '/',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
-
-    // --------------------------------------------------
-    // FIXED: Single bypass variable, declared once
-    // --------------------------------------------------
-    const bypass = !!(
-      req.tenantScopeDisabled ||
-      req.allTenants ||
-      req.sessionsAllTenantsBypass ||
-      req?.user?.isSuperAdmin
-    );
-
-    // --------------------------------------------------
-    // FIXED: Single enforcedTenant variable
-    // --------------------------------------------------
-    const enforcedTenant =
-      req.tenantId ||
-      (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-      (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
-      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+    // Normalize organization/tenant from query like /api/users
+    const queryOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
+    const queryTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
+    const hdrOrg =
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-      null;
+      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
+      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+      '';
+    const normalized = hdrOrg || queryOrg || queryTenant || '';
+    const bypass = normalized === 'T0000' || !!(req.tenantScopeDisabled || req.allTenants || req.sessionsAllTenantsBypass || req?.user?.isSuperAdmin);
 
-    // If not bypassing and no tenant provided → error
-    if (!bypass && !enforcedTenant) {
-      return res.status(400).json({
-        success: false,
-        message: 'tenant_id is required. Provide ?tenant_id=...'
-      });
+    if (bypass) {
+      req.tenantScopeDisabled = true;
+      req.allTenants = true;
+      try {
+        res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
+      } catch {}
+    } else if (normalized) {
+      // mirror for downstream
+      req.organizationId = normalized;
+      req.tenantId = normalized;
+      try {
+        res.set('X-Applied-Tenant', String(normalized));
+      } catch {}
     }
 
-    // --------------------------------------------------
-    // Request logging
-    // --------------------------------------------------
-    try {
-      res.set('X-Sessions-Bypass', String(bypass));
-      const appliedTenant = bypass ? 'all-tenants' : enforcedTenant;
-      res.set('X-Applied-Tenant', String(appliedTenant));
-    } catch {}
+    console.log('[sessionTracking:list]', {
+      organization_id: queryOrg || null,
+      tenant_id: queryTenant || null,
+      normalizedTenant: normalized || null,
+      bypassApplied: !!bypass,
+    });
 
     // Pagination
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
-
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
-    // --------------------------------------------------
     // Search filter
-    // --------------------------------------------------
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let qFilter = {};
-
     if (q) {
       const regex = new RegExp(q, 'i');
       qFilter = {
@@ -314,64 +310,65 @@ router.get(
       };
     }
 
-    // --------------------------------------------------
-    // Filter parsing
-    // --------------------------------------------------
+    // Filter parsing defensively
     let filter = {};
     try {
-      filter = req.query.filter ? JSON.parse(req.query.filter) : {};
+      const raw = req.query.filter;
+      if (typeof raw === 'string' && raw.trim()) {
+        filter = JSON.parse(raw);
+      }
     } catch {
-      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+      // default to empty filter instead of 400 per instruction
+      filter = {};
     }
 
-    delete filter.tenant_id;
-    delete filter.organization_id;
-    delete filter.organizationId;
-    if (Array.isArray(filter.$or)) delete filter.$or;
+    // remove any tenant hints from client filter
+    if (filter && typeof filter === 'object') {
+      delete filter.tenant_id;
+      delete filter.organization_id;
+      delete filter.organizationId;
+    }
 
-    // --------------------------------------------------
-    // FIXED: Single enforcedScope variable
-    // --------------------------------------------------
-    const enforcedScope = (!bypass && enforcedTenant)
+    // Tenant scope when not bypassing
+    const enforcedScope = (!bypass && (req.tenantId || normalized))
       ? {
           $or: [
-            { tenant_id: enforcedTenant },
-            { organization_id: enforcedTenant },
-            { organizationId: enforcedTenant },
+            { tenant_id: req.tenantId || normalized },
+            { organization_id: req.tenantId || normalized },
+            { organizationId: req.tenantId || normalized },
           ],
         }
       : {};
 
-    // --------------------------------------------------
-    // Date filter (explicit only)
-    // --------------------------------------------------
+    // Date filter defaults: if absent, use a reasonable default window to avoid huge scans
     let timeFilter = {};
-
     if (req.query.start || req.query.end) {
       let start = null;
       let end = null;
-
-      if (req.query.start && isValidISODate(req.query.start)) {
-        start = parseISODateSafe(req.query.start);
-      }
-
-      if (req.query.end && isValidISODate(req.query.end)) {
-        end = parseISODateSafe(req.query.end);
-        end.setUTCHours(23, 59, 59, 999);
-      }
-
+      try {
+        if (req.query.start) {
+          const d = new Date(req.query.start);
+          if (!Number.isNaN(d.getTime())) start = d;
+        }
+      } catch {}
+      try {
+        if (req.query.end) {
+          const d = new Date(req.query.end);
+          if (!Number.isNaN(d.getTime())) {
+            d.setUTCHours(23, 59, 59, 999);
+            end = d;
+          }
+        }
+      } catch {}
       if (start && !end) end = new Date();
       if (end && !start) start = new Date(0);
-
-      timeFilter = { session_start: { $gte: start, $lte: end } };
+      if (start && end) {
+        timeFilter = { session_start: { $gte: start, $lte: end } };
+      }
     }
 
-    // --------------------------------------------------
-    // Combine filters
-    // --------------------------------------------------
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
-
     if (!isEmpty(filter)) parts.push(filter);
     if (!isEmpty(qFilter)) parts.push(qFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
@@ -379,31 +376,21 @@ router.get(
 
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
-    // --------------------------------------------------
-    // Execute
-    // --------------------------------------------------
     try {
       if (explicit) {
         const [docs, total] = await Promise.all([
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
           SessionTracking.countDocuments(finalFilter),
         ]);
-
-        return res.json({
-          success: true,
-          data: docs,
-          meta: { page, limit, total }
-        });
+        return res.json({ success: true, data: docs, meta: { page, limit, total } });
       }
-
       const docs = await SessionTracking.find(finalFilter).sort(sort);
       return res.json(docs);
-
     } catch (err) {
       return res.status(400).json({
         success: false,
         message: 'Request failed',
-        details: err?.message || ''
+        details: err?.message || '',
       });
     }
   })

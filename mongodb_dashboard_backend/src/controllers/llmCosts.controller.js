@@ -16,41 +16,47 @@ async function getHierarchy(req, res) {
    *   { user_id, type: 'llm_interaction', user_cost: '$X.XX', projects: [ { project_id, project_cost: '$Y.YY', agents: [ { agent_name, total_cost: '$..', costs_by_date: { 'YYYY-MM-DD': '$..' }, tokens_by_date: { 'YYYY-MM-DD': { input_tokens, output_tokens } } } ] } ] }
    */
   try {
-    // Optional filter from query
+    // Optional filter from query; do not 400 on parse failure (default to {})
     let filter = {};
-    if (req.query && req.query.filter) {
-      try {
+    try {
+      if (req.query && typeof req.query.filter === 'string' && req.query.filter.trim()) {
         filter = JSON.parse(req.query.filter);
-      } catch (e) {
-        return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
       }
+    } catch {
+      filter = {};
     }
 
-    // Enforce tenant scoping: drop any tenant keys from client filter and inject resolved tenant
+    // Strip tenant hints regardless
     delete filter.tenant_id;
     delete filter.tenantId;
     delete filter.organization_id;
     delete filter.organizationId;
     delete filter.orgId;
 
-    // JWT precedence check: if Authorization present and client hints conflict, reject with 403
-    const clientRequestedTenant =
-      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-      (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+    // Normalize tenant from query/header similar to /api/users
+    const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
+    const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id.trim() : '';
+    const hdrOrg =
       (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      (typeof req.headers?.['x-org-id'] === 'string' && req.headers['x-org-id'].trim()) ||
       (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
       '';
+    const normalized = hdrOrg || qOrg || qTenant || (req?.tenantId || req?.organizationId || '');
+
+    // JWT precedence check: if Authorization present and client hints conflict, reject with 403
+    const clientRequestedTenant = hdrOrg || qOrg || qTenant || '';
     if (req.headers?.authorization && clientRequestedTenant && String(clientRequestedTenant) !== String(req.tenantId || '')) {
       return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
     }
 
-    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass);
-    const resolvedTenant = bypass ? undefined : (req?.tenantId || req?.organizationId || (req?.auth?.tenantId ? String(req.auth.tenantId) : undefined));
+    const bypass = normalized === 'T0000' || !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass);
+    const resolvedTenant = bypass ? undefined : (req?.tenantId || req?.organizationId || normalized || undefined);
+
     if (bypass) {
       try { res.set('X-All-Tenants', 'true'); } catch(_) {}
-      console.log('[llmCosts.controller] bypass active: skipping tenant filter injection');
     }
+    console.log('[llmCosts.controller] scope', { organization_id: qOrg || null, tenant_id: qTenant || null, normalizedTenant: normalized || null, bypassApplied: !!bypass });
+
     if (resolvedTenant) {
       const orgFilter = {
         $or: [
@@ -74,6 +80,8 @@ async function getHierarchy(req, res) {
         res.set('X-Applied-Tenant', String(resolvedTenant));
         res.set('x-applied-organization-id', String(resolvedTenant));
         res.set('x-applied-tenant-filter', JSON.stringify(filter));
+      } else {
+        res.set('X-Applied-Tenant', 'all-tenants');
       }
     } catch (_) {}
     return success(res, data);
