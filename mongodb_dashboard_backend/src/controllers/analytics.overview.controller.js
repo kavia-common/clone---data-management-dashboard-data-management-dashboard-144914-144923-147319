@@ -1,137 +1,342 @@
-const AnalyticsService = require('../services/analytics');
+'use strict';
 
 /**
- * PUBLIC_INTERFACE
- * overviewMetrics
- * Controller: returns overview KPIs and time-bucketed series.
- * Query params:
- * - metric: 'creates' | 'updates' | 'deletes' | 'total' (optional, defaults 'creates')
- * - range: '7d' | '14d' | '30d' | '12w' | '12m' | 'custom' (optional, defaults '7d')
- * - from, to: ISO date-times when range='custom'
- * Behavior:
- * - Accepts time range and returns a synthetic but consistent bucketed dataset.
- * - If AnalyticsService has tenant totals, include those as KPIs for compatibility.
+ * Overview analytics controller
+ * Provides time series for: Sessions Trend, Users Trend, Costs Trend.
+ *
+ * Endpoints are consumed by routes under /api/overview and /api/analytics/overview.
+ *
+ * PUBLIC INTERFACES:
+ * - getSessionsTrend
+ * - getUsersTrend
+ * - getCostsTrend
  */
-async function overviewMetrics(req, res) {
+
+const { getDb } = require('../config/db');
+
+// Light-weight date helpers without extra deps
+function toDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setUTCHours(0, 0, 0, 0);
+  return x;
+}
+function startOfWeek(d) {
+  const x = startOfDay(d);
+  // ISO week (Mon as start). JS getUTCDay: 0=Sun..6=Sat
+  const day = x.getUTCDay() || 7; // Sunday -> 7
+  if (day > 1) x.setUTCDate(x.getUTCDate() - (day - 1));
+  return x;
+}
+function startOfMonth(d) {
+  const x = startOfDay(d);
+  x.setUTCDate(1);
+  return x;
+}
+function addDays(d, n) {
+  const x = new Date(d);
+  x.setUTCDate(x.getUTCDate() + n);
+  return x;
+}
+function addWeeks(d, n) {
+  return addDays(d, n * 7);
+}
+function addMonths(d, n) {
+  const x = new Date(d);
+  x.setUTCMonth(x.getUTCMonth() + n);
+  return x;
+}
+function toISODate(d) {
+  // YYYY-MM-DD via UTC
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function normalizeGranularity(g) {
+  return ['day', 'week', 'month'].includes(g) ? g : 'day';
+}
+function buildBuckets(from, to, granularity) {
+  const buckets = [];
+  let cursor;
+  let stepFn;
+
+  if (granularity === 'week') {
+    cursor = startOfWeek(from);
+    stepFn = (d) => addWeeks(d, 1);
+  } else if (granularity === 'month') {
+    cursor = startOfMonth(from);
+    stepFn = (d) => addMonths(d, 1);
+  } else {
+    cursor = startOfDay(from);
+    stepFn = (d) => addDays(d, 1);
+  }
+
+  while (cursor < to) {
+    buckets.push(toISODate(cursor));
+    cursor = stepFn(cursor);
+  }
+  return buckets;
+}
+function bucketKey(dateOrString, granularity) {
+  const d = typeof dateOrString === 'string' ? toDate(dateOrString) : new Date(dateOrString);
+  if (!d) return null;
+  if (granularity === 'week') return toISODate(startOfWeek(d));
+  if (granularity === 'month') return toISODate(startOfMonth(d));
+  return toISODate(startOfDay(d));
+}
+
+// PUBLIC_INTERFACE
+async function getSessionsTrend(req, res, next) {
+  /**
+   * Returns Sessions Trend time series.
+   * Query:
+   * - from, to (ISO)
+   * - granularity: day|week|month
+   * - status (optional pipe-separated) default: completed|active
+   * Behavior:
+   * - Counts sessions whose active window overlaps the range [from,to].
+   *   session_start and session_end (null treated as now).
+   * - A session contributes to each bucket it spans between max(session_start, from) and min(session_end||now, to).
+   */
   try {
-    // Tenant is optional for demo mode; when available it may scope data
-    const tenantId = req?.auth?.tenantId || req.get('x-organization-id') || req.query?.organization_id || null;
+    const db = getDb();
+    if (!db) return res.status(503).json({ error: 'Database not connected' });
 
-    const metric = String(req.query?.metric || 'creates');
-    const range = String(req.query?.range || '7d');
-    const fromQ = req.query?.from;
-    const toQ = req.query?.to;
-
-    // Resolve start/end based on range or custom
     const now = new Date();
-    const end = toQ ? new Date(toQ) : new Date(now);
-    if (Number.isNaN(end.getTime())) return res.status(400).json({ success: false, message: 'Invalid to datetime' });
-
-    let start;
-    if (range === 'custom') {
-      if (!fromQ) return res.status(400).json({ success: false, message: 'from is required for custom range' });
-      start = new Date(fromQ);
-      if (Number.isNaN(start.getTime())) return res.status(400).json({ success: false, message: 'Invalid from datetime' });
-    } else {
-      const e = new Date(end);
-      let days = 7;
-      if (range === '14d') days = 14;
-      else if (range === '30d') days = 30;
-      else if (range === '12w') days = 12 * 7;
-      else if (range === '12m') days = 365; // rough default for demo
-      start = new Date(e);
-      start.setDate(e.getDate() - (days - 1));
+    const from = toDate(req.query.from) || startOfDay(addDays(now, -30));
+    const to = toDate(req.query.to) || now;
+    if (!(from instanceof Date) || !(to instanceof Date) || +from >= +to) {
+      return res.status(400).json({ error: 'Invalid from/to' });
     }
+    const granularity = normalizeGranularity(String(req.query.granularity || 'day'));
+    const statusFilter = String(req.query.status || 'completed|active')
+      .split('|')
+      .filter(Boolean);
 
-    // Normalize to day boundaries
-    const startDay = new Date(start); startDay.setHours(0, 0, 0, 0);
-    const endDay = new Date(end); endDay.setHours(23, 59, 59, 999);
+    const buckets = buildBuckets(from, to, granularity);
+    const series = Object.fromEntries(buckets.map((b) => [b, 0]));
 
-    // Decide bucket size
-    let bucket = 'day';
-    if (range === '12w') bucket = 'week';
-    if (range === '12m') bucket = 'month';
-
-    // Generate simple synthetic buckets for demo; server can be enhanced to use Mongo pipeline later
-    const buckets = [];
-    const cursor = new Date(startDay);
-    const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
-    const toYMD = (d) => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const da = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${da}`;
-    };
-    const startOfWeek = (d0) => {
-      const d = new Date(d0); d.setHours(0, 0, 0, 0);
-      const diff = (d.getDay() + 6) % 7;
-      d.setDate(d.getDate() - diff);
-      return d;
-    };
-
-    if (bucket === 'week') {
-      let c = startOfWeek(cursor);
-      while (c <= endDay) {
-        const label = toYMD(c);
-        // synthetic value varies by metric
-        const seed = label.split('-').reduce((a, b) => a + Number(b), 0);
-        const base = metric === 'deletes' ? 2 : metric === 'updates' ? 5 : metric === 'total' ? 12 : 8;
-        buckets.push({ label, value: base + (seed % 5) });
-        c = addDays(c, 7);
-      }
-    } else if (bucket === 'month') {
-      let c = new Date(startDay.getFullYear(), startDay.getMonth(), 1);
-      while (c <= endDay) {
-        const label = `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, '0')}-01`;
-        const seed = c.getMonth() + 1 + c.getFullYear();
-        const base = metric === 'deletes' ? 8 : metric === 'updates' ? 15 : metric === 'total' ? 40 : 20;
-        buckets.push({ label, value: base + (seed % 12) });
-        // next month
-        c = new Date(c.getFullYear(), c.getMonth() + 1, 1);
-      }
-    } else {
-      let c = new Date(startDay);
-      while (c <= endDay) {
-        const label = toYMD(c);
-        const seed = c.getDate() + c.getMonth() + c.getFullYear();
-        const base = metric === 'deletes' ? 1 : metric === 'updates' ? 3 : metric === 'total' ? 10 : 5;
-        buckets.push({ label, value: base + (seed % 4) });
-        c = addDays(c, 1);
-      }
-    }
-
-    // Collect KPIs from service if available
-    let kpis = undefined;
-    try {
-      if (tenantId) {
-        const totals = await AnalyticsService.getOverviewTotals(tenantId);
-        kpis = {
-          totalRecords: totals?.totalDeployedApps ?? 0,
-          newInRange: totals?.totalUsers ?? 0,
-          updatesInRange: Math.round((buckets?.reduce((s, b) => s + b.value, 0) || 0) / 2),
-          deletionsInRange: Math.round((buckets?.reduce((s, b) => s + b.value, 0) || 0) / 4),
-        };
-      }
-    } catch {
-      // ignore if service not wired
-    }
-
-    res.set('Cache-Control', 'no-store');
-    return res.status(200).json({
-      success: true,
-      query: { metric, range, from: startDay.toISOString(), to: endDay.toISOString(), bucket },
-      buckets,
-      kpis: kpis || {
-        totalRecords: Math.round((buckets?.reduce((s, b) => s + b.value, 0) || 0) * 3),
-        newInRange: Math.round((buckets?.reduce((s, b) => s + b.value, 0) || 0) / 3),
-        updatesInRange: Math.round((buckets?.reduce((s, b) => s + b.value, 0) || 0) / 2),
-        deletionsInRange: Math.round((buckets?.reduce((s, b) => s + b.value, 0) || 0) / 4),
+    const match = {
+      $expr: {
+        $and: [
+          { $lt: ['$session_start', to] },
+          {
+            $gte: [{ $ifNull: ['$session_end', now] }, from],
+          },
+        ],
       },
+    };
+    if (statusFilter.length) {
+      match.status = { $in: statusFilter };
+    }
+    // Tenant scope if middleware set
+    if (req.tenantScope && req.tenantScope.tenant_id) {
+      match.tenant_id = req.tenantScope.tenant_id;
+    }
+
+    const cursor = db.collection('session_tracking').find(match, {
+      projection: { session_start: 1, session_end: 1, status: 1 },
     });
-  } catch (e) {
-    return res.status(500).json({ success: false, message: e.message });
+
+    // Iterate doc spans and increment all spanned bucket starts
+    for await (const doc of cursor) {
+      const s = doc.session_start ? new Date(doc.session_start) : null;
+      const e = doc.session_end ? new Date(doc.session_end) : now;
+      if (!s) continue;
+
+      const effStart = s < from ? from : s;
+      const effEnd = e > to ? to : e;
+      if (+effStart >= +effEnd) continue;
+
+      let bStart =
+        granularity === 'week'
+          ? startOfWeek(effStart)
+          : granularity === 'month'
+          ? startOfMonth(effStart)
+          : startOfDay(effStart);
+
+      const step =
+        granularity === 'week'
+          ? (d) => addWeeks(d, 1)
+          : granularity === 'month'
+          ? (d) => addMonths(d, 1)
+          : (d) => addDays(d, 1);
+
+      while (bStart < effEnd && bStart < to) {
+        const key = toISODate(bStart);
+        if (series[key] !== undefined) series[key] += 1;
+        bStart = step(bStart);
+      }
+    }
+
+    return res.json({
+      items: buckets.map((b) => ({ date: b, total: series[b] || 0 })),
+      meta: { granularity, from: from.toISOString(), to: to.toISOString() },
+    });
+  } catch (err) {
+    next(err);
   }
 }
 
-const overviewController = { overviewMetrics };
-module.exports = overviewController;
+// PUBLIC_INTERFACE
+async function getUsersTrend(req, res, next) {
+  /**
+   * Returns Users Trend time series.
+   * Query:
+   * - from, to (ISO)
+   * - granularity: day|week|month
+   * - status: active|deleted (default active)
+   * Rules:
+   * - Use users.created_at and users.updated_at.
+   *   active: not deleted and created/updated within range.
+   *   deleted: deleted_at within range OR status === 'deleted' with updated_at in range.
+   */
+  try {
+    const db = getDb();
+    if (!db) return res.status(503).json({ error: 'Database not connected' });
+
+    const now = new Date();
+    const from = toDate(req.query.from) || startOfDay(addDays(now, -30));
+    const to = toDate(req.query.to) || now;
+    if (!(from instanceof Date) || !(to instanceof Date) || +from >= +to) {
+      return res.status(400).json({ error: 'Invalid from/to' });
+    }
+    const granularity = normalizeGranularity(String(req.query.granularity || 'day'));
+    const status = String(req.query.status || 'active').toLowerCase();
+
+    const buckets = buildBuckets(from, to, granularity);
+    const series = Object.fromEntries(buckets.map((b) => [b, 0]));
+
+    const baseMatch = {};
+    if (req.tenantScope && req.tenantScope.tenant_id) {
+      baseMatch.tenant_id = req.tenantScope.tenant_id;
+    }
+
+    let match = { ...baseMatch };
+    if (status === 'deleted') {
+      match.$or = [
+        { deleted_at: { $gte: from, $lt: to } },
+        { $and: [{ status: 'deleted' }, { updated_at: { $gte: from, $lt: to } }] },
+      ];
+    } else {
+      match.$and = [
+        {
+          $or: [
+            { created_at: { $gte: from, $lt: to } },
+            { updated_at: { $gte: from, $lt: to } },
+          ],
+        },
+        {
+          $or: [{ deleted_at: { $exists: false } }, { deleted_at: null }, { status: { $ne: 'deleted' } }],
+        },
+      ];
+    }
+
+    const cursor = db.collection('users').find(match, {
+      projection: { created_at: 1, updated_at: 1, deleted_at: 1, status: 1 },
+    });
+
+    for await (const u of cursor) {
+      let d = null;
+      if (status === 'deleted') {
+        d = u.deleted_at || u.updated_at || u.created_at;
+      } else {
+        d = u.created_at || u.updated_at || null;
+      }
+      if (!d) continue;
+      const key = bucketKey(d, granularity);
+      if (key && series[key] !== undefined) series[key] += 1;
+    }
+
+    return res.json({
+      items: buckets.map((b) => ({ date: b, total: series[b] || 0 })),
+      meta: { granularity, from: from.toISOString(), to: to.toISOString(), status },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// PUBLIC_INTERFACE
+async function getCostsTrend(req, res, next) {
+  /**
+   * Returns Costs Trend time series from costs_by_date array inside llm_costs documents.
+   * Query:
+   * - from, to (ISO)
+   * - granularity: day|week|month
+   */
+  try {
+    const db = getDb();
+    if (!db) return res.status(503).json({ error: 'Database not connected' });
+
+    const now = new Date();
+    const from = toDate(req.query.from) || startOfDay(addDays(now, -30));
+    const to = toDate(req.query.to) || now;
+    if (!(from instanceof Date) || !(to instanceof Date) || +from >= +to) {
+      return res.status(400).json({ error: 'Invalid from/to' });
+    }
+    const granularity = normalizeGranularity(String(req.query.granularity || 'day'));
+
+    const buckets = buildBuckets(from, to, granularity);
+    const series = Object.fromEntries(buckets.map((b) => [b, 0]));
+
+    const baseMatch = {};
+    if (req.tenantScope && req.tenantScope.tenant_id) {
+      baseMatch.tenant_id = req.tenantScope.tenant_id;
+    }
+
+    // Unwind costs_by_date and filter by date range (stored as YYYY-MM-DD)
+    const pipeline = [
+      { $match: baseMatch },
+      { $unwind: '$costs_by_date' },
+      {
+        $match: {
+          'costs_by_date.date': {
+            $gte: toISODate(startOfDay(from)),
+            $lte: toISODate(startOfDay(to)),
+          },
+        },
+      },
+      {
+        $project: {
+          date: '$costs_by_date.date', // YYYY-MM-DD
+          cost: {
+            $cond: [
+              { $isNumber: '$costs_by_date.cost' },
+              '$costs_by_date.cost',
+              {
+                $convert: { input: '$costs_by_date.cost', to: 'double', onError: 0, onNull: 0 },
+              },
+            ],
+          },
+        },
+      },
+    ];
+
+    const cursor = db.collection('llm_costs').aggregate(pipeline, { allowDiskUse: true });
+    for await (const row of cursor) {
+      const key = bucketKey(row.date, granularity);
+      if (key && series[key] !== undefined) {
+        series[key] += Number(row.cost || 0);
+      }
+    }
+
+    return res.json({
+      items: buckets.map((b) => ({ date: b, total: Number(series[b] || 0) })),
+      meta: { granularity, from: from.toISOString(), to: to.toISOString() },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  getSessionsTrend,
+  getUsersTrend,
+  getCostsTrend,
+};

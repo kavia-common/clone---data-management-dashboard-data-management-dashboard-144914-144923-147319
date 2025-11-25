@@ -1,16 +1,23 @@
+'use strict';
+
 const express = require('express');
 const router = express.Router();
-const { overviewMetrics } = require('../controllers/analytics.overview.controller');
+const controller = require('../controllers/analytics.overview.controller');
+const { tenantScope } = require('../middleware/tenantScope');
 
 // PUBLIC_INTERFACE
-// GET /api/analytics/overview
-// Returns overview KPIs and time-bucketed series for the selected metric and time range.
-// Query: metric, range, from, to
-function registerOverviewRoute(r) {
-  r.get('/overview', (req, res) => overviewMetrics(req, res));
-  return r;
-}
+// GET /api/overview/sessions-trend
+router.get('/sessions-trend', tenantScope, controller.getSessionsTrend);
 
-const analyticsOverviewRouter = registerOverviewRoute(router);
+// PUBLIC_INTERFACE
+// GET /api/overview/users-trend
+router.get('/users-trend', tenantScope, controller.getUsersTrend);
 
-module.exports = { analyticsOverviewRouter, default: analyticsOverviewRouter };
+// PUBLIC_INTERFACE
+// GET /api/overview/costs-trend
+router.get('/costs-trend', tenantScope, controller.getCostsTrend);
+
+// Backward compatible ping
+router.get('/ping', (req, res) => res.json({ ok: true }));
+
+module.exports = router;

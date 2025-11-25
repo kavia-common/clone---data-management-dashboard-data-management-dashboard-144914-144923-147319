@@ -1,16 +1,28 @@
-/** PUBLIC_INTERFACE
- * HealthService
- * Pure readiness status that does not require MongoDB connectivity.
+'use strict';
+
+const { getDb } = require('../config/db');
+
+/**
+ * PUBLIC_INTERFACE
+ * Returns simple health object.
  */
-class HealthService {
-  getStatus() {
-    return {
-      status: 'ok',
-      message: 'Service is healthy',
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development'
-    };
-  }
+async function getHealth() {
+  const db = getDb();
+  return { ok: !!db, timestamp: new Date().toISOString() };
 }
 
-module.exports = new HealthService();
+/**
+ * PUBLIC_INTERFACE
+ * Ensures a DB connection is available; throws 503 error when missing.
+ */
+async function ensureDbConnected() {
+  const db = getDb();
+  if (!db) {
+    const err = new Error('Database not connected');
+    err.status = 503;
+    throw err;
+  }
+  return db;
+}
+
+module.exports = { getHealth, ensureDbConnected };
