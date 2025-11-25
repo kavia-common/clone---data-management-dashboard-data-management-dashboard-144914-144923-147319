@@ -57,6 +57,14 @@ function toISODate(d) {
   const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+/**
+ * Formats a date to YYYY-MM string (UTC) representing month bucket label.
+ */
+function toISOMonth(d) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
 function normalizeGranularity(g) {
   return ['day', 'week', 'month'].includes(g) ? g : 'day';
 }
@@ -65,6 +73,7 @@ function buildBuckets(from, to, granularity) {
   let cursor;
   let stepFn;
 
+  // Normalize the lower bound to a bucket boundary for consistent labels
   if (granularity === 'week') {
     cursor = startOfWeek(from);
     stepFn = (d) => addWeeks(d, 1);
@@ -76,9 +85,25 @@ function buildBuckets(from, to, granularity) {
     stepFn = (d) => addDays(d, 1);
   }
 
+  // Generate bucket labels up to (but not including) 'to'
   while (cursor < to) {
-    buckets.push(toISODate(cursor));
+    if (granularity === 'month') {
+      buckets.push(toISOMonth(cursor)); // YYYY-MM
+    } else {
+      buckets.push(toISODate(cursor)); // YYYY-MM-DD
+    }
     cursor = stepFn(cursor);
+  }
+  // Defensive: if range spans no whole buckets (e.g., within same day or month),
+  // still emit a single bucket for the normalized 'from' boundary.
+  if (buckets.length === 0) {
+    if (granularity === 'month') {
+      buckets.push(toISOMonth(startOfMonth(from)));
+    } else if (granularity === 'week') {
+      buckets.push(toISODate(startOfWeek(from)));
+    } else {
+      buckets.push(toISODate(startOfDay(from)));
+    }
   }
   return buckets;
 }
@@ -86,7 +111,7 @@ function bucketKey(dateOrString, granularity) {
   const d = typeof dateOrString === 'string' ? toDate(dateOrString) : new Date(dateOrString);
   if (!d) return null;
   if (granularity === 'week') return toISODate(startOfWeek(d));
-  if (granularity === 'month') return toISODate(startOfMonth(d));
+  if (granularity === 'month') return toISOMonth(startOfMonth(d)); // YYYY-MM
   return toISODate(startOfDay(d));
 }
 
@@ -254,7 +279,11 @@ async function getUsersTrend(req, res, next) {
     }
 
     return res.json({
-      items: buckets.map((b) => ({ date: b, total: series[b] || 0 })),
+      items: buckets.map((b) => ({
+        // For month granularity 'b' is already YYYY-MM, else YYYY-MM-DD
+        date: b,
+        total: series[b] || 0,
+      })),
       meta: { granularity, from: from.toISOString(), to: to.toISOString(), status },
     });
   } catch (err) {
