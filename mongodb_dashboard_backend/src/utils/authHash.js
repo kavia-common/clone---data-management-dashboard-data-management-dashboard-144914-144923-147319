@@ -25,6 +25,7 @@
  /**
   * PUBLIC_INTERFACE
   * Get optional global pepper from environment.
+  * @returns {string}
   */
  function getPepper() {
    const v = (process.env.AUTH_PASSWORD_PEPPER || process.env.AUTH_PEPPER || '').trim();
@@ -34,6 +35,8 @@
  /**
   * Build the canonical input used for hashing/verification for a given version.
   * For v2 we require tenant.orgSalt. For v1 we use the legacy static salt from config.
+  * @param {{ password: string, version: 1|2, tenant?: { orgSalt?: string } }} params
+  * @returns {string}
   */
  function buildHashInput({ password, version, tenant }) {
    const pepper = getPepper();
@@ -145,6 +148,9 @@
 
  /**
   * Compare a constructed input with a stored hash using the right algorithm parser.
+  * @param {string} input
+  * @param {string} stored
+  * @returns {Promise<boolean>}
   */
  async function compareHash(input, stored) {
    // Argon2 encoded strings start with `$argon2`
@@ -189,6 +195,8 @@
   * PUBLIC_INTERFACE
   * Ensure tenant has an orgSalt; if missing, generate one and persist.
   * Non-throwing; returns sanitized { ok, updated } without exposing the salt.
+  * @param {{ orgSalt?: string, orgSaltVersion?: number, tenant_id?: string, save?: Function }} tenantDoc
+  * @returns {Promise<{ ok: boolean, updated: boolean }>}
   */
  async function ensureTenantOrgSalt(tenantDoc) {
    try {
@@ -213,10 +221,7 @@
   * PUBLIC_INTERFACE
   * Hash password with version selection. Defaults to v2 (tenant orgSalt + optional global pepper).
   * For v1, uses legacy static salt fallback.
-  * @param {Object} params
-  * @param {string} params.password - Plaintext password
-  * @param {Object} [params.tenant] - Tenant doc/POJO with orgSalt (required for version=2)
-  * @param {number} [params.version=2] - Hashing version (1|2)
+  * @param {{ password: string, tenant?: { orgSalt?: string }, version?: 1|2 }} params
   * @returns {Promise<{ hash: string, version: number, algo: string }>}
   */
  async function hashPassword({ password, tenant, version = 2 }) {
@@ -232,10 +237,7 @@
   * - If verification fails: { valid: false, migrated: false }
   * - If verification succeeds on legacy (v1) and tenant provided: { valid: true, migrated: true, newHash, newVersion: 2 }
   * - If verification succeeds on current (v2): { valid: true, migrated: false }
-  * @param {Object} params
-  * @param {string} params.candidate - Candidate plaintext password
-  * @param {{ password_hash: string, hashVersion?: number, _id?: any }} params.user - User doc (lean or hydrated)
-  * @param {{ orgSalt?: string }} params.tenant - Tenant doc/POJO with orgSalt
+  * @param {{ candidate: string, user: { password_hash: string, hashVersion?: number, _id?: any }, tenant?: { orgSalt?: string } }} params
   * @returns {Promise<{ valid: boolean, migrated: boolean, newHash?: string, newVersion?: number }>}
   */
  async function verifyAndMigrate({ candidate, user, tenant }) {

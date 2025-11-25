@@ -4,6 +4,7 @@
  * PUBLIC_INTERFACE
  * getTenantSaltConfig
  * Returns flags about static salt configuration without exposing the value.
+ * @returns {{ isMissing: boolean, isPlaceholder: boolean, looksValid: boolean, salt: string }}
  */
 function getTenantSaltConfig() {
   const salt = process.env.SECRET_SALT || process.env.AUTH_TENANT_SALT || process.env.PASSWORD_SALT || '';
@@ -24,6 +25,7 @@ function getTenantSaltConfig() {
  * PUBLIC_INTERFACE
  * getTenantConfig
  * Strategy to resolve and allow tenants.
+ * @returns {{ resolveTenant: Function, isTenantAllowed: Function, strategy: string, defaultTenant: string }}
  */
 function getTenantConfig() {
   const defaultTenant = process.env.AUTH_DEFAULT_TENANT || 'DEMO';
@@ -37,6 +39,12 @@ function getTenantConfig() {
   const strategy = 'explicit|header|auth|default';
 
   // PUBLIC_INTERFACE
+  /**
+   * Resolve tenant id based on explicit value, headers or JWT, with default fallback.
+   * @param {import('express').Request} req
+   * @param {string} [organizationId]
+   * @returns {string}
+   */
   function resolveTenant(req, organizationId) {
     if (organizationId && typeof organizationId === 'string' && organizationId.trim() !== '') {
       return organizationId.trim();
@@ -52,6 +60,11 @@ function getTenantConfig() {
   }
 
   // PUBLIC_INTERFACE
+  /**
+   * Check whether the provided tenant is in the allowed set (if configured).
+   * @param {string} tenantId
+   * @returns {boolean}
+   */
   function isTenantAllowed(tenantId) {
     if (!tenantId || typeof tenantId !== 'string') {return false;}
     if (allowed.size === 0) {
@@ -67,6 +80,7 @@ function getTenantConfig() {
  * PUBLIC_INTERFACE
  * getJwtConfig
  * Provides JWT config from environment.
+ * @returns {{ secret: string, issuer: string, audience: string, expiresIn: string, algorithm: string }}
  */
 function getJwtConfig() {
   return {
@@ -78,6 +92,10 @@ function getJwtConfig() {
   };
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Named export object for authentication configuration helpers.
+ */
 const authConfig = {
   getTenantSaltConfig,
   getTenantConfig,
