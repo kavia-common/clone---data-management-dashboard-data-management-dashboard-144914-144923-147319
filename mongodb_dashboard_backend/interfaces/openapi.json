@@ -1642,23 +1642,47 @@
     },
     "/api/users/active-trend-from-users": {
       "get": {
-        "summary": "Active users trend (alias from users collection)",
-        "description": "Alias of /api/users/active-trend that accepts alternate query params (start,end,organization_id) and maps them to from,to,tenant_id. Returns time-bucketed counts of distinct active users based on session_tracking. Default granularity=day and status=completed|active.",
+        "summary": "Users created/updated trend (from users collection)",
+        "description": "Aggregates the users collection by created_at and updated_at within the specified date range, filtered by organization_id (tenant scope). Supports granularity day|week|month. Returns a consistent series with counts per bucket.",
         "tags": ["Users"],
         "parameters": [
-          { "in": "query", "name": "start", "schema": { "type": "string", "format": "date-time" }, "description": "Alias for 'from' (ISO start datetime)" },
-          { "in": "query", "name": "end", "schema": { "type": "string", "format": "date-time" }, "description": "Alias for 'to' (ISO end datetime)" },
+          { "in": "query", "name": "start", "schema": { "type": "string", "format": "date-time" }, "description": "Alias for 'from' (ISO start datetime, inclusive)" },
+          { "in": "query", "name": "end", "schema": { "type": "string", "format": "date-time" }, "description": "Alias for 'to' (ISO end datetime, inclusive)" },
           { "in": "query", "name": "from", "schema": { "type": "string", "format": "date-time" }, "description": "ISO start datetime (inclusive)" },
           { "in": "query", "name": "to", "schema": { "type": "string", "format": "date-time" }, "description": "ISO end datetime (inclusive)" },
-          { "in": "query", "name": "granularity", "schema": { "type": "string", "enum": ["day","week"], "default": "day" }, "description": "Bucket granularity" },
-          { "in": "query", "name": "status", "schema": { "type": "string" }, "description": "Session status filter. Default \"completed|active\"" },
-          { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Alias for tenant_id" },
-          { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Tenant scope" }
+          { "in": "query", "name": "granularity", "schema": { "type": "string", "enum": ["day","week","month"], "default": "day" }, "description": "Bucket granularity" },
+          { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Tenant (organization) scope. Alias: tenant_id", "required": true },
+          { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Alias for tenant (organization) id" }
         ],
         "responses": {
-          "200": { "description": "Active users time series (alias)" },
-          "400": { "description": "Invalid parameters" },
-          "403": { "description": "Forbidden: tenant scope mismatch" }
+          "200": { 
+            "description": "Users trend time series",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "granularity": { "type": "string" },
+                    "from": { "type": "string", "format": "date-time" },
+                    "to": { "type": "string", "format": "date-time" },
+                    "series": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": { "type": "string", "description": "bucket label (YYYY-MM-DD or YYYY-WW or YYYY-MM)" },
+                          "createdCount": { "type": "integer" },
+                          "updatedCount": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid parameters (missing organization_id or invalid dates/granularity)" }
         }
       }
     },

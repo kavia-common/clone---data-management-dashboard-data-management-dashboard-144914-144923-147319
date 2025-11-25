@@ -213,97 +213,166 @@ router.get(
  */
 router.get(
   '/active-trend-from-users',
-  asyncHandler(async (req, res, next) => {
-    try {
-      // Normalize incoming alias parameters to the canonical ones used by /active-trend
-      const q = req.query || {};
-      if (typeof q.start === 'string' && !q.from) req.query.from = q.start;
-      if (typeof q.end === 'string' && !q.to) req.query.to = q.end;
-      if (typeof q.organization_id === 'string' && !q.tenant_id) req.query.tenant_id = q.organization_id;
+  extractOrganization(), // require and normalize organization scope
+  asyncHandler(async (req, res) => {
+    // Normalize aliases
+    const q = req.query || {};
+    const fromParam = q.start || q.from;
+    const toParam = q.end || q.to;
+    const gran = (q.granularity || 'day').toString().toLowerCase();
+    const organizationId = q.organization_id || q.tenant_id || req.organizationId || req.tenantId;
 
-      // Validate dates if present
-      const fromDateInitial = req.query.from ? new Date(req.query.from) : null;
-      const toDateInitial = req.query.to ? new Date(req.query.to) : null;
-      if (fromDateInitial && Number.isNaN(fromDateInitial.getTime())) {
-        return res.status(400).json({ success: false, message: 'Invalid "from" date' });
-      }
-      if (toDateInitial && Number.isNaN(toDateInitial.getTime())) {
-        return res.status(400).json({ success: false, message: 'Invalid "to" date' });
-      }
-
-      // Validate/normalize granularity
-      const g = String(req.query.granularity || 'day').toLowerCase();
-      if (!['day', 'week'].includes(g)) {
-        return res.status(400).json({ success: false, message: 'Invalid "granularity": expected day|week' });
-      }
-      req.query.granularity = g;
-
-      // Delegate to the canonical handler by calling next with rewritten path
-      // Instead of internal redirect, reuse the handler function directly to avoid remount ordering issues.
-      return (async () => {
-        const now = new Date();
-        const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        const from = req.query.from || defaultFrom.toISOString();
-        const to = req.query.to || now.toISOString();
-        const granularity = (req.query.granularity || 'day').toLowerCase();
-        const statusParam = (req.query.status || 'completed|active').trim();
-
-        let tenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
-        if (!tenantId && req.tenantId) tenantId = String(req.tenantId);
-        if (tenantId && req.tenantId && String(tenantId) !== String(req.tenantId)) {
-          return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
-        }
-
-        const fromDate = new Date(from);
-        const toDate = new Date(to);
-        if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
-          return res.status(400).json({ success: false, message: 'Invalid date range' });
-        }
-
-        const cacheKey = buildActiveTrendCacheKey({ from, to, granularity, status: statusParam, tenant_id: tenantId });
-        const cached = getCache(ACTIVE_TREND_CACHE, cacheKey);
-        if (cached) return res.json(cached);
-
-        const match = {
-          last_updated: { $gte: fromDate, $lte: toDate },
-        };
-        if (tenantId) match.tenant_id = tenantId;
-
-        if (statusParam.includes('|')) {
-          match.status = { $in: statusParam.split('|').map((s) => s.trim()) };
-        } else match.status = statusParam;
-
-        const dateFormat = granularity === 'week' ? '%Y-%U' : '%Y-%m-%d';
-        const pipeline = [
-          { $match: match },
-          {
-            $group: {
-              _id: {
-                bucket: {
-                  $dateToString: { format: dateFormat, date: { $ifNull: ['$last_updated', '$session_start'] } },
-                },
-                user_id: { $toString: '$user_id' },
-              },
-            },
-          },
-          {
-            $group: {
-              _id: '$_id.bucket',
-              total: { $sum: 1 },
-            },
-          },
-          { $project: { date: '$_id', total: 1, _id: 0 } },
-          { $sort: { date: 1 } },
-        ];
-
-        const items = await SessionTracking.aggregate(pipeline);
-        const response = { items, meta: { from, to, granularity } };
-        setCache(ACTIVE_TREND_CACHE, cacheKey, response, ACTIVE_TREND_TTL_MS);
-        return res.status(200).json(response);
-      })();
-    } catch (e) {
-      return next(e);
+    // Validate required organization scope
+    if (!organizationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'organization_id is required via header x-organization-id or ?organization_id',
+      });
     }
+
+    // Validate and normalize dates
+    const now = new Date();
+    const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const fromISO = fromParam || defaultFrom.toISOString();
+    const toISO = toParam || now.toISOString();
+
+    const fromDate = new Date(fromISO);
+    const toDate = new Date(toISO);
+    if (Number.isNaN(fromDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid "start/from" date' });
+    }
+    if (Number.isNaN(toDate.getTime())) {
+      return res.status(400).json({ success: false, message: 'Invalid "end/to" date' });
+    }
+    if (fromDate > toDate) {
+      return res.status(400).json({ success: false, message: '"from" must be <= "to"' });
+    }
+
+    // Validate granularity
+    if (!['day', 'week', 'month'].includes(gran)) {
+      return res.status(400).json({ success: false, message: 'Invalid "granularity": expected day|week|month' });
+    }
+
+    // Prepare bucketing by granularity
+    let dateFormat;
+    if (gran === 'day') dateFormat = '%Y-%m-%d';
+    else if (gran === 'week') dateFormat = '%G-%V'; // ISO week year-week
+    else dateFormat = '%Y-%m'; // month
+
+    // Build aggregation on Users using created_at and updated_at
+    // We need two separate pipelines then merge: one for created, one for updated
+    const orgId = String(organizationId);
+
+    const createdMatch = {
+      organization_id: orgId,
+      created_at: { $gte: fromDate, $lte: toDate },
+    };
+    const updatedMatch = {
+      organization_id: orgId,
+      updated_at: { $gte: fromDate, $lte: toDate },
+    };
+
+    const bucketStageCreated = [
+      { $match: createdMatch },
+      {
+        $group: {
+          _id: { bucket: { $dateToString: { format: dateFormat, date: '$created_at' } } },
+          createdCount: { $sum: 1 },
+        },
+      },
+      { $project: { _id: 0, date: '$_id.bucket', createdCount: 1 } },
+    ];
+
+    const bucketStageUpdated = [
+      { $match: updatedMatch },
+      {
+        $group: {
+          _id: { bucket: { $dateToString: { format: dateFormat, date: '$updated_at' } } },
+          updatedCount: { $sum: 1 },
+        },
+      },
+      { $project: { _id: 0, date: '$_id.bucket', updatedCount: 1 } },
+    ];
+
+    // Execute in parallel using mongoose connection on User model
+    const createdAgg = await User.aggregate(bucketStageCreated).allowDiskUse(true);
+    const updatedAgg = await User.aggregate(bucketStageUpdated).allowDiskUse(true);
+
+    // Merge into a single map keyed by bucket date
+    const map = new Map();
+    for (const r of createdAgg) {
+      const key = r.date;
+      const existing = map.get(key) || { date: key, createdCount: 0, updatedCount: 0 };
+      existing.createdCount += r.createdCount || 0;
+      map.set(key, existing);
+    }
+    for (const r of updatedAgg) {
+      const key = r.date;
+      const existing = map.get(key) || { date: key, createdCount: 0, updatedCount: 0 };
+      existing.updatedCount += r.updatedCount || 0;
+      map.set(key, existing);
+    }
+
+    // Fill missing buckets for day granularity (and week/month as coarse fill)
+    function addDaysUTC(date, days) {
+      const d = new Date(date);
+      const out = new Date(d);
+      out.setUTCDate(d.getUTCDate() + days);
+      return out;
+    }
+    function formatDay(d) {
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+    function formatMonth(d) {
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      return `${y}-${m}`;
+    }
+    function getISOWeekYearWeek(d) {
+      // ISO week date, compute year-week
+      const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      // Thursday in current week decides the year.
+      date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+      const weekStr = String(weekNo).padStart(2, '0');
+      return `${date.getUTCFullYear()}-${weekStr}`;
+    }
+
+    const series = [];
+    if (gran === 'day') {
+      // fill each day inclusive between from and to
+      let cursor = new Date(Date.UTC(fromDate.getUTCFullYear(), fromDate.getUTCMonth(), fromDate.getUTCDate()));
+      const end = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), toDate.getUTCDate()));
+      while (cursor <= end) {
+        const k = formatDay(cursor);
+        const entry = map.get(k) || { date: k, createdCount: 0, updatedCount: 0 };
+        series.push(entry);
+        cursor = addDaysUTC(cursor, 1);
+      }
+      // Ensure sorted
+      series.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    } else if (gran === 'week') {
+      // For week, we rely on aggregation keys like %G-%V (or computed fallback).
+      // Because Mongo %G-%V support varies, map keys already present from aggregation; we won’t fill missing implicitly.
+      for (const [k, v] of map.entries()) series.push({ date: k, createdCount: v.createdCount, updatedCount: v.updatedCount });
+      series.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    } else {
+      // month
+      for (const [k, v] of map.entries()) series.push({ date: k, createdCount: v.createdCount, updatedCount: v.updatedCount });
+      series.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    }
+
+    return res.status(200).json({
+      success: true,
+      granularity: gran,
+      from: new Date(fromDate).toISOString(),
+      to: new Date(toDate).toISOString(),
+      series,
+    });
   })
 );
 
