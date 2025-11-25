@@ -286,8 +286,33 @@ router.get(
  */
 router.get(
   '/',
-  // Normalize org/tenant, allowing non-JWT demo mode via header/query; JWT will still be used by requireTenant at mount
-  extractOrganization(),
+  // Use extractOrganization but allow Super Admin bypass without requiring org
+  function tolerantExtractOrg(req, res, next) {
+    const { extractOrganization } = require('../middleware/extractOrganization');
+    const { isSuperAdmin } = require('../utils/access');
+    if (isSuperAdmin(req)) {
+      // Wrap res.status to intercept 400 from inner middleware and convert to bypass
+      let sent = false;
+      const origStatus = res.status.bind(res);
+      res.status = (code) => {
+        if (code === 400) {
+          // convert to bypass for super admin
+          req.tenantScopeDisabled = true;
+          req.allTenants = true;
+          sent = true;
+          return { json: () => next() };
+        }
+        return origStatus(code);
+      };
+      const inner = extractOrganization();
+      return inner(req, res, (...args) => {
+        // restore res.status
+        if (!sent) { res.status = origStatus; }
+        next(...args);
+      });
+    }
+    return extractOrganization()(req, res, next);
+  },
   controller.list
 );
 /**

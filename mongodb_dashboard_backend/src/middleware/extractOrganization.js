@@ -15,6 +15,22 @@
  * Notes:
  *  - Downstream routes must enforce scoping using req.organizationId. Any client-provided organization_id/tenant_id must be ignored in filters.
  */
+const { isSuperAdmin, normalizeTenantId } = require('../utils/access');
+
+function isT0000Like(val) {
+  if (!val) return false;
+  const v = String(val).trim().toUpperCase();
+  return /^T0+$/.test(v);
+}
+
+const { isSuperAdmin, normalizeTenantId } = require('../utils/access');
+
+function isT0000Like(val) {
+  if (!val) return false;
+  const v = String(val).trim().toUpperCase();
+  return /^T0+$/.test(v);
+}
+
 function extractOrganization() {
   return function (req, res, next) {
     const bOrg = typeof req.body?.organization_id === 'string' ? req.body.organization_id.trim() : '';
@@ -29,6 +45,32 @@ function extractOrganization() {
 
     // Prefer header, then query, then body to minimize client influence via URL tampering
     const organizationId = hdrOrg || qTenant || qOrg || bOrg;
+
+    // Super Admin handling: if no org provided or special T0000 selected, treat as global without 400
+    const sa = isSuperAdmin(req);
+    if (sa && (!organizationId || isT0000Like(organizationId))) {
+      // Set bypass flags; do not attach org/tenant id, and no stamping helpers
+      req.tenantScopeDisabled = true;
+      req.allTenants = true;
+      req.organizationId = undefined;
+      req.tenantId = undefined;
+      req.orgFilter = {};
+      req.buildOrgFilter = () => ({});
+      req.withOrgFilter = (obj) => obj;
+      req.stampOrg = (doc) => doc;
+      try {
+        res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
+        res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
+      } catch {}
+      // continue to next without error
+      if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+        try {
+          console.debug('[extractOrganization] Super Admin bypass active (global scope)');
+        } catch {}
+      }
+      return next();
+    }
 
     if (!organizationId) {
       return res.status(400).json({

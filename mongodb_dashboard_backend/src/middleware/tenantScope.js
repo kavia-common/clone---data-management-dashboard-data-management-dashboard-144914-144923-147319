@@ -87,6 +87,18 @@ function tenantScope() {
    * - log the computed tenant filter (debug) for temporary verification
    */
   return function (req, res, next) {
+    // If previous middleware didn't set bypass but user is Super Admin and auth indicates special T0000, activate bypass
+    try {
+      const roles = (Array.isArray(req?.user?.roles) && req.user.roles) ||
+        (Array.isArray(req?.auth?.roles) && req.auth.roles) ||
+        (typeof req?.auth?.role === 'string' ? [req.auth.role] : []) || [];
+      const isSA = roles.map(r => String(r).toLowerCase()).includes('super admin');
+      const t = req?.auth?.tenantId;
+      if (isSA && (t && /^T0+$/i.test(String(t).trim()))) {
+        req.tenantScopeDisabled = true;
+        req.allTenants = true;
+      }
+    } catch {}
     if (req.tenantScopeDisabled || req.allTenants) {
       // Super Admin bypass: no tenant scoping applied
       req.tenantFilter = {};

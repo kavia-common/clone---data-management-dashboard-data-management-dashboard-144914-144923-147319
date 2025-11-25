@@ -29,6 +29,7 @@ function isSuperAdmin(req) {
  *  - collapse multiple zeros after a prefix where applicable (e.g., T000 vs T0000 -> T0-based)
  *  - uppercase for consistent comparison
  * NOTE: This does not modify stored data; only used for comparison/equality checks.
+ * Special case usage: other middleware may treat values like T0000 as a global selector for Super Admin.
  */
 function normalizeTenantId(id) {
   if (id == null) return id;

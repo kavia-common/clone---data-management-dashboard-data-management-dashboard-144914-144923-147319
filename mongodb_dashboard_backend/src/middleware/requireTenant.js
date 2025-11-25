@@ -18,6 +18,20 @@
  */
 const { isSuperAdmin, normalizeTenantId } = require('../utils/access');
 
+/**
+ * Normalize a raw tenant/org id and treat special "T0000" (or equivalent zeros) as global for Super Admin.
+ */
+function normalizeIncomingTenant(id) {
+  if (!id) return '';
+  const n = normalizeTenantId(id);
+  // Collapse common "T0000" style to a canonical form for equality checks
+  // For Super Admin we will treat this as "global/all-tenants"
+  if (typeof n === 'string' && /^T0+$/i.test(n)) {
+    return 'T0';
+  }
+  return n;
+}
+
 function parseAllTenantsFlag(req) {
   const hdr = String(req.headers['x-all-tenants'] || '').toLowerCase().trim();
   const q = String(req.query?.all_tenants || '').toLowerCase().trim();
@@ -29,10 +43,31 @@ function requireTenant(req, res, next) {
   // Determine if all-tenants mode is requested and user is Super Admin
   const wantsAll = parseAllTenantsFlag(req);
   const isSA = isSuperAdmin(req);
-  if (isSA && wantsAll) {
-    // Enable global scope bypass when Super Admin explicitly requests
+
+  // If incoming indicates special T0000/T0 choice in headers/query/body, normalize it
+  const incomingAny =
+    (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+    (typeof req.headers['organization_id'] === 'string' && req.headers['organization_id'].trim()) ||
+    (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+    (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+    (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+    (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+    (typeof req.body?.tenant_id === 'string' && req.body.tenant_id.trim()) ||
+    (typeof req.body?.organization_id === 'string' && req.body.organization_id.trim()) ||
+    '';
+
+  const normalizedIncomingAny = normalizeIncomingTenant(incomingAny);
+
+  // Super Admin bypass:
+  // - If explicitly requested all tenants OR selected special T0000/T0, ignore incoming tenant hints altogether
+  if (isSA && (wantsAll || normalizedIncomingAny === 'T0')) {
     req.tenantScopeDisabled = true;
     req.allTenants = true;
+    // Clear any derived tenant scoping to avoid accidental stamping
+    req.tenantId = undefined;
+    if (req.auth) {
+      req.auth.tenantId = undefined;
+    }
     try {
       res.set('X-All-Tenants', 'true');
       res.set('X-Applied-Tenant', 'all-tenants');
@@ -41,7 +76,7 @@ function requireTenant(req, res, next) {
     return next();
   }
 
-  // Prefer JWT tenantId if present (cannot be overridden)
+  // Prefer JWT tenantId if present (cannot be overridden) - but do not enforce conflicts for Super Admin
   const jwtTenant = req?.auth?.tenantId;
   if (jwtTenant) {
     // When JWT is present, ensure any explicit client-provided tenant does not conflict
@@ -57,7 +92,10 @@ function requireTenant(req, res, next) {
     const nCandidate = candidate ? normalizeTenantId(candidate) : null;
     const nJwt = normalizeTenantId(jwtTenant);
     if (nCandidate && String(nCandidate) !== String(nJwt)) {
-      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+      // For Super Admin, do not enforce mismatch; we will ignore incoming hints and stay with JWT tenant unless bypass flagged elsewhere
+      if (!isSA) {
+        return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+      }
     }
     req.tenantId = String(jwtTenant);
     req.organizationId = String(jwtTenant);
@@ -99,7 +137,23 @@ function requireTenant(req, res, next) {
 
   if (resolved) {
     // If no JWT, accept header/query provided tenant
+    // Super Admin: still accept a concrete tenant if they are operating within a tenant (not bypass); however, ignore T0000 and treat as global
+    const normalizedResolved = normalizeIncomingTenant(resolved);
     req.auth = req.auth || {};
+    if (isSA && normalizedResolved === 'T0') {
+      // treat as global (no scoping)
+      req.tenantScopeDisabled = true;
+      req.allTenants = true;
+      req.auth.tenantId = undefined;
+      req.tenantId = undefined;
+      req.organizationId = undefined;
+      try {
+        res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
+        res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
+      } catch (_) {}
+      return next();
+    }
     req.auth.tenantId = String(resolved);
     req.tenantId = String(resolved);
     req.organizationId = String(resolved);

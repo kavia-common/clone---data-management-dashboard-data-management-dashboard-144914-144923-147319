@@ -72,8 +72,18 @@ function sanitizePayloadWithTenant(req) {
   const body = req.body;
   if (!body || typeof body !== 'object' || Array.isArray(body)) {return null;}
   const clean = { ...body };
-  if ('tenant_id' in clean) {delete clean.tenant_id;}
-  if (req.tenantId) {clean.tenant_id = String(req.tenantId);}
+  // Strip all client-supplied tenant/org fields defensively
+  delete clean.tenant_id;
+  delete clean.tenantId;
+  delete clean.organization_id;
+  delete clean.organizationId;
+  delete clean.orgId;
+
+  // If bypass active (Super Admin global), do NOT stamp tenant_id on create/update
+  const bypass = !!(req.tenantScopeDisabled || req.allTenants);
+  if (!bypass && req.tenantId) {
+    clean.tenant_id = String(req.tenantId);
+  }
   return clean;
 }
 
