@@ -1640,6 +1640,28 @@
         }
       }
     },
+    "/api/users/active-trend-from-users": {
+      "get": {
+        "summary": "Active users trend (alias from users collection)",
+        "description": "Alias of /api/users/active-trend that accepts alternate query params (start,end,organization_id) and maps them to from,to,tenant_id. Returns time-bucketed counts of distinct active users based on session_tracking. Default granularity=day and status=completed|active.",
+        "tags": ["Users"],
+        "parameters": [
+          { "in": "query", "name": "start", "schema": { "type": "string", "format": "date-time" }, "description": "Alias for 'from' (ISO start datetime)" },
+          { "in": "query", "name": "end", "schema": { "type": "string", "format": "date-time" }, "description": "Alias for 'to' (ISO end datetime)" },
+          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date-time" }, "description": "ISO start datetime (inclusive)" },
+          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date-time" }, "description": "ISO end datetime (inclusive)" },
+          { "in": "query", "name": "granularity", "schema": { "type": "string", "enum": ["day","week"], "default": "day" }, "description": "Bucket granularity" },
+          { "in": "query", "name": "status", "schema": { "type": "string" }, "description": "Session status filter. Default \"completed|active\"" },
+          { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Alias for tenant_id" },
+          { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Tenant scope" }
+        ],
+        "responses": {
+          "200": { "description": "Active users time series (alias)" },
+          "400": { "description": "Invalid parameters" },
+          "403": { "description": "Forbidden: tenant scope mismatch" }
+        }
+      }
+    },
     "/api/users/active-trend": {
       "get": {
         "summary": "Active users trend (time series)",

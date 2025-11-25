@@ -201,6 +201,119 @@ router.get(
  * Notes:
  *  - verifyAuth + requireTenant are mounted at router level in routes/index.js.
  */
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/active-trend-from-users
+ * Alias of /api/users/active-trend
+ * Accepts legacy/alternate params and normalizes:
+ *  - start -> from
+ *  - end -> to
+ *  - organization_id -> tenant_id
+ * Also validates granularity in {day,week}.
+ */
+router.get(
+  '/active-trend-from-users',
+  asyncHandler(async (req, res, next) => {
+    try {
+      // Normalize incoming alias parameters to the canonical ones used by /active-trend
+      const q = req.query || {};
+      if (typeof q.start === 'string' && !q.from) req.query.from = q.start;
+      if (typeof q.end === 'string' && !q.to) req.query.to = q.end;
+      if (typeof q.organization_id === 'string' && !q.tenant_id) req.query.tenant_id = q.organization_id;
+
+      // Validate dates if present
+      if (req.query.from && Number.isNaN(new Date(req.query.from).getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid "from" date' });
+      }
+      if (req.query.to && Number.isNaN(new Date(req.query.to).getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid "to" date' });
+      }
+
+      // Validate/normalize granularity
+      const g = String(req.query.granularity || 'day').toLowerCase();
+      if (!['day', 'week'].includes(g)) {
+        return res.status(400).json({ success: false, message: 'Invalid "granularity": expected day|week' });
+      }
+      req.query.granularity = g;
+
+      // Delegate to the canonical handler by calling next with rewritten path
+      // Instead of internal redirect, reuse the handler function directly to avoid remount ordering issues.
+      return (async () => {
+        const now = new Date();
+        const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const from = req.query.from || defaultFrom.toISOString();
+        const to = req.query.to || now.toISOString();
+        const granularity = (req.query.granularity || 'day').toLowerCase();
+        const statusParam = (req.query.status || 'completed|active').trim();
+
+        let tenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
+        if (!tenantId && req.tenantId) tenantId = String(req.tenantId);
+        if (tenantId && req.tenantId && String(tenantId) !== String(req.tenantId)) {
+          return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+        }
+
+        const fromDate = new Date(from);
+        const toDate = new Date(to);
+        if (Number.isNaN(fromDate) || Number.isNaN(toDate))
+          return res.status(400).json({ success: false, message: 'Invalid date range' });
+
+        const cacheKey = buildActiveTrendCacheKey({ from, to, granularity, status: statusParam, tenant_id: tenantId });
+        const cached = getCache(ACTIVE_TREND_CACHE, cacheKey);
+        if (cached) return res.json(cached);
+
+        const match = {
+          last_updated: { $gte: fromDate, $lte: toDate },
+        };
+        if (tenantId) match.tenant_id = tenantId;
+
+        if (statusParam.includes('|')) {
+          match.status = { $in: statusParam.split('|').map((s) => s.trim()) };
+        } else match.status = statusParam;
+
+        const dateFormat = granularity === 'week' ? '%Y-%U' : '%Y-%m-%d';
+        const pipeline = [
+          { $match: match },
+          {
+            $group: {
+              _id: {
+                bucket: {
+                  $dateToString: { format: dateFormat, date: { $ifNull: ['$last_updated', '$session_start'] } },
+                },
+                user_id: { $toString: '$user_id' },
+              },
+            },
+          },
+          {
+            $group: {
+              _id: '$_id.bucket',
+              total: { $sum: 1 },
+            },
+          },
+          { $project: { date: '$_id', total: 1, _id: 0 } },
+          { $sort: { date: 1 } },
+        ];
+
+        const items = await SessionTracking.aggregate(pipeline);
+        const response = { items, meta: { from, to, granularity } };
+        setCache(ACTIVE_TREND_CACHE, cacheKey, response, ACTIVE_TREND_TTL_MS);
+        return res.status(200).json(response);
+      })();
+    } catch (e) {
+      return next(e);
+    }
+  })
+);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/active-trend
+ * Returns trend of distinct active users bucketed by day/week.
+ * Scoping:
+ *  - If query.tenant_id is provided, it must match the authenticated/org tenant.
+ *  - If not provided, enforce req.tenantId from middleware.
+ * Notes:
+ *  - verifyAuth + requireTenant are mounted at router level in routes/index.js.
+ */
 router.get(
   '/active-trend',
   asyncHandler(async (req, res) => {
