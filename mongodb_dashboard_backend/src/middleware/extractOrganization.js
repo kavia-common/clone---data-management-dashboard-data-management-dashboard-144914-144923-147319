@@ -23,14 +23,6 @@ function isT0000Like(val) {
   return /^T0+$/.test(v);
 }
 
-const { isSuperAdmin, normalizeTenantId } = require('../utils/access');
-
-function isT0000Like(val) {
-  if (!val) return false;
-  const v = String(val).trim().toUpperCase();
-  return /^T0+$/.test(v);
-}
-
 function extractOrganization() {
   return function (req, res, next) {
     const bOrg = typeof req.body?.organization_id === 'string' ? req.body.organization_id.trim() : '';
