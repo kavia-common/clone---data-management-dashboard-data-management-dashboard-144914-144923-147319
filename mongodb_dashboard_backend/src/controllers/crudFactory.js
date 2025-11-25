@@ -250,17 +250,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             Model.countDocuments(appliedFilter),
           ]);
 
-          // If listing users, enrich with total_credits from llm-costs in a single aggregation.
+          // If listing users, enrich with tenant-scoped total_credits from llm-costs (top-level and embedded users[].user_id).
           let enrichedItems = items;
           try {
             if (Model && (Model.modelName === 'User' || (Model.collection && Model.collection.name === 'users'))) {
               const { getTotalsForUsers } = require('../services/userCredits.service');
               const tenantId = String(req.tenantId);
-              // Prefer to match by String(_id); fallback to user_id if present
-              const ids = items.map((u) => String(u?._id || u?.user_id || ''));
-              const validIds = ids.filter((x) => x);
-              if (validIds.length > 0) {
-                const totalsMap = await getTotalsForUsers(tenantId, validIds);
+              const ids = items.map((u) => String(u?._id || u?.user_id || '')).filter(Boolean);
+              if (ids.length > 0) {
+                const totalsMap = await getTotalsForUsers(tenantId, ids);
                 enrichedItems = items.map((u) => {
                   const key = String(u?._id || u?.user_id || '');
                   const total = totalsMap.get(key);
@@ -284,15 +282,14 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
         const items = await Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
 
-        // Non-paginated enrichment for users
+        // Non-paginated enrichment for users with total_credits
         if (Model && (Model.modelName === 'User' || (Model.collection && Model.collection.name === 'users'))) {
           try {
             const { getTotalsForUsers } = require('../services/userCredits.service');
             const tenantId = String(req.tenantId);
-            const ids = items.map((u) => String(u?._id || u?.user_id || ''));
-            const validIds = ids.filter((x) => x);
-            if (validIds.length > 0) {
-              const totalsMap = await getTotalsForUsers(tenantId, validIds);
+            const ids = items.map((u) => String(u?._id || u?.user_id || '')).filter(Boolean);
+            if (ids.length > 0) {
+              const totalsMap = await getTotalsForUsers(tenantId, ids);
               const enriched = items.map((u) => {
                 const key = String(u?._id || u?.user_id || '');
                 const total = totalsMap.get(key);
