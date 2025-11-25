@@ -249,14 +249,65 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean(),
             Model.countDocuments(appliedFilter),
           ]);
-          console.debug('get data from db---->',items)
-          const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
+
+          // If listing users, enrich with total_credits from llm-costs in a single aggregation.
+          let enrichedItems = items;
+          try {
+            if (Model && (Model.modelName === 'User' || (Model.collection && Model.collection.name === 'users'))) {
+              const { getTotalsForUsers } = require('../services/userCredits.service');
+              const tenantId = String(req.tenantId);
+              // Prefer to match by String(_id); fallback to user_id if present
+              const ids = items.map((u) => String(u?._id || u?.user_id || ''));
+              const validIds = ids.filter((x) => x);
+              if (validIds.length > 0) {
+                const totalsMap = await getTotalsForUsers(tenantId, validIds);
+                enrichedItems = items.map((u) => {
+                  const key = String(u?._id || u?.user_id || '');
+                  const total = totalsMap.get(key);
+                  return { ...u, total_credits: Number.isFinite(total) ? total : 0 };
+                });
+              } else {
+                enrichedItems = items.map((u) => ({ ...u, total_credits: 0 }));
+              }
+            }
+          } catch (enrichErr) {
+            // eslint-disable-next-line no-console
+            console.warn('[crudFactory.list] users enrichment failed:', enrichErr?.message || enrichErr);
+            enrichedItems = items.map((u) => ({ ...u, total_credits: 0 }));
+          }
+
+          const payload = { success: true, data: enrichedItems, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
         }
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
         const items = await Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+
+        // Non-paginated enrichment for users
+        if (Model && (Model.modelName === 'User' || (Model.collection && Model.collection.name === 'users'))) {
+          try {
+            const { getTotalsForUsers } = require('../services/userCredits.service');
+            const tenantId = String(req.tenantId);
+            const ids = items.map((u) => String(u?._id || u?.user_id || ''));
+            const validIds = ids.filter((x) => x);
+            if (validIds.length > 0) {
+              const totalsMap = await getTotalsForUsers(tenantId, validIds);
+              const enriched = items.map((u) => {
+                const key = String(u?._id || u?.user_id || '');
+                const total = totalsMap.get(key);
+                return { ...u, total_credits: Number.isFinite(total) ? total : 0 };
+              });
+              return res.status(200).json(enriched);
+            }
+          } catch (enrichErr) {
+            // eslint-disable-next-line no-console
+            console.warn('[crudFactory.list] users enrichment (non-paginated) failed:', enrichErr?.message || enrichErr);
+          }
+          // fallback: ensure the field exists
+          return res.status(200).json(items.map((u) => ({ ...u, total_credits: 0 })));
+        }
+
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
