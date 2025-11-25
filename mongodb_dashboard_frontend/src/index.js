@@ -5,14 +5,25 @@ import "./index.css";
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
 import { setTheme } from "./theme";
+import httpClient, { setIsSuperAdmin } from "./lib/httpClient";
 
 // Apply dark theme globally based on design tokens
 if (typeof window !== "undefined") {
   setTheme("dark");
 }
 
-// Guarded debug demo: only log in development to avoid noisy logs in production
-// Also avoid static import of crypto to prevent build/init-time failures when salt is placeholder.
+// Attempt to detect Super Admin from persisted profile for initializing all-tenants interceptor
+try {
+  const raw = localStorage.getItem("userProfile");
+  if (raw) {
+    const profile = JSON.parse(raw);
+    const rolesSrc = Array.isArray(profile?.roles) ? profile.roles : (profile?.role ? [profile.role] : []);
+    const isSA = rolesSrc.map((r) => String(r).toLowerCase()).includes("super admin");
+    setIsSuperAdmin(isSA);
+  }
+} catch {}
+
+// Guarded debug demo import
 if (typeof process !== "undefined" && process.env && process.env.NODE_ENV === "development") {
   import("./utils/crypto")
     .then((mod) => {
@@ -38,21 +49,9 @@ if (typeof process !== "undefined" && process.env && process.env.NODE_ENV === "d
 
 /**
  * Configure a Data Router to enable React Router v7-compatible behaviors.
- *
- * future.v7_startTransition:
- *   Wraps navigations in React.startTransition for React 18+ concurrent hints.
- *
- * future.v7_relativeSplatPath:
- *   Changes how relative paths resolve from splat (*) routes to match upcoming v7.
- *
- * Docs:
- * - https://reactrouter.com/en/main/routers/create-browser-router#future
- * - https://reactrouter.com/en/main/upgrading/v7 (when available)
  */
 const router = createBrowserRouter(
   [
-    // Delegate the entire route tree to <App /> which renders <Routes /> and pages.
-    // This allows us to adopt future flags without reworking existing route structure.
     { path: "/*", element: <App /> },
   ],
   {
@@ -67,7 +66,6 @@ const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
     <AuthProvider>
-      {/* RouterProvider also accepts a future prop for flags that affect runtime behavior */}
       <RouterProvider
         router={router}
         future={{
