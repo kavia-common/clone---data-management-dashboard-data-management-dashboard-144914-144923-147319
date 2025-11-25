@@ -63,6 +63,21 @@ function asyncHandler(fn) {
  *         description: Internal server error
  */
 router.get('/tenant-summary', extractOrganization(), asyncHandler(async (req, res) => {
+  // Early T0000 bypass detector at route level
+  try {
+    const hdr = (req.headers?.['x-organization-id'] || '').toString();
+    const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
+    const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
+    const requestedTenant = hdr || qOrg || authTenant || '';
+    const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
+    if (isT0000) {
+      req.tenantScopeDisabled = true;
+      req.allTenants = true;
+      req.usersSummaryAllTenantsBypass = true;
+      try { res.set('X-All-Tenants', 'true'); } catch (_) {}
+    }
+    console.log('[users.analytics.summary.routes] bypass check', { requestedTenant, isT0000, bypassApplied: !!isT0000 });
+  } catch (_) {}
   const debugEnabled = String(req.query.debug || 'false') === 'true';
 
   // Call controller to compute items, then map to array for frontend compatibility

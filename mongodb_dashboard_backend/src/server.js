@@ -16,7 +16,7 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // PUBLIC_INTERFACE
 function logListening(host, port) {
-   
+  // eslint-disable-next-line no-console
   console.log(`Listening on http://${host}:${port}`);
 }
 
@@ -30,7 +30,7 @@ try {
 
 // Concise startup banner
 try {
-   
+  // eslint-disable-next-line no-console
   console.log(`[startup] ${NODE_ENV} | ${HOST}:${PORT}`);
 } catch {}
 
@@ -43,7 +43,7 @@ try {
  * - On success to listen, write our PID and set up cleanup handlers.
  */
 function ensurePidFileGuard() {
-  if (!fs.existsSync(PID_FILE)) {return;}
+  if (!fs.existsSync(PID_FILE)) return;
   try {
     const pidStr = fs.readFileSync(PID_FILE, 'utf8').trim();
     const existingPid = Number(pidStr);
@@ -60,7 +60,7 @@ function ensurePidFileGuard() {
       const onDone = (shouldExit) => {
         try { client.destroy(); } catch {}
         if (shouldExit) {
-           
+          // eslint-disable-next-line no-console
           console.log(`[startup] Another instance is active (pid=${existingPid}) on port ${PORT}. Exiting.`);
           process.exit(0);
         }
@@ -83,14 +83,14 @@ function writePidFile() {
   try {
     fs.writeFileSync(PID_FILE, String(process.pid), 'utf8');
   } catch (e) {
-     
+    // eslint-disable-next-line no-console
     console.warn('[startup] Could not write PID file:', e?.message);
   }
 }
 
 function removePidFile() {
   try {
-    if (fs.existsSync(PID_FILE)) {fs.unlinkSync(PID_FILE);}
+    if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE);
   } catch {}
 }
 
@@ -105,7 +105,7 @@ function startServerStrict() {
           mongoose?.connection?.db?.databaseName ||
           process.env.MONGODB_DB ||
           '(not connected)';
-         
+        // eslint-disable-next-line no-console
         console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
         logListening(HOST, PORT);
         // concise pointers
@@ -121,10 +121,10 @@ function startServerStrict() {
     })
     .on('error', (err) => {
       if (err && err.code === 'EADDRINUSE') {
-         
+        // eslint-disable-next-line no-console
         console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
       } else {
-         
+        // eslint-disable-next-line no-console
         console.error('[startup] Server failed to start:', err?.message || err);
       }
       process.exit(1);
@@ -132,13 +132,13 @@ function startServerStrict() {
 
   const shutdown = (signal) => {
     try {
-       
+      // eslint-disable-next-line no-console
       console.log(`${signal} received; shutting down`);
       server.close(async () => {
         try {
           await mongoose.connection.close();
         } catch (e) {
-           
+          // eslint-disable-next-line no-console
           console.error('Error closing MongoDB connection', e?.message || e);
         } finally {
           removePidFile();
@@ -156,11 +156,11 @@ function startServerStrict() {
   process.on('exit', removePidFile);
 
   process.on('unhandledRejection', (reason) => {
-     
+    // eslint-disable-next-line no-console
     console.error('[unhandledRejection]', reason);
   });
   process.on('uncaughtException', (err) => {
-     
+    // eslint-disable-next-line no-console
     console.error('[uncaughtException]', err);
   });
 

@@ -19,6 +19,11 @@ async function getOverviewTotals(tenantId, req = undefined) {
   const bypass = !!(req && (req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin));
   const userFilter = bypass ? {} : { tenant_id: tenantId };
   const appFilter = bypass ? {} : { tenant_id: tenantId };
+  if (bypass) {
+    // Diagnostics for verification
+    // eslint-disable-next-line no-console
+    console.log('[analytics.service.getOverviewTotals] bypass active -> counting across all tenants');
+  }
 
   const [usersCount, appsCount] = await Promise.all([
     usersCol.countDocuments(userFilter),

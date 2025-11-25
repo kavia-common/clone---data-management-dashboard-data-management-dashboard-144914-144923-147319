@@ -103,8 +103,13 @@ async function overviewMetrics(req, res) {
     // Collect KPIs from service if available
     let kpis = undefined;
     try {
-      if (tenantId) {
-        const totals = await AnalyticsService.getOverviewTotals(tenantId);
+      if (tenantId || req.tenantScopeDisabled || req.allTenants) {
+        const totals = await AnalyticsService.getOverviewTotals(tenantId, req);
+        try {
+          if (req.tenantScopeDisabled || req.allTenants) {
+            res.set('X-All-Tenants', 'true');
+          }
+        } catch (_) {}
         kpis = {
           totalRecords: totals?.totalDeployedApps ?? 0,
           newInRange: totals?.totalUsers ?? 0,

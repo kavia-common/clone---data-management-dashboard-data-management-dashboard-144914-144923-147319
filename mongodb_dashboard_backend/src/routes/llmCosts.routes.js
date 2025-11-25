@@ -26,6 +26,42 @@ const controller = buildCrudController(LLMCost, '-timestamp'); // default indexe
  */
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 
+// Route-local super admin (T0000) bypass detector
+router.use((req, res, next) => {
+  try {
+    const hdr = (req.headers?.['x-organization-id'] || '').toString();
+    const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
+    const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
+    const requestedTenant = hdr || qOrg || authTenant || '';
+    const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
+
+    if (isT0000) {
+      req.tenantScopeDisabled = true;
+      req.allTenants = true;
+      req.costsAllTenantsBypass = true;
+      try {
+        res.set('X-All-Tenants', 'true');
+      } catch (_) {}
+      console.log('[llmCosts.routes] SuperAdmin bypass applied', {
+        inputs: { hdr, qOrg, authTenant },
+        requestedTenant,
+        isT0000,
+        bypassApplied: true,
+      });
+    } else {
+      console.log('[llmCosts.routes] No bypass', {
+        inputs: { hdr, qOrg, authTenant },
+        requestedTenant,
+        isT0000,
+        bypassApplied: false,
+      });
+    }
+  } catch (e) {
+    // non-fatal
+  }
+  next();
+});
+
 /**
  * Expose applied tenant for quick debugging on responses at this router scope
  * Adds both X-Applied-Tenant and x-applied-organization-id for preview verification.

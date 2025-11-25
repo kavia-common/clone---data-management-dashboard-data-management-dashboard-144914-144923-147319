@@ -166,7 +166,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           const routeBypass =
             !!req.usersAllTenantsBypass ||
             !!req.sessionsAllTenantsBypass ||
-            !!req.deploymentsAllTenantsBypass;
+            !!req.deploymentsAllTenantsBypass ||
+            !!req.costsAllTenantsBypass;
           const globalBypass = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
           const bypassAny = routeBypass || globalBypass;
           console.debug(
@@ -192,6 +193,13 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             console.log('[crudFactory.list:/api/app-deployments] bypass trace', {
               bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
               deploymentsAllTenantsBypass: !!req.deploymentsAllTenantsBypass
+            });
+          }
+          const isCostsRoute = (req.baseUrl || '').endsWith('/llm-costs') || (req.originalUrl || '').includes('/api/llm-costs');
+          if (isCostsRoute) {
+            console.log('[crudFactory.list:/api/llm-costs] bypass trace', {
+              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
+              costsAllTenantsBypass: !!req.costsAllTenantsBypass
             });
           }
         } catch (_) {}

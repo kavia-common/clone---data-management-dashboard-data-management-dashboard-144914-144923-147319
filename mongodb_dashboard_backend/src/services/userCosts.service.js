@@ -13,7 +13,7 @@ const LLMCost = require('../models/llmCosts.model');
  * @param {string|number} userId - User identifier; will be compared as string by coercing user_id with $toString
  * @returns {Promise<{ userId: string, total_cost: number, user_cost: number, currency?: string, by_agent: Array<{agent_name: string, total_cost: number}>, by_type: Array<{type: string, total_cost: number}> }>}
  */
-async function getUserCosts(userId) {
+async function getUserCosts(userId, req = undefined) {
   const userIdStr = String(userId);
 
   // Common $match: compare by string
@@ -140,7 +140,7 @@ async function getUserCosts(userId) {
  * @param {string|number} userId
  * @returns {Promise<Array<{ projectId: string, project_cost: number, agents: Array<{agent_name: string, total_cost: number}> }>>}
  */
-async function getUserProjectsCosts(userId) {
+async function getUserProjectsCosts(userId, req = undefined) {
   const userIdStr = String(userId);
 
   const match = {

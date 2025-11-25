@@ -35,7 +35,16 @@ function toNumber(val) {
  */
 async function getAggregatedCosts(req, res) {
   try {
-    const tenantId = req?.tenantId || req?.organizationId || null;
+    const tenantId = (req?.tenantScopeDisabled || req?.allTenants || req?.costsAggregateAllTenantsBypass)
+      ? null
+      : (req?.tenantId || req?.organizationId || null);
+    const bypass = !!(req?.tenantScopeDisabled || req?.allTenants || req?.costsAggregateAllTenantsBypass);
+    if (bypass) {
+      try { res.set('X-All-Tenants', 'true'); } catch (_) {}
+      console.log('[llmCostsAggregate.controller] bypass active: returning data across all tenants');
+    } else {
+      console.log('[llmCostsAggregate.controller] tenant scoped', { tenantId });
+    }
 
     // Fetch minimal set of fields but include fallbacks; schema is strict:false so extra fields may exist.
     const [rawUsers, rawProjects] = await Promise.all([

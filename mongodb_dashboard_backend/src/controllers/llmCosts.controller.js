@@ -45,7 +45,12 @@ async function getHierarchy(req, res) {
       return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
     }
 
-    const resolvedTenant = req?.tenantId || req?.organizationId || (req?.auth?.tenantId ? String(req.auth.tenantId) : undefined);
+    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass);
+    const resolvedTenant = bypass ? undefined : (req?.tenantId || req?.organizationId || (req?.auth?.tenantId ? String(req.auth.tenantId) : undefined));
+    if (bypass) {
+      try { res.set('X-All-Tenants', 'true'); } catch(_) {}
+      console.log('[llmCosts.controller] bypass active: skipping tenant filter injection');
+    }
     if (resolvedTenant) {
       const orgFilter = {
         $or: [

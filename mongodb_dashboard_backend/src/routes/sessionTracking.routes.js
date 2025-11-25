@@ -166,7 +166,6 @@
 
 // module.exports = router;
 
-
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
@@ -179,19 +178,19 @@ const controller = buildCrudController(SessionTracking, '-session_start');
 
 /**
  * Early bypass detector for GET /api/session-tracking
- * Mirrors /api/users logic. Detects T0000 via header->query->auth precedence.
  */
 function sessionsEarlyBypassDetector(req, res, next) {
   if (req.method !== 'GET' || req.path !== '/') return next();
 
   const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
   const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
+
   const hdrOrg =
     (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id']) ||
     (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id']) ||
     (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id']) ||
-    (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant']) ||
     undefined;
+
   const authTenant =
     (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId) ||
     (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id) ||
@@ -200,77 +199,71 @@ function sessionsEarlyBypassDetector(req, res, next) {
   const requestedTenant = hdrOrg || qOrg || qTenant || authTenant;
   const isT0000 = requestedTenant === 'T0000';
 
-  let bypassApplied = false;
   if (isT0000) {
     req.tenantScopeDisabled = true;
     req.allTenants = true;
     req.sessionsAllTenantsBypass = true;
-    bypassApplied = true;
 
-    try {
-      res.set('X-Tenant-Bypass', 'true');
-      res.set('X-Requested-Tenant', 'T0000');
-      res.set('X-All-Tenants', 'true');
-      res.set('X-Applied-Tenant', 'all-tenants');
-      res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
-    } catch {}
-  } else {
-    try {
-      res.set('X-Tenant-Bypass', 'false');
-      if (requestedTenant) res.set('X-Requested-Tenant', String(requestedTenant));
-    } catch {}
+    res.set('X-Tenant-Bypass', 'true');
+    res.set('X-Requested-Tenant', 'T0000');
+    res.set('X-All-Tenants', 'true');
+    res.set('X-Applied-Tenant', 'all-tenants');
   }
-
-  console.log('[sessionTracking.routes][GET /api/session-tracking] earlyBypassDetector', {
-    qOrg, qTenant, hdrOrg, authTenant, requestedTenant, isT0000, bypassApplied,
-  });
 
   return next();
 }
 
 /**
- * Expose applied tenant/filter headers for diagnostics on this router.
+ * Diagnostic headers middleware
  */
 router.use((req, res, next) => {
   try {
     if (req.tenantScopeDisabled || req.allTenants) {
       res.set('X-All-Tenants', 'true');
       res.set('X-Applied-Tenant', 'all-tenants');
-      res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
-      try { res.set('X-Model-Collection', SessionTracking.collection?.name || 'session_tracking'); } catch(_) {}
     } else if (req.tenantId) {
-      const tenant = String(req.tenantId);
-      const orgFilter = {
+      const t = String(req.tenantId);
+      res.set('X-Applied-Tenant', t);
+      res.set('X-Applied-Filter', JSON.stringify({
         $or: [
-          { tenant_id: tenant },
-          { organization_id: tenant },
-          { organizationId: tenant },
-        ],
-      };
-      res.set('X-Applied-Tenant', tenant);
-      res.set('x-applied-organization-id', tenant);
-      res.set('X-Applied-Filter', JSON.stringify(orgFilter));
-      try { res.set('X-Model-Collection', SessionTracking.collection?.name || 'session_tracking'); } catch(_) {}
+          { tenant_id: t },
+          { organization_id: t },
+          { organizationId: t },
+        ]
+      }));
     }
-  } catch (_) {}
+  } catch {}
+
   next();
 });
 
 router.get(
   '/',
-  // Place early detector first
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
-    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.sessionsAllTenantsBypass);
-    const enforcedTenant = bypass
-      ? null
-      : req.tenantId ||
-        (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-        (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
-        (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-        (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-        null;
 
+    // --------------------------------------------------
+    // FIXED: Single bypass variable, declared once
+    // --------------------------------------------------
+    const bypass = !!(
+      req.tenantScopeDisabled ||
+      req.allTenants ||
+      req.sessionsAllTenantsBypass ||
+      req?.user?.isSuperAdmin
+    );
+
+    // --------------------------------------------------
+    // FIXED: Single enforcedTenant variable
+    // --------------------------------------------------
+    const enforcedTenant =
+      req.tenantId ||
+      (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+      (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
+      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      null;
+
+    // If not bypassing and no tenant provided → error
     if (!bypass && !enforcedTenant) {
       return res.status(400).json({
         success: false,
@@ -278,30 +271,28 @@ router.get(
       });
     }
 
+    // --------------------------------------------------
+    // Request logging
+    // --------------------------------------------------
     try {
-      res.set('X-Sessions-Bypass', String(!!req.sessionsAllTenantsBypass));
-      res.set('X-All-Tenants', String(!!(req.tenantScopeDisabled || req.allTenants)));
-      const applied = bypass ? 'all-tenants' : (enforcedTenant || '');
-      res.set('X-Applied-Tenant', String(applied));
-      console.log('[sessions:list] handler-entry', {
-        qOrg: req.query?.organization_id,
-        qTenant: req.query?.tenant_id,
-        hdrOrg: req.headers?.['x-organization-id'],
-        authTenant: req?.auth?.tenantId,
-        sessionsBypass: !!req.sessionsAllTenantsBypass,
-        allTenants: !!(req.tenantScopeDisabled || req.allTenants),
-        appliedTenant: String(applied || ''),
-      });
+      res.set('X-Sessions-Bypass', String(bypass));
+      const appliedTenant = bypass ? 'all-tenants' : enforcedTenant;
+      res.set('X-Applied-Tenant', String(appliedTenant));
     } catch {}
 
+    // Pagination
     const rawQuery = { ...req.query };
-    if (rawQuery.pageSize && !rawQuery.limit) {rawQuery.limit = rawQuery.pageSize;}
+    if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
+
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
-    // ---- Search Filter ----
+    // --------------------------------------------------
+    // Search filter
+    // --------------------------------------------------
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let qFilter = {};
+
     if (q) {
       const regex = new RegExp(q, 'i');
       qFilter = {
@@ -323,35 +314,37 @@ router.get(
       };
     }
 
-    // ---- Filter ----
-    const filterRaw = req.query.filter ? req.query.filter : '{}';
+    // --------------------------------------------------
+    // Filter parsing
+    // --------------------------------------------------
     let filter = {};
-
     try {
-      filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
+      filter = req.query.filter ? JSON.parse(req.query.filter) : {};
     } catch {
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
 
-    delete filter.organization_id;
     delete filter.tenant_id;
+    delete filter.organization_id;
     delete filter.organizationId;
-    if (Array.isArray(filter.$or)) {delete filter.$or;}
+    if (Array.isArray(filter.$or)) delete filter.$or;
 
-    // ---- Tenant Scope ----
-    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.sessionsAllTenantsBypass || req?.user?.isSuperAdmin);
-    const enforcedScope = (enforcedTenant && !bypass)
+    // --------------------------------------------------
+    // FIXED: Single enforcedScope variable
+    // --------------------------------------------------
+    const enforcedScope = (!bypass && enforcedTenant)
       ? {
-        $or: [
-          { tenant_id: enforcedTenant },
-          { organization_id: enforcedTenant },
-          { organizationId: enforcedTenant },
-        ],
-      }
+          $or: [
+            { tenant_id: enforcedTenant },
+            { organization_id: enforcedTenant },
+            { organizationId: enforcedTenant },
+          ],
+        }
       : {};
 
-    // ---- NEW IMPROVED DATE LOGIC ----
-    // ---- NEW FIXED DATE LOGIC (no filtering unless explicitly provided) ----
+    // --------------------------------------------------
+    // Date filter (explicit only)
+    // --------------------------------------------------
     let timeFilter = {};
 
     if (req.query.start || req.query.end) {
@@ -363,42 +356,44 @@ router.get(
       }
 
       if (req.query.end && isValidISODate(req.query.end)) {
-        const parsedEnd = parseISODateSafe(req.query.end);
-        parsedEnd.setUTCHours(23, 59, 59, 999);
-        end = parsedEnd;
+        end = parseISODateSafe(req.query.end);
+        end.setUTCHours(23, 59, 59, 999);
       }
 
-      // If only one is provided, assume the other condition open-ended
-      if (start && !end) {
-        end = new Date(); // Allow until now
-      }
-
-      if (end && !start) {
-        start = new Date(0); // Beginning of time
-      }
+      if (start && !end) end = new Date();
+      if (end && !start) start = new Date(0);
 
       timeFilter = { session_start: { $gte: start, $lte: end } };
     }
 
-
-    // ---- Combine All Filters ----
+    // --------------------------------------------------
+    // Combine filters
+    // --------------------------------------------------
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
 
-    if (!isEmpty(filter)) {parts.push(filter);}
-    if (!isEmpty(qFilter)) {parts.push(qFilter);}
-    if (!isEmpty(enforcedScope)) {parts.push(enforcedScope);}
-    if (!isEmpty(timeFilter)) {parts.push(timeFilter);}
+    if (!isEmpty(filter)) parts.push(filter);
+    if (!isEmpty(qFilter)) parts.push(qFilter);
+    if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
+    if (!isEmpty(timeFilter)) parts.push(timeFilter);
 
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
+    // --------------------------------------------------
+    // Execute
+    // --------------------------------------------------
     try {
       if (explicit) {
         const [docs, total] = await Promise.all([
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
           SessionTracking.countDocuments(finalFilter),
         ]);
-        return res.json({ success: true, data: docs, meta: { page, limit, total } });
+
+        return res.json({
+          success: true,
+          data: docs,
+          meta: { page, limit, total }
+        });
       }
 
       const docs = await SessionTracking.find(finalFilter).sort(sort);

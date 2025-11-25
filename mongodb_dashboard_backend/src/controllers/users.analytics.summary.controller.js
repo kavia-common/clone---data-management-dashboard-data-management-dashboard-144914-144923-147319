@@ -65,8 +65,13 @@ async function getUsersTenantSummary(req, res) {
 
     // Build match stage for users collection
     const match = {};
-    // Enforce organization scoping if provided (maps to tenant_id)
-    const scopedTenant = req.scopedTenantId || req.organizationId || req.tenantId;
+    // Enforce organization scoping if provided (maps to tenant_id) unless super admin bypass active
+    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.usersSummaryAllTenantsBypass);
+    if (bypass) {
+      try { res.set('X-All-Tenants', 'true'); } catch (_) {}
+      console.log('[users.analytics.summary.controller] bypass active: skipping tenant scope in aggregation');
+    }
+    const scopedTenant = bypass ? undefined : (req.scopedTenantId || req.organizationId || req.tenantId);
     if (scopedTenant) {
       // We will compute a _tenant_key field later; here restrict candidate docs to those having the scoped id
       // across known fields for performance.
