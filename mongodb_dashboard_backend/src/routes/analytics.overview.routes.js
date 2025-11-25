@@ -6,8 +6,11 @@ const { overviewMetrics } = require('../controllers/analytics.overview.controlle
 // GET /api/analytics/overview
 // Returns overview KPIs and time-bucketed series for the selected metric and time range.
 // Query: metric, range, from, to
-router.get('/overview', async (req, res) => {
-  return overviewMetrics(req, res);
-});
+function registerOverviewRoute(r) {
+  r.get('/overview', (req, res) => overviewMetrics(req, res));
+  return r;
+}
 
-module.exports = router;
+const analyticsOverviewRouter = registerOverviewRoute(router);
+
+module.exports = { analyticsOverviewRouter, default: analyticsOverviewRouter };
