@@ -1,6 +1,5 @@
 import { getApiBase } from "./config";
 import { buildAuthHeaders, getOrganizationId } from "./authTokenProvider";
-import { sanitizeRequestInit, sanitizeUrl, isT0000Like } from "./requestSanitizer";
 
 /**
  * Internal helper: detect absolute URLs.
@@ -16,27 +15,6 @@ function isAbsoluteUrl(url) {
  * - "/api/..." paths (joins with base root, stripping trailing "/api")
  * - absolute URLs (returned as-is)
  */
-function getIsSuperAdmin() {
-  try {
-    const raw = localStorage.getItem('roles');
-    const roles = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(roles)) return false;
-    return roles.map(r => String(r).toLowerCase()).includes('super admin');
-  } catch {
-    return false;
-  }
-}
-
-function getAllTenantsFlag() {
-  // If current organizationId is T0000-like, treat as all tenants
-  try {
-    const orgId = getOrganizationId && getOrganizationId();
-    return isT0000Like(orgId);
-  } catch {
-    return false;
-  }
-}
-
 function buildUrl(pathOrUrl) {
   const base = getApiBase(); // e.g., "http://host:3001/api"
   if (isAbsoluteUrl(pathOrUrl)) return pathOrUrl;
@@ -201,15 +179,8 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
     pathOrUrl,
     ensureScopedQueryParams(pathOrUrl, params)
   );
-  // Super Admin global mode?
-  const SA = getIsSuperAdmin();
-  const ALL = getAllTenantsFlag();
-
-  let url = buildUrlWithParams(pathOrUrl, effParams);
-  url = sanitizeUrl(url, { isSuperAdmin: SA, allTenants: ALL });
-
-  // Build headers, then sanitize
-  const init = {
+  const url = buildUrlWithParams(pathOrUrl, effParams);
+  const res = await fetch(url, {
     method: "GET",
     headers: buildAuthHeaders({
       Accept: "application/json",
@@ -217,10 +188,7 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
     }),
     signal,
     credentials: "omit",
-  };
-  const safeInit = sanitizeRequestInit(init, { isSuperAdmin: SA, allTenants: ALL });
-
-  const res = await fetch(url, safeInit);
+  });
   const { ok, status, payload } = await parseResponse(res);
   if (!ok) {
     const message =
@@ -240,13 +208,8 @@ async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {
     pathOrUrl,
     ensureScopedQueryParams(pathOrUrl, params)
   );
-  const SA = getIsSuperAdmin();
-  const ALL = getAllTenantsFlag();
-
-  let url = buildUrlWithParams(pathOrUrl, effParams);
-  url = sanitizeUrl(url, { isSuperAdmin: SA, allTenants: ALL });
-
-  const init = {
+  const url = buildUrlWithParams(pathOrUrl, effParams);
+  const res = await fetch(url, {
     method,
     headers: buildAuthHeaders({
       "Content-Type": "application/json",
@@ -256,10 +219,7 @@ async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
     credentials: "omit",
-  };
-  const safeInit = sanitizeRequestInit(init, { isSuperAdmin: SA, allTenants: ALL });
-
-  const res = await fetch(url, safeInit);
+  });
   const { ok, status, payload } = await parseResponse(res);
   if (!ok) {
     const message =

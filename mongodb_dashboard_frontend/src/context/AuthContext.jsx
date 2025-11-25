@@ -16,10 +16,6 @@ export function AuthProvider({ children }) {
   /** Context provider to expose authentication+tenant state based on localStorage. */
   const [auth, setAuth] = useState(() => getStoredAuth());
   const [organizationId, setOrganizationIdState] = useState(() => getActiveOrganization());
-  const [allTenants, setAllTenants] = useState(() => {
-    const org = getActiveOrganization();
-    return typeof org === 'string' && /^T0+$/i.test(org.trim());
-  });
 
   useEffect(() => {
     // Sync with localStorage changes (e.g., other tabs)
@@ -46,15 +42,6 @@ export function AuthProvider({ children }) {
       // expose both organizationId and legacy tenantId for consumers
       organizationId: organizationId || getActiveOrganization(),
       tenantId: organizationId || getActiveOrganization(),
-      // Feature flags
-      allTenants,
-      isSuperAdmin: (() => {
-        try {
-          const rolesJson = localStorage.getItem('roles');
-          const roles = rolesJson ? JSON.parse(rolesJson) : [];
-          return Array.isArray(roles) && roles.map(r => String(r).toLowerCase()).includes('super admin');
-        } catch { return false; }
-      })(),
       // login now accepts either token string or { token, organization_id, tenant_id }
       login: (loginPayload) => {
         if (loginPayload && typeof loginPayload === 'object') {
@@ -69,9 +56,7 @@ export function AuthProvider({ children }) {
           saveAuthSession(token);
         }
         setAuth(getStoredAuth());
-        const oid = getActiveOrganization();
-        setOrganizationIdState(oid);
-        setAllTenants(typeof oid === 'string' && /^T0+$/i.test(oid.trim()));
+        setOrganizationIdState(getActiveOrganization());
       },
       logout: () => {
         clearAuthSession();
@@ -81,7 +66,6 @@ export function AuthProvider({ children }) {
       setOrganizationId: (oid) => {
         setActiveOrganization(oid || null);
         setOrganizationIdState(oid || null);
-        setAllTenants(typeof oid === 'string' && /^T0+$/i.test(oid.trim()));
       },
       // legacy setter alias
       setTenantId: (tid) => {
