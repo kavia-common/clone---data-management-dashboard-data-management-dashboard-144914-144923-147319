@@ -222,10 +222,12 @@ router.get(
       if (typeof q.organization_id === 'string' && !q.tenant_id) req.query.tenant_id = q.organization_id;
 
       // Validate dates if present
-      if (req.query.from && Number.isNaN(new Date(req.query.from).getTime())) {
+      const fromDateInitial = req.query.from ? new Date(req.query.from) : null;
+      const toDateInitial = req.query.to ? new Date(req.query.to) : null;
+      if (fromDateInitial && Number.isNaN(fromDateInitial.getTime())) {
         return res.status(400).json({ success: false, message: 'Invalid "from" date' });
       }
-      if (req.query.to && Number.isNaN(new Date(req.query.to).getTime())) {
+      if (toDateInitial && Number.isNaN(toDateInitial.getTime())) {
         return res.status(400).json({ success: false, message: 'Invalid "to" date' });
       }
 
@@ -254,8 +256,9 @@ router.get(
 
         const fromDate = new Date(from);
         const toDate = new Date(to);
-        if (Number.isNaN(fromDate) || Number.isNaN(toDate))
+        if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
           return res.status(400).json({ success: false, message: 'Invalid date range' });
+        }
 
         const cacheKey = buildActiveTrendCacheKey({ from, to, granularity, status: statusParam, tenant_id: tenantId });
         const cached = getCache(ACTIVE_TREND_CACHE, cacheKey);
