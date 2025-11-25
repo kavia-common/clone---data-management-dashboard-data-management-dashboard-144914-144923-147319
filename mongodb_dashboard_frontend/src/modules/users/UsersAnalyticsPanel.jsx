@@ -337,7 +337,7 @@ export default function UsersAnalyticsPanel({
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
                     <Skeleton width="50%" height={12} className="mb-2" />
-                    <Skeleton width="100%" height={300} />
+                    <Skeleton width="100%" height={280} />
                   </div>
                 ) : usersError ? (
                   <div className="error" role="alert">{usersError.message || "Failed to load users"}</div>

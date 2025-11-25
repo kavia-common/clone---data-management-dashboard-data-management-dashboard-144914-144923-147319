@@ -1,16 +1,31 @@
 import { getApiBase } from "./config";
 import { buildAuthHeaders, getOrganizationId } from "./authTokenProvider";
 
+// Lightweight metrics (optional; no-ops if not used elsewhere)
+let __fetchCount = 0;
+function incrementFetchCount() {
+  __fetchCount += 1;
+  if (process.env.REACT_APP_API_DEBUG === '1') {
+    // eslint-disable-next-line no-console
+    if (__fetchCount % 25 === 0) console.debug(`[api-metrics] total fetches observed: ${__fetchCount}`);
+  }
+}
+
 /**
- * Internal helper: detect absolute URLs.
+ * Internal in-flight de-duplication map.
+ * Ensures only one network call per identical request is in-flight at a time.
+ */
+const inFlight = new Map();
+
+/**
+ * Detect absolute URLs.
  */
 function isAbsoluteUrl(url) {
   return /^https?:\/\//i.test(String(url || ""));
 }
 
 /**
- * Internal helper: join base and path, avoiding double slashes.
- * Handles:
+ * Join base and path, avoiding double slashes.
  * - relative paths like "/users"
  * - "/api/..." paths (joins with base root, stripping trailing "/api")
  * - absolute URLs (returned as-is)
@@ -35,8 +50,7 @@ function buildUrl(pathOrUrl) {
 }
 
 /**
- * Internal helper: build query string from params.
- * Merges existing querystring in a safe way if caller passes a URL containing ? already.
+ * Build query string from params.
  */
 function toQuery(params = {}) {
   const usp = new URLSearchParams();
@@ -55,7 +69,7 @@ function toQuery(params = {}) {
 }
 
 /**
- * Determine if the requested path is the session-tracking collection root.
+ * Is the path the session-tracking collection root.
  */
 function isSessionTrackingRoot(pathOrUrl) {
   return (
@@ -158,17 +172,92 @@ function buildUrlWithParams(pathOrUrl, effParams) {
 }
 
 /**
- * Internal helper: parse response and return { ok, status, data|text }.
+ * Create a stable in-flight key for de-duplication.
  */
-async function parseResponse(res) {
+function makeKey(method, url, headers, body) {
+  const stableHeaders = {
+    Authorization: headers?.Authorization || null,
+    "x-organization-id": headers?.["x-organization-id"] || headers?.["X-Organization-Id"] || null,
+    "content-type": headers?.["Content-Type"] || headers?.["content-type"] || "application/json",
+  };
+  let bodyString = "";
+  if (body !== undefined) {
+    try {
+      bodyString = typeof body === "string" ? body : JSON.stringify(body);
+    } catch {
+      bodyString = String(body);
+    }
+  }
+  return `${method} ${url} :: ${JSON.stringify(stableHeaders)} :: ${bodyString}`;
+}
+
+/**
+ * Parse response and return payload; throw on !ok with message.
+ */
+async function parseResponseOrThrow(res) {
   const contentType = res.headers.get("content-type") || "";
   const isJson = contentType.includes("application/json");
+  let payload = null;
   try {
-    const payload = isJson ? await res.json() : await res.text();
-    return { ok: res.ok, status: res.status, payload };
+    payload = isJson ? await res.json() : await res.text();
   } catch {
-    return { ok: res.ok, status: res.status, payload: null };
+    // ignore
   }
+  if (!res.ok) {
+    const message =
+      (payload && typeof payload === "object" && (payload.message || payload.detail)) ||
+      (typeof payload === "string" ? payload : `Request failed (${res.status})`);
+    const err = new Error(message);
+    err.status = res.status;
+    err.payload = payload;
+    throw err;
+  }
+  return payload;
+}
+
+/**
+ * Perform fetch with in-flight de-duplication.
+ */
+async function fetchWithDedup(method, url, { headers, signal, body } = {}) {
+  const key = makeKey(method, url, headers, body);
+  if (inFlight.has(key)) {
+    if (process.env.REACT_APP_API_DEBUG === '1') {
+      // eslint-disable-next-line no-console
+      console.debug("[api] de-dupe hit (in-flight):", key);
+    }
+    return inFlight.get(key);
+  }
+
+  const exec = (async () => {
+    try {
+      if (process.env.REACT_APP_API_DEBUG === '1') {
+        // eslint-disable-next-line no-console
+        console.debug("[api] fetch start:", key);
+      }
+      incrementFetchCount();
+      const res = await fetch(url, {
+        method,
+        headers,
+        signal,
+        body: body !== undefined ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
+        credentials: "omit",
+      });
+      return await parseResponseOrThrow(res);
+    } finally {
+      queueMicrotask(() => {
+        if (inFlight.has(key)) {
+          inFlight.delete(key);
+          if (process.env.REACT_APP_API_DEBUG === '1') {
+            // eslint-disable-next-line no-console
+            console.debug("[api] fetch end:", key);
+          }
+        }
+      });
+    }
+  })();
+
+  inFlight.set(key, exec);
+  return exec;
 }
 
 /**
@@ -180,25 +269,13 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
     ensureScopedQueryParams(pathOrUrl, params)
   );
   const url = buildUrlWithParams(pathOrUrl, effParams);
-  const res = await fetch(url, {
-    method: "GET",
+  const payload = await fetchWithDedup("GET", url, {
     headers: buildAuthHeaders({
       Accept: "application/json",
       ...(headers || {}),
     }),
     signal,
-    credentials: "omit",
   });
-  const { ok, status, payload } = await parseResponse(res);
-  if (!ok) {
-    const message =
-      (payload && typeof payload === "object" && (payload.message || payload.detail)) ||
-      (typeof payload === "string" ? payload : `Request failed (${status})`);
-    const err = new Error(message);
-    err.status = status;
-    err.payload = payload;
-    throw err;
-  }
   return { data: payload };
 }
 
@@ -209,27 +286,15 @@ async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {
     ensureScopedQueryParams(pathOrUrl, params)
   );
   const url = buildUrlWithParams(pathOrUrl, effParams);
-  const res = await fetch(url, {
-    method,
+  const payload = await fetchWithDedup(method, url, {
     headers: buildAuthHeaders({
       "Content-Type": "application/json",
       Accept: "application/json",
       ...(headers || {}),
     }),
-    body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
-    credentials: "omit",
+    body,
   });
-  const { ok, status, payload } = await parseResponse(res);
-  if (!ok) {
-    const message =
-      (payload && typeof payload === "object" && (payload.message || payload.detail)) ||
-      (typeof payload === "string" ? payload : `Request failed (${status})`);
-    const err = new Error(message);
-    err.status = status;
-    err.payload = payload;
-    throw err;
-  }
   return { data: payload };
 }
 
@@ -268,7 +333,7 @@ export async function health() {
 
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
-  /** Lists users; for /api/users only organization_id is sent. All other params (e.g., limit, page, sort, filter) are ignored for this endpoint by design. Returns normalized { items, total, meta }. */
+  /** Lists users; for /api/users only organization_id is sent. Returns normalized { items, total, meta }. */
   const res = await httpGet("/api/users", { params });
   return normalizeListPayload(res.data);
 }

@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import SessionsPerDayBarChart from '../../components/charts/SessionsPerDayBarChart';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
+import { leadingTrailingDebounce } from '../../utils/debounce';
 import './SessionsAnalytics.css';
 
 /**
@@ -16,7 +17,11 @@ export default function SessionsAnalytics() {
   const [tenant, setTenant] = useState('');
   const [project, setProject] = useState('');
   const [status, setStatus] = useState('');
-  const [applied, setApplied] = useState({});
+  const [applied, setApplied] = useState({ tenant: '', project: '', status: '' });
+
+  const debRef = useRef(leadingTrailingDebounce((next) => {
+    setApplied((prev) => ({ ...prev, ...next }));
+  }, 400));
 
   const filters = useMemo(() => ({
     tenant_id: applied.tenant || undefined,
@@ -31,19 +36,43 @@ export default function SessionsAnalytics() {
         <div className="filters-row">
           <div className="filter-item">
             <label>Tenant ID</label>
-            <Input value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="tenant_id" />
+            <Input
+              value={tenant}
+              onChange={(e) => {
+                const v = e.target.value;
+                setTenant(v);
+                debRef.current({ tenant: v });
+              }}
+              placeholder="tenant_id"
+            />
           </div>
           <div className="filter-item">
             <label>Project ID</label>
-            <Input value={project} onChange={(e) => setProject(e.target.value)} placeholder="project_id" />
+            <Input
+              value={project}
+              onChange={(e) => {
+                const v = e.target.value;
+                setProject(v);
+                debRef.current({ project: v });
+              }}
+              placeholder="project_id"
+            />
           </div>
           <div className="filter-item">
             <label>Status</label>
-            <Input value={status} onChange={(e) => setStatus(e.target.value)} placeholder="completed|active" />
+            <Input
+              value={status}
+              onChange={(e) => {
+                const v = e.target.value;
+                setStatus(v);
+                debRef.current({ status: v });
+              }}
+              placeholder="completed|active"
+            />
           </div>
           <div className="filter-actions">
             <Button onClick={() => setApplied({ tenant, project, status })}>Apply</Button>
-            <Button variant="secondary" onClick={() => { setTenant(''); setProject(''); setStatus(''); setApplied({}); }}>Reset</Button>
+            <Button variant="secondary" onClick={() => { setTenant(''); setProject(''); setStatus(''); setApplied({ tenant: '', project: '', status: '' }); }}>Reset</Button>
           </div>
         </div>
       </Card>

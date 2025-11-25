@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getSessionsPerDay } from '../api/sessionsPerDay';
 
 /**
  * PUBLIC_INTERFACE
  * React hook to fetch sessions-per-day analytics with optional filters.
+ * Ensures single fetch per distinct filter set using a stable key + guard.
  * Params:
  *  - filters: { tenant_id?, project_id?, status?, start?, end? }
  * Returns:
@@ -18,14 +19,17 @@ export function useSessionsPerDay(filters = {}) {
     meta: null,
   });
 
-  const stableFilters = useMemo(() => ({ ...filters }), [JSON.stringify(filters)]);
+  const key = useMemo(() => {
+    try { return JSON.stringify(filters || {}); } catch { return ''; }
+  }, [filters]);
 
-  async function load() {
+  const lastKeyRef = useRef(null);
+
+  async function load(currentKey = key) {
     setState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const resp = await getSessionsPerDay(stableFilters);
+      const resp = await getSessionsPerDay(filters);
       const items = Array.isArray(resp?.items) ? resp.items : [];
-      // Normalize item keys to { date, count }
       const normalized = items.map((it) => {
         if (it && typeof it === 'object') {
           const date = it.date || it._id?.date || it._id || it.day || it.bucket || null;
@@ -34,16 +38,23 @@ export function useSessionsPerDay(filters = {}) {
         }
         return it;
       }).filter(Boolean);
-      setState({ data: normalized, loading: false, error: null, meta: resp?.meta || null });
+      // Only update if key matches last requested to avoid race conditions
+      if (lastKeyRef.current === currentKey) {
+        setState({ data: normalized, loading: false, error: null, meta: resp?.meta || null });
+      }
     } catch (err) {
-      setState({ data: [], loading: false, error: err, meta: null });
+      if (lastKeyRef.current === currentKey) {
+        setState({ data: [], loading: false, error: err, meta: null });
+      }
     }
   }
 
   useEffect(() => {
-    load();
+    if (lastKeyRef.current === key) return;
+    lastKeyRef.current = key;
+    load(key);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(stableFilters)]);
+  }, [key]);
 
-  return { ...state, refetch: load };
+  return { ...state, refetch: () => load(key) };
 }
