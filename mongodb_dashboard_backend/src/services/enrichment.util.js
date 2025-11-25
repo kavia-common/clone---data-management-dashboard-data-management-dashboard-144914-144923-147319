@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * Utility helpers for enriching documents with normalized projectId and updatedAt.
  * These functions are pure, defensive, and never throw on missing fields.

@@ -27,7 +27,17 @@ function toTitleCase(str) {
     .join(' ');
 }
 
+// PUBLIC_INTERFACE
+function formatString(str, values = {}) {
+  /** Format a string with tokens like {key} replaced by provided values. */
+  const s = String(str);
+  return s.replace(/{(\w+)}/g, (_, key) =>
+    Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : `{${key}}`
+  );
+}
+
 module.exports = {
   normalizeWhitespace,
   toTitleCase,
+  formatString,
 };

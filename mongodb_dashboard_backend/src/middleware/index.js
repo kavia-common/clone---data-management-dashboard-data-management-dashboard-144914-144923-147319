@@ -1,4 +1,3 @@
-'use strict';
 /**
  * PUBLIC_INTERFACE
  * Middleware registry: export common middlewares for centralized imports.

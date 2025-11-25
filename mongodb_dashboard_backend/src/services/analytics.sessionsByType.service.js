@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * PUBLIC_INTERFACE
  * Aggregate sessions by type constrained to tenant.

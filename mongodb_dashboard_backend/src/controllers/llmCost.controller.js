@@ -1,5 +1,3 @@
-'use strict';
-
 const { getLlmCostByAgent } = require('../services/llmCost.service');
 const { recordAudit } = require('../services/auditTrail');
 

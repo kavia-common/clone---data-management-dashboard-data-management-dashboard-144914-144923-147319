@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * PUBLIC_INTERFACE
  * Minimal users analytics controller placeholder.

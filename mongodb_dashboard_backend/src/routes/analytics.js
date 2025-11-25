@@ -1,5 +1,3 @@
-'use strict';
-
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { newUsersOverTime } = require('../controllers/analytics.controller');
