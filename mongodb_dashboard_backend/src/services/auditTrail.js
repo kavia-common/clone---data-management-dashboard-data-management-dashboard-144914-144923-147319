@@ -27,7 +27,7 @@ async function recordAudit(entry = {}) {
     };
     await AuditLog.create(payload);
   } catch (e) {
-    // eslint-disable-next-line no-console
+     
     console.error('[auditTrail] Failed to record audit', e?.message || e);
   }
 }

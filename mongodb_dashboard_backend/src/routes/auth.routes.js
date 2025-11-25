@@ -103,7 +103,7 @@ router.post('/signup', async (req, res) => {
   validateStringField(email, 'email');
   validateStringField(password, 'password');
 
-  if (errors.length > 0) return res.status(422).json({ detail: errors });
+  if (errors.length > 0) {return res.status(422).json({ detail: errors });}
 
   const { resolveTenant, isTenantAllowed } = getTenantConfig();
   const tenantId = resolveTenant(req, organization_id);
@@ -140,7 +140,7 @@ router.post('/signup', async (req, res) => {
 
     return res.status(201).json({ success: true, user_id: String(doc._id), email: doc.email, tenant_id: tenantId });
   } catch (e) {
-    // eslint-disable-next-line no-console
+     
     console.error('[auth.signup] failed', e?.message || e);
     return res.status(400).json({ success: false, message: 'Signup failed' });
   }
@@ -320,7 +320,7 @@ router.post('/login', async (req, res) => {
       user: { id: String(user._id || ''), email: user.email },
     });
   } catch (e) {
-    // eslint-disable-next-line no-console
+     
     console.error('[auth.login] failed', e?.message || e);
     return res.status(400).json({ success: false, message: 'Login failed' });
   }
@@ -373,16 +373,16 @@ router.post('/reset-password', async (req, res) => {
       errors.push({ loc: ['body', f], msg: 'field required', type: 'value_error' });
     }
   }
-  if (errors.length > 0) return res.status(422).json({ detail: errors });
+  if (errors.length > 0) {return res.status(422).json({ detail: errors });}
 
   const { resolveTenant, isTenantAllowed } = getTenantConfig();
   const tenantId = resolveTenant(req, organization_id);
-  if (!tenantId) return res.status(400).json({ success: false, message: 'Tenant could not be resolved from request.' });
-  if (!isTenantAllowed(tenantId)) return res.status(400).json({ success: false, message: `Invalid or unknown tenant: ${tenantId}.` });
+  if (!tenantId) {return res.status(400).json({ success: false, message: 'Tenant could not be resolved from request.' });}
+  if (!isTenantAllowed(tenantId)) {return res.status(400).json({ success: false, message: `Invalid or unknown tenant: ${tenantId}.` });}
 
   try {
     const tenant = await Tenant.findOne({ tenant_id: tenantId });
-    if (!tenant) return res.status(400).json({ success: false, message: 'Tenant does not exist' });
+    if (!tenant) {return res.status(400).json({ success: false, message: 'Tenant does not exist' });}
     await ensureTenantOrgSalt(tenant);
 
     const orgOrFilter = {
@@ -393,7 +393,7 @@ router.post('/reset-password', async (req, res) => {
       ],
     };
     const user = await User.findOne({ email, ...orgOrFilter });
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (!user) {return res.status(404).json({ success: false, message: 'User not found' });}
 
     // Use unified hashPassword helper with explicit version=2
     const { hash, version } = await hashPassword({ password, tenant, version: 2 });
@@ -404,7 +404,7 @@ router.post('/reset-password', async (req, res) => {
 
     return res.status(200).json({ success: true, tenant_id: tenantId });
   } catch (e) {
-    // eslint-disable-next-line no-console
+     
     console.error('[auth.reset-password] failed', e?.message || e);
     return res.status(400).json({ success: false, message: 'Reset failed' });
   }

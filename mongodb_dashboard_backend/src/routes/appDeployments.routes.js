@@ -29,7 +29,7 @@ const projectNameCache = new Map(); // key: normalized projectId (string) => { p
  */
 function cacheGet(pid) {
   const entry = projectNameCache.get(pid);
-  if (!entry) return null;
+  if (!entry) {return null;}
   if (Date.now() >= entry.expiresAt) {
     projectNameCache.delete(pid);
     return null;
@@ -59,7 +59,7 @@ function extractNormalizedProjectId(payload) {
     payload?.project?.id ??
     null;
 
-  const normalized = normalizeProjectId(candidate) || (candidate != null ? String(candidate).trim() : '');
+  const normalized = normalizeProjectId(candidate) || ((candidate !== null && candidate !== undefined) ? String(candidate).trim() : '');
   return normalized || null;
 }
 
@@ -253,7 +253,7 @@ router.post(
       return res.status(400).json({ success: false, message: 'Bad request: payload must be an object' });
     }
     // strip any client-provided tenant_id and let controller stamp it
-    if ('tenant_id' in req.body) delete req.body.tenant_id;
+    if ('tenant_id' in req.body) {delete req.body.tenant_id;}
 
     const pid = extractNormalizedProjectId(req.body);
     if (pid) {
@@ -296,7 +296,7 @@ router.put(
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
       return res.status(400).json({ success: false, message: 'Bad request: payload must be an object' });
     }
-    if ('tenant_id' in req.body) delete req.body.tenant_id;
+    if ('tenant_id' in req.body) {delete req.body.tenant_id;}
 
     const pidFromBody = extractNormalizedProjectId(req.body);
     if (pidFromBody) {
@@ -309,7 +309,7 @@ router.put(
         'project.id': 1,
       }).lean();
       const inferred = extractNormalizedProjectId(existing || {});
-      if (inferred) projectNameCache.delete(inferred);
+      if (inferred) {projectNameCache.delete(inferred);}
     }
     return controller.update(req, res);
   })
@@ -349,7 +349,7 @@ router.delete(
       }
     ).lean();
     const inferred = extractNormalizedProjectId(existing || {});
-    if (inferred) projectNameCache.delete(inferred);
+    if (inferred) {projectNameCache.delete(inferred);}
 
     return controller.remove(req, res);
   })

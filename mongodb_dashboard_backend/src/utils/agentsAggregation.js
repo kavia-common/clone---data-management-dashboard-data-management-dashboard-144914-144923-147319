@@ -15,8 +15,8 @@
  * Safe number parser that handles strings like "$0.108255", " 1,234.56 " etc.
  */
 function toNumberSafe(value) {
-  if (typeof value === 'number') return value;
-  if (value === null || value === undefined) return 0;
+  if (typeof value === 'number') {return value;}
+  if (value === null || value === undefined) {return 0;}
   const s = String(value).trim().replace(/\$/g, '').replace(/,/g, '');
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
@@ -64,8 +64,8 @@ async function aggregateAgentsUsageAndCost(
 
   if (from || to) {
     const range = {};
-    if (from) range.$gte = new Date(from);
-    if (to) range.$lte = new Date(to);
+    if (from) {range.$gte = new Date(from);}
+    if (to) {range.$lte = new Date(to);}
     andConditions.push({
       $or: [
         { last_updated: range },
@@ -222,7 +222,7 @@ async function aggregateAgentsUsageAndCost(
     ]);
   } catch (err) {
     // Fail closed to empty results to avoid frontend "Network error"
-    // eslint-disable-next-line no-console
+     
     console.error('[aggregateAgentsUsageAndCost] aggregation error:', err?.message || err);
     sessionAgg = [];
     llmAgg = [];

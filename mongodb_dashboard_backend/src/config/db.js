@@ -19,7 +19,7 @@ async function connectDB() {
   const uri = process.env.MONGODB_URI;
 
   if (!uri || typeof uri !== 'string' || uri.trim() === '') {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       '[db] MONGODB_URI is not set. Skipping MongoDB connection. The API will start, health endpoints will report db=disconnected.'
     );
@@ -66,25 +66,25 @@ async function connectDB() {
   }
 
   mongoose.connection.on('connected', () => {
-    // eslint-disable-next-line no-console
+     
     console.log(
       `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
     );
     if (dbName) {
-      // eslint-disable-next-line no-console
+       
       console.log(`MongoDB dbName selected via env: ${dbName}`);
     }
-    // eslint-disable-next-line no-console
+     
     console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
   });
 
   mongoose.connection.on('error', (err) => {
-    // eslint-disable-next-line no-console
+     
     console.error('MongoDB connection error:', err.message);
   });
 
   mongoose.connection.on('disconnected', () => {
-    // eslint-disable-next-line no-console
+     
     console.warn('MongoDB disconnected');
   });
 

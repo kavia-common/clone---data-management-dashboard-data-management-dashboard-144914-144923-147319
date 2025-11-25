@@ -53,7 +53,7 @@ function getTenantConfig() {
 
   // PUBLIC_INTERFACE
   function isTenantAllowed(tenantId) {
-    if (!tenantId || typeof tenantId !== 'string') return false;
+    if (!tenantId || typeof tenantId !== 'string') {return false;}
     if (allowed.size === 0) {
       return true;
     }
@@ -84,4 +84,10 @@ const authConfig = {
   getJwtConfig,
 };
 
-module.exports = { ...authConfig, default: authConfig };
+// PUBLIC_INTERFACE
+module.exports = {
+  getTenantSaltConfig,
+  getTenantConfig,
+  getJwtConfig,
+  authConfig,
+};

@@ -7,7 +7,7 @@ describe('credits utils', () => {
     const original = process.env.CREDITS_PER_USD;
     delete process.env.CREDITS_PER_USD;
     expect(getCreditsPerUsd()).toBe(20000);
-    if (original !== undefined) process.env.CREDITS_PER_USD = original;
+    if (original !== undefined) {process.env.CREDITS_PER_USD = original;}
   });
 
   test('usdToCredits computes expected integer credits', () => {
@@ -17,8 +17,8 @@ describe('credits utils', () => {
     expect(usdToCredits(1.23)).toBe(1230); // rounded
     expect(usdToCredits('2.5')).toBe(2500);
     expect(usdToCredits('abc')).toBe(0);
-    if (original !== undefined) process.env.CREDITS_PER_USD = original;
-    else delete process.env.CREDITS_PER_USD;
+    if (original !== undefined) {process.env.CREDITS_PER_USD = original;}
+    else {delete process.env.CREDITS_PER_USD;}
   });
 });
 

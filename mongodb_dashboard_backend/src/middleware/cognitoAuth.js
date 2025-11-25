@@ -69,7 +69,7 @@ async function getJwks() {
     return jwksCache.keys;
   }
   const json = await fetchJson(url);
-  if (!json || !Array.isArray(json.keys)) return null;
+  if (!json || !Array.isArray(json.keys)) {return null;}
   jwksCache.keys = json.keys;
   jwksCache.fetchedAt = now;
   return jwksCache.keys;
@@ -79,7 +79,7 @@ async function getJwks() {
  * Convert JWK to PEM (supports RSA).
  */
 function jwkToPem(jwk) {
-  if (!jwk || jwk.kty !== 'RSA') return null;
+  if (!jwk || jwk.kty !== 'RSA') {return null;}
   const exponent = Buffer.from(jwk.e, 'base64');
   const modulus = Buffer.from(jwk.n, 'base64');
   // Build RSA public key in ASN.1 DER, then to PEM.
@@ -98,9 +98,9 @@ function jwkToPem(jwk) {
  */
 async function getPemForKid(kid) {
   const keys = await getJwks();
-  if (!keys) return null;
+  if (!keys) {return null;}
   const jwk = keys.find((k) => k.kid === kid);
-  if (!jwk) return null;
+  if (!jwk) {return null;}
   return jwkToPem(jwk);
 }
 
@@ -113,8 +113,8 @@ function extractToken(req) {
     return h.slice(7).trim();
   }
   // Fallback for integrations that pass id_token in body or query
-  if (req.body?.id_token && typeof req.body.id_token === 'string') return req.body.id_token;
-  if (req.query?.id_token && typeof req.query.id_token === 'string') return req.query.id_token;
+  if (req.body?.id_token && typeof req.body.id_token === 'string') {return req.body.id_token;}
+  if (req.query?.id_token && typeof req.query.id_token === 'string') {return req.query.id_token;}
   return null;
 }
 
@@ -136,8 +136,8 @@ async function verifyOrDecodeToken(token) {
       throw new Error('JWKS key not found for kid');
     }
     const opts = { algorithms: [alg || 'RS256'] };
-    if (issuer) opts.issuer = issuer;
-    if (audience) opts.audience = audience;
+    if (issuer) {opts.issuer = issuer;}
+    if (audience) {opts.audience = audience;}
     const verified = jwt.verify(token, pem, opts);
     return { payload: verified, verified: true };
   }

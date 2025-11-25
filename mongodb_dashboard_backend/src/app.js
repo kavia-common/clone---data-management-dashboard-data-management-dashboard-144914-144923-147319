@@ -1,5 +1,3 @@
-'use strict';
-
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
@@ -36,8 +34,7 @@ const buildDynamicSpec = (req) => {
     !hasPort &&
     ((protocol === 'http' && actualPort !== 80) ||
       (protocol === 'https' && actualPort !== 443));
-  const fullHost = needsPort ? `${host}:${actualPort}` : host;
-
+  // fullHost is intentionally unused since servers list is predefined.
   const baseSpec = getBaseOpenApiSpec();
   return {
     ...baseSpec,
@@ -101,7 +98,7 @@ app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler
 // Routers
 // ---------------------------------------------
 const safeUse = (path, router) => {
-  if (router && typeof router === 'function') app.use(path, router);
+  if (router && typeof router === 'function') {app.use(path, router);}
 };
 
 const baseRouter = require('./routes');
@@ -121,8 +118,8 @@ app.get('/api/users/tenant-summary', async (req, res) => {
       json(payload) { this._sent = true; this._payload = payload; return this; },
     };
     await getUsersTenantSummary(req, fakeRes);
-    if (!fakeRes._sent) return res.status(500).json({ success: false, message: 'Controller did not respond' });
-    if (fakeRes._status !== 200) return res.status(fakeRes._status).json(fakeRes._payload);
+    if (!fakeRes._sent) {return res.status(500).json({ success: false, message: 'Controller did not respond' });}
+    if (fakeRes._status !== 200) {return res.status(fakeRes._status).json(fakeRes._payload);}
     const items = Array.isArray(fakeRes._payload?.items) ? fakeRes._payload.items : [];
     const mapped = items.map((it) => ({
       tenant: it.tenant_name || it.tenant_id || '',
@@ -134,12 +131,9 @@ app.get('/api/users/tenant-summary', async (req, res) => {
   }
 });
 
-// ---------------------------------------------
-// Protected routes (with auth + tenant)
-// ---------------------------------------------
-const { verifyAuth } = require('./middleware/verifyAuth');
-const { requireTenant } = require('./middleware/requireTenant');
-
+ // ---------------------------------------------
+ // Protected routes (with auth + tenant)
+ // ---------------------------------------------
 app.use((req, res, next) => {
   if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
     if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {

@@ -1,6 +1,6 @@
-import request from "supertest";
-import app from "../../app";
-import SessionTrackingModel from "../../models/sessionTracking.model";
+const request = require("supertest");
+const app = require("../../app");
+const SessionTrackingModel = require("../../models/sessionTracking.model");
 
 describe("Session date range filtering", () => {
   let server;

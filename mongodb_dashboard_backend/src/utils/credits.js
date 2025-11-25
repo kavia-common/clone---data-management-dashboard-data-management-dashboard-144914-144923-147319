@@ -28,7 +28,7 @@ function getCreditsPerUsd() {
 function usdToCredits(usd) {
   /** Converts USD amount to integer credits (rounded). */
   const n = Number(usd);
-  if (!Number.isFinite(n)) return 0;
+  if (!Number.isFinite(n)) {return 0;}
   const factor = getCreditsPerUsd();
   return Math.round(n * factor);
 }

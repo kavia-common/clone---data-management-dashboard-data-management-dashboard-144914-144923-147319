@@ -4,7 +4,7 @@
 
  // PUBLIC_INTERFACE
  function isValidISODate(s) {
-   if (!s || typeof s !== 'string') return false;
+   if (!s || typeof s !== 'string') {return false;}
    const d = new Date(s);
    return !isNaN(d.getTime());
  }

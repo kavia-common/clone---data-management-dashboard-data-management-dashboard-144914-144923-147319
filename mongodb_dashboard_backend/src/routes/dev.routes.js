@@ -7,7 +7,7 @@ const User = require('../models/user.model');
 let Sample;
 try {
   // Prefer a real model if present
-  // eslint-disable-next-line global-require
+   
   Sample = require('../models/sample.model');
 } catch (e) {
   // Create a minimal stub model when sample.model is not available
@@ -24,7 +24,7 @@ try {
       { collection: 'sample' }
     );
     Sample = model('Sample', sampleSchema);
-    // eslint-disable-next-line no-console
+     
     console.warn('[dev.routes] Using in-memory Sample model stub (no file ../models/sample.model)');
   } catch (err) {
     // As a last resort, simulate a limited API to avoid crashes in route handlers
@@ -52,7 +52,7 @@ try {
         };
       },
     };
-    // eslint-disable-next-line no-console
+     
     console.warn('[dev.routes] Using ultra-minimal in-memory Sample stub (no mongoose available)');
   }
 }

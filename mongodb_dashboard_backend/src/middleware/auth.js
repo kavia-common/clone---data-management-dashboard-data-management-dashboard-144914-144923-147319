@@ -26,7 +26,7 @@ const User = require('../models/user.model');
 function getBearerToken(req) {
   const h = req.headers?.authorization || '';
   const parts = h.split(' ');
-  if (parts.length === 2 && /^Bearer$/i.test(parts[0])) return parts[1];
+  if (parts.length === 2 && /^Bearer$/i.test(parts[0])) {return parts[1];}
   return null;
 }
 
@@ -38,8 +38,8 @@ function getBearerToken(req) {
  *  - 'email:<email>' -> email
  */
 function deriveIdentityFromToken(token) {
-  if (!token) return {};
-  if (token === 'ok') return { id: 'demo' };
+  if (!token) {return {};}
+  if (token === 'ok') {return { id: 'demo' };}
   if (token.startsWith('user:')) {
     return { id: token.slice('user:'.length) || 'demo' };
   }
@@ -59,12 +59,12 @@ async function loadUserFromDb({ id, email }, headers) {
   const hdrId = headers['x-user-id'] || headers['x-userid'] || null;
   const hdrEmail = headers['x-user-email'] || headers['x-useremail'] || null;
   const q = {};
-  if (hdrId) q._id = hdrId;
-  else if (hdrEmail) q.email = hdrEmail;
-  else if (id) q._id = id;
-  else if (email) q.email = email;
+  if (hdrId) {q._id = hdrId;}
+  else if (hdrEmail) {q.email = hdrEmail;}
+  else if (id) {q._id = id;}
+  else if (email) {q.email = email;}
 
-  if (Object.keys(q).length === 0) return null;
+  if (Object.keys(q).length === 0) {return null;}
 
   try {
     const doc = await User.findOne(q).lean();
@@ -98,7 +98,7 @@ function attachAuthContext() {
       req.user = user;
       return next();
     } catch (e) {
-      // eslint-disable-next-line no-console
+       
       console.error('[auth] attachAuthContext error', e);
       return next();
     }

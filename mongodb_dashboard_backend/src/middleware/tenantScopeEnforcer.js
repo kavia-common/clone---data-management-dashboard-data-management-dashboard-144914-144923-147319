@@ -29,7 +29,7 @@ function filterObject(obj, tenantId) {
 
 // PUBLIC_INTERFACE
 function filterQuery(query, tenantId) {
-  if (!tenantId || !query) return query;
+  if (!tenantId || !query) {return query;}
   if (isMongooseQuery(query)) {
     try {
       const existing = query.getQuery ? query.getQuery() : {};
@@ -46,7 +46,7 @@ function filterQuery(query, tenantId) {
 // PUBLIC_INTERFACE
 function applyToAggregation(pipeline, tenantId) {
   const pl = Array.isArray(pipeline) ? [...pipeline] : [];
-  if (!tenantId) return pl;
+  if (!tenantId) {return pl;}
   const first = pl[0] || {};
   const hasTenantMatch = first && first.$match && Object.prototype.hasOwnProperty.call(first.$match, 'tenant_id');
   if (!hasTenantMatch) {
@@ -57,7 +57,7 @@ function applyToAggregation(pipeline, tenantId) {
 
 // PUBLIC_INTERFACE
 function stampCreate(doc, tenantId) {
-  if (!doc || typeof doc !== 'object') return doc;
+  if (!doc || typeof doc !== 'object') {return doc;}
   if (tenantId && !Object.prototype.hasOwnProperty.call(doc, 'tenant_id')) {
     doc.tenant_id = String(tenantId);
   } else if (tenantId && doc.tenant_id && String(doc.tenant_id) !== String(tenantId)) {
@@ -76,7 +76,7 @@ function tenantScopeEnforcer() {
     // helpers
     req.tenantFilter = req.tenantId ? { tenant_id: req.tenantId } : {};
     req.withTenantFilter = (objOrQuery) => {
-      if (isMongooseQuery(objOrQuery)) return filterQuery(objOrQuery, req.tenantId);
+      if (isMongooseQuery(objOrQuery)) {return filterQuery(objOrQuery, req.tenantId);}
       return filterObject(objOrQuery || {}, req.tenantId);
     };
     req.withTenantAggregation = (pipeline) => applyToAggregation(pipeline, req.tenantId);
@@ -84,7 +84,7 @@ function tenantScopeEnforcer() {
 
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
       try {
-        // eslint-disable-next-line no-console
+         
         console.debug(`[tenantScopeEnforcer] ${req.method} ${req.originalUrl} tenantId=${req.tenantId || 'n/a'}`);
       } catch {}
     }

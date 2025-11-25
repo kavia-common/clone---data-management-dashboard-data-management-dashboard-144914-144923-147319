@@ -52,7 +52,7 @@ function resolveCollectionCandidates() {
   ];
   const seen = new Set();
   const all = [...envCandidates, ...defaults].filter((n) => {
-    if (!n || seen.has(n)) return false;
+    if (!n || seen.has(n)) {return false;}
     seen.add(n);
     return true;
   });
@@ -354,11 +354,11 @@ function aggregateAgentsInApp(documents = []) {
         const cost = parseCurrencyToNumber(a?.['Total Cost']);
         const prev = totals.get(key) || { display, total: 0 };
         // Preserve first-seen display casing
-        if (!prev.display) prev.display = display;
+        if (!prev.display) {prev.display = display;}
         prev.total += Number.isFinite(cost) ? cost : 0;
         totals.set(key, prev);
       } catch (e) {
-        // eslint-disable-next-line no-console
+         
         console.warn('[llmCost.service] Skipped malformed agent entry:', e?.message || e);
       }
     }
@@ -412,13 +412,13 @@ async function getLlmCostByAgent() {
     }
 
     // If no results from either pipeline, log and return empty array
-    // eslint-disable-next-line no-console
+     
     console.info(
       `[llmCost.service] No results for collection "${collection?.collectionName || 'unknown'}" using flat/array pipelines. Candidates: ${candidates.join(', ')}. Set LLM_EVENTS_COLLECTION to override if needed.`
     );
     return [];
   } catch (err) {
-    // eslint-disable-next-line no-console
+     
     console.warn(
       `[llmCost.service] Aggregation pipeline failed for collection "${collection?.collectionName || 'unknown'}"; attempting in-app fallback:`,
       err?.message || err
@@ -431,7 +431,7 @@ async function getLlmCostByAgent() {
       );
       const docs = await cursor.toArray();
       if (!docs || docs.length === 0) {
-        // eslint-disable-next-line no-console
+         
         console.info(
           `[llmCost.service] In-app fallback found no Agents[] documents in "${collection?.collectionName || 'unknown'}".`
         );
@@ -440,7 +440,7 @@ async function getLlmCostByAgent() {
       return aggregateAgentsInApp(docs);
     } catch (e) {
       // Final safeguard: never throw to the caller; return empty list
-      // eslint-disable-next-line no-console
+       
       console.warn('[llmCost.service] In-app fallback failed:', e?.message || e);
       return [];
     }

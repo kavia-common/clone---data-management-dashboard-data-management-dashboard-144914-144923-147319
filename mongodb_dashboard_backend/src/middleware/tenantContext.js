@@ -33,13 +33,13 @@ const { userHasTenant } = require('../utils/rbac');
  */
 function resolveTenantFromRequest(req) {
   const hdr = req.headers['x-tenant-id'] || req.headers['x-tenant'] || '';
-  if (hdr && typeof hdr === 'string' && hdr.trim()) return hdr.trim();
+  if (hdr && typeof hdr === 'string' && hdr.trim()) {return hdr.trim();}
   const cookieTenant = req.cookies?.activeTenant || req.signedCookies?.activeTenant;
-  if (cookieTenant && typeof cookieTenant === 'string' && cookieTenant.trim()) return cookieTenant.trim();
+  if (cookieTenant && typeof cookieTenant === 'string' && cookieTenant.trim()) {return cookieTenant.trim();}
   const bodyTenant = req.body && typeof req.body.tenantId === 'string' ? req.body.tenantId.trim() : '';
-  if (bodyTenant) return bodyTenant;
+  if (bodyTenant) {return bodyTenant;}
   const queryTenant = typeof req.query.tenantId === 'string' ? req.query.tenantId.trim() : '';
-  if (queryTenant) return queryTenant;
+  if (queryTenant) {return queryTenant;}
   return '';
 }
 
@@ -56,7 +56,7 @@ function tenantOptional() {
     async function (req, res, next) {
       try {
         const candidate = resolveTenantFromRequest(req);
-        if (!candidate) return next();
+        if (!candidate) {return next();}
         // If user present, validate membership
         if (req.user && req.user.id) {
           if (!userHasTenant(req.user, candidate)) {
@@ -67,7 +67,7 @@ function tenantOptional() {
         req.tenant = { id: candidate };
         return next();
       } catch (e) {
-        // eslint-disable-next-line no-console
+         
         console.error('[tenantOptional] error', e);
         return next();
       }

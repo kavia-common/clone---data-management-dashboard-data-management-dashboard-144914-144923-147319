@@ -50,7 +50,7 @@ async function getUsersTenantSummary(req, res) {
         .split('|')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      if (statuses.length === 0) statuses = null;
+      if (statuses.length === 0) {statuses = null;}
     }
 
     // Parse includeInactive boolean
@@ -79,8 +79,8 @@ async function getUsersTenantSummary(req, res) {
     // Date range: consider created_at or updated_at. Use $or to be permissive.
     if (from || to) {
       const dateRange = {};
-      if (from) dateRange.$gte = from;
-      if (to) dateRange.$lte = to;
+      if (from) {dateRange.$gte = from;}
+      if (to) {dateRange.$lte = to;}
       match.$or = [
         { created_at: dateRange },
         { updated_at: dateRange },

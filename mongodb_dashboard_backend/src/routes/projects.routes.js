@@ -93,7 +93,7 @@ router.get('/:projectId/name', async (req, res) => {
       projectName: projectName ?? null,
       source: 'resolver',
     };
-    if (info) payload.info = info;
+    if (info) {payload.info = info;}
 
     return res.status(200).json(payload);
   } catch (err) {

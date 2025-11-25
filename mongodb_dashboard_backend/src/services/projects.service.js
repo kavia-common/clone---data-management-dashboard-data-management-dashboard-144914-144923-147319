@@ -68,7 +68,7 @@ function setCached(projectId, name, ttlMs) {
 function buildProjectIdOrQuery(projectId) {
   // Normalize as string; do not throw if falsy
   const id = typeof projectId === 'string' ? projectId : String(projectId || '').trim();
-  if (!id) return null;
+  if (!id) {return null;}
   return {
     $or: [
       { projectId: id },
@@ -112,7 +112,7 @@ function pickNameFromUser(doc) {
  */
 async function lookupProjectName(projectId) {
   const pidQuery = buildProjectIdOrQuery(projectId);
-  if (!pidQuery) return null;
+  if (!pidQuery) {return null;}
 
   // 1) AppDeployments
   try {
@@ -125,7 +125,7 @@ async function lookupProjectName(projectId) {
       .sort({ updatedAt: -1, updated_at: -1, createdAt: -1, created_at: -1 })
       .lean();
     const name = pickNameFromDeployment(dep);
-    if (name) return String(name);
+    if (name) {return String(name);}
   } catch {
     // continue
   }
@@ -137,13 +137,13 @@ async function lookupProjectName(projectId) {
       $or: [
         { _id: projectId },
         { id: projectId },
-        { projectId: projectId },
+        { projectId },
         { project_id: projectId },
       ],
     };
     const proj = await Project.findOne(orQuery, { name: 1, title: 1, displayName: 1 }).lean();
     const name = pickNameFromProject(proj);
-    if (name) return String(name);
+    if (name) {return String(name);}
   } catch {
     // continue
   }
@@ -153,7 +153,7 @@ async function lookupProjectName(projectId) {
     const ses = await SessionTracking.findOne(
       {
         $or: [
-          { projectId: projectId },
+          { projectId },
           { project_id: projectId },
           { 'session_data.project_id': projectId },
           { 'session_data.projectId': projectId },
@@ -168,7 +168,7 @@ async function lookupProjectName(projectId) {
       .sort({ updatedAt: -1, timestamp: -1, ts: -1 })
       .lean();
     const name = pickNameFromSession(ses);
-    if (name) return String(name);
+    if (name) {return String(name);}
   } catch {
     // continue
   }
@@ -179,7 +179,7 @@ async function lookupProjectName(projectId) {
       const c = await LLMCost.findOne(
         {
           $or: [
-            { projectId: projectId },
+            { projectId },
             { project_id: projectId },
             { project: projectId },
           ],
@@ -189,7 +189,7 @@ async function lookupProjectName(projectId) {
         .sort({ timestamp: -1 })
         .lean();
       const name = pickNameFromCost(c);
-      if (name) return String(name);
+      if (name) {return String(name);}
     } catch {}
   }
 
@@ -202,7 +202,7 @@ async function lookupProjectName(projectId) {
       // If tenant stores projects array with names
       const proj = Array.isArray(t?.projects) && t.projects.length > 0 ? t.projects[0] : null;
       const name = proj?.project_name || proj?.name || null;
-      if (name) return String(name);
+      if (name) {return String(name);}
     } catch {}
   }
 
@@ -215,7 +215,7 @@ async function lookupProjectName(projectId) {
       const proj =
         Array.isArray(u?.projects) && u.projects.length > 0 ? u.projects[0] : null;
       const name = proj?.project_name || proj?.name || null;
-      if (name) return String(name);
+      if (name) {return String(name);}
     } catch {}
   }
 
@@ -228,12 +228,12 @@ async function resolveProjectName(projectId, options = {}) {
    * Options: { ttlMs?: number } to override default cache TTL.
    */
   try {
-    if (!projectId && projectId !== 0) return null;
+    if (!projectId && projectId !== 0) {return null;}
     const pid = String(projectId).trim();
-    if (!pid) return null;
+    if (!pid) {return null;}
 
     const cached = getCached(pid);
-    if (cached !== undefined) return cached; // can be null or string
+    if (cached !== undefined) {return cached;} // can be null or string
 
     const name = await lookupProjectName(pid);
     setCached(pid, name, options.ttlMs);
@@ -251,7 +251,7 @@ async function resolveProjectNames(projectIds, options = {}) {
    */
   const result = new Map();
   try {
-    if (!Array.isArray(projectIds) || projectIds.length === 0) return result;
+    if (!Array.isArray(projectIds) || projectIds.length === 0) {return result;}
 
     // Normalize and de-duplicate ids
     const normalized = [];
@@ -265,7 +265,7 @@ async function resolveProjectNames(projectIds, options = {}) {
         }
       }
     }
-    if (normalized.length === 0) return result;
+    if (normalized.length === 0) {return result;}
 
     // First fill from cache
     const missing = [];

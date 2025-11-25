@@ -48,7 +48,7 @@
    const { salt, isMissing } = getTenantSaltConfig();
    if (isMissing) {
      // Still return password-only to avoid throwing, but warn via console for maintainers.
-     // eslint-disable-next-line no-console
+      
      console.warn('[authHash] Legacy static salt missing; v1 hashes may not verify as expected.');
    }
    return `${password}|${salt || ''}|${pepper}`;
@@ -113,7 +113,7 @@
  async function verifyPassword({ password, user, tenant }) {
    const stored = user?.password_hash || user?.hash || '';
    const version = Number.isFinite(user?.hashVersion) ? user.hashVersion : 1;
-   if (!stored || typeof stored !== 'string') return { ok: false, needsMigration: false };
+   if (!stored || typeof stored !== 'string') {return { ok: false, needsMigration: false };}
 
    // Determine algorithm by prefix for scrypt; argon2 and bcrypt expose their own formats
    const tryInputV1 = () => buildHashInput({ password, version: 1 });
@@ -123,20 +123,20 @@
    if (version === 2) {
      const input = tryInputV2();
      const ok = await compareHash(input, stored);
-     if (ok) return { ok: true, needsMigration: false };
+     if (ok) {return { ok: true, needsMigration: false };}
      // Also try legacy as fallback if tenant salt just got introduced
      const okLegacy = await compareHash(tryInputV1(), stored);
-     if (okLegacy) return { ok: true, needsMigration: true };
+     if (okLegacy) {return { ok: true, needsMigration: true };}
      return { ok: false, needsMigration: false };
    }
 
    // version === 1
    const okLegacy = await compareHash(tryInputV1(), stored);
-   if (okLegacy) return { ok: true, needsMigration: Boolean(tenant && tenant.orgSalt) };
+   if (okLegacy) {return { ok: true, needsMigration: Boolean(tenant && tenant.orgSalt) };}
    // If legacy fails but v2 would pass (rare), treat as needsMigration when tenant is available
    try {
      const okV2 = tenant ? await compareHash(tryInputV2(), stored) : false;
-     if (okV2) return { ok: true, needsMigration: false };
+     if (okV2) {return { ok: true, needsMigration: false };}
    } catch {
      // ignore
    }
@@ -149,7 +149,7 @@
  async function compareHash(input, stored) {
    // Argon2 encoded strings start with `$argon2`
    if (stored.startsWith('$argon2')) {
-     if (!argon2 || typeof argon2.verify !== 'function') return false;
+     if (!argon2 || typeof argon2.verify !== 'function') {return false;}
      try {
        return await argon2.verify(stored, input);
      } catch {
@@ -159,7 +159,7 @@
 
    // bcrypt encoded strings start with `$2a$` or `$2b$` or `$2y$`
    if (stored.startsWith('$2a$') || stored.startsWith('$2b$') || stored.startsWith('$2y$')) {
-     if (!bcrypt || typeof bcrypt.compare !== 'function') return false;
+     if (!bcrypt || typeof bcrypt.compare !== 'function') {return false;}
      try {
        return await bcrypt.compare(input, stored);
      } catch {
@@ -192,18 +192,18 @@
   */
  async function ensureTenantOrgSalt(tenantDoc) {
    try {
-     if (!tenantDoc) return { ok: false, updated: false };
+     if (!tenantDoc) {return { ok: false, updated: false };}
      if (!tenantDoc.orgSalt || typeof tenantDoc.orgSalt !== 'string' || tenantDoc.orgSalt.trim() === '') {
        tenantDoc.orgSalt = crypto.randomBytes(32).toString('base64');
        tenantDoc.orgSaltVersion = tenantDoc.orgSaltVersion || 1;
        await tenantDoc.save();
-       // eslint-disable-next-line no-console
+        
        console.info('[authHash] Generated missing orgSalt for tenant', { tenant_id: tenantDoc.tenant_id });
        return { ok: true, updated: true };
      }
      return { ok: true, updated: false };
    } catch (e) {
-     // eslint-disable-next-line no-console
+      
      console.error('[authHash] Failed to ensure tenant orgSalt', { message: e?.message });
      return { ok: false, updated: false };
    }
@@ -240,7 +240,7 @@
   */
  async function verifyAndMigrate({ candidate, user, tenant }) {
    const { ok, needsMigration } = await verifyPassword({ password: candidate, user, tenant });
-   if (!ok) return { valid: false, migrated: false };
+   if (!ok) {return { valid: false, migrated: false };}
    if (needsMigration) {
      const { hash, version } = await hashPasswordV2(candidate, tenant);
      return { valid: true, migrated: true, newHash: hash, newVersion: version };
@@ -248,14 +248,27 @@
    return { valid: true, migrated: false };
  }
 
- const authHash = {
-   getPepper,
-   hashPasswordV1,
-   hashPasswordV2,
-   verifyPassword,
-   ensureTenantOrgSalt,
-   // New public wrappers
-   hashPassword,
-   verifyAndMigrate,
- };
- module.exports = { ...authHash, default: authHash };
+/**
+ * PUBLIC_INTERFACE
+ * Export named helpers for authentication hashing utilities.
+ */
+const authHash = {
+  getPepper,
+  hashPasswordV1,
+  hashPasswordV2,
+  verifyPassword,
+  ensureTenantOrgSalt,
+  hashPassword,
+  verifyAndMigrate,
+};
+
+module.exports = {
+  getPepper,
+  hashPasswordV1,
+  hashPasswordV2,
+  verifyPassword,
+  ensureTenantOrgSalt,
+  hashPassword,
+  verifyAndMigrate,
+  authHash,
+};

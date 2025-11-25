@@ -45,7 +45,7 @@ function base64Url(buf) {
  */
 function getAuthSecretSalt() {
   const v = (process.env.AUTH_SECRET_SALT || '').trim();
-  if (v) return v;
+  if (v) {return v;}
   // Fallback to provided constant to keep behavior stable until configured
   return FALLBACK_SECRET_SALT;
 }

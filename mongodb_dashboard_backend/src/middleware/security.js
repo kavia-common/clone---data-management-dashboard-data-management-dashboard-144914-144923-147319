@@ -8,12 +8,12 @@ const rateLimit = require('express-rate-limit');
  * Returns null if it cannot be interpreted as an origin.
  */
 function toOriginMaybe(urlLike) {
-  if (!urlLike) return null;
+  if (!urlLike) {return null;}
   try {
     const u = new URL(urlLike);
     return `${u.protocol}//${u.host}`;
   } catch {
-    if (/^https?:\/\/[^/]+$/i.test(urlLike)) return urlLike;
+    if (/^https?:\/\/[^/]+$/i.test(urlLike)) {return urlLike;}
     return null;
   }
 }
@@ -55,8 +55,8 @@ function corsMiddleware() {
 
   // Explicit values
   listOrigins.forEach((o) => whitelist.add(o));
-  if (singleOrigin) whitelist.add(singleOrigin);
-  if (frontendOrigin) whitelist.add(frontendOrigin);
+  if (singleOrigin) {whitelist.add(singleOrigin);}
+  if (frontendOrigin) {whitelist.add(frontendOrigin);}
 
   // Infer from API base
   if (inferredFromApiBase) {
@@ -87,13 +87,13 @@ function corsMiddleware() {
   const allowCredentials =
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
 
-  // eslint-disable-next-line no-console
+   
   console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
 
   const corsInstance = cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true); // SSR / curl / same-origin
-      if (whitelist.has(origin)) return callback(null, true);
+      if (!origin) {return callback(null, true);} // SSR / curl / same-origin
+      if (whitelist.has(origin)) {return callback(null, true);}
 
       // Check same hostname, different port
       try {
@@ -130,7 +130,7 @@ function corsMiddleware() {
   return (req, res, next) => {
     corsInstance(req, res, (err) => {
       if (err) {
-        // eslint-disable-next-line no-console
+         
         console.warn(`[CORS] Blocked origin: ${req.headers.origin}`);
         return res.status(403).json({
           success: false,
@@ -180,7 +180,7 @@ function rateLimiter() {
     legacyHeaders: false,
     skip: (req) => {
       // By default, skip throttling for GET endpoints (listing, sorting, pagination)
-      if (skipGet && req.method === 'GET') return true;
+      if (skipGet && req.method === 'GET') {return true;}
       return false;
     },
     message: { success: false, message: 'Too many requests, please try again later.' },

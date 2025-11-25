@@ -67,7 +67,7 @@ const buildActiveTrendCacheKey = (q) =>
 
 function getCache(map, key) {
   const entry = map.get(key);
-  if (!entry) return null;
+  if (!entry) {return null;}
   if (Date.now() > entry.expiresAt) {
     map.delete(key);
     return null;
@@ -125,25 +125,25 @@ router.get(
 
     const cacheKey = buildTenantSummaryCacheKey({ from, to, status: statusParam, includeInactive });
     const cached = getCache(TENANT_SUMMARY_CACHE, cacheKey);
-    if (cached) return res.status(200).json(cached);
+    if (cached) {return res.status(200).json(cached);}
 
     const fromDate = from ? new Date(from) : null;
     const toDate = to ? new Date(to) : null;
     if (from && Number.isNaN(fromDate?.getTime()))
-      return res.status(400).json({ success: false, message: 'Invalid "from" date' });
+      {return res.status(400).json({ success: false, message: 'Invalid "from" date' });}
     if (to && Number.isNaN(toDate?.getTime()))
-      return res.status(400).json({ success: false, message: 'Invalid "to" date' });
+      {return res.status(400).json({ success: false, message: 'Invalid "to" date' });}
 
     const match = {};
     if (statusParam.includes('|')) {
       match.status = { $in: statusParam.split('|').map((s) => s.trim()) };
-    } else match.status = statusParam;
+    } else {match.status = statusParam;}
 
     const timeClauses = [];
     if (fromDate || toDate) {
       const range = {};
-      if (fromDate) range.$gte = fromDate;
-      if (toDate) range.$lte = toDate;
+      if (fromDate) {range.$gte = fromDate;}
+      if (toDate) {range.$lte = toDate;}
       timeClauses.push({ timestamp: range }, { session_start: range }, { last_updated: range });
     }
 
@@ -216,7 +216,7 @@ router.get(
     // - If query.tenant_id present, use it only if it matches req.tenantId
     // - Otherwise, default to req.tenantId
     let tenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
-    if (!tenantId && req.tenantId) tenantId = String(req.tenantId);
+    if (!tenantId && req.tenantId) {tenantId = String(req.tenantId);}
     if (tenantId && req.tenantId && String(tenantId) !== String(req.tenantId)) {
       return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
     }
@@ -224,20 +224,20 @@ router.get(
     const fromDate = new Date(from);
     const toDate = new Date(to);
     if (Number.isNaN(fromDate) || Number.isNaN(toDate))
-      return res.status(400).json({ success: false, message: 'Invalid date range' });
+      {return res.status(400).json({ success: false, message: 'Invalid date range' });}
 
     const cacheKey = buildActiveTrendCacheKey({ from, to, granularity, status: statusParam, tenant_id: tenantId });
     const cached = getCache(ACTIVE_TREND_CACHE, cacheKey);
-    if (cached) return res.json(cached);
+    if (cached) {return res.json(cached);}
 
     const match = {
       last_updated: { $gte: fromDate, $lte: toDate },
     };
-    if (tenantId) match.tenant_id = tenantId;
+    if (tenantId) {match.tenant_id = tenantId;}
 
     if (statusParam.includes('|')) {
       match.status = { $in: statusParam.split('|').map((s) => s.trim()) };
-    } else match.status = statusParam;
+    } else {match.status = statusParam;}
 
     const dateFormat = granularity === 'week' ? '%Y-%U' : '%Y-%m-%d';
     const pipeline = [
@@ -309,7 +309,7 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
   // Debug trace to validate handler entry and resolved scope during runtime
   try {
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-      // eslint-disable-next-line no-console
+       
       console.debug(`[users.projects] GET /api/users/${userId}/projects tenantId=${tenantId} from=${req.query?.from || 'n/a'} to=${req.query?.to || 'n/a'}`);
     }
   } catch {}
@@ -335,7 +335,7 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
 
     return res.status(200).json(safePayload);
   } catch (err) {
-    // eslint-disable-next-line no-console
+     
     console.error('[users.projects] error:', err?.message || err);
     // Return safe default 200 with empty list to avoid 404/500 breaking frontend
     return res.status(200).json({

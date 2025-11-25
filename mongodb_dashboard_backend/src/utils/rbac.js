@@ -23,11 +23,11 @@
  *  - [{ id: 't1', name: 'Tenant 1', role: 'admin' }, ...]
  */
 function userHasTenant(user, tenantId) {
-  if (!user || !tenantId) return false;
+  if (!user || !tenantId) {return false;}
   const t = (user.tenants && Array.isArray(user.tenants)) ? user.tenants : [];
 
   return t.some((item) => {
-    if (typeof item === 'string') return item === tenantId;
+    if (typeof item === 'string') {return item === tenantId;}
     if (item && typeof item === 'object') {
       return item.id === tenantId || item.tenant_id === tenantId || item._id === tenantId;
     }
@@ -43,7 +43,7 @@ function normalizeUserTenants(user) {
   const arr = Array.isArray(user?.tenants) ? user.tenants : [];
   return arr
     .map((item) => {
-      if (typeof item === 'string') return { id: item, name: item };
+      if (typeof item === 'string') {return { id: item, name: item };}
       if (item && typeof item === 'object') {
         const id = item.id || item.tenant_id || item._id || null;
         const name = item.name || item.tenant_name || id || 'Unknown';

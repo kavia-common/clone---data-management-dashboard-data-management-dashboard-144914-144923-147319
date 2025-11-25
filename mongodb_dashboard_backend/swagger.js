@@ -87,7 +87,7 @@ function buildJsDocSpec() {
  * - Ensure reusable parameters/schemas are present
  */
 function sanitizeOpenApiDoc(doc) {
-  if (!doc || typeof doc !== 'object') return null;
+  if (!doc || typeof doc !== 'object') {return null;}
 
   // Remove invalid path keys
   let hasAnyValidPath = false;
@@ -104,9 +104,9 @@ function sanitizeOpenApiDoc(doc) {
     doc.paths = {};
   }
 
-  if (!hasAnyValidPath) return null;
+  if (!hasAnyValidPath) {return null;}
 
-  if (!doc.openapi) doc.openapi = '3.0.0';
+  if (!doc.openapi) {doc.openapi = '3.0.0';}
   if (!doc.info) {
     doc.info = {
       title: process.env.SWAGGER_TITLE || 'Dashboard API',
@@ -153,7 +153,7 @@ let cachedSpec = null;
  * getBaseOpenApiSpec
  */
 function getBaseOpenApiSpec() {
-  if (cachedSpec) return cachedSpec;
+  if (cachedSpec) {return cachedSpec;}
 
   try {
     const filePath = path.resolve(__dirname, 'interfaces', 'openapi.json');
@@ -165,7 +165,7 @@ function getBaseOpenApiSpec() {
       return cachedSpec;
     }
   } catch (err) {
-    // eslint-disable-next-line no-console
+     
     console.warn('[swagger] Could not load interfaces/openapi.json, falling back to JSDoc.', err?.message);
   }
 
@@ -173,7 +173,7 @@ function getBaseOpenApiSpec() {
     cachedSpec = buildJsDocSpec();
     return cachedSpec;
   } catch (err) {
-    // eslint-disable-next-line no-console
+     
     console.error('[swagger] Failed to build JSDoc spec:', err);
     cachedSpec = {
       openapi: '3.0.0',

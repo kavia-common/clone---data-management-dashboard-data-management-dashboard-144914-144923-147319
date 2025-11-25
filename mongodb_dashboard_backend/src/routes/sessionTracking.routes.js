@@ -195,7 +195,7 @@ router.get(
     }
 
     const rawQuery = { ...req.query };
-    if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
+    if (rawQuery.pageSize && !rawQuery.limit) {rawQuery.limit = rawQuery.pageSize;}
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
@@ -236,7 +236,7 @@ router.get(
     delete filter.organization_id;
     delete filter.tenant_id;
     delete filter.organizationId;
-    if (Array.isArray(filter.$or)) delete filter.$or;
+    if (Array.isArray(filter.$or)) {delete filter.$or;}
 
     // ---- Tenant Scope ----
     const enforcedScope = enforcedTenant
@@ -284,10 +284,10 @@ router.get(
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
 
-    if (!isEmpty(filter)) parts.push(filter);
-    if (!isEmpty(qFilter)) parts.push(qFilter);
-    if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
-    if (!isEmpty(timeFilter)) parts.push(timeFilter);
+    if (!isEmpty(filter)) {parts.push(filter);}
+    if (!isEmpty(qFilter)) {parts.push(qFilter);}
+    if (!isEmpty(enforcedScope)) {parts.push(enforcedScope);}
+    if (!isEmpty(timeFilter)) {parts.push(timeFilter);}
 
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 

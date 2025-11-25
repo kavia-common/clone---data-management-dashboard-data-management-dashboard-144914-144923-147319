@@ -79,7 +79,7 @@ function requireTenant(req, res, next) {
     req.organizationId = String(resolved);
     try {
       if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-        // eslint-disable-next-line no-console
+         
         console.debug('[requireTenant] resolved from header/query ->', String(resolved));
       }
     } catch {}

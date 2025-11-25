@@ -45,7 +45,7 @@ function sessionTrackingScope(req, res, next) {
   // Debug log of applied forced filter (non-production only)
   try {
     if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
+       
       console.debug(`[session-tracking.scope] ${req.method} ${req.originalUrl} enforced filter:`, req.forcedFilter);
     }
   } catch {}

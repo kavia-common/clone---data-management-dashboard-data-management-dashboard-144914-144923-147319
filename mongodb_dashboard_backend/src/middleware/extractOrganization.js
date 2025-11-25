@@ -57,7 +57,7 @@ function extractOrganization() {
       return o;
     };
     req.stampOrg = (doc) => {
-      if (!doc || typeof doc !== 'object') return doc;
+      if (!doc || typeof doc !== 'object') {return doc;}
       doc.tenant_id = req.organizationId;
       doc.organization_id = req.organizationId;
       doc.organizationId = req.organizationId;
@@ -67,7 +67,7 @@ function extractOrganization() {
     // Dev logging for traceability
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
       try {
-        // eslint-disable-next-line no-console
+         
         console.debug(`[extractOrganization] org=${req.organizationId} method=${req.method} url=${req.originalUrl}`);
       } catch {}
     }

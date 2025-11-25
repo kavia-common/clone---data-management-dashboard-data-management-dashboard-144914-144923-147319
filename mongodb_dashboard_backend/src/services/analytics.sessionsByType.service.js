@@ -10,8 +10,8 @@ const { withTenantMatch } = require('../utils/tenantFilter');
 async function aggregateSessionsByType(tenantId, { from, to } = {}) {
   const { session_tracking } = db.getCollections();
   const timeBounds = [];
-  if (from) timeBounds.push({ last_updated: { $gte: new Date(from) } });
-  if (to) timeBounds.push({ last_updated: { $lte: new Date(to) } });
+  if (from) {timeBounds.push({ last_updated: { $gte: new Date(from) } });}
+  if (to) {timeBounds.push({ last_updated: { $lte: new Date(to) } });}
 
   const pipeline = [
     ...(timeBounds.length ? [{ $match: { $and: timeBounds } }] : []),

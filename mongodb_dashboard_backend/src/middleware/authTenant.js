@@ -57,7 +57,7 @@ function authTenant(req, res, next) {
  */
 function ensureTenantAccess(req, res, next) {
   const pathTenant = req.params?.tenantId || req.params?.tenant_id;
-  if (!pathTenant) return next();
+  if (!pathTenant) {return next();}
   const authTenantId = req.auth?.tenantId;
   if (!authTenantId) {
     return res.status(401).json({ error: 'Unauthorized' });

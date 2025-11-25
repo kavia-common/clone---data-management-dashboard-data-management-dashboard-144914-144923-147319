@@ -36,7 +36,7 @@ function auditLoggerMiddleware() {
     const userId = (req.user && (req.user.id || req.user.userId)) || null;
 
     // Log start
-    // eslint-disable-next-line no-console
+     
     console.log(
       JSON.stringify({
         ts: new Date().toISOString(),
@@ -51,7 +51,7 @@ function auditLoggerMiddleware() {
     );
 
     res.on('finish', () => {
-      // eslint-disable-next-line no-console
+       
       console.log(
         JSON.stringify({
           ts: new Date().toISOString(),
@@ -96,7 +96,7 @@ function errorHandler(err, req, res, next) {
   const env = String(process.env.NODE_ENV || '').toLowerCase();
 
   // Prefer detailed logging during development/test
-  // eslint-disable-next-line no-console
+   
   if (env !== 'production') {
     console.error('[ERROR]', err?.stack || err);
   } else {
@@ -141,7 +141,7 @@ function errorHandler(err, req, res, next) {
     message,
     traceId: req.traceId || null,
   };
-  if (details) payload.details = details;
+  if (details) {payload.details = details;}
 
   return res.status(status).json(payload);
 }

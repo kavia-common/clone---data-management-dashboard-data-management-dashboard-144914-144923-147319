@@ -18,8 +18,8 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to }) {
   if (fromDate || toDate) {
     const makeRange = (field) => {
       const r = {};
-      if (fromDate) r.$gte = fromDate;
-      if (toDate) r.$lte = toDate;
+      if (fromDate) {r.$gte = fromDate;}
+      if (toDate) {r.$lte = toDate;}
       return { [field]: r };
     };
     timeClauses.push(makeRange('timestamp'));
@@ -36,7 +36,7 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to }) {
             $or: timeClauses.map((clause) => {
               const key = Object.keys(clause)[0];
               const cond = clause[key];
-              if (!cond.$gte && !cond.$lte) return { [key]: { $exists: true } };
+              if (!cond.$gte && !cond.$lte) {return { [key]: { $exists: true } };}
               return clause;
             }),
           }

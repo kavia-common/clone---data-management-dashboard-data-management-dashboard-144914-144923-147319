@@ -83,7 +83,7 @@ async function ensureUserIndexes() {
     await User.init(); // creates declared indexes
   } catch (err) {
     // avoid crashing on index creation errors in heterogeneous data environments
-    // eslint-disable-next-line no-console
+     
     console.warn('ensureUserIndexes warning:', err?.message || err);
   }
 }

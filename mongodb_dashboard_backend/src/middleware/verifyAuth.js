@@ -60,7 +60,7 @@ function verifyAuth(req, res, next) {
     // Explicit dev token
     if (!secret && !isProd && (allowDemoFlag || token === 'ok')) {
       try {
-        // eslint-disable-next-line no-console
+         
         console.warn('[auth] JWT secret not set; using demo token behavior for development.');
       } catch {}
       req.auth = {
@@ -85,8 +85,8 @@ function verifyAuth(req, res, next) {
     const verifyOptions = {
       algorithms: [(process.env.JWT_ALG || 'HS256')],
     };
-    if (process.env.JWT_ISSUER) verifyOptions.issuer = process.env.JWT_ISSUER;
-    if (process.env.JWT_AUDIENCE) verifyOptions.audience = process.env.JWT_AUDIENCE;
+    if (process.env.JWT_ISSUER) {verifyOptions.issuer = process.env.JWT_ISSUER;}
+    if (process.env.JWT_AUDIENCE) {verifyOptions.audience = process.env.JWT_AUDIENCE;}
 
     const payload = jwt.verify(token, secret || '', verifyOptions);
 
@@ -136,7 +136,7 @@ function verifyAuth(req, res, next) {
     // Dev-only concise logs: computed tenant and subject for troubleshooting
     try {
       if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-        // eslint-disable-next-line no-console
+         
         console.debug('[verifyAuth] sub=', req.auth.sub, 'tenantId=', req.auth.tenantId);
       }
     } catch {}

@@ -71,7 +71,7 @@ async function getAggregatedCosts(req, res) {
 
     return res.status(200).json({ users, projects });
   } catch (err) {
-    // eslint-disable-next-line no-console
+     
     console.error('GET /api/llm-costs failed:', err?.message || err);
     return res.status(500).json({ message: err?.message || 'Failed to fetch aggregated LLM costs' });
   }

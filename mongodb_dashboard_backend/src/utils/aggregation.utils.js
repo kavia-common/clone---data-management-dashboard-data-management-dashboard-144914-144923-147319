@@ -10,8 +10,8 @@
   */
  function buildDateRange(field, start, end) {
    const range = {};
-   if (start instanceof Date && !Number.isNaN(start.getTime())) range.$gte = start;
-   if (end instanceof Date && !Number.isNaN(end.getTime())) range.$lte = end;
+   if (start instanceof Date && !Number.isNaN(start.getTime())) {range.$gte = start;}
+   if (end instanceof Date && !Number.isNaN(end.getTime())) {range.$lte = end;}
    return { [field]: range };
  }
 

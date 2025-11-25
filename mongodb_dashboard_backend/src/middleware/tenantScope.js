@@ -21,7 +21,7 @@ function isMongooseQuery(obj) {
 
 // PUBLIC_INTERFACE
 function filterObject(obj, tenantId) {
-  if (!tenantId) return obj || {};
+  if (!tenantId) {return obj || {};}
   const o = obj && typeof obj === 'object' ? { ...obj } : {};
   if (!Object.prototype.hasOwnProperty.call(o, 'tenant_id')) {
     o.tenant_id = tenantId;
@@ -31,7 +31,7 @@ function filterObject(obj, tenantId) {
 
 // PUBLIC_INTERFACE
 function filterQuery(query, tenantId) {
-  if (!tenantId || !query) return query;
+  if (!tenantId || !query) {return query;}
   if (isMongooseQuery(query)) {
     try {
       const existing = query.getQuery ? query.getQuery() : {};
@@ -47,7 +47,7 @@ function filterQuery(query, tenantId) {
 
 // PUBLIC_INTERFACE
 function applyToAggregation(pipeline, tenantId) {
-  if (!tenantId) return Array.isArray(pipeline) ? pipeline : [];
+  if (!tenantId) {return Array.isArray(pipeline) ? pipeline : [];}
   const pl = Array.isArray(pipeline) ? [...pipeline] : [];
   // If first stage is a $match containing tenant_id, keep as-is; else prepend tenant match
   const first = pl[0] || {};
@@ -64,7 +64,7 @@ function applyToAggregation(pipeline, tenantId) {
 
 // PUBLIC_INTERFACE
 function stampCreate(doc, tenantId) {
-  if (!doc || typeof doc !== 'object') return doc;
+  if (!doc || typeof doc !== 'object') {return doc;}
   if (tenantId && !Object.prototype.hasOwnProperty.call(doc, 'tenant_id')) {
     // ignore any client-provided tenant_id, always set to auth tenant
     doc.tenant_id = tenantId;
@@ -88,7 +88,7 @@ function tenantScope() {
     req.tenantFilter = tenantId ? { tenant_id: String(tenantId) } : {};
     // helpers
     req.withTenantFilter = (objOrQuery) => {
-      if (isMongooseQuery(objOrQuery)) return filterQuery(objOrQuery, tenantId);
+      if (isMongooseQuery(objOrQuery)) {return filterQuery(objOrQuery, tenantId);}
       return filterObject(objOrQuery || {}, tenantId);
     };
     req.withTenantAggregation = (pipeline) => applyToAggregation(pipeline, tenantId);
@@ -97,7 +97,7 @@ function tenantScope() {
     // Debug log (temporary)
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
       try {
-        // eslint-disable-next-line no-console
+         
         console.debug(`[tenantScope] ${req.method} ${req.originalUrl} tenantFilter=`, req.tenantFilter);
       } catch {}
     }

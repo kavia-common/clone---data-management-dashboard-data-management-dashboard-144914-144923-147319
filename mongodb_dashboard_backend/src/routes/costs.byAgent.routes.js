@@ -16,7 +16,7 @@ const router = express.Router();
  * Safely parse ISO date-like values
  */
 function safeParseDate(v) {
-  if (!v) return null;
+  if (!v) {return null;}
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
 }
@@ -68,8 +68,8 @@ router.get(
     const andConditions = [{ tenant_id: String(tenantId) }];
     if (start || end) {
       const range = {};
-      if (start) range.$gte = start;
-      if (end) range.$lte = end;
+      if (start) {range.$gte = start;}
+      if (end) {range.$lte = end;}
       andConditions.push({
         $or: [
           { timestamp: range },

@@ -25,20 +25,20 @@ async function overviewMetrics(req, res) {
     // Resolve start/end based on range or custom
     const now = new Date();
     const end = toQ ? new Date(toQ) : new Date(now);
-    if (Number.isNaN(end.getTime())) return res.status(400).json({ success: false, message: 'Invalid to datetime' });
+    if (Number.isNaN(end.getTime())) {return res.status(400).json({ success: false, message: 'Invalid to datetime' });}
 
     let start;
     if (range === 'custom') {
-      if (!fromQ) return res.status(400).json({ success: false, message: 'from is required for custom range' });
+      if (!fromQ) {return res.status(400).json({ success: false, message: 'from is required for custom range' });}
       start = new Date(fromQ);
-      if (Number.isNaN(start.getTime())) return res.status(400).json({ success: false, message: 'Invalid from datetime' });
+      if (Number.isNaN(start.getTime())) {return res.status(400).json({ success: false, message: 'Invalid from datetime' });}
     } else {
       const e = new Date(end);
       let days = 7;
-      if (range === '14d') days = 14;
-      else if (range === '30d') days = 30;
-      else if (range === '12w') days = 12 * 7;
-      else if (range === '12m') days = 365; // rough default for demo
+      if (range === '14d') {days = 14;}
+      else if (range === '30d') {days = 30;}
+      else if (range === '12w') {days = 12 * 7;}
+      else if (range === '12m') {days = 365;} // rough default for demo
       start = new Date(e);
       start.setDate(e.getDate() - (days - 1));
     }
@@ -49,8 +49,8 @@ async function overviewMetrics(req, res) {
 
     // Decide bucket size
     let bucket = 'day';
-    if (range === '12w') bucket = 'week';
-    if (range === '12m') bucket = 'month';
+    if (range === '12w') {bucket = 'week';}
+    if (range === '12m') {bucket = 'month';}
 
     // Generate simple synthetic buckets for demo; server can be enhanced to use Mongo pipeline later
     const buckets = [];

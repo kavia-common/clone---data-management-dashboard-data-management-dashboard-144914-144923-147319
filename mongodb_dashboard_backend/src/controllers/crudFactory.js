@@ -5,7 +5,7 @@ const { parsePagination, success, failure } = require('../utils/http');
  * Supports formats: "field" or "-field". Returns a safe sort string.
  */
 function validateSort(sort, allowed = ['timestamp', 'created_at', '_id']) {
-  if (!sort || typeof sort !== 'string') return '-timestamp';
+  if (!sort || typeof sort !== 'string') {return '-timestamp';}
   const trimmed = sort.trim();
   const desc = trimmed.startsWith('-');
   const field = desc ? trimmed.slice(1) : trimmed;
@@ -20,7 +20,7 @@ function validateSort(sort, allowed = ['timestamp', 'created_at', '_id']) {
  */
 function clampLimit(limit, max = 500) {
   const n = parseInt(limit, 10);
-  if (!Number.isFinite(n)) return Math.min(20, max);
+  if (!Number.isFinite(n)) {return Math.min(20, max);}
   return Math.max(1, Math.min(n, max));
 }
 
@@ -38,7 +38,7 @@ const listMicroCache = new Map(); // key -> { expiresAt:number, payload:any }
  */
 function microGet(key) {
   const hit = listMicroCache.get(key);
-  if (!hit) return null;
+  if (!hit) {return null;}
   if (Date.now() > hit.expiresAt) {
     listMicroCache.delete(key);
     return null;
@@ -68,12 +68,12 @@ function buildListKey(req, filter, sort, page, limit, skip, explicit) {
  * - Strip client-provided tenant_id and inject from req.tenantId when available
  */
 function sanitizePayloadWithTenant(req) {
-  if (!req || typeof req !== 'object') return null;
+  if (!req || typeof req !== 'object') {return null;}
   const body = req.body;
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {return null;}
   const clean = { ...body };
-  if ('tenant_id' in clean) delete clean.tenant_id;
-  if (req.tenantId) clean.tenant_id = String(req.tenantId);
+  if ('tenant_id' in clean) {delete clean.tenant_id;}
+  if (req.tenantId) {clean.tenant_id = String(req.tenantId);}
   return clean;
 }
 
@@ -89,7 +89,7 @@ function mergeFilterWithTenant(filter, tenantId) {
   delete f.organizationId;
   delete f.orgId;
 
-  if (!tenantId) return f;
+  if (!tenantId) {return f;}
 
   // Build a normalized tenant filter to match across possible fields (defensive)
   const normalizedTenantFilter = {
@@ -146,7 +146,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const debugOn = process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true';
       if (debugOn) {
         try {
-          // eslint-disable-next-line no-console
+           
           console.debug(
             `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'}`
           );
@@ -231,7 +231,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
         if (debugOn) {
           try {
-            // eslint-disable-next-line no-console
+             
             console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
           } catch (_) {}
         }
@@ -242,7 +242,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
-          if (cached) return res.status(200).json(cached);
+          if (cached) {return res.status(200).json(cached);}
           
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           const [items, total] = await Promise.all([
@@ -280,7 +280,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             ],
           }
         ).lean();
-        if (!doc) return failure(res, 'Not found', 404);
+        if (!doc) {return failure(res, 'Not found', 404);}
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'getById');
@@ -290,7 +290,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
     // PUBLIC_INTERFACE
     async create(req, res) {
       const clean = sanitizePayloadWithTenant(req);
-      if (!clean) return failure(res, 'Bad request: payload must be an object', 400);
+      if (!clean) {return failure(res, 'Bad request: payload must be an object', 400);}
       try {
         const doc = await Model.create(clean);
         return res.status(201).json(doc);
@@ -303,7 +303,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
     async update(req, res) {
       const { id } = req.params;
       const clean = sanitizePayloadWithTenant(req);
-      if (!clean) return failure(res, 'Bad request: payload must be an object', 400);
+      if (!clean) {return failure(res, 'Bad request: payload must be an object', 400);}
       try {
         const doc = await Model.findOneAndUpdate(
           {
@@ -320,7 +320,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           clean,
           { new: true }
         ).lean();
-        if (!doc) return failure(res, 'Not found', 404);
+        if (!doc) {return failure(res, 'Not found', 404);}
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'update');
@@ -342,7 +342,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             { 'tenant.tenant_id': String(req.tenantId) },
           ],
         }).lean();
-        if (!doc) return failure(res, 'Not found', 404);
+        if (!doc) {return failure(res, 'Not found', 404);}
         return res.status(200).json({ _id: id });
       } catch (err) {
         return mapAndReplyError(res, err, 'remove');

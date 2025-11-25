@@ -12,7 +12,7 @@ function normalizeProjectId(input) {
    * Returns null if not resolvable.
    */
   try {
-    if (!input) return null;
+    if (!input) {return null;}
 
     // If input is a string or number, coerce to string
     if (typeof input === 'string' || typeof input === 'number') {
@@ -59,7 +59,7 @@ function normalizeProjectId(input) {
  */
 function toValidDate(val) {
   try {
-    if (!val) return null;
+    if (!val) {return null;}
 
     if (val instanceof Date) {
       return isNaN(val.getTime()) ? null : val;
@@ -97,7 +97,7 @@ function computeUpdatedAt(doc) {
    * Returns a Date or null.
    */
   try {
-    if (!doc || typeof doc !== 'object') return null;
+    if (!doc || typeof doc !== 'object') {return null;}
 
     const fields = [
       'updatedAt',
@@ -113,7 +113,7 @@ function computeUpdatedAt(doc) {
 
     for (const f of fields) {
       const d = toValidDate(doc[f]);
-      if (d) return d;
+      if (d) {return d;}
     }
 
     // Fallback: _id timestamp from ObjectId
@@ -134,7 +134,7 @@ function computeUpdatedAt(doc) {
           const seconds = parseInt(s.substring(0, 8), 16);
           if (!Number.isNaN(seconds)) {
             const d = new Date(seconds * 1000);
-            if (!isNaN(d.getTime())) return d;
+            if (!isNaN(d.getTime())) {return d;}
           }
         }
       } catch {
@@ -147,7 +147,7 @@ function computeUpdatedAt(doc) {
       const seconds = parseInt(id.substring(0, 8), 16);
       if (!Number.isNaN(seconds)) {
         const d = new Date(seconds * 1000);
-        if (!isNaN(d.getTime())) return d;
+        if (!isNaN(d.getTime())) {return d;}
       }
     }
 

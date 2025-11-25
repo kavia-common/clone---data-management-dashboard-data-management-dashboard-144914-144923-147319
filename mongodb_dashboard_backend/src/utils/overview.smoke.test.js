@@ -27,7 +27,7 @@ describe('overview smoke', () => {
       // Accept a limited set of statuses that indicate server/unavailability
       // rather than failing the suite.
       const acceptable = new Set([503, 404, 401, 500]);
-      // eslint-disable-next-line no-console
+       
       console.warn(`[overview.smoke] Non-200 (${res.status}) — treating as graceful skip`);
       expect(acceptable.has(res.status)).toBe(true);
       return;
