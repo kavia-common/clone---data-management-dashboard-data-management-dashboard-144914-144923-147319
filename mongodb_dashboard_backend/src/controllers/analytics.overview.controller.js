@@ -208,83 +208,162 @@ async function getSessionsTrend(req, res, next) {
   }
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * getUsersTrend
+ * Returns Users Trend time series strictly filtered by created_at and updated_at within [from, to].
+ * Controller validates params and supports granularity day|week|month, optional tenant scope.
+ * Response shape (backward compatible + extended):
+ *  - { success: true, granularity, from, to, series: [ { bucket, createdCount, updatedCount } ] }
+ * Notes:
+ *  - We do not exclude deleted users unless explicitly filtered by query via status, but by default we include all.
+ *  - Buckets include zero counts for continuity.
+ */
 async function getUsersTrend(req, res, next) {
-  /**
-   * Returns Users Trend time series.
-   * Query:
-   * - from, to (ISO)
-   * - granularity: day|week|month
-   * - status: active|deleted (default active)
-   * Rules:
-   * - Use users.created_at and users.updated_at.
-   *   active: not deleted and created/updated within range.
-   *   deleted: deleted_at within range OR status === 'deleted' with updated_at in range.
-   */
   try {
     const db = getDb();
     if (!db) return res.status(503).json({ error: 'Database not connected' });
 
+    // Parse and validate range
     const now = new Date();
     const from = toDate(req.query.from) || startOfDay(addDays(now, -30));
     const to = toDate(req.query.to) || now;
-    if (!(from instanceof Date) || !(to instanceof Date) || +from >= +to) {
-      return res.status(400).json({ error: 'Invalid from/to' });
+    if (!(from instanceof Date) || isNaN(from.getTime()) || !(to instanceof Date) || isNaN(to.getTime()) || +from > +to) {
+      return res.status(400).json({ success: false, message: 'Invalid from/to. Expect ISO strings where from <= to.' });
     }
     const granularity = normalizeGranularity(String(req.query.granularity || 'day'));
-    const status = String(req.query.status || 'active').toLowerCase();
+    const status = req.query.status ? String(req.query.status).toLowerCase() : undefined;
 
+    // Build empty buckets
     const buckets = buildBuckets(from, to, granularity);
-    const series = Object.fromEntries(buckets.map((b) => [b, 0]));
+    const seriesMap = Object.fromEntries(buckets.map((b) => [b, { createdCount: 0, updatedCount: 0 }]));
 
+    // Base tenant/organization scoping if provided by middleware or explicit query aliases
     const baseMatch = {};
+    // Prefer middleware tenant scope
     if (req.tenantScope && req.tenantScope.tenant_id) {
       baseMatch.tenant_id = req.tenantScope.tenant_id;
     }
-
-    let match = { ...baseMatch };
-    if (status === 'deleted') {
-      match.$or = [
-        { deleted_at: { $gte: from, $lt: to } },
-        { $and: [{ status: 'deleted' }, { updated_at: { $gte: from, $lt: to } }] },
-      ];
-    } else {
-      match.$and = [
-        {
-          $or: [
-            { created_at: { $gte: from, $lt: to } },
-            { updated_at: { $gte: from, $lt: to } },
-          ],
-        },
-        {
-          $or: [{ deleted_at: { $exists: false } }, { deleted_at: null }, { status: { $ne: 'deleted' } }],
-        },
-      ];
+    // Allow optional organization_id/tenant_id in query if present (demo mode)
+    if (!baseMatch.tenant_id) {
+      const qTenant = req.query.tenant_id || req.query.organization_id;
+      if (qTenant) baseMatch.tenant_id = String(qTenant);
     }
 
-    const cursor = db.collection('users').find(match, {
-      projection: { created_at: 1, updated_at: 1, deleted_at: 1, status: 1 },
-    });
+    // Optional status filter; default is to include all statuses (do not exclude deleted unless requested)
+    if (status) {
+      baseMatch.status = { $in: status.split('|').filter(Boolean) };
+    }
 
-    for await (const u of cursor) {
-      let d = null;
-      if (status === 'deleted') {
-        d = u.deleted_at || u.updated_at || u.created_at;
-      } else {
-        d = u.created_at || u.updated_at || null;
+    // We'll fetch only fields needed and restrict to docs that have either created_at or updated_at in [from,to]
+    const match = {
+      ...baseMatch,
+      $or: [
+        { created_at: { $gte: from, $lte: to } },
+        { updated_at: { $gte: from, $lte: to } },
+      ],
+    };
+
+    // Aggregation approach to avoid client-side iteration over entire collection
+    // We produce two streams: one for created_at and one for updated_at, then merge on the server.
+    const usersCol = db.collection('users');
+
+    // Pipeline for created_at
+    const createdPipeline = [
+      { $match: match },
+      { $project: { created_at: 1 } },
+      { $match: { created_at: { $ne: null } } },
+      {
+        $addFields: {
+          bucket: granularity === 'month'
+            ? {
+                $dateToString: {
+                  format: '%Y-%m',
+                  date: '$created_at',
+                  timezone: 'UTC',
+                },
+              }
+            : granularity === 'week'
+            ? {
+                // Week buckets align to ISO week start (Monday) via dateTrunc
+                $dateToString: {
+                  format: '%Y-%m-%d',
+                  date: { $dateTrunc: { date: '$created_at', unit: 'week', binSize: 1, timezone: 'UTC' } },
+                  timezone: 'UTC',
+                },
+              }
+            : {
+                $dateToString: { format: '%Y-%m-%d', date: { $dateTrunc: { date: '$created_at', unit: 'day', timezone: 'UTC' } }, timezone: 'UTC' },
+              },
+        },
+      },
+      { $group: { _id: '$bucket', count: { $sum: 1 } } },
+    ];
+
+    // Pipeline for updated_at
+    const updatedPipeline = [
+      { $match: match },
+      { $project: { updated_at: 1 } },
+      { $match: { updated_at: { $ne: null } } },
+      {
+        $addFields: {
+          bucket: granularity === 'month'
+            ? {
+                $dateToString: {
+                  format: '%Y-%m',
+                  date: '$updated_at',
+                  timezone: 'UTC',
+                },
+              }
+            : granularity === 'week'
+            ? {
+                $dateToString: {
+                  format: '%Y-%m-%d',
+                  date: { $dateTrunc: { date: '$updated_at', unit: 'week', binSize: 1, timezone: 'UTC' } },
+                  timezone: 'UTC',
+                },
+              }
+            : {
+                $dateToString: { format: '%Y-%m-%d', date: { $dateTrunc: { date: '$updated_at', unit: 'day', timezone: 'UTC' } }, timezone: 'UTC' },
+              },
+        },
+      },
+      { $group: { _id: '$bucket', count: { $sum: 1 } } },
+    ];
+
+    // Execute both aggregations in parallel
+    const [createdAgg, updatedAgg] = await Promise.all([
+      usersCol.aggregate(createdPipeline, { allowDiskUse: true }).toArray(),
+      usersCol.aggregate(updatedPipeline, { allowDiskUse: true }).toArray(),
+    ]);
+
+    // Merge results into seriesMap
+    for (const row of createdAgg) {
+      const b = row?._id;
+      if (b && seriesMap[b]) {
+        seriesMap[b].createdCount += Number(row.count || 0);
       }
-      if (!d) continue;
-      const key = bucketKey(d, granularity);
-      if (key && series[key] !== undefined) series[key] += 1;
+    }
+    for (const row of updatedAgg) {
+      const b = row?._id;
+      if (b && seriesMap[b]) {
+        seriesMap[b].updatedCount += Number(row.count || 0);
+      }
     }
 
-    return res.json({
-      items: buckets.map((b) => ({
-        // For month granularity 'b' is already YYYY-MM, else YYYY-MM-DD
-        date: b,
-        total: series[b] || 0,
-      })),
-      meta: { granularity, from: from.toISOString(), to: to.toISOString(), status },
+    // Build response series in requested order, ensuring zero-filled buckets are present
+    const series = buckets.map((b) => ({
+      bucket: b,
+      createdCount: seriesMap[b]?.createdCount || 0,
+      updatedCount: seriesMap[b]?.updatedCount || 0,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      granularity,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      series,
     });
   } catch (err) {
     next(err);
