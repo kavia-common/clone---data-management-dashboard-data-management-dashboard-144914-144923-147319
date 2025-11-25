@@ -169,6 +169,13 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           console.debug(
             `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'} bypass=${bypassAny} (routeBypass=${routeBypass}, globalBypass=${globalBypass})`
           );
+          // Explicit console.log for /api/users to confirm bypass visibility in terminal
+          const isUsersRoute = (req.baseUrl || '').endsWith('/users') || (req.originalUrl || '').includes('/api/users');
+          if (isUsersRoute) {
+            console.log('[crudFactory.list:/api/users] bypass trace', {
+              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null
+            });
+          }
         } catch (_) {}
       }
 

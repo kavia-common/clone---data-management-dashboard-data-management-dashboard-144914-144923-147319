@@ -326,10 +326,14 @@ router.get(
           authTenant,
           requestedTenant,
           isT0000,
-          isSuper: superAdmin,
+          isSuperAdmin: superAdmin,
         },
         'users:list pre-bypass-eval'
       );
+      // Explicit console log for terminal visibility
+      console.log('[users:list] pre-bypass-eval', {
+        qOrg, qTenant, hdrOrg, authTenant, requestedTenant, isT0000, isSuperAdmin: superAdmin
+      });
     } catch {}
 
     let bypassApplied = false;
@@ -353,6 +357,11 @@ router.get(
           { route: '/api/users', bypassApplied, qOrg, qTenant, hdrOrg, authTenant, requestedTenant },
           'users:list bypass-activated'
         );
+        // Explicit console logs to confirm bypass path and header application
+        console.log('[users:list] bypass-activated', {
+          bypassApplied, qOrg, qTenant, hdrOrg, authTenant, requestedTenant
+        });
+        console.log('[users:list] bypass active -> response headers set and tenant filtering skipped');
       } catch {}
       return next(); // do not run extractOrganization when bypassed
     }
@@ -363,6 +372,9 @@ router.get(
         { route: '/api/users', bypassApplied, qOrg, qTenant, hdrOrg, authTenant, requestedTenant },
         'users:list bypass-not-applied'
       );
+      console.log('[users:list] bypass-not-applied', {
+        bypassApplied, qOrg, qTenant, hdrOrg, authTenant, requestedTenant
+      });
     } catch {}
 
     return next();
@@ -371,6 +383,7 @@ router.get(
   function conditionalExtractOrg(req, res, next) {
     if (req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass) {
       // Already bypassed; skip extraction
+      console.log('[users:list] conditionalExtractOrg skipped due to bypass flags');
       return next();
     }
     const { extractOrganization } = require('../middleware/extractOrganization');
@@ -384,6 +397,11 @@ router.get(
       res.set('X-All-Tenants', String(!!(req.tenantScopeDisabled || req.allTenants)));
       const applied = req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : (req.tenantId || '');
       res.set('X-Applied-Tenant', String(applied));
+      console.log('[users:list] handler-entry', {
+        usersBypass: !!req.usersAllTenantsBypass,
+        allTenants: !!(req.tenantScopeDisabled || req.allTenants),
+        appliedTenant: String(applied || '')
+      });
     } catch {}
     return controller.list(req, res, next);
   }
