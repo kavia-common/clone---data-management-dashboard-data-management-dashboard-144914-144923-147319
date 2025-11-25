@@ -291,6 +291,11 @@ router.get(
     const { extractOrganization } = require('../middleware/extractOrganization');
     const { isSuperAdmin } = require('../utils/access');
 
+    // Prefer req.log if provided by middleware; else fallback to console.info
+    const logger = (req && req.log && typeof req.log.info === 'function')
+      ? req.log
+      : { info: (...args) => { try { console.info(...args); } catch (_) {} } };
+
     // Detect T0000 from query/header/req.auth similar to this route's existing extraction.
     // Priority: query params first (organization_id or tenant_id), then headers, then req.auth
     const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id.trim() : '';
@@ -308,8 +313,17 @@ router.get(
 
     const requestedTenant = qOrg || qTenant || hdrOrg || authTenant;
     const isT0000 = requestedTenant === 'T0000';
+    const superAdmin = !!isSuperAdmin(req);
 
-    if (isT0000 || isSuperAdmin(req)) {
+    // Pre-decision evaluation log (avoid sensitive data; just IDs/flags)
+    try {
+      logger.info(
+        { route: '/api/users', qOrg, qTenant, hdrOrg, authTenant, requestedTenant, isT0000, isSuper: superAdmin },
+        'users:list tenant-eval'
+      );
+    } catch (_) {}
+
+    if (isT0000 || superAdmin) {
       // TEMPORARY: super-admin bypass keyed to exact "T0000" for GET /api/users only.
       // Do not propagate tenant; mark scope disabled so controller.list returns all users.
       req.tenantScopeDisabled = true;
@@ -319,8 +333,20 @@ router.get(
         res.set('X-Applied-Tenant', 'all-tenants');
         res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin all tenants)' }));
       } catch (_) {}
+      // Decision log: bypass branch
+      try {
+        logger.info({ route: '/api/users', bypass: true }, 'users:list super-admin bypass active');
+      } catch (_) {}
       return next();
     }
+
+    // Decision log: else branch (filter applied)
+    try {
+      logger.info(
+        { route: '/api/users', bypass: false, appliedTenant: requestedTenant || 'none' },
+        'users:list tenant filter applied'
+      );
+    } catch (_) {}
 
     // Fallback to normal extraction when not T0000 and not super admin
     return extractOrganization()(req, res, next);
