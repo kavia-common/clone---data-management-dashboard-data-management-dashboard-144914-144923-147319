@@ -192,4 +192,9 @@ if (process.env.NODE_ENV !== 'test') {
   try { mongoose.set('bufferCommands', false); } catch { }
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Express application instance configured with middleware, routes and docs.
+ * Exported for use by the server bootstrap and for integration tests.
+ */
 module.exports = app;

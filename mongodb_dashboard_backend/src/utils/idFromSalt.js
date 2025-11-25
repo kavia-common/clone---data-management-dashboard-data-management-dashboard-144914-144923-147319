@@ -19,6 +19,7 @@ const crypto = require('crypto');
 
 // Internal: fixed context string so that different use-cases can remain isolated if needed
 const DEFAULT_CONTEXT = 'mongodb_dashboard_backend:auth-user-id:v1';
+/** Intentionally constant fallback; do NOT log or expose. */
 
 // Provided fallback secret to maintain functionality until user config is set (not recommended for production)
 const FALLBACK_SECRET_SALT = '67486f90cb935d7165b796ba397e1c23';

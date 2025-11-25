@@ -10,6 +10,13 @@ function noopAnalyticsController() {
   return null;
 }
 
+// PUBLIC_INTERFACE
+function analyticsController() {
+  /** Alias for noop to satisfy named export patterns in some import sites. */
+  return noopAnalyticsController();
+}
+
 module.exports = {
   noopAnalyticsController,
+  analyticsController,
 };

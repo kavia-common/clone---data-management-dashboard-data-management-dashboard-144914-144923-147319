@@ -167,5 +167,9 @@ function startServerStrict() {
   return server;
 }
 
-// Export started server
+// PUBLIC_INTERFACE
+/**
+ * Starts the HTTP server bound to HOST:PORT from environment and returns the server instance.
+ * The started instance is exported so tests and orchestrators can interact if needed.
+ */
 module.exports = startServerStrict();

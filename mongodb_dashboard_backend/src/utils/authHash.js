@@ -19,8 +19,8 @@
  // Attempt to load argon2/bcrypt optionally without breaking if not installed
  let argon2 = null;
  let bcrypt = null;
- try { argon2 = require('argon2'); } catch (_) { argon2 = null; }
- try { bcrypt = require('bcrypt'); } catch (_) { bcrypt = null; }
+ try { argon2 = require('argon2'); } catch (_err) { argon2 = null; }
+ try { bcrypt = require('bcrypt'); } catch (_err) { bcrypt = null; }
 
  /**
   * PUBLIC_INTERFACE
