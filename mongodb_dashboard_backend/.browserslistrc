@@ -1,0 +1,3 @@
+# Backend service: disable frontend browsers targeting
+# This prevents tooling that reads Browserslist from suggesting updates or implying web targets.
+node 18

@@ -34,7 +34,7 @@ const buildDynamicSpec = (req) => {
     !hasPort &&
     ((protocol === 'http' && actualPort !== 80) ||
       (protocol === 'https' && actualPort !== 443));
-  // fullHost is intentionally unused since servers list is predefined.
+  const fullHost = hasPort ? host : `${host}${needsPort ? `:${actualPort}` : ''}`;
   const baseSpec = getBaseOpenApiSpec();
   return {
     ...baseSpec,
