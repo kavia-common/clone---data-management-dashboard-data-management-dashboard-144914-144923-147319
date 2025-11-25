@@ -7,8 +7,7 @@ try { require('dotenv').config(); } catch {}
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
-const createApp = require('./app');
-const app = createApp();
+const app = require('./app');
 const mongoose = require('mongoose');
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -168,9 +167,5 @@ function startServerStrict() {
   return server;
 }
 
-// PUBLIC_INTERFACE
-/**
- * Starts the HTTP server bound to HOST:PORT from environment and returns the server instance.
- * The started instance is exported so tests and orchestrators can interact if needed.
- */
+// Export started server
 module.exports = startServerStrict();
