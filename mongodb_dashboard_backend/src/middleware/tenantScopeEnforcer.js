@@ -73,8 +73,17 @@ function stampCreate(doc, tenantId, req) {
 // PUBLIC_INTERFACE
 function tenantScopeEnforcer() {
   return function (req, res, next) {
-    if (req.tenantScopeDisabled || req.allTenants) {
-      // Super Admin bypass: do not enforce tenant
+    const isUsersList = req.method === 'GET' && (req.baseUrl || '').endsWith('/users') && req.path === '/';
+
+    if ((req.tenantScopeDisabled || req.allTenants) || (isUsersList && req.usersAllTenantsBypass)) {
+      // Bypass: do not enforce tenant (covers Super Admin and users route T0000 bypass)
+      if (isUsersList && req.usersAllTenantsBypass) {
+        try {
+          console.log('[tenantScopeEnforcer] bypass respected for GET /api/users (T0000/usersAllTenantsBypass=true)');
+          res.set('X-All-Tenants', 'true');
+          res.set('X-Applied-Tenant', 'all-tenants');
+        } catch {}
+      }
       req.tenantId = undefined;
       req.tenantFilter = {};
       req.withTenantFilter = (objOrQuery) => objOrQuery;

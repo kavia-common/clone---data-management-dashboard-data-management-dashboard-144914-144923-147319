@@ -14,6 +14,63 @@ const router = express.Router();
 const controller = buildCrudController(User, '-created_at');
 
 /**
+ * Early bypass detector for GET /api/users
+ * Applies T0000 or SuperAdmin bypass before any organization/tenant extraction for this route only.
+ */
+function usersEarlyBypassDetector(req, res, next) {
+  if (req.method !== 'GET' || req.path !== '/') return next();
+
+  // Raw values (no trim) as requested
+  const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
+  const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
+  const hdrOrg =
+    (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id']) ||
+    (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id']) ||
+    (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id']) ||
+    (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant']) ||
+    undefined;
+  const authTenant =
+    (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId) ||
+    (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id) ||
+    undefined;
+
+  const requestedTenant = hdrOrg || qOrg || qTenant || authTenant;
+  const isT0000 = requestedTenant === 'T0000';
+
+  let bypassApplied = false;
+  if (isT0000) {
+    req.tenantScopeDisabled = true;
+    req.allTenants = true;
+    req.usersAllTenantsBypass = true;
+    bypassApplied = true;
+
+    try {
+      res.set('X-Tenant-Bypass', 'true');
+      res.set('X-Requested-Tenant', 'T0000');
+      res.set('X-All-Tenants', 'true');
+      res.set('X-Applied-Tenant', 'all-tenants');
+    } catch {}
+  } else {
+    try {
+      res.set('X-Tenant-Bypass', 'false');
+      if (requestedTenant) res.set('X-Requested-Tenant', String(requestedTenant));
+    } catch {}
+  }
+
+  console.log('[users.routes][GET /api/users] earlyBypassDetector', {
+    qOrg,
+    qTenant,
+    hdrOrg,
+    authTenant,
+    requestedTenant,
+    isT0000,
+    bypassApplied,
+  });
+
+  return next();
+}
+
+/**
  * Expose applied tenant and preview filter for diagnostics
  */
 router.use((req, res, next) => {
@@ -286,121 +343,32 @@ router.get(
  */
 router.get(
   '/',
-  // Special pre-middleware: apply T0000 bypass BEFORE any organization extraction/tenant scoping for this route only.
-  function preUsersBypass(req, res, next) {
-    const { isSuperAdmin } = require('../utils/access');
-
-    // Logger setup
-    const logger =
-      req?.log && typeof req.log.info === 'function'
-        ? req.log
-        : { info: (...args) => { try { console.info(...args); } catch {} }, error: (...args) => { try { console.error(...args); } catch {} } };
-
-    // Raw values without trimming per requirement (strict equality)
-    const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
-    const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
-    const hdrOrg =
-      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id']) ||
-      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id']) ||
-      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id']) ||
-      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant']) ||
-      undefined;
-    const authTenant =
-      (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId) ||
-      (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id) ||
-      undefined;
-
-    const requestedTenant = qOrg || qTenant || hdrOrg || authTenant;
-    const isT0000 = requestedTenant === 'T0000'; // strict equality, no trimming
-    const superAdmin = !!isSuperAdmin(req);
-
-    // Emit diagnostic snapshot prior to any bypass decision
-    try {
-      logger.info(
-        {
-          route: '/api/users',
-          method: req.method,
-          qOrg,
-          qTenant,
-          hdrOrg,
-          authTenant,
-          requestedTenant,
-          isT0000,
-          isSuperAdmin: superAdmin,
-        },
-        'users:list pre-bypass-eval'
-      );
-      // Explicit console log for terminal visibility
-      console.log('[users:list] pre-bypass-eval', {
-        qOrg, qTenant, hdrOrg, authTenant, requestedTenant, isT0000, isSuperAdmin: superAdmin
-      });
-    } catch {}
-
-    let bypassApplied = false;
-    if (isT0000 || superAdmin) {
-      // Set explicit route-local flags first
-      req.tenantScopeDisabled = true;
-      req.allTenants = true;
-      req.usersAllTenantsBypass = true; // controller/service can read this
-      bypassApplied = true;
-
-      // Set response headers for observability
-      try {
-        res.set('X-All-Tenants', 'true');
-        res.set('X-Applied-Tenant', 'all-tenants');
-        res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (users route T0000 bypass)' }));
-        res.set('X-Users-Bypass', 'true');
-      } catch {}
-
-      try {
-        logger.info(
-          { route: '/api/users', bypassApplied, qOrg, qTenant, hdrOrg, authTenant, requestedTenant },
-          'users:list bypass-activated'
-        );
-        // Explicit console logs to confirm bypass path and header application
-        console.log('[users:list] bypass-activated', {
-          bypassApplied, qOrg, qTenant, hdrOrg, authTenant, requestedTenant
-        });
-        console.log('[users:list] bypass active -> response headers set and tenant filtering skipped');
-      } catch {}
-      return next(); // do not run extractOrganization when bypassed
-    }
-
-    // Not bypassing, record in logs and continue to extraction
-    try {
-      logger.info(
-        { route: '/api/users', bypassApplied, qOrg, qTenant, hdrOrg, authTenant, requestedTenant },
-        'users:list bypass-not-applied'
-      );
-      console.log('[users:list] bypass-not-applied', {
-        bypassApplied, qOrg, qTenant, hdrOrg, authTenant, requestedTenant
-      });
-    } catch {}
-
-    return next();
-  },
-  // If preUsersBypass did not set bypass, run normal extraction
+  // Place early detector first in chain
+  usersEarlyBypassDetector,
+  // Skip extraction if bypassed, else extract
   function conditionalExtractOrg(req, res, next) {
     if (req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass) {
-      // Already bypassed; skip extraction
       console.log('[users:list] conditionalExtractOrg skipped due to bypass flags');
       return next();
     }
     const { extractOrganization } = require('../middleware/extractOrganization');
     return extractOrganization()(req, res, next);
   },
-  // Final handler
+  // Final handler that also confirms applied headers/flags
   function usersListHandler(req, res, next) {
-    // Ensure headers reflect the final state at handler entry
     try {
       res.set('X-Users-Bypass', String(!!req.usersAllTenantsBypass));
       res.set('X-All-Tenants', String(!!(req.tenantScopeDisabled || req.allTenants)));
       const applied = req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : (req.tenantId || '');
       res.set('X-Applied-Tenant', String(applied));
       console.log('[users:list] handler-entry', {
+        qOrg: req.query?.organization_id,
+        qTenant: req.query?.tenant_id,
+        hdrOrg: req.headers?.['x-organization-id'],
+        authTenant: req?.auth?.tenantId,
         usersBypass: !!req.usersAllTenantsBypass,
         allTenants: !!(req.tenantScopeDisabled || req.allTenants),
-        appliedTenant: String(applied || '')
+        appliedTenant: String(applied || ''),
       });
     } catch {}
     return controller.list(req, res, next);

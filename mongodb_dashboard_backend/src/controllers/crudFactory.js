@@ -173,7 +173,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           const isUsersRoute = (req.baseUrl || '').endsWith('/users') || (req.originalUrl || '').includes('/api/users');
           if (isUsersRoute) {
             console.log('[crudFactory.list:/api/users] bypass trace', {
-              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null
+              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
+              usersAllTenantsBypass: !!req.usersAllTenantsBypass
             });
           }
         } catch (_) {}

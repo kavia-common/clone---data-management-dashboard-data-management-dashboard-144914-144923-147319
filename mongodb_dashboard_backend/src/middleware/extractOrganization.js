@@ -130,6 +130,21 @@ const { isSuperAdmin } = require('../utils/access');
 function extractOrganization() {
   return function (req, res, next) {
 
+    // Respect early users bypass for GET /api/users
+    const isUsersList = req.method === 'GET' && (req.baseUrl || '').endsWith('/users') && req.path === '/';
+    if (isUsersList && (req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass)) {
+      try {
+        console.log('[extractOrganization] bypass respected for GET /api/users; skipping extraction', {
+          tenantScopeDisabled: !!req.tenantScopeDisabled,
+          allTenants: !!req.allTenants,
+          usersAllTenantsBypass: !!req.usersAllTenantsBypass,
+        });
+        res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
+      } catch {}
+      return next();
+    }
+
     // ---------------------------
     // 1️⃣ SUPER ADMIN ALWAYS GLOBAL
     // ---------------------------
