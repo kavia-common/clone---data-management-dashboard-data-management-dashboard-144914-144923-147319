@@ -248,7 +248,7 @@
    return { valid: true, migrated: false };
  }
 
- module.exports = {
+ const authHash = {
    getPepper,
    hashPasswordV1,
    hashPasswordV2,
@@ -258,3 +258,4 @@
    hashPassword,
    verifyAndMigrate,
  };
+ module.exports = { ...authHash, default: authHash };

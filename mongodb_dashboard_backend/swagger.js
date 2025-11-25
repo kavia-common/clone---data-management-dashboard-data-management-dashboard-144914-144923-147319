@@ -191,4 +191,9 @@ function getBaseOpenApiSpec() {
   }
 }
 
-module.exports = { getBaseOpenApiSpec };
+const swaggerSpecApi = { getBaseOpenApiSpec };
+
+module.exports = {
+  ...swaggerSpecApi,
+  default: swaggerSpecApi,
+};

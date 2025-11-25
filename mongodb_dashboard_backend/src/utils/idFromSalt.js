@@ -73,7 +73,8 @@ function deriveDeterministicUserId(opts = {}) {
   return base64Url(out);
 }
 
-module.exports = {
+const idFromSalt = {
   getAuthSecretSalt,
   deriveDeterministicUserId,
 };
+module.exports = { ...idFromSalt, default: idFromSalt };

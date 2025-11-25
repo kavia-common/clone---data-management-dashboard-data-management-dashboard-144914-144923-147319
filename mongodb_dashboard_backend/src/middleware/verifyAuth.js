@@ -162,4 +162,5 @@ function verifyAuth(req, res, next) {
   }
 }
 
-module.exports = { verifyAuth };
+const verifyAuthApi = { verifyAuth };
+module.exports = { ...verifyAuthApi, default: verifyAuthApi };

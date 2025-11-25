@@ -61,4 +61,5 @@ function permissiveCorsMiddleware(req, res, next) {
   return next();
 }
 
-module.exports = { permissiveCorsMiddleware };
+const permissive = { permissiveCorsMiddleware };
+module.exports = { ...permissive, default: permissive };

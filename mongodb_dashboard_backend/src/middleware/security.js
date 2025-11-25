@@ -187,4 +187,5 @@ function rateLimiter() {
   });
 }
 
-module.exports = { corsMiddleware, helmetMiddleware, rateLimiter };
+const securityMiddlewares = { corsMiddleware, helmetMiddleware, rateLimiter };
+module.exports = { ...securityMiddlewares, default: securityMiddlewares };

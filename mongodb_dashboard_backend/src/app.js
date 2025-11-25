@@ -197,4 +197,4 @@ if (process.env.NODE_ENV !== 'test') {
  * Express application instance configured with middleware, routes and docs.
  * Exported for use by the server bootstrap and for integration tests.
  */
-module.exports = app;
+module.exports = { app, default: app };

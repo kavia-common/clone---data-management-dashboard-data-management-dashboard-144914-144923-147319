@@ -84,4 +84,4 @@ const authConfig = {
   getJwtConfig,
 };
 
-module.exports = authConfig;
+module.exports = { ...authConfig, default: authConfig };
