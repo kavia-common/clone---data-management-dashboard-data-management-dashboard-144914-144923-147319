@@ -16,7 +16,19 @@
  * - Controllers/services MUST ignore any client-sent tenant_id/organization_id in the payload and trust req.tenantId.
  * - Header takes precedence over query aliases when both are provided.
  */
+const { isSuperAdmin, normalizeTenantId } = require('../utils/access');
+
 function requireTenant(req, res, next) {
+  // Super Admin bypass: disable tenant scoping
+  if (isSuperAdmin(req)) {
+    req.tenantScopeDisabled = true;
+    try {
+      res.set('X-Applied-Tenant', 'all-tenants');
+      res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (super-admin)' }));
+    } catch (_) {}
+    return next();
+  }
+
   // Prefer JWT tenantId if present (cannot be overridden)
   const jwtTenant = req?.auth?.tenantId;
   if (jwtTenant) {
@@ -30,7 +42,9 @@ function requireTenant(req, res, next) {
       (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
       (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) || '';
     const candidate = hdrCandidate || qCandidate;
-    if (candidate && String(candidate) !== String(jwtTenant)) {
+    const nCandidate = candidate ? normalizeTenantId(candidate) : null;
+    const nJwt = normalizeTenantId(jwtTenant);
+    if (nCandidate && String(nCandidate) !== String(nJwt)) {
       return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
     }
     req.tenantId = String(jwtTenant);

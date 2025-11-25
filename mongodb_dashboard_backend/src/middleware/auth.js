@@ -91,7 +91,9 @@ function attachAuthContext() {
         id: (dbUser && (dbUser._id?.toString?.() || dbUser.id || dbUser.user_id?.toString?.())) || idCtx.id || null,
         email: (dbUser && dbUser.email) || idCtx.email || null,
         tenants: Array.isArray(dbUser?.tenants) ? dbUser.tenants : undefined,
-        roles: dbUser?.roles || undefined,
+        roles: Array.isArray(dbUser?.roles)
+          ? dbUser.roles
+          : (typeof dbUser?.role === 'string' ? [dbUser.role] : undefined),
         raw: dbUser || undefined,
       };
 

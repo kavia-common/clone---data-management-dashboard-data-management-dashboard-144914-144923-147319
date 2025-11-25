@@ -4,7 +4,8 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { attachAuthContext, requireAuth } = require('../middleware/auth');
 const AuditLog = require('../models/auditLog.model');
-const { userHasTenant, normalizeUserTenants } = require('../utils/rbac');
+const { userHasTenant, normalizeUserTenants, isSuperAdminUser } = require('../utils/rbac');
+const { isSuperAdmin, normalizeTenantId } = require('../utils/access');
 
 const router = express.Router();
 
@@ -33,6 +34,9 @@ router.get(
   requireAuth(),
   asyncHandler(async (req, res) => {
     const user = req.user;
+
+    // Super Admin: may request any tenant; for now we return user's tenants list
+    // TODO: If needed, populate with all tenants from DB for Super Admins.
     const items = normalizeUserTenants(user);
 
     // GxP audit: READ tenant listing
@@ -142,8 +146,9 @@ router.post(
       });
     }
 
-    // RBAC: ensure user has this tenant
-    const allowed = userHasTenant(user, tenantId);
+    // RBAC: ensure user has this tenant; Super Admin bypasses
+    const nTenant = normalizeTenantId(tenantId);
+    const allowed = isSuperAdminUser(user) || userHasTenant(user, nTenant);
     const beforeState = { activeTenant: req.activeTenant || null };
 
     if (!allowed) {
@@ -197,6 +202,13 @@ router.post(
       outcome: 'SUCCESS',
       trace_id: req.traceId || null,
     });
+
+    if (isSuperAdmin(req)) {
+      try {
+        res.set('X-Applied-Tenant', String(nTenant));
+        res.set('X-Applied-Filter', JSON.stringify({ $match: `tenant ${nTenant} (super-admin selected)` }));
+      } catch {}
+    }
 
     const payload = {
       success: true,

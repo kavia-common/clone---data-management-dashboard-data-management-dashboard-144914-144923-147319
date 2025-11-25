@@ -22,17 +22,39 @@
  *  - ['t1', 't2']
  *  - [{ id: 't1', name: 'Tenant 1', role: 'admin' }, ...]
  */
+const { normalizeTenantId } = require('./access');
+
+/**
+ * PUBLIC_INTERFACE
+ * userHasTenant
+ * Checks if user has access to a tenantId (normalization-aware).
+ */
 function userHasTenant(user, tenantId) {
   if (!user || !tenantId) {return false;}
   const t = (user.tenants && Array.isArray(user.tenants)) ? user.tenants : [];
+  const want = normalizeTenantId(tenantId);
 
   return t.some((item) => {
-    if (typeof item === 'string') {return item === tenantId;}
+    if (typeof item === 'string') {return normalizeTenantId(item) === want;}
     if (item && typeof item === 'object') {
-      return item.id === tenantId || item.tenant_id === tenantId || item._id === tenantId;
+      return (
+        normalizeTenantId(item.id) === want ||
+        normalizeTenantId(item.tenant_id) === want ||
+        normalizeTenantId(item._id) === want
+      );
     }
     return false;
   });
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * isSuperAdminUser
+ * Checks if provided user object has 'Super Admin' role.
+ */
+function isSuperAdminUser(user) {
+  const roles = Array.isArray(user?.roles) ? user.roles : (typeof user?.role === 'string' ? [user.role] : []);
+  return roles.map((r) => String(r).toLowerCase()).includes('super admin'.toLowerCase());
 }
 
 /**
@@ -57,4 +79,5 @@ function normalizeUserTenants(user) {
 module.exports = {
   userHasTenant,
   normalizeUserTenants,
+  isSuperAdminUser,
 };

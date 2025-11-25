@@ -70,6 +70,16 @@ function stampCreate(doc, tenantId) {
 // PUBLIC_INTERFACE
 function tenantScopeEnforcer() {
   return function (req, _res, next) {
+    if (req.tenantScopeDisabled) {
+      // Super Admin bypass: do not enforce tenant
+      req.tenantId = undefined;
+      req.tenantFilter = {};
+      req.withTenantFilter = (objOrQuery) => objOrQuery;
+      req.withTenantAggregation = (pipeline) => (Array.isArray(pipeline) ? pipeline : []);
+      req.stampTenant = (doc) => doc;
+      return next();
+    }
+
     const tid = req?.auth?.tenantId || req.tenantId;
     req.tenantId = tid ? String(tid) : undefined;
 

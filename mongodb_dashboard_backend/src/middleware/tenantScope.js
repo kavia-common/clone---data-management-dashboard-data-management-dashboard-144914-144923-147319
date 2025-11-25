@@ -84,6 +84,15 @@ function tenantScope() {
    * - log the computed tenant filter (debug) for temporary verification
    */
   return function (req, _res, next) {
+    if (req.tenantScopeDisabled) {
+      // Super Admin bypass: no tenant scoping applied
+      req.tenantFilter = {};
+      req.withTenantFilter = (objOrQuery) => objOrQuery;
+      req.withTenantAggregation = (pipeline) => (Array.isArray(pipeline) ? pipeline : []);
+      req.stampTenant = (doc) => doc;
+      return next();
+    }
+
     const tenantId = req?.auth?.tenantId || req.headers['x-tenant-id'] || req.headers['x-tenant'];
     req.tenantFilter = tenantId ? { tenant_id: String(tenantId) } : {};
     // helpers

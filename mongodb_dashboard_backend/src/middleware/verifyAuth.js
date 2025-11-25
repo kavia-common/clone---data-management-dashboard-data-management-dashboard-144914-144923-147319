@@ -128,6 +128,9 @@ function verifyAuth(req, res, next) {
       // tenantId is used by scoping middleware and controllers (prefer JWT strictly)
       tenantId: extractedTenantId || (process.env.AUTH_DEFAULT_TENANT || 'DEMO'),
       scope: payload.scope || payload.scp || [],
+      roles: Array.isArray(payload.roles)
+        ? payload.roles
+        : (payload.role ? [payload.role] : (Array.isArray(payload['https://roles']) ? payload['https://roles'] : [])),
       demo: false,
       // include original header only for debugging (not used for auth)
       _tenantHeader: tenantFromHeader || null,
