@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
-import { listUsers, listSessions, listDeployments, listLlmCosts, health } from "../../api";
+import { listUsers, listSessions, listDeployments, health } from "../../api";
 import { fetchSessionTracking } from "../../api/sessionTracking";
-import { buildFilterParam } from "../../api/buildFilterParam";
 import LoadingState from "../../components/common/LoadingState";
 import ErrorState from "../../components/common/ErrorState";
 import KPIChart from "../../components/charts/KPIChart.jsx";
@@ -296,7 +295,8 @@ export default function Overview() {
           };
 
           const usersRes = await listUsers({
-            filter: buildFilterParam(createdFilter) || JSON.stringify(createdFilter),
+            // Directly stringify the filter; listUsers will sanitize endpoint-specific params
+            filter: JSON.stringify(createdFilter),
             limit: 2000,
             sort: "-created_at",
           });
@@ -346,7 +346,7 @@ export default function Overview() {
     };
   }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
 
-  // Costs trend fetcher — independent (kept separate to avoid coupling)
+  // Costs trend fetcher — independent (analytics-only)
   useEffect(() => {
     let aborted = false;
     async function loadCosts() {
@@ -355,90 +355,53 @@ export default function Overview() {
       try {
         const { startISO, endISO } = costsRange;
 
-        // 1) Try analytics endpoint first
         // Map UI granularity to backend enum
         const backendGranularity =
           costsGranularity === "weekly" ? "week" : costsGranularity === "daily" ? "day" : "month";
 
-        let usedAnalytics = false;
-        try {
-          const { getLlmCostsOverTime } = await import("../../api/llmCostsAnalytics.js");
-          const analytics = await getLlmCostsOverTime({
-            granularity: backendGranularity,
-            from: startISO,
-            to: endISO,
-          });
+        const { getLlmCostsOverTime } = await import("../../api/llmCostsAnalytics.js");
+        const analytics = await getLlmCostsOverTime({
+          granularity: backendGranularity,
+          from: startISO,
+          to: endISO,
+        });
 
-          const labels = Array.isArray(analytics?.labels) ? analytics.labels : [];
-          const dataset = Array.isArray(analytics?.datasets) ? analytics.datasets[0] : null;
-          const data = Array.isArray(dataset?.data) ? dataset.data : [];
+        // Normalize to aligned labels/data, parse currency to number
+        const labels = Array.isArray(analytics?.labels) ? analytics.labels : [];
+        const ds = Array.isArray(analytics?.datasets) ? analytics.datasets[0] : null;
+        const dataRaw = Array.isArray(ds?.data) ? ds.data : [];
 
-          // Validate numeric data
-          const numericOk = data.every((v) => typeof v === "number" && Number.isFinite(v));
-          if (labels.length && data.length && labels.length === data.length && numericOk) {
-            const series = labels.map((label, idx) => ({
-              label: String(label),
-              value: data[idx],
-            }));
-            if (aborted) return;
-            setCostsSeries(series);
-            usedAnalytics = true;
+        const toNumber = (v) => {
+          if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+          if (typeof v === "string") {
+            const n = Number(v.replace(/[$,]/g, ""));
+            return Number.isFinite(n) ? n : 0;
           }
-        } catch {
-          // ignore analytics failure; fallback below
-          usedAnalytics = false;
-        }
+          if (v == null) return 0;
+          const n = Number(v);
+          return Number.isFinite(n) ? n : 0;
+        };
 
-        if (!usedAnalytics) {
-          if (process.env.NODE_ENV !== 'production') {
-            try {
-              // eslint-disable-next-line no-console
-              console.info('[Overview Costs] Falling back to list /api/llm-costs aggregation in client');
-            } catch {}
-          }
-          // 2) Fallback to raw llm-costs list and aggregate client-side
-          const filter = {
-            $or: [
-              { timestamp: { $gte: startISO, $lte: endISO } },
-              { created_at: { $gte: startISO, $lte: endISO } },
-              { createdAt: { $gte: startISO, $lte: endISO } },
-            ],
-          };
-          const res = await listLlmCosts({
-            filter: buildFilterParam(filter) || JSON.stringify(filter),
-            limit: 1000,
-            sort: "-timestamp",
-          });
+        const data = dataRaw.map(toNumber);
+        const L = Math.min(labels.length, data.length);
+        let series;
 
-          const items = res?.items || (Array.isArray(res) ? res : []);
-          if (aborted) return;
-
+        if (L > 0) {
+          series = labels.slice(0, L).map((label, idx) => ({
+            label: String(label),
+            value: data[idx],
+          }));
+        } else {
+          // Safeguard for empty analytics: render zeroed series across the selected period
           const map = new Map();
-          (items || []).forEach((doc) => {
-            const t = doc.timestamp || doc.created_at || doc.createdAt || doc.date;
-            const d = t ? new Date(t) : null;
-            if (!d || Number.isNaN(d.getTime())) return;
-
-            const raw =
-              doc.total_cost ??
-              doc.total_usd ??
-              doc.usd ??
-              doc.amount_usd ??
-              doc.cost ??
-              doc.price ??
-              doc.amount ??
-              0;
-            const num =
-              typeof raw === "number" ? raw : Number(String(raw).replace(/[$,]/g, ""));
-            const value = Number.isFinite(num) ? num : 0;
-
-            const key = costsGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
-            map.set(key, (map.get(key) || 0) + value);
-          });
-
-          const series = fillSeries(map, startISO, endISO, costsGranularity);
-          setCostsSeries(series);
+          series = fillSeries(map, startISO, endISO, costsGranularity).map((p) => ({
+            ...p,
+            value: 0,
+          }));
         }
+
+        if (aborted) return;
+        setCostsSeries(series);
       } catch (e) {
         if (aborted) return;
         setCostsError(e);
@@ -853,7 +816,19 @@ export default function Overview() {
           {costsLoading && <LoadingState message="Loading costs trend…" height={220} />}
           {costsError && <ErrorState message={costsError?.message || "Failed to load costs trend."} />}
           {!costsLoading && !costsError && (
-            <KPIChart data={costsSeries} xKey="label" yKey="value" color="#F59E0B" />
+            <>
+              <KPIChart data={costsSeries} xKey="label" yKey="value" color="#F59E0B" />
+              {(Array.isArray(costsSeries) && costsSeries.length > 0 && costsSeries.every(d => !d.value)) && (
+                <div style={{ marginTop: 8, color: "#6B7280", fontSize: 12, textAlign: "center" }}>
+                  No cost data found for the selected range. Showing zeroed series.
+                </div>
+              )}
+              {Array.isArray(costsSeries) && costsSeries.length === 0 && (
+                <div style={{ marginTop: 8, color: "#6B7280", fontSize: 12, textAlign: "center" }}>
+                  No cost data available.
+                </div>
+              )}
+            </>
           )}
         </Card>
       </div>
