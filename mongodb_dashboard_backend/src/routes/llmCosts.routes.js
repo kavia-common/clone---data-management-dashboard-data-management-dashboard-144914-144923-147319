@@ -21,35 +21,41 @@ const router = express.Router();
 const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
 
 /**
- * Resolve tenantId from JWT/header/query and enforce on queries.
- * Apply verifyAuth explicitly as a safeguard in case the router is mounted without it.
+ * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls
+ * where Authorization may be missing and organization_id is provided as query/header.
  */
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 
-// PUBLIC_INTERFACE
-// Resolve tenant from header/query for GET list when JWT middleware didn't populate req.tenantId
-// Mirrors the behavior of session-tracking route to allow calls with only organization_id.
+/**
+ * Route-local resolver: for GET /api/llm-costs (list) allow resolving tenant
+ * from x-organization-id or ?organization_id/?tenant_id when req.tenantId is not set.
+ * Mirrors behavior of /api/users.
+ */
 router.use((req, res, next) => {
   try {
-    // Only for GET list at base path or when tenant not resolved yet
     const isList = req.method === 'GET' && (req.path === '/' || req.path === '');
     const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
-    if (isList && !bypass && !req.tenantId) {
-      const hdrOrg =
-        (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-        (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-        undefined;
-      const qOrg =
-        (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
-        (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-        undefined;
-      const resolved = hdrOrg || qOrg || undefined;
-      if (resolved) {
-        req.tenantId = String(resolved);
+
+    if (isList && !bypass) {
+      // If verifyAuth/requireTenant didn't resolve tenantId, accept aliases
+      if (!req.tenantId) {
+        const hdrOrg =
+          (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+          (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+          (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+          undefined;
+        const qOrg =
+          (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+          (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+          undefined;
+        const resolved = hdrOrg || qOrg || undefined;
+        if (resolved) {
+          req.tenantId = String(resolved);
+        }
       }
     }
 
-    // Diagnostics (similar to session-tracking)
+    // Diagnostics headers similar to users route
     try {
       if (req.tenantScopeDisabled || req.allTenants) {
         res.set('X-All-Tenants', 'true');
@@ -60,10 +66,11 @@ router.use((req, res, next) => {
         res.set(
           'X-Applied-Filter',
           JSON.stringify({
-            $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }],
+            $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }],
           })
         );
       }
+      try { res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs'); } catch (_) {}
     } catch (_) {}
   } catch (_) {
     // non-fatal
@@ -71,14 +78,16 @@ router.use((req, res, next) => {
   next();
 });
 
-// Route-local super admin (T0000) bypass detector
+/**
+ * Super Admin and T0000 bypass (route-local, consistent with users route)
+ */
 router.use((req, res, next) => {
   try {
     const hdr = (req.headers?.['x-organization-id'] || '').toString();
     const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
     const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
     const requestedTenant = hdr || qOrg || authTenant || '';
-    const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
+    const isT0000 = requestedTenant && /^T0+$/i.test(requestedTenant);
 
     if (isT0000) {
       req.tenantScopeDisabled = true;
@@ -86,19 +95,18 @@ router.use((req, res, next) => {
       req.costsAllTenantsBypass = true;
       try {
         res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
       } catch (_) {}
-      console.log('[llmCosts.routes] SuperAdmin bypass applied', {
+      console.log('[llmCosts.routes] SuperAdmin/T0000 bypass applied', {
         inputs: { hdr, qOrg, authTenant },
         requestedTenant,
         isT0000,
-        bypassApplied: true,
       });
     } else {
-      console.log('[llmCosts.routes] No bypass', {
+      console.log('[llmCosts.routes] bypass not applied', {
         inputs: { hdr, qOrg, authTenant },
         requestedTenant,
         isT0000,
-        bypassApplied: false,
       });
     }
   } catch (e) {
@@ -108,30 +116,24 @@ router.use((req, res, next) => {
 });
 
 /**
- * Expose applied tenant for quick debugging on responses at this router scope
- * Adds both X-Applied-Tenant and x-applied-organization-id for preview verification.
+ * Diagnostics header injector
  */
-router.use(async (req, res, next) => {
+router.use((req, res, next) => {
   try {
-    if (req.tenantId) {
-      res.set('X-Applied-Tenant', String(req.tenantId));
-      res.set('x-applied-organization-id', String(req.tenantId));
-      const tenant = String(req.tenantId);
-      const orgFilter = {
-        $or: [
-          { tenant_id: tenant },
-          { organization_id: tenant },
-          { orgId: tenant },
-          { tenantId: tenant },
-          { organizationId: tenant },
-          { 'tenant.tenant_id': tenant },
-        ],
-      };
-      res.set('X-Applied-Filter', JSON.stringify(orgFilter));
-      try {
-        res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
-      } catch (_) {}
+    if (req.tenantScopeDisabled || req.allTenants) {
+      res.set('X-All-Tenants', 'true');
+      res.set('X-Applied-Tenant', 'all-tenants');
+    } else if (req.tenantId) {
+      const t = String(req.tenantId);
+      res.set('X-Applied-Tenant', t);
+      res.set(
+        'X-Applied-Filter',
+        JSON.stringify({
+          $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }],
+        })
+      );
     }
+    try { res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs'); } catch (_) {}
   } catch (_) {}
   next();
 });
@@ -155,216 +157,48 @@ router.use(async (req, res, next) => {
  *       Tenant scoping: When Authorization is present, JWT tenant is enforced and overrides header/query. If a different organization_id/tenant_id is provided than the JWT tenant, the request is rejected with 403.
  *       In demo mode without JWT, x-organization-id header or query aliases (?tenant_id/organization_id) can be used to set scope.
  *       The server ignores any tenant fields in the filter and injects the resolved tenant internally.
- *       Debug: response will include x-applied-organization-id and x-applied-tenant-filter headers for troubleshooting.
- *       Safe defaults: server sorts by '-timestamp' (indexed) to avoid large in-memory sorts; large sorts use allowDiskUse(true).
+ *       Sorting does not require a timestamp field; it defaults safely to -timestamp if provided or allowed.
  *     tags: [LLMCosts]
  *     operationId: listLlmCosts
  *     parameters:
- *       - $ref: '#/components/parameters/xOrganizationId'
+ *       - in: header
+ *         name: x-organization-id
+ *         schema: { type: string }
+ *         required: false
+ *         description: Tenant (organization) ID when JWT is not present.
  *       - in: query
  *         name: organization_id
- *         schema:
- *           type: string
- *         description: Optional tenant (alias). Alternative to header; ignored if header is provided. Payload.tenant_id will be overridden by resolved tenant.
+ *         schema: { type: string }
  *       - in: query
  *         name: tenant_id
- *         schema:
- *           type: string
- *         description: Optional tenant. Alternative to header; ignored if header is provided. Payload.tenant_id will be overridden by resolved tenant.
+ *         schema: { type: string }
  *       - in: query
  *         name: page
- *         schema:
- *           type: integer
- *           minimum: 1
- *         description: Optional page number to enable envelope response
+ *         schema: { type: integer, minimum: 1 }
  *       - in: query
  *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 200
- *         description: Optional page size to enable envelope response
+ *         schema: { type: integer, minimum: 1, maximum: 200 }
  *       - in: query
  *         name: sort
- *         schema:
- *           type: string
- *         description: Sort string (whitelist: timestamp, created_at, _id). Default -timestamp.
+ *         schema: { type: string }
+ *         description: Allowed values include: timestamp, created_at, _id (prefix with '-' for desc). Default -timestamp.
  *       - in: query
  *         name: filter
- *         schema:
- *           type: string
- *         description: JSON filter (e.g., {"tenant_id":"org1","llm_model":"gpt-4o"})
- *     responses:
- *       200:
- *         description: Successful response (array or envelope based on pagination params)
- *         content:
- *           application/json:
- *             schema:
- *               oneOf:
- *                 - type: array
- *                   items:
- *                     $ref: '#/components/schemas/GenericDocument'
- *                 - $ref: '#/components/schemas/ListEnvelope'
- *       400:
- *         description: Missing tenant (x-organization-id) or invalid filter
- */
-router.get('/', asyncHandler(controller.list));
-
-/**
- * @swagger
- * /api/llm-costs/{id}:
- *   get:
- *     summary: Get an LLM cost record by ID
- *     tags: [LLMCosts]
- *     operationId: getLlmCostById
- *     parameters:
- *       - $ref: '#/components/parameters/xOrganizationId'
- *       - in: query
- *         name: organization_id
- *         schema:
- *           type: string
- *         description: Optional alternative to header; ignored if header is provided.
- *       - in: query
- *         name: tenant_id
- *         schema:
- *           type: string
- *         description: Optional alternative to header; ignored if header is provided.
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
+ *         schema: { type: string }
+ *         description: Optional JSON filter; tenant fields are ignored server-side.
  *     responses:
  *       200:
  *         description: OK
- *       404:
- *         description: Not found
  *       400:
- *         description: Invalid id
+ *         description: Invalid filter or missing tenant (when not bypass)
  *       403:
- *         description: Missing or invalid tenant header (x-organization-id)
+ *         description: Forbidden on tenant mismatch with Authorization
  */
+router.get('/', asyncHandler(controller.list));
+
 router.get('/:id', asyncHandler(controller.getById));
-
-/**
- * @swagger
- * /api/llm-costs:
- *   post:
- *     summary: Create LLM cost record
- *     operationId: createLlmCost
- *     description: |
- *       Creates a new LLM cost record scoped to the tenant resolved from `x-organization-id`.
- *       Client may include `tenant_id` in payload based on user login, but it will be overridden by the resolved tenant.
- *     tags: [LLMCosts]
- *     parameters:
- *       - $ref: '#/components/parameters/xOrganizationId'
- *       - in: query
- *         name: organization_id
- *         schema:
- *           type: string
- *         description: Optional alternative to header; ignored if header is provided. Payload tenant fields are overridden.
- *       - in: query
- *         name: tenant_id
- *         schema:
- *           type: string
- *         description: Optional alternative to header; ignored if header is provided. Payload tenant fields are overridden.
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *           example:
- *             tenant_id: org_123
- *             llm_model: gpt-4o
- *             total_cost: 0.23
- *     responses:
- *       201:
- *         description: Created
- *       422:
- *         description: Validation failed
- *       400:
- *         description: Missing tenant (x-organization-id) or bad request
- */
 router.post('/', asyncHandler(controller.create));
-
-/**
- * @swagger
- * /api/llm-costs/{id}:
- *   put:
- *     summary: Update LLM cost record
- *     operationId: updateLlmCost
- *     description: |
- *       Updates an LLM cost record. Server enforces tenant scoping from `x-organization-id`.
- *       Client may include tenant fields in payload, but they are overridden by the resolved tenant.
- *     tags: [LLMCosts]
- *     parameters:
- *       - $ref: '#/components/parameters/xOrganizationId'
- *       - in: query
- *         name: organization_id
- *         schema:
- *           type: string
- *         description: Optional alternative to header; ignored if header is provided.
- *       - in: query
- *         name: tenant_id
- *         schema:
- *           type: string
- *         description: Optional alternative to header; ignored if header is provided.
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *     responses:
- *       200:
- *         description: Updated
- *       404:
- *         description: Not found
- *       400:
- *         description: Invalid id or payload
- *       422:
- *         description: Validation failed
- */
 router.put('/:id', asyncHandler(controller.update));
-
-/**
- * @swagger
- * /api/llm-costs/{id}:
- *   delete:
- *     summary: Delete LLM cost record
- *     operationId: deleteLlmCost
- *     tags: [LLMCosts]
- *     parameters:
- *       - $ref: '#/components/parameters/xOrganizationId'
- *       - in: query
- *         name: organization_id
- *         schema:
- *           type: string
- *         description: Optional alternative to header; ignored if header is provided.
- *       - in: query
- *         name: tenant_id
- *         schema:
- *           type: string
- *         description: Optional alternative to header; ignored if header is provided.
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Deleted
- *       404:
- *         description: Not found
- *       400:
- *         description: Invalid id
- */
 router.delete('/:id', asyncHandler(controller.remove));
 
 module.exports = router;
