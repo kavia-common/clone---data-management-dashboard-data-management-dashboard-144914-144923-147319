@@ -173,8 +173,11 @@ function projectLabelStage(granularity) {
 
 // PUBLIC_INTERFACE
 async function getLlmCostsOverTime({ tenantId, from, to, granularity = 'day' } = {}) {
+  // Accept alias keys if passed from controllers
+  const effFrom = from || undefined;
+  const effTo = to || undefined;
   const g = resolveGranularity(granularity);
-  const { fromUtc, toUtc } = resolveTimeBounds({ from, to });
+  const { fromUtc, toUtc } = resolveTimeBounds({ from: effFrom, to: effTo });
 
   // Build tenant $match
   const tenantMatch = tenantId

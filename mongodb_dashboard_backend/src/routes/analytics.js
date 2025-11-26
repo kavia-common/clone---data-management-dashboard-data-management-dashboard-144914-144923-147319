@@ -73,7 +73,16 @@ analyticsRouter.get(
   '/users/active-trend',
   verifyAuth,
   requireTenant,
-  (req, res, next) => { try { res.set('Cache-Control', 'no-store'); res.set('Access-Control-Allow-Origin', '*'); } catch(_) {} next(); },
+  (req, res, next) => {
+    try {
+      // normalize alias params for downstream controller
+      if (!req.query?.from && req.query?.start) req.query.from = req.query.start;
+      if (!req.query?.to && req.query?.end) req.query.to = req.query.end;
+      res.set('Cache-Control', 'no-store');
+      res.set('Access-Control-Allow-Origin', '*');
+    } catch(_) {}
+    next();
+  },
   asyncHandler(getUsersActiveTrendController)
 );
 
