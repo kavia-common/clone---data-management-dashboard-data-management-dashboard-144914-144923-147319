@@ -1,66 +1,75 @@
-/** PUBLIC_INTERFACE
+import { getApiClient } from './baseClient';
+import { getApiBase } from './config';
+
+/**
+ * PUBLIC_INTERFACE
  * getActiveUsersTrend
- * Calls the stable analytics endpoint /api/analytics/users/active-trend and normalizes
- * the response to { items: [{ date, total }], meta } for UI consumption.
+ * Fetch active users time series.
+ *
+ * Strategy:
+ * 1) Prefer backend active users trend from USERS collection if available:
+ *    GET /api/users/active-trend-from-users?granularity=day|week&start=&end=
+ *    - Treat organization_id as tenant scope (auto-injected by base client)
+ * 2) Fallback to sessions-based endpoint:
+ *    GET /api/users/active-trend (session_tracking derived)
+ *
+ * @param {Object} params - Query params
+ * @param {string|Date} [params.from] - ISO or Date start (inclusive)
+ * @param {string|Date} [params.to] - ISO or Date end (inclusive)
+ * @param {'day'|'week'} [params.granularity='day'] - Bucket size
+ * @param {string} [params.status] - Optional statuses filter for legacy endpoint
+ * @param {string} [params.tenantId] - Optional tenant scope (mapped to tenant_id query param)
+ * @returns {Promise<{items: Array<{date: string, total: number}>, meta: any}>}
  */
-import { getApiBaseUrl } from './util';
-import { buildAuthHeaders, getOrganizationId } from './authTokenProvider';
+export async function getActiveUsersTrend(params = {}) {
+  const { from, to, granularity = 'day', status, tenantId } = params;
 
-function resolveBase() {
-  const envBase = (typeof getApiBaseUrl === 'function' && getApiBaseUrl()) || '';
-  if (envBase) return String(envBase).replace(/\/*$/, '');
+  const toIso = (v) => (v instanceof Date ? v.toISOString() : v);
+
+  const usersQuery = new URLSearchParams();
+  if (from) usersQuery.set('start', toIso(from));
+  if (to) usersQuery.set('end', toIso(to));
+  if (granularity) usersQuery.set('granularity', granularity);
+  if (tenantId) usersQuery.set('tenant_id', tenantId);
+
+  const legacyQuery = new URLSearchParams();
+  if (from) legacyQuery.set('from', toIso(from));
+  if (to) legacyQuery.set('to', toIso(to));
+  if (granularity) legacyQuery.set('granularity', granularity);
+  if (status) legacyQuery.set('status', status);
+  if (tenantId) legacyQuery.set('tenant_id', tenantId);
+
+  const baseUrl = getApiBase();
+  const api = getApiClient();
+
   try {
-    const u = new URL(window.location.href);
-    return `${u.protocol}//${u.hostname}:3001`;
+    const urlUsers = `${baseUrl}/users/active-trend-from-users?${usersQuery.toString()}`;
+    const resUsers = await api.get(urlUsers);
+    const dataUsers = resUsers?.data ?? resUsers;
+    if (dataUsers && (Array.isArray(dataUsers.items) || Array.isArray(dataUsers))) {
+      if (!dataUsers.items) {
+        return { items: Array.isArray(dataUsers) ? dataUsers : [], meta: { granularity } };
+      }
+      return dataUsers;
+    }
   } catch {
-    return 'http://localhost:3001';
+    // ignore and fallback
   }
+
+  const url = `${baseUrl}/users/active-trend?${legacyQuery.toString()}`;
+  const res = await api.get(url);
+  const data = res?.data ?? res;
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid response');
+  }
+  if (!data.items) {
+    return { items: Array.isArray(data) ? data : [], meta: {} };
+  }
+  return data;
 }
 
-// PUBLIC_INTERFACE
-export async function getActiveUsersTrend({ from, to, granularity = 'day', organization_id, tenant_id, status = 'completed|active' } = {}) {
-  const base = resolveBase();
-  const orgId = organization_id || getOrganizationId();
-  const params = new URLSearchParams();
-  if (granularity) params.set('granularity', granularity);
-  if (from) params.set('from', from);
-  if (to) params.set('to', to);
-  // Optional filters (non-breaking)
-  if (orgId) params.set('organization_id', orgId);
-  if (tenant_id) params.set('tenant_id', tenant_id);
-  if (status) params.set('status', status);
+const apiUsersActiveTrend = {
+  getActiveUsersTrend,
+};
 
-  const url = `${base}/api/analytics/users/active-trend?${params.toString()}`;
-
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: buildAuthHeaders({ Accept: 'application/json' }),
-    credentials: 'omit',
-  });
-  const ct = res.headers.get('content-type') || '';
-  const payload = ct.includes('application/json') ? await res.json().catch(() => ({})) : {};
-
-  if (!res.ok) {
-    // Return empty-series compatible shape
-    return { items: [], meta: { granularity, from, to } };
-  }
-
-  // New endpoint returns {labels, datasets}
-  if (payload && Array.isArray(payload.labels) && Array.isArray(payload.datasets)) {
-    const ds = payload.datasets[0] || { data: [] };
-    const items = payload.labels.map((label, i) => ({
-      date: String(label),
-      total: Number(ds.data[i] || 0),
-    }));
-    return { items, meta: payload.meta || { granularity, from, to } };
-  }
-
-  // Old endpoint returns {items:[{date,total}]}
-  if (payload && Array.isArray(payload.items)) {
-    return { items: payload.items.map(r => ({ date: String(r.date), total: Number(r.total || 0) })), meta: payload.meta || { granularity, from, to } };
-  }
-
-  return { items: [], meta: { granularity, from, to } };
-}
-
-export default { getActiveUsersTrend };
+export default apiUsersActiveTrend;

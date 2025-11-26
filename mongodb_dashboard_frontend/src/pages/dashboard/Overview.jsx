@@ -6,11 +6,8 @@ import { fetchSessionTracking } from "../../api/sessionTracking";
 import LoadingState from "../../components/common/LoadingState";
 import ErrorState from "../../components/common/ErrorState";
 import KPIChart from "../../components/charts/KPIChart.jsx";
-// Add granularity toggle UI
 import TimeBucketFilter from "../../components/common/TimeBucketFilter.jsx";
-// Wire to stable analytics endpoints
 import { getActiveUsersTrend } from "../../api/usersActiveTrend";
-import { getLlmCostsOverTime } from "../../api/llmCostsAnalytics.js";
 
 /**
  * Utility functions to bucket timestamps by day/week and compute counts.
@@ -254,7 +251,7 @@ export default function Overview() {
     };
   }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
 
-  // Users trend fetcher — independent (wired to stable endpoint)
+  // Users trend fetcher — independent
   useEffect(() => {
     let aborted = false;
     async function loadUsers() {
@@ -262,25 +259,78 @@ export default function Overview() {
       setUsersError(null);
       try {
         const { startISO, endISO } = usersRange;
-        const backendGranularity = usersGranularity === "weekly" ? "week" : usersGranularity === "daily" ? "day" : "month";
+        const backendGranularity = usersGranularity === "weekly" ? "week" : "day";
+        const statusParam = usersStatus === "active" ? "completed|active" : undefined;
 
-        const resp = await getActiveUsersTrend({
-          from: startISO,
-          to: endISO,
-          granularity: backendGranularity === "month" ? "month" : backendGranularity,
-          status: "completed|active",
-        });
+        let items = [];
+        let backendOk = false;
+        try {
+          const resp = await getActiveUsersTrend({
+            from: startISO,
+            to: endISO,
+            granularity: backendGranularity,
+            status: statusParam,
+          });
+          items = Array.isArray(resp?.items) ? resp.items : [];
+          backendOk = items.length > 0 || Array.isArray(resp?.items);
+        } catch {
+          backendOk = false;
+        }
+
+        if (!backendOk) {
+          // Fallback: derive from users collection using created_at for bucketing plus status filter
+          const createdFilter = {
+            $and: [
+              {
+                $or: [
+                  { created_at: { $gte: startISO, $lte: endISO } },
+                  { createdAt: { $gte: startISO, $lte: endISO } },
+                ],
+              },
+              // status filter: if 'active' exclude deleted; if 'all' do not filter
+              ...(usersStatus === "active"
+                ? [{ $or: [{ status: { $exists: false } }, { status: { $nin: ["deleted", "inactive"] } }] }]
+                : []),
+            ],
+          };
+
+          const usersRes = await listUsers({
+            // Directly stringify the filter; listUsers will sanitize endpoint-specific params
+            filter: JSON.stringify(createdFilter),
+            limit: 2000,
+            sort: "-created_at",
+          });
+
+          const users = usersRes?.items || (Array.isArray(usersRes) ? usersRes : []);
+          const bucketUsers = new Map();
+          users.forEach((u) => {
+            const t = u.created_at || u.createdAt || u.date;
+            const d = t ? new Date(t) : null;
+            if (!d || Number.isNaN(d.getTime())) return;
+            const key = usersGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+            const uid = String(u._id ?? u.id ?? u.user_id ?? u.userId ?? u.email ?? "");
+            if (!uid) return;
+            if (!bucketUsers.has(key)) bucketUsers.set(key, new Set());
+            bucketUsers.get(key).add(uid);
+          });
+
+          items = Array.from(bucketUsers.entries()).map(([date, set]) => ({
+            date,
+            total: (set && set.size) || 0,
+          }));
+        }
+
+        if (aborted) return;
 
         const map = new Map();
-        (Array.isArray(resp?.items) ? resp.items : []).forEach((row) => {
-          const label = row.date || row.label || row.day || row.week || row.month;
+        (items || []).forEach((row) => {
+          const label = row.date || row.label || row.day || row.week;
           const total = Number(row.total ?? row.count ?? row.value ?? 0);
           if (!label) return;
           map.set(String(label), (map.get(String(label)) || 0) + (Number.isFinite(total) ? total : 0));
         });
 
-        const series = fillSeries(map, usersRange.startISO, usersRange.endISO, backendGranularity === "week" ? "weekly" : backendGranularity === "month" ? "weekly" : "daily");
-        if (aborted) return;
+        const series = fillSeries(map, usersRange.startISO, usersRange.endISO, usersGranularity);
         setUsersSeries(series);
       } catch (e) {
         if (aborted) return;
@@ -294,9 +344,9 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [usersRange.startISO, usersRange.endISO, usersGranularity, fillSeries]);
+  }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
 
-  // Costs trend fetcher — independent (analytics-only) wired to /api/analytics/llm-costs/over-time
+  // Costs trend fetcher — independent (analytics-only)
   useEffect(() => {
     let aborted = false;
     async function loadCosts() {
@@ -309,6 +359,7 @@ export default function Overview() {
         const backendGranularity =
           costsGranularity === "weekly" ? "week" : costsGranularity === "daily" ? "day" : "month";
 
+        const { getLlmCostsOverTime } = await import("../../api/llmCostsAnalytics.js");
         const analytics = await getLlmCostsOverTime({
           granularity: backendGranularity,
           from: startISO,
@@ -343,7 +394,7 @@ export default function Overview() {
         } else {
           // Safeguard for empty analytics: render zeroed series across the selected period
           const map = new Map();
-          series = fillSeries(map, startISO, endISO, backendGranularity === "week" ? "weekly" : backendGranularity === "month" ? "weekly" : "daily").map((p) => ({
+          series = fillSeries(map, startISO, endISO, costsGranularity).map((p) => ({
             ...p,
             value: 0,
           }));
@@ -479,25 +530,62 @@ export default function Overview() {
       <DateRangePill label={renderDateRangeLabel(usersRangeKey, usersCustomRange, usersRange)} />
       <TimeBucketFilter
         value={usersGranularity}
-        onChange={(v) => setUsersGranularity(v)}
+        onChange={(v) => setUsersGranularity(v === "monthly" ? "weekly" : v)}
         options={[
           { value: "daily", label: "Daily" },
           { value: "weekly", label: "Weekly" },
           { value: "monthly", label: "Monthly" },
         ]}
       />
+      <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8, alignItems: "center" }}>
+        <label htmlFor="users-status-filter" style={{ fontSize: 12, color: "#6B7280" }}>
+          Status
+        </label>
+        <div
+          id="users-status-filter"
+          role="group"
+          aria-label="Users status filter"
+          style={{ display: "inline-flex", border: "1px solid #E5E7EB", borderRadius: 8, overflow: "hidden", background: "#fff" }}
+        >
+          {[
+            { key: "active", label: "Active" },
+            { key: "all", label: "All" },
+          ].map((opt, idx) => {
+            const active = usersStatus === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setUsersStatus(opt.key)}
+                aria-pressed={active}
+                style={{
+                  padding: "6px 10px",
+                  border: "none",
+                  background: active ? "#0EA5E9" : "transparent",
+                  color: active ? "#fff" : "#111827",
+                  borderRight: idx === 0 ? "1px solid #E5E7EB" : "none",
+                  cursor: "pointer",
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <button
         type="button"
         onClick={() => {
-          setUsersRangeKey("30d");
+          setUsersRangeKey("7d");
           setUsersCustomRange({ start: null, end: null });
           setUsersGranularity("daily");
+          setUsersStatus("active");
         }}
         className="btn btn-ghost"
-        aria-label="Reset users filters"
+        aria-label="Clear users filters"
         style={{ marginLeft: 8 }}
       >
-        Reset
+        Clear
       </button>
     </div>
   );
@@ -527,7 +615,7 @@ export default function Overview() {
       <DateRangePill label={renderDateRangeLabel(costsRangeKey, costsCustomRange, costsRange)} />
       <TimeBucketFilter
         value={costsGranularity}
-        onChange={(v) => setCostsGranularity(v)}
+        onChange={(v) => setCostsGranularity(v === "monthly" ? "weekly" : v)}
         options={[
           { value: "daily", label: "Daily" },
           { value: "weekly", label: "Weekly" },
@@ -537,15 +625,15 @@ export default function Overview() {
       <button
         type="button"
         onClick={() => {
-          setCostsRangeKey("30d");
+          setCostsRangeKey("7d");
           setCostsCustomRange({ start: null, end: null });
-          setCostsGranularity("day");
+          setCostsGranularity("daily");
         }}
         className="btn btn-ghost"
-        aria-label="Reset costs filters"
+        aria-label="Clear costs filters"
         style={{ marginLeft: 8 }}
       >
-        Reset
+        Clear
       </button>
     </div>
   );
@@ -624,7 +712,13 @@ export default function Overview() {
                 </label>
               </div>
             </div>
-          ) : null}
+          ) : (
+            sessionsRangeKey === "custom" && (!sessionsCustomRange.start || !sessionsCustomRange.end) ? (
+              <div style={{ marginBottom: 8, color: "#6B7280", fontSize: 12 }}>
+                Select start and end dates to apply custom range.
+              </div>
+            ) : null
+          )}
           {sessionsLoading && <LoadingState message="Loading sessions trend…" height={220} />}
           {sessionsError && <ErrorState message={sessionsError?.message || "Failed to load sessions."} />}
           {!sessionsLoading && !sessionsError && (
@@ -637,7 +731,7 @@ export default function Overview() {
       <div className="block-full" style={{ gridColumn: "1 / -1" }}>
         <Card
           title="Users over time"
-          subtitle="Distinct active users by day/week/month"
+          subtitle="Distinct active users by day/week"
           actions={UsersControls}
         >
           {usersRangeKey === "custom" ? (
@@ -665,7 +759,13 @@ export default function Overview() {
                 </label>
               </div>
             </div>
-          ) : null}
+          ) : (
+            usersRangeKey === "custom" && (!usersCustomRange.start || !usersCustomRange.end) ? (
+              <div style={{ marginBottom: 8, color: "#6B7280", fontSize: 12 }}>
+                Select start and end dates to apply custom range.
+              </div>
+            ) : null
+          )}
           {usersLoading && <LoadingState message="Loading users trend…" height={220} />}
           {usersError && <ErrorState message={usersError?.message || "Failed to load users trend."} />}
           {!usersLoading && !usersError && (
@@ -678,7 +778,7 @@ export default function Overview() {
       <div className="block-full" style={{ gridColumn: "1 / -1" }}>
         <Card
           title="Costs over time"
-          subtitle="Total USD by day/week/month"
+          subtitle="Total USD by day/week"
           actions={CostsControls}
         >
           {costsRangeKey === "custom" ? (
@@ -706,7 +806,13 @@ export default function Overview() {
                 </label>
               </div>
             </div>
-          ) : null}
+          ) : (
+            costsRangeKey === "custom" && (!costsCustomRange.start || !costsCustomRange.end) ? (
+              <div style={{ marginBottom: 8, color: "#6B7280", fontSize: 12 }}>
+                Select start and end dates to apply custom range.
+              </div>
+            ) : null
+          )}
           {costsLoading && <LoadingState message="Loading costs trend…" height={220} />}
           {costsError && <ErrorState message={costsError?.message || "Failed to load costs trend."} />}
           {!costsLoading && !costsError && (
