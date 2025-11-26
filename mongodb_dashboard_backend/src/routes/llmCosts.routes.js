@@ -26,6 +26,51 @@ const controller = buildCrudController(LLMCost, '-timestamp'); // default indexe
  */
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 
+// PUBLIC_INTERFACE
+// Resolve tenant from header/query for GET list when JWT middleware didn't populate req.tenantId
+// Mirrors the behavior of session-tracking route to allow calls with only organization_id.
+router.use((req, res, next) => {
+  try {
+    // Only for GET list at base path or when tenant not resolved yet
+    const isList = req.method === 'GET' && (req.path === '/' || req.path === '');
+    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
+    if (isList && !bypass && !req.tenantId) {
+      const hdrOrg =
+        (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+        (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+        undefined;
+      const qOrg =
+        (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+        (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+        undefined;
+      const resolved = hdrOrg || qOrg || undefined;
+      if (resolved) {
+        req.tenantId = String(resolved);
+      }
+    }
+
+    // Diagnostics (similar to session-tracking)
+    try {
+      if (req.tenantScopeDisabled || req.allTenants) {
+        res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
+      } else if (req.tenantId) {
+        const t = String(req.tenantId);
+        res.set('X-Applied-Tenant', t);
+        res.set(
+          'X-Applied-Filter',
+          JSON.stringify({
+            $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }],
+          })
+        );
+      }
+    } catch (_) {}
+  } catch (_) {
+    // non-fatal
+  }
+  next();
+});
+
 // Route-local super admin (T0000) bypass detector
 router.use((req, res, next) => {
   try {

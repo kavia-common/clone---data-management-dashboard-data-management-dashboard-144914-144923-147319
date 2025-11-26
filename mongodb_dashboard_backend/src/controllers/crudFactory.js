@@ -221,8 +221,23 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Enforce tenant BEFORE any sort to promote index usage.
       // Allow Super Admin global mode to bypass tenant checks
-      const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass || req.sessionsAllTenantsBypass || req.deploymentsAllTenantsBypass);
+      const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass || req.sessionsAllTenantsBypass || req.deploymentsAllTenantsBypass || req.costsAllTenantsBypass);
       try { if (bypass) { res.set('X-All-Tenants', 'true'); } } catch(_) {}
+      // Relaxed: for list endpoints like /api/llm-costs and /api/session-tracking, allow organization_id/tenant_id query/header
+      if (!bypass && !req.tenantId) {
+        // Attempt final resolution from common aliases if present
+        const hdrOrg =
+          (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+          (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+          '';
+        const qOrg =
+          (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+          (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+          '';
+        if (hdrOrg || qOrg) {
+          req.tenantId = String(hdrOrg || qOrg);
+        }
+      }
       if (!bypass && !req.tenantId) {
         return failure(res, 'Missing tenant scope', 400);
       }
