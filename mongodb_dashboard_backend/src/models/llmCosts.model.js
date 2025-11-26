@@ -17,7 +17,6 @@ const LLMCostsSchema = new mongoose.Schema(
     task_id: { type: String, index: true },
     session_id: { type: String, index: true }, // if linked with session_tracking
     tenant_id: { type: String, index: true },
-    tenant_id: { type: String, index: true },
     organization_id: { type: String, index: true },
     user_id: { type: mongoose.Schema.Types.Mixed, index: true },
     organization_name: { type: String },

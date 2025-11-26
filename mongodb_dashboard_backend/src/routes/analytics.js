@@ -4,6 +4,7 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { newUsersOverTime } = require('../controllers/analytics.controller');
 const { getLlmCostByAgentController } = require('../controllers/llmCost.controller');
+// Ensure over-time analytics controller is imported and registered
 const { getLlmCostsOverTimeController } = require('../controllers/llmCosts.overTime.controller');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
@@ -49,6 +50,8 @@ analyticsRouter.get(
   '/llm-cost-by-agent',
   verifyAuth,
   requireTenant,
+  // CORS-safe: allow OPTIONS preflight and set no-store
+  (req, res, next) => { try { res.set('Cache-Control', 'no-store'); res.set('Access-Control-Allow-Origin', '*'); } catch(_) {} next(); },
   asyncHandler(getLlmCostByAgentController)
 );
 
@@ -57,6 +60,7 @@ analyticsRouter.get(
   '/llm-costs/over-time',
   verifyAuth,
   requireTenant,
+  (req, res, next) => { try { res.set('Cache-Control', 'no-store'); res.set('Access-Control-Allow-Origin', '*'); } catch(_) {} next(); },
   asyncHandler(getLlmCostsOverTimeController)
 );
 
