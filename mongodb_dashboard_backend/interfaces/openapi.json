@@ -90,10 +90,56 @@
         }
       }
     },
+    "/api/analytics/users/active-trend": {
+      "get": {
+        "summary": "Active users over time",
+        "description": "Aggregates distinct active users over time into time buckets (day|week|month) from session_tracking. Supports tenant scoping and T0000 super-admin bypass.",
+        "tags": ["Analytics","Users"],
+        "parameters": [
+          { "in": "query", "name": "granularity", "schema": { "type": "string", "enum": ["day","week","month"], "default": "day" }, "description": "Bucket granularity" },
+          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date-time" }, "description": "ISO start datetime (inclusive day)" },
+          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date-time" }, "description": "ISO end datetime (inclusive day)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active users time series for charting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "labels": { "type": "array", "items": { "type": "string" } },
+                    "datasets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": { "type": "string" },
+                          "data": { "type": "array", "items": { "type": "number" } }
+                        }
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "granularity": { "type": "string" },
+                        "from": { "type": "string", "format": "date-time" },
+                        "to": { "type": "string", "format": "date-time" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
     "/api/analytics/llm-costs/over-time": {
       "get": {
         "summary": "LLM costs over time",
-        "description": "Aggregates the llm-costs collection into time buckets (day|week|month), summing total cost in USD using robust field fallbacks. Returns labels and datasets suitable for charting. Tenant scoping enforced from JWT/header; T0000 bypass supported.",
+        "description": "Aggregates the llm-costs collection into time buckets (day|week|month), summing total cost in USD using robust field fallbacks and currency string normalization (e.g., \"$1,234.56\"). Returns {labels, datasets:[{label:'Total Cost', data:[]}]}. Tenant scoping enforced from JWT/header; T0000 bypass supported.",
         "tags": ["Analytics"],
         "parameters": [
           {

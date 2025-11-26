@@ -6,6 +6,7 @@ const { newUsersOverTime } = require('../controllers/analytics.controller');
 const { getLlmCostByAgentController } = require('../controllers/llmCost.controller');
 // Ensure over-time analytics controller is imported and registered
 const { getLlmCostsOverTimeController } = require('../controllers/llmCosts.overTime.controller');
+const { getUsersActiveTrendController } = require('../controllers/users.activeTrend.controller');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 
@@ -64,7 +65,19 @@ analyticsRouter.get(
   asyncHandler(getLlmCostsOverTimeController)
 );
 
-// New users over time
+/**
+ * Users active trend (replacement for legacy /api/users/active-trend-from-users)
+ * GET /api/analytics/users/active-trend
+ */
+analyticsRouter.get(
+  '/users/active-trend',
+  verifyAuth,
+  requireTenant,
+  (req, res, next) => { try { res.set('Cache-Control', 'no-store'); res.set('Access-Control-Allow-Origin', '*'); } catch(_) {} next(); },
+  asyncHandler(getUsersActiveTrendController)
+);
+
+// New users over time (unchanged)
 analyticsRouter.get('/users/new-over-time', verifyAuth, requireTenant, asyncHandler(newUsersOverTime));
 
 module.exports = analyticsRouter;

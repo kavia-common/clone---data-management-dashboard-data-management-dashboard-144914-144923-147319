@@ -16,7 +16,7 @@
  * Returns result formatted for chart consumption:
  * {
  *   labels: ['YYYY-MM-DD', ...],
- *   datasets: [{ label: 'Total cost (USD)', data: [number, ...] }],
+ *   datasets: [{ label: 'Total Cost', data: [number, ...] }],
  *   meta: { granularity: 'day'|'week'|'month', from: ISOString, to: ISOString }
  * }
  */
@@ -273,7 +273,7 @@ async function getLlmCostsOverTime({ tenantId, from, to, granularity = 'day' } =
     labels,
     datasets: [
       {
-        label: 'Total cost (USD)',
+        label: 'Total Cost',
         data: data.map((v) => Number(v)),
       },
     ],
