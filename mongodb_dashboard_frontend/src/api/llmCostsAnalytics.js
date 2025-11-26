@@ -1,5 +1,6 @@
 import { getApiBase } from './config';
 import { getApiClient } from './baseClient';
+import { getAuthContext } from './client';
 
 /**
  * PUBLIC_INTERFACE
@@ -21,28 +22,59 @@ export async function getLlmCostsOverTime({ granularity = 'day', from, to } = {}
   if (to) qs.set('to', to);
   const url = `${base}/analytics/llm-costs/over-time?${qs.toString()}`;
 
-  const res = await api.get(url);
+  // Ensure tenant context is included for multi-tenant aware endpoints
+  const { tenant_id } = getAuthContext();
+  const headers = {};
+  if (tenant_id) {
+    headers['x-organization-id'] = tenant_id; // backend supports this header; alias to tenant
+    headers['x-tenant-id'] = tenant_id; // keep x-tenant-id for consistency with other clients
+  }
+
+  const res = await api.get(url, { headers }).catch((e) => {
+    // surface minimal, normalized debug info without throwing yet
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        // eslint-disable-next-line no-console
+        console.warn('[llmCostsAnalytics] GET failed, will normalize empty:', e?.message || e);
+      } catch {}
+    }
+    return { data: {} };
+  });
   const payload = res?.data ?? res ?? {};
 
   // Defensive normalization: accept both direct shape and enveloped
-  const labels = Array.isArray(payload.labels)
-    ? payload.labels.map((l) => String(l))
-    : Array.isArray(payload.data?.labels)
-    ? payload.data.labels.map((l) => String(l))
-    : [];
+  let labels = [];
+  if (Array.isArray(payload.labels)) {
+    labels = payload.labels.map((l) => String(l));
+  } else if (Array.isArray(payload.data?.labels)) {
+    labels = payload.data.labels.map((l) => String(l));
+  } else if (Array.isArray(payload.items)) {
+    // Some backends return items: [{ date, total }] or similar
+    labels = payload.items.map((it) => String(it?.date ?? it?.label ?? ''));
+  }
 
-  const rawDatasets = Array.isArray(payload.datasets)
-    ? payload.datasets
-    : Array.isArray(payload.data?.datasets)
-    ? payload.data.datasets
-    : [];
+  let rawDatasets = [];
+  if (Array.isArray(payload.datasets)) {
+    rawDatasets = payload.datasets;
+  } else if (Array.isArray(payload.data?.datasets)) {
+    rawDatasets = payload.data.datasets;
+  } else if (Array.isArray(payload.items)) {
+    // Build dataset from items fallback if datasets missing
+    const itemData = payload.items.map((it) => it?.total ?? it?.value ?? it?.amount ?? it?.cost ?? 0);
+    rawDatasets = [{ label: 'Total cost (USD)', data: itemData }];
+  }
 
   const first = rawDatasets.length > 0 ? rawDatasets[0] : null;
-  const rawData = Array.isArray(first?.data)
-    ? first.data
-    : Array.isArray(payload.data)
-    ? payload.data
-    : [];
+
+  // Determine raw data array with safe fallbacks
+  let rawData = [];
+  if (Array.isArray(first?.data)) {
+    rawData = first.data;
+  } else if (Array.isArray(payload.data)) {
+    rawData = payload.data;
+  } else if (Array.isArray(payload.items)) {
+    rawData = payload.items.map((it) => it?.total ?? it?.value ?? it?.amount ?? it?.cost ?? 0);
+  }
 
   // Coerce values to finite numbers (strip currency symbols if needed)
   const toNumber = (v) => {
@@ -51,14 +83,29 @@ export async function getLlmCostsOverTime({ granularity = 'day', from, to } = {}
       const n = Number(v.replace(/[$,]/g, ''));
       return Number.isFinite(n) ? n : 0;
     }
-    return 0;
+    if (v == null) return 0;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
   };
   const data = rawData.map(toNumber);
 
-  // If lengths mismatch, trim to the shorter length to avoid chart issues
+  // If analytics returned nothing, keep empty arrays to let caller decide on fallback
+  // Else, trim to the shorter length to avoid chart issues
   const len = Math.min(labels.length, data.length);
   const normLabels = len ? labels.slice(0, len) : labels;
   const normData = len ? data.slice(0, len) : data;
+
+  // If payload has costs_by_date shape: { 'YYYY-MM-DD': number|string }
+  if (!normLabels.length && !normData.length && payload && typeof payload === 'object' && payload.costs_by_date) {
+    const entries = Object.entries(payload.costs_by_date || {});
+    // sort by date key asc
+    entries.sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0));
+    const altLabels = entries.map(([k]) => String(k));
+    const altData = entries.map(([, v]) => toNumber(v));
+    const L = Math.min(altLabels.length, altData.length);
+    labels = altLabels.slice(0, L);
+    rawDatasets = [{ label: 'Total cost (USD)', data: altData.slice(0, L) }];
+  }
 
   const meta = payload.meta || payload.data?.meta || {
     granularity,
@@ -72,8 +119,8 @@ export async function getLlmCostsOverTime({ granularity = 'day', from, to } = {}
       // eslint-disable-next-line no-console
       console.debug('[llmCostsAnalytics] normalized over-time', {
         url,
-        labels: normLabels.length,
-        data: normData.length,
+        labels: (labels || normLabels).length,
+        data: (rawDatasets?.[0]?.data || normData).length,
         granularity: meta?.granularity,
       });
     }
@@ -81,12 +128,19 @@ export async function getLlmCostsOverTime({ granularity = 'day', from, to } = {}
     // ignore
   }
 
+  // Final normalized return (ensure arrays present and aligned)
+  const finalLabels = labels?.length ? labels : normLabels;
+  const finalData = (rawDatasets?.[0]?.data?.length ? rawDatasets[0].data : normData).map(toNumber);
+  const finalLen = Math.min(finalLabels.length, finalData.length);
+  const outLabels = finalLabels.slice(0, finalLen);
+  const outData = finalData.slice(0, finalLen);
+
   return {
-    labels: normLabels,
+    labels: outLabels,
     datasets: [
       {
-        label: first?.label || 'Total cost (USD)',
-        data: normData,
+        label: (rawDatasets?.[0]?.label) || 'Total cost (USD)',
+        data: outData,
       },
     ],
     meta,

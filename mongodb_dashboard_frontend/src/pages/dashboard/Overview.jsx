@@ -390,6 +390,12 @@ export default function Overview() {
         }
 
         if (!usedAnalytics) {
+          if (process.env.NODE_ENV !== 'production') {
+            try {
+              // eslint-disable-next-line no-console
+              console.info('[Overview Costs] Falling back to list /api/llm-costs aggregation in client');
+            } catch {}
+          }
           // 2) Fallback to raw llm-costs list and aggregate client-side
           const filter = {
             $or: [
