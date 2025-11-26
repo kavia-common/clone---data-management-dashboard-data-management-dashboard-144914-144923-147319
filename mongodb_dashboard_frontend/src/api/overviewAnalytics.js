@@ -14,25 +14,23 @@ export async function getOverviewTotals(params = {}) {
 /**
  * PUBLIC_INTERFACE
  * getCostsOverTime
- * Fetch LLM costs over time with optional filters: { from, to, granularity, organization_id|tenantId }
+ * Disabled direct call to failing endpoint (/api/analytics/llm-costs/over-time).
+ * Use new llmCostsAnalytics.getLlmCostsOverTime from src/api/llmCostsAnalytics.js in consumers instead.
+ * This function now returns a safe placeholder to avoid breaking imports.
  */
-export async function getCostsOverTime(filter = {}) {
-  const res = await client.get('/api/analytics/llm-costs/over-time', {
-    params: buildOverviewQueryParams(filter, { useStartEnd: false }),
-  });
-  return res.data;
+export async function getCostsOverTime(_filter = {}) {
+  return { labels: [], datasets: [{ label: 'Total Cost', data: [] }], meta: {} };
 }
 
 /**
  * PUBLIC_INTERFACE
  * getActiveUsersTrend
- * Fetch active users trend with optional filters: { from, to, granularity, organization_id|tenantId, status? }
+ * Disabled direct call to failing endpoint (/api/analytics/users/active-trend).
+ * Use usersActiveTrend.getActiveUsersTrend (src/api/usersActiveTrend.js) in consumers instead.
+ * This function now returns a safe placeholder to avoid breaking imports.
  */
-export async function getActiveUsersTrend(filter = {}) {
-  const res = await client.get('/api/analytics/users/active-trend', {
-    params: buildOverviewQueryParams(filter, { useStartEnd: false }),
-  });
-  return res.data;
+export async function getActiveUsersTrend(_filter = {}) {
+  return { items: [], meta: {} };
 }
 
 /**

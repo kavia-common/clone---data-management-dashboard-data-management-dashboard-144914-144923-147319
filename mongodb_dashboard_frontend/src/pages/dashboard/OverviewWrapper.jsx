@@ -3,7 +3,9 @@ import Card from '../../components/common/Card.jsx';
 import LoadingState from '../../components/common/LoadingState';
 import ErrorState from '../../components/common/ErrorState';
 import OverviewChartFilters from '../../components/overview/OverviewChartFilters';
-import { getOverviewTotals, getCostsOverTime, getActiveUsersTrend, getNewUsersOverTime } from '../../api/overviewAnalytics';
+import { getOverviewTotals, getNewUsersOverTime } from '../../api/overviewAnalytics';
+import { getLlmCostsOverTime } from '../../api/llmCostsAnalytics';
+import { getActiveUsersTrend as getActiveUsersTrendStable } from '../../api/usersActiveTrend';
 import { useAuth } from '../../context/AuthContext';
 
 /**
@@ -66,20 +68,22 @@ export default function OverviewWrapper() {
     let active = true;
     (async () => {
       try {
-        const res = await getCostsOverTime(costFilters);
+        const res = await getLlmCostsOverTime({
+          granularity: costFilters?.granularity || 'day',
+          from: costFilters?.from,
+          to: costFilters?.to,
+        });
         if (!active) return;
-        // Ensure safe structure even when empty
         const labels = Array.isArray(res?.labels) ? res.labels : [];
-        const datasets = Array.isArray(res?.datasets) ? res.datasets : [];
+        const datasets = Array.isArray(res?.datasets) ? res.datasets : [{ label: 'Total Cost', data: [] }];
         const first = datasets[0] || { data: [] };
         const data = Array.isArray(first.data) ? first.data : [];
         const L = Math.min(labels.length, data.length);
-        const safe = {
+        setCostSeries({
           labels: labels.slice(0, L),
           datasets: [{ label: first.label || 'Total Cost', data: data.slice(0, L) }],
           meta: res?.meta || {},
-        };
-        setCostSeries(safe);
+        });
       } catch (e) {
         if (!active) return;
         setCostSeries({ labels: [], datasets: [{ label: 'Total Cost', data: [] }] });
@@ -95,7 +99,7 @@ export default function OverviewWrapper() {
       try {
         // Map 'month' to 'week' for endpoints that don't support month
         const gran = activeUsersFilters.granularity === 'month' ? 'week' : activeUsersFilters.granularity;
-        const res = await getActiveUsersTrend({ ...activeUsersFilters, granularity: gran });
+        const res = await getActiveUsersTrendStable({ ...activeUsersFilters, granularity: gran });
         if (!active) return;
         setActiveUsersSeries({
           items: Array.isArray(res?.items) ? res.items : [],

@@ -42,20 +42,7 @@ export async function getActiveUsersTrend(params = {}) {
   const baseUrl = getApiBase();
   const api = getApiClient();
 
-  try {
-    const urlUsers = `${baseUrl}/users/active-trend-from-users?${usersQuery.toString()}`;
-    const resUsers = await api.get(urlUsers);
-    const dataUsers = resUsers?.data ?? resUsers;
-    if (dataUsers && (Array.isArray(dataUsers.items) || Array.isArray(dataUsers))) {
-      if (!dataUsers.items) {
-        return { items: Array.isArray(dataUsers) ? dataUsers : [], meta: { granularity } };
-      }
-      return dataUsers;
-    }
-  } catch {
-    // ignore and fallback
-  }
-
+  // Removed failing endpoint '/api/users/active-trend-from-users'
   const url = `${baseUrl}/users/active-trend?${legacyQuery.toString()}`;
   const res = await api.get(url);
   const data = res?.data ?? res;
