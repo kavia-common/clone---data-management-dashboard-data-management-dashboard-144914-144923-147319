@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import Card from '../../components/ui/Card.jsx';
+import Card from '../../components/common/Card.jsx';
 import LoadingState from '../../components/common/LoadingState';
 import ErrorState from '../../components/common/ErrorState';
 import OverviewChartFilters from '../../components/overview/OverviewChartFilters';
