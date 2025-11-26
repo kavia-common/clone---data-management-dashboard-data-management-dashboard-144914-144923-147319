@@ -313,18 +313,87 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           if (cached) {return res.status(200).json(cached);}
           
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
-          const [items, total] = await Promise.all([
-            Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean(),
-            Model.countDocuments(appliedFilter),
-          ]);
-          console.debug('get data from db---->',items)
+          let items;
+          if (Model?.modelName === 'LLMCost') {
+            try {
+              const sortStage = safeSort
+                ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
+                : { timestamp: -1 };
+              const pipeline = [
+                { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+                { $addFields: {
+                    timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                    organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
+                    numeric_total_cost: {
+                      $convert: {
+                        input: {
+                          $replaceAll: {
+                            input: { $toString: { $ifNull: ['$total_cost', 0] } },
+                            find: '$',
+                            replacement: ''
+                          }
+                        },
+                        to: 'double',
+                        onError: 0,
+                        onNull: 0
+                      }
+                    }
+                  }
+                },
+                { $sort: sortStage },
+                { $skip: skip },
+                { $limit: hardCappedLimit },
+              ];
+              items = await Model.aggregate(pipeline).allowDiskUse(true);
+            } catch (_) {
+              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+            }
+          } else {
+            items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+          }
+          const total = await Model.countDocuments(appliedFilter);
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
         }
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
-        const items = await Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
+        let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        try {
+          if (Model?.modelName === 'LLMCost') {
+            // Use aggregation for minimal transformation without large memory footprint
+            const pipeline = [
+              { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+              { $addFields: {
+                  timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                  organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
+                  numeric_total_cost: {
+                    $convert: {
+                      input: {
+                        $replaceAll: {
+                          input: { $toString: { $ifNull: ['$total_cost', 0] } },
+                          find: '$',
+                          replacement: ''
+                        }
+                      },
+                      to: 'double',
+                      onError: 0,
+                      onNull: 0
+                    }
+                  }
+                }
+              },
+              // Respect safeSort
+              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
+            ];
+            const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            return res.status(200).json(items);
+          }
+        } catch (_) {
+          // Fallback to simple find if any aggregation operator unsupported
+        }
+        const items = await query;
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
