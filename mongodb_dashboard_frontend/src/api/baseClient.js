@@ -89,6 +89,25 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
     return rest || {};
   }
 
+  // For llm-costs list root: strip 'filter' and any date-range params per backend contract
+  const isLlmCostsRoot =
+    typeof pathOrUrl === "string" &&
+    /\/api\/llm-costs(?:$|[?&#/])/.test(pathOrUrl) &&
+    !/\/api\/llm-costs\/[A-Za-z0-9_-]/.test(pathOrUrl);
+
+  if (isLlmCostsRoot) {
+    const {
+      filter,
+      start,
+      end,
+      from,
+      to,
+      // keep everything else like page, limit, sort, organization_id
+      ...rest
+    } = params || {};
+    return rest || {};
+  }
+
   return params || {};
 }
 
