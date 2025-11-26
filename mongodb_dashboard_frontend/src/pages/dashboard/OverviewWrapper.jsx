@@ -10,7 +10,7 @@ import { useAuth } from '../../context/AuthContext';
  * PUBLIC_INTERFACE
  * OverviewWrapper
  * Minimal overview page rendering totals and three charts with independent filters.
- * This does not change existing chart components; it renders JSON to keep logic intact.
+ * Adds day/week/month/custom granularity + custom date range per chart.
  */
 export default function OverviewWrapper() {
   const { organizationId } = useAuth();
@@ -18,14 +18,15 @@ export default function OverviewWrapper() {
   const [error, setError] = useState(null);
   const [totals, setTotals] = useState(null);
 
-  // Independent filters
-  const [costFilters, setCostFilters] = useState({ granularity: 'day' });
-  const [activeUsersFilters, setActiveUsersFilters] = useState({ granularity: 'day' });
-  const [newUsersFilters, setNewUsersFilters] = useState({ granularity: 'day' });
+  // Independent filters (per chart). Each preserves own state and uses organization scope.
+  const baseTenant = organizationId ? { organization_id: organizationId } : {};
+  const [costFilters, setCostFilters] = useState({ ...baseTenant, granularity: 'day' });
+  const [activeUsersFilters, setActiveUsersFilters] = useState({ ...baseTenant, granularity: 'day' });
+  const [newUsersFilters, setNewUsersFilters] = useState({ ...baseTenant, granularity: 'day' });
 
-  const [costSeries, setCostSeries] = useState(null);
-  const [activeUsersSeries, setActiveUsersSeries] = useState(null);
-  const [newUsersSeries, setNewUsersSeries] = useState(null);
+  const [costSeries, setCostSeries] = useState({ labels: [], datasets: [] });
+  const [activeUsersSeries, setActiveUsersSeries] = useState({ items: [], meta: {} });
+  const [newUsersSeries, setNewUsersSeries] = useState({ items: [], meta: {} });
 
   const tenantsList = useMemo(() => {
     if (!organizationId) return [];
@@ -52,6 +53,14 @@ export default function OverviewWrapper() {
     return () => { mounted = false; };
   }, []);
 
+  // Keep organization scope in filters when auth changes
+  useEffect(() => {
+    if (!organizationId) return;
+    setCostFilters((f) => ({ ...f, organization_id: organizationId }));
+    setActiveUsersFilters((f) => ({ ...f, organization_id: organizationId }));
+    setNewUsersFilters((f) => ({ ...f, organization_id: organizationId }));
+  }, [organizationId]);
+
   // Costs
   useEffect(() => {
     let active = true;
@@ -59,9 +68,21 @@ export default function OverviewWrapper() {
       try {
         const res = await getCostsOverTime(costFilters);
         if (!active) return;
-        setCostSeries(res);
+        // Ensure safe structure even when empty
+        const labels = Array.isArray(res?.labels) ? res.labels : [];
+        const datasets = Array.isArray(res?.datasets) ? res.datasets : [];
+        const first = datasets[0] || { data: [] };
+        const data = Array.isArray(first.data) ? first.data : [];
+        const L = Math.min(labels.length, data.length);
+        const safe = {
+          labels: labels.slice(0, L),
+          datasets: [{ label: first.label || 'Total Cost', data: data.slice(0, L) }],
+          meta: res?.meta || {},
+        };
+        setCostSeries(safe);
       } catch (e) {
         if (!active) return;
+        setCostSeries({ labels: [], datasets: [{ label: 'Total Cost', data: [] }] });
       }
     })();
     return () => { active = false; };
@@ -72,11 +93,17 @@ export default function OverviewWrapper() {
     let active = true;
     (async () => {
       try {
-        const res = await getActiveUsersTrend(activeUsersFilters);
+        // Map 'month' to 'week' for endpoints that don't support month
+        const gran = activeUsersFilters.granularity === 'month' ? 'week' : activeUsersFilters.granularity;
+        const res = await getActiveUsersTrend({ ...activeUsersFilters, granularity: gran });
         if (!active) return;
-        setActiveUsersSeries(res);
+        setActiveUsersSeries({
+          items: Array.isArray(res?.items) ? res.items : [],
+          meta: res?.meta || {},
+        });
       } catch (e) {
         if (!active) return;
+        setActiveUsersSeries({ items: [], meta: {} });
       }
     })();
     return () => { active = false; };
@@ -87,11 +114,17 @@ export default function OverviewWrapper() {
     let active = true;
     (async () => {
       try {
-        const res = await getNewUsersOverTime(newUsersFilters);
+        // Endpoint expects start/end; helper handles mapping
+        const gran = newUsersFilters.granularity === 'month' ? 'month' : (newUsersFilters.granularity || 'day');
+        const res = await getNewUsersOverTime({ ...newUsersFilters, granularity: gran, start: newUsersFilters.from, end: newUsersFilters.to });
         if (!active) return;
-        setNewUsersSeries(res);
+        setNewUsersSeries({
+          items: Array.isArray(res?.items) ? res.items : [],
+          meta: res?.meta || {},
+        });
       } catch (e) {
         if (!active) return;
+        setNewUsersSeries({ items: [], meta: {} });
       }
     })();
     return () => { active = false; };
@@ -130,7 +163,10 @@ export default function OverviewWrapper() {
         <Card title="New Users Over Time">
           <OverviewChartFilters
             value={newUsersFilters}
-            onChange={setNewUsersFilters}
+            onChange={(next) => {
+              // For this endpoint, we support month/week/day; custom handled via from/to
+              setNewUsersFilters(next);
+            }}
             tenants={tenantsList}
             showGranularity={true}
           />

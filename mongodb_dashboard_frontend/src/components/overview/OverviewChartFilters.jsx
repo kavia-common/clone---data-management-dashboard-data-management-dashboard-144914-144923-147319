@@ -22,6 +22,8 @@ export default function OverviewChartFilters({
     onChange?.({ ...v, ...patch });
   };
 
+  const isCustom = (v.granularity || '').toLowerCase() === 'custom';
+
   return (
     <div style={{
       display: 'flex',
@@ -48,40 +50,47 @@ export default function OverviewChartFilters({
         </label>
       )}
 
-      {/* From */}
-      <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <span>From</span>
-        <input
-          type="date"
-          value={v.from ? v.from.slice(0, 10) : ''}
-          onChange={(e) => update({ from: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
-        />
-      </label>
-
-      {/* To */}
-      <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-        <span>To</span>
-        <input
-          type="date"
-          value={v.to ? v.to.slice(0, 10) : ''}
-          onChange={(e) => update({ to: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
-        />
-      </label>
-
       {/* Granularity */}
       {showGranularity && (
         <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <span>Granularity</span>
           <select
             value={v.granularity || 'day'}
-            onChange={(e) => update({ granularity: e.target.value })}
+            onChange={(e) => {
+              const g = e.target.value;
+              // When switching away from custom, keep from/to as-is (caller may clear if desired)
+              update({ granularity: g });
+            }}
           >
             <option value="day">Day</option>
             <option value="week">Week</option>
             <option value="month">Month</option>
+            <option value="custom">Custom</option>
           </select>
         </label>
       )}
+
+      {/* From (enabled for all, but specifically needed when Custom is chosen) */}
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', opacity: isCustom ? 1 : 0.9 }}>
+        <span>From</span>
+        <input
+          type="date"
+          value={v.from ? v.from.slice(0, 10) : ''}
+          onChange={(e) => update({ from: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+          aria-disabled={!isCustom ? false : false}
+        />
+      </label>
+
+      {/* To */}
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', opacity: isCustom ? 1 : 0.9 }}>
+        <span>To</span>
+        <input
+          type="date"
+          value={v.to ? v.to.slice(0, 10) : ''}
+          onChange={(e) => update({ to: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+          aria-disabled={!isCustom ? false : false}
+        />
+      </label>
     </div>
   );
 }

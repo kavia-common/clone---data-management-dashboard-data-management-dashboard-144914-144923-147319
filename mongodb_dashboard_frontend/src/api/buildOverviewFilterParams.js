@@ -29,7 +29,9 @@ export function buildOverviewQueryParams(filter = {}, options = {}) {
   }
 
   // Granularity: day|week|month (some endpoints only accept day|week)
-  if (filter.granularity) params.granularity = filter.granularity;
+  if (filter.granularity && filter.granularity !== 'custom') {
+    params.granularity = filter.granularity;
+  }
 
   // passthrough for other supported fields if provided via buildFilterParam pattern
   const extra = buildFilterParam(filter?.extra || {});
