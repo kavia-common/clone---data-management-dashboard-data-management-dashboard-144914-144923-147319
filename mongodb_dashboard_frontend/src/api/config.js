@@ -2,7 +2,7 @@
 // Centralized API base URL used by API clients
 // Keep this URL exactly as provided.
 //
-const apiBase = 'https://vscode-internal-32382-beta.beta01.cloud.kavia.ai:3001/api';
+const apiBase = 'https://vscode-internal-20936-beta.beta01.cloud.kavia.ai:3001/api';
 
 /**
  * PUBLIC_INTERFACE

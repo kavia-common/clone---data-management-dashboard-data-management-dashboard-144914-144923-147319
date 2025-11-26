@@ -84,8 +84,8 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
   }
 
   if (isSessionTrackingRoot(pathOrUrl)) {
-    // Remove any organization_id remnants; keep others like page, limit, q, sort, filter.
-    const { organization_id, ...rest } = params || {};
+    // Remove any organization_id remnants and 'filter' for session-tracking as backend ignores it now.
+    const { organization_id, filter, ...rest } = params || {};
     return rest || {};
   }
 
