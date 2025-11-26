@@ -33,17 +33,11 @@ async function getLlmCostsOverTimeController(req, res) {
       try { res.set('X-All-Tenants', 'true'); } catch (_) {}
     }
 
-    // Support aliases: start|from and end|to (accept both)
     const granularity = String(req.query?.granularity || 'day');
-    const from = req.query?.from || req.query?.start || null;
-    const to = req.query?.to || req.query?.end || null;
+    const from = req.query?.from || null;
+    const to = req.query?.to || null;
 
     const result = await getLlmCostsOverTime({ tenantId, from, to, granularity });
-
-    // If service returns nothing (e.g., DB empty or not connected), normalize to empty-series 200
-    const safe = result && Array.isArray(result.labels)
-      ? result
-      : { labels: [], datasets: [{ label: 'Total Cost', data: [] }], meta: { from: from || null, to: to || null, granularity } };
 
     // Audit (READ)
     recordAudit({
@@ -57,10 +51,8 @@ async function getLlmCostsOverTimeController(req, res) {
       user_agent: req.get('user-agent') || '',
     }).catch(() => {});
 
-    // CORS consistency for analytics endpoints
-    try { res.set('Access-Control-Allow-Origin', '*'); } catch(_) {}
     res.set('Cache-Control', 'no-store');
-    return res.status(200).json(safe);
+    return res.status(200).json(result);
   } catch (err) {
     recordAudit({
       action: 'READ',
@@ -75,10 +67,7 @@ async function getLlmCostsOverTimeController(req, res) {
     }).catch(() => {});
 
     console.error('[analytics] /llm-costs/over-time failed:', err?.message || err);
-    // Return empty-series instead of error to not break Overview charts
-    try { res.set('Access-Control-Allow-Origin', '*'); } catch(_) {}
-    res.set('Cache-Control', 'no-store');
-    return res.status(200).json({ labels: [], datasets: [{ label: 'Total Cost', data: [] }], meta: { granularity: String(req.query?.granularity || 'day'), from: req.query?.from || req.query?.start || null, to: req.query?.to || req.query?.end || null } });
+    return res.status(500).json({ error: 'Failed to aggregate LLM costs over time' });
   }
 }
 

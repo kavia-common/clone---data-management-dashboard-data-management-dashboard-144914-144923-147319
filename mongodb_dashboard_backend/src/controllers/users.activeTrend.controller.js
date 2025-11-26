@@ -127,10 +127,7 @@ async function getUsersActiveTrendController(req, res) {
   try {
     const granularity = normalizeGranularity(req.query?.granularity || 'day');
     const statusParam = (req.query?.status || 'completed|active').trim();
-    // Support aliases start|from and end|to
-    const qFrom = req.query?.from || req.query?.start;
-    const qTo = req.query?.to || req.query?.end;
-    const { fromUtc, toUtc } = resolveRange(qFrom, qTo);
+    const { fromUtc, toUtc } = resolveRange(req.query?.from, req.query?.to);
 
     // Determine tenant scope with bypass support (T0000)
     const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.analyticsAllTenantsBypass);

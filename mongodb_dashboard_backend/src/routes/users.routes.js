@@ -441,17 +441,4 @@ router.post('/', controller.create);
 router.put('/:id', controller.update);
 router.delete('/:id', controller.remove);
 
-/**
- * Legacy endpoint: /api/users/active-trend-from-users
- * Returns 410 Gone and instructs clients to use /api/analytics/users/active-trend
- */
-router.get('/active-trend-from-users', (req, res) => {
-  try { res.set('Cache-Control', 'no-store'); res.set('Access-Control-Allow-Origin', '*'); } catch(_) {}
-  return res.status(410).json({
-    success: false,
-    message: 'This endpoint is deprecated. Use /api/analytics/users/active-trend instead.',
-    replacement: '/api/analytics/users/active-trend',
-  });
-});
-
 module.exports = router;
