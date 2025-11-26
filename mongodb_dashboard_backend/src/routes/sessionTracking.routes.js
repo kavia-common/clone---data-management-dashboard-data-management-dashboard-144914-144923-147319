@@ -315,23 +315,19 @@ router.get(
     }
 
     // --------------------------------------------------
-    // Filter parsing
+    // Filtering changes per requirement:
+    // - Ignore/remove any 'filter' query parameter entirely.
+    // - Do not construct or apply compound date filters from start/end.
+    // - Retain tenant/organization scoping and optional text search (q).
     // --------------------------------------------------
-    let filter = {};
-    try {
-      filter = req.query.filter ? JSON.parse(req.query.filter) : {};
-    } catch {
-      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+
+    // Explicitly ignore 'filter' param if present
+    if (typeof req.query.filter !== 'undefined') {
+      try { res.set('X-Filter-Ignored', 'true'); } catch {}
     }
+    const filter = {}; // no additional filter from client
 
-    delete filter.tenant_id;
-    delete filter.organization_id;
-    delete filter.organizationId;
-    if (Array.isArray(filter.$or)) delete filter.$or;
-
-    // --------------------------------------------------
-    // FIXED: Single enforcedScope variable
-    // --------------------------------------------------
+    // Tenant enforced scope (unchanged)
     const enforcedScope = (!bypass && enforcedTenant)
       ? {
           $or: [
@@ -342,40 +338,15 @@ router.get(
         }
       : {};
 
-    // --------------------------------------------------
-    // Date filter (explicit only)
-    // --------------------------------------------------
-    let timeFilter = {};
+    // Do not apply server-side date filters for this listing endpoint now
+    const timeFilter = {};
 
-    if (req.query.start || req.query.end) {
-      let start = null;
-      let end = null;
-
-      if (req.query.start && isValidISODate(req.query.start)) {
-        start = parseISODateSafe(req.query.start);
-      }
-
-      if (req.query.end && isValidISODate(req.query.end)) {
-        end = parseISODateSafe(req.query.end);
-        end.setUTCHours(23, 59, 59, 999);
-      }
-
-      if (start && !end) end = new Date();
-      if (end && !start) start = new Date(0);
-
-      timeFilter = { session_start: { $gte: start, $lte: end } };
-    }
-
-    // --------------------------------------------------
-    // Combine filters
-    // --------------------------------------------------
+    // Combine qFilter and enforcedScope only
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
 
-    if (!isEmpty(filter)) parts.push(filter);
     if (!isEmpty(qFilter)) parts.push(qFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
-    if (!isEmpty(timeFilter)) parts.push(timeFilter);
 
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
