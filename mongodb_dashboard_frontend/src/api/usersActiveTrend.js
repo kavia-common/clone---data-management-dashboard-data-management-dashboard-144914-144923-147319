@@ -18,14 +18,16 @@ function resolveBase() {
 }
 
 // PUBLIC_INTERFACE
-export async function getActiveUsersTrend({ from, to, granularity = 'day', organization_id, status = 'completed|active' } = {}) {
+export async function getActiveUsersTrend({ from, to, granularity = 'day', organization_id, tenant_id, status = 'completed|active' } = {}) {
   const base = resolveBase();
   const orgId = organization_id || getOrganizationId();
   const params = new URLSearchParams();
   if (granularity) params.set('granularity', granularity);
   if (from) params.set('from', from);
   if (to) params.set('to', to);
+  // Optional filters (non-breaking)
   if (orgId) params.set('organization_id', orgId);
+  if (tenant_id) params.set('tenant_id', tenant_id);
   if (status) params.set('status', status);
 
   const url = `${base}/api/analytics/users/active-trend?${params.toString()}`;

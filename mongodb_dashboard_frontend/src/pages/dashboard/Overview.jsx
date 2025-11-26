@@ -10,7 +10,7 @@ import KPIChart from "../../components/charts/KPIChart.jsx";
 import TimeBucketFilter from "../../components/common/TimeBucketFilter.jsx";
 // Wire to stable analytics endpoints
 import { getActiveUsersTrend } from "../../api/usersActiveTrend";
-import { getLlmCostsOverTime } from "../../api/llmCostsAnalytics";
+import { getLlmCostsOverTime } from "../../api/llmCostsAnalytics.js";
 
 /**
  * Utility functions to bucket timestamps by day/week and compute counts.

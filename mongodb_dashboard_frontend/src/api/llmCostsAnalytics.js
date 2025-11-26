@@ -18,7 +18,7 @@ function resolveBase() {
 }
 
 // PUBLIC_INTERFACE
-export async function getLlmCostsOverTime({ from, to, granularity = 'day', organization_id } = {}) {
+export async function getLlmCostsOverTime({ from, to, granularity = 'day', organization_id, tenant_id } = {}) {
   const base = resolveBase();
   const orgId = organization_id || getOrganizationId();
   const params = new URLSearchParams();
@@ -26,6 +26,7 @@ export async function getLlmCostsOverTime({ from, to, granularity = 'day', organ
   if (from) params.set('from', from);
   if (to) params.set('to', to);
   if (orgId) params.set('organization_id', orgId);
+  if (tenant_id) params.set('tenant_id', tenant_id);
   const url = `${base}/api/analytics/llm-costs/over-time?${params.toString()}`;
 
   const res = await fetch(url, {
