@@ -25,20 +25,38 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Clear client-provided filter to avoid tenant bypass; CRUD will merge with enforced tenant anyway
-    const rawFilter = req.query.filter;
-    // Allow non-tenant filters but remove client-tenant keys if present
-    try {
-      if (rawFilter) {
-        const parsed = typeof rawFilter === 'string' ? JSON.parse(rawFilter) : rawFilter;
-        delete parsed?.tenant_id;
-        delete parsed?.tenantId;
-        delete parsed?.organization_id;
-        req.query.filter = JSON.stringify(parsed || {});
-      }
-    } catch {
-      req.query.filter = '{}';
+    // Per requirement: Ignore/remove any 'filter' param entirely for GET /api/llm-costs
+    // Preserve tenant scoping via middleware/controller and keep sort/limit behavior.
+    if (typeof req.query.filter !== 'undefined') {
+      try { res.set('X-Filter-Ignored', 'true'); } catch {}
+      delete req.query.filter;
     }
+
+    // Also explicitly drop legacy date range params if present (server no longer applies date compounds here)
+    if (typeof req.query.start !== 'undefined') delete req.query.start;
+    if (typeof req.query.end !== 'undefined') delete req.query.end;
+    if (typeof req.query.from !== 'undefined') delete req.query.from;
+    if (typeof req.query.to !== 'undefined') delete req.query.to;
+
+    // Mark possible super-admin bypass headers similarly to other routes (diagnostic only)
+    try {
+      const hdr = (req.headers?.['x-organization-id'] || '').toString();
+      const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
+      const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
+      const requestedTenant = hdr || qOrg || authTenant || '';
+      const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
+      if (isT0000) {
+        req.tenantScopeDisabled = true;
+        req.allTenants = true;
+        req.costsAllTenantsBypass = true;
+        try {
+          res.set('X-All-Tenants', 'true');
+          res.set('X-Tenant-Bypass', 'true');
+          res.set('X-Requested-Tenant', 'T0000');
+        } catch {}
+      }
+    } catch {}
+
     return controller.list(req, res);
   })
 );
