@@ -359,7 +359,7 @@ export default function Overview() {
         const backendGranularity =
           costsGranularity === "weekly" ? "week" : costsGranularity === "daily" ? "day" : "month";
 
-        const { getLlmCostsOverTime } = await import("../../api/llmCostsAnalytics.js");
+        const { getLlmCostsOverTime } = await import("../../api/llmCostsAnalytics.js"); // stable helper (aggregates from /api/llm-costs)
         const analytics = await getLlmCostsOverTime({
           granularity: backendGranularity,
           from: startISO,

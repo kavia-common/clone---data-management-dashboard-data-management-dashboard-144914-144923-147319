@@ -4,7 +4,7 @@ import LoadingState from '../../components/common/LoadingState';
 import ErrorState from '../../components/common/ErrorState';
 import OverviewChartFilters from '../../components/overview/OverviewChartFilters';
 import { getOverviewTotals, getNewUsersOverTime } from '../../api/overviewAnalytics';
-import { getLlmCostsOverTime } from '../../api/llmCostsAnalytics';
+import { getLlmCostsOverTime } from '../../api/llmCostsAnalytics'; // stable helper (client-side aggregation over /api/llm-costs)
 import { getActiveUsersTrend as getActiveUsersTrendStable } from '../../api/usersActiveTrend';
 import { useAuth } from '../../context/AuthContext';
 

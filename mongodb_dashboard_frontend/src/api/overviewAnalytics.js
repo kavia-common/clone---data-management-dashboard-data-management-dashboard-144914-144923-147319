@@ -14,9 +14,9 @@ export async function getOverviewTotals(params = {}) {
 /**
  * PUBLIC_INTERFACE
  * getCostsOverTime
- * Disabled direct call to failing endpoint (/api/analytics/llm-costs/over-time).
- * Use new llmCostsAnalytics.getLlmCostsOverTime from src/api/llmCostsAnalytics.js in consumers instead.
- * This function now returns a safe placeholder to avoid breaking imports.
+ * Deprecated: Direct call to removed endpoint (/api/analytics/llm-costs/over-time) is not supported.
+ * Consumers must use llmCostsAnalytics.getLlmCostsOverTime (client-side aggregation over /api/llm-costs).
+ * This function returns a safe placeholder to avoid breaking legacy imports.
  */
 export async function getCostsOverTime(_filter = {}) {
   return { labels: [], datasets: [{ label: 'Total Cost', data: [] }], meta: {} };

@@ -1,12 +1,11 @@
-import { getApiBase } from './config';
 import { getApiClient } from './baseClient';
-import { getAuthContext } from './client';
 
 /**
  * PUBLIC_INTERFACE
  * getLlmCostsOverTime
- * Fetch LLM costs aggregation over time from backend analytics endpoint and
- * normalize the response to { labels: string[], datasets: [{ label, data:number[] }], meta? }.
+ * Stable implementation: derive costs over time using the supported list endpoint (/api/llm-costs)
+ * and aggregate client-side by day/week/month. Returns:
+ * { labels: string[], datasets: [{ label, data:number[] }], meta }
  *
  * Params:
  * - granularity: 'day' | 'week' | 'month' (default 'day')
@@ -15,68 +14,62 @@ import { getAuthContext } from './client';
  */
 export async function getLlmCostsOverTime({ granularity = 'day', from, to } = {}) {
   const api = getApiClient();
-  const base = getApiBase(); // ends with /api
-  const qs = new URLSearchParams();
-  if (granularity) qs.set('granularity', granularity);
-  if (from) qs.set('from', from);
-  if (to) qs.set('to', to);
-  const url = `${base}/analytics/llm-costs/over-time?${qs.toString()}`;
 
-  // Ensure tenant context is included for multi-tenant aware endpoints
-  const { tenant_id } = getAuthContext();
-  const headers = {};
-  if (tenant_id) {
-    headers['x-organization-id'] = tenant_id; // backend supports this header; alias to tenant
-    headers['x-tenant-id'] = tenant_id; // keep x-tenant-id for consistency with other clients
-  }
-
-  const res = await api.get(url, { headers }).catch((e) => {
-    // surface minimal, normalized debug info without throwing yet
+  // 1) Fetch recent LLM cost records (paginate minimal; backend supports envelope with meta).
+  // We request a larger page size to reduce round-trips; adjust if needed.
+  let items = [];
+  try {
+    const res = await api.get('/api/llm-costs', {
+      params: {
+        // scope enforced by baseClient (organization_id) automatically
+        limit: 1000,
+        sort: '-timestamp',
+      },
+    });
+    const payload = res?.data ?? {};
+    items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : (payload?.items || []);
+  } catch (e) {
+    // Non-fatal: return empty normalized structure
     if (process.env.NODE_ENV !== 'production') {
-      try {
-        // eslint-disable-next-line no-console
-        console.warn('[llmCostsAnalytics] GET failed, will normalize empty:', e?.message || e);
-      } catch {}
+      // eslint-disable-next-line no-console
+      console.warn('[llmCostsAnalytics] fallback list fetch failed:', e?.message || e);
     }
-    return { data: {} };
-  });
-  const payload = res?.data ?? res ?? {};
-
-  // Defensive normalization: accept both direct shape and enveloped
-  let labels = [];
-  if (Array.isArray(payload.labels)) {
-    labels = payload.labels.map((l) => String(l));
-  } else if (Array.isArray(payload.data?.labels)) {
-    labels = payload.data.labels.map((l) => String(l));
-  } else if (Array.isArray(payload.items)) {
-    // Some backends return items: [{ date, total }] or similar
-    labels = payload.items.map((it) => String(it?.date ?? it?.label ?? ''));
+    items = [];
   }
 
-  let rawDatasets = [];
-  if (Array.isArray(payload.datasets)) {
-    rawDatasets = payload.datasets;
-  } else if (Array.isArray(payload.data?.datasets)) {
-    rawDatasets = payload.data.datasets;
-  } else if (Array.isArray(payload.items)) {
-    // Build dataset from items fallback if datasets missing
-    const itemData = payload.items.map((it) => it?.total ?? it?.value ?? it?.amount ?? it?.cost ?? 0);
-    rawDatasets = [{ label: 'Total cost (USD)', data: itemData }];
-  }
+  // 2) Normalize date range
+  const startDate = from ? new Date(from) : null;
+  const endDate = to ? new Date(to) : null;
+  const inRange = (d) => {
+    if (!d) return false;
+    const t = new Date(d);
+    if (Number.isNaN(t.getTime())) return false;
+    if (startDate && t < startDate) return false;
+    if (endDate && t > endDate) return false;
+    return true;
+  };
 
-  const first = rawDatasets.length > 0 ? rawDatasets[0] : null;
-
-  // Determine raw data array with safe fallbacks
-  let rawData = [];
-  if (Array.isArray(first?.data)) {
-    rawData = first.data;
-  } else if (Array.isArray(payload.data)) {
-    rawData = payload.data;
-  } else if (Array.isArray(payload.items)) {
-    rawData = payload.items.map((it) => it?.total ?? it?.value ?? it?.amount ?? it?.cost ?? 0);
-  }
-
-  // Coerce values to finite numbers (strip currency symbols if needed)
+  // 3) Helpers
+  const toYMD = (d) => {
+    const dt = new Date(d);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const da = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${da}`;
+  };
+  const startOfWeek = (date) => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    const diff = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - diff);
+    return d;
+  };
+  const startOfMonth = (date) => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(1);
+    return d;
+  };
   const toNumber = (v) => {
     if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
     if (typeof v === 'string') {
@@ -87,60 +80,89 @@ export async function getLlmCostsOverTime({ granularity = 'day', from, to } = {}
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
   };
-  const data = rawData.map(toNumber);
 
-  // If analytics returned nothing, keep empty arrays to let caller decide on fallback
-  // Else, trim to the shorter length to avoid chart issues
-  const len = Math.min(labels.length, data.length);
-  const normLabels = len ? labels.slice(0, len) : labels;
-  const normData = len ? data.slice(0, len) : data;
+  // 4) Aggregate by bucket
+  const buckets = new Map(); // key -> total USD
+  (items || []).forEach((row) => {
+    const ts = row.timestamp || row.date || row.created_at || row.updated_at;
+    if (!inRange(ts)) return;
+    let key;
+    if (granularity === 'week') key = toYMD(startOfWeek(ts));
+    else if (granularity === 'month') key = toYMD(startOfMonth(ts));
+    else key = toYMD(ts); // day
 
-  // If payload has costs_by_date shape: { 'YYYY-MM-DD': number|string }
-  if (!normLabels.length && !normData.length && payload && typeof payload === 'object' && payload.costs_by_date) {
-    const entries = Object.entries(payload.costs_by_date || {});
-    // sort by date key asc
-    entries.sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0));
-    const altLabels = entries.map(([k]) => String(k));
-    const altData = entries.map(([, v]) => toNumber(v));
-    const L = Math.min(altLabels.length, altData.length);
-    labels = altLabels.slice(0, L);
-    rawDatasets = [{ label: 'Total cost (USD)', data: altData.slice(0, L) }];
+    // Determine numeric cost fields
+    const val = toNumber(row.total_cost ?? row.cost ?? row.amount ?? 0);
+    buckets.set(key, (buckets.get(key) || 0) + val);
+  });
+
+  // 5) Build continuous series between from/to if provided, else sort known buckets
+  let labels = [];
+  let data = [];
+
+  if (from && to) {
+    const s = new Date(from);
+    const e = new Date(to);
+    if (granularity === 'week') {
+      let c = startOfWeek(s);
+      while (c <= e) {
+        const k = toYMD(c);
+        labels.push(k);
+        data.push(toNumber(buckets.get(k) || 0));
+        c = new Date(c);
+        c.setDate(c.getDate() + 7);
+      }
+    } else if (granularity === 'month') {
+      let c = startOfMonth(s);
+      while (c <= e) {
+        const k = toYMD(c);
+        labels.push(k);
+        data.push(toNumber(buckets.get(k) || 0));
+        c = new Date(c);
+        c.setMonth(c.getMonth() + 1);
+      }
+    } else {
+      let c = new Date(s);
+      c.setHours(0, 0, 0, 0);
+      while (c <= e) {
+        const k = toYMD(c);
+        labels.push(k);
+        data.push(toNumber(buckets.get(k) || 0));
+        c = new Date(c);
+        c.setDate(c.getDate() + 1);
+      }
+    }
+  } else {
+    // No explicit range: just return sorted aggregated buckets
+    const entries = Array.from(buckets.entries()).sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0));
+    labels = entries.map(([k]) => k);
+    data = entries.map(([, v]) => toNumber(v));
   }
 
-  const meta = payload.meta || payload.data?.meta || {
+  const meta = {
     granularity,
     from: from || null,
     to: to || null,
   };
 
-  // Helpful debug in development builds
+  // Debug
   try {
     if (process?.env?.NODE_ENV !== 'production') {
       // eslint-disable-next-line no-console
-      console.debug('[llmCostsAnalytics] normalized over-time', {
-        url,
-        labels: (labels || normLabels).length,
-        data: (rawDatasets?.[0]?.data || normData).length,
+      console.debug('[llmCostsAnalytics] client-aggregated over-time', {
+        labels: labels.length,
+        data: data.length,
         granularity: meta?.granularity,
       });
     }
-  } catch (_) {
-    // ignore
-  }
-
-  // Final normalized return (ensure arrays present and aligned)
-  const finalLabels = labels?.length ? labels : normLabels;
-  const finalData = (rawDatasets?.[0]?.data?.length ? rawDatasets[0].data : normData).map(toNumber);
-  const finalLen = Math.min(finalLabels.length, finalData.length);
-  const outLabels = finalLabels.slice(0, finalLen);
-  const outData = finalData.slice(0, finalLen);
+  } catch {}
 
   return {
-    labels: outLabels,
+    labels,
     datasets: [
       {
-        label: (rawDatasets?.[0]?.label) || 'Total cost (USD)',
-        data: outData,
+        label: 'Total cost (USD)',
+        data,
       },
     ],
     meta,
