@@ -1,25 +1,12 @@
-# Overview Costs Over Time Endpoint
+# Overview Costs Endpoint Notes
 
-This backend adds an analytics endpoint to power the Overview module's "Costs over time" chart.
+The legacy analytics endpoint for LLM costs over-time has been removed:
+- Removed: GET /api/analytics/llm-costs/over-time
 
-- Route: GET /api/analytics/llm-costs/over-time
-- Query:
-  - granularity: day|week|month (default: day)
-  - from, to: ISO date-time bounds (defaults to last 30 days)
-- Tenant scoping: Enforced via JWT/header (x-organization-id); supports T0000 bypass consistent with other analytics routes.
-- Response:
-  {
-    "labels": ["YYYY-MM-DD", ...],
-    "datasets": [{ "label": "Total cost (USD)", "data": [number, ...] }],
-    "meta": { "granularity": "day", "from": "...", "to": "..." }
-  }
+Overview charts should use stable helpers or alternative analytics endpoints that remain supported (e.g., dashboard overview metrics or users active trend). If a costs-over-time visualization is still desired, implement it on the frontend using available list endpoints (/api/llm-costs) or add a new backend aggregation in the future under a different, stable contract.
 
-Aggregation details:
-- Collection candidates: model 'llm-costs' by default; environment override via LLM_EVENTS_COLLECTION (comma-separated allowed).
-- Date fields: prefer timestamp; fallback created_at; fallback updated_at.
-- Cost fields: prefer total_cost (when USD or currency missing), fallback cost_usd, fallback cost (parses "$" prefixed strings).
-
-```sh
-curl -H "Authorization: Bearer <token>" -H "x-organization-id: org1" \
-  "$API/api/analytics/llm-costs/over-time?granularity=day&from=2024-10-01&to=2024-10-31"
+Example: retrieving recent LLM cost records (tenant-scoped)
+```
+GET /api/llm-costs?limit=50&sort=-timestamp
+Header: x-organization-id: <tenantId> (when JWT is not used)
 ```

@@ -3,7 +3,7 @@
 // PUBLIC_INTERFACE
 /**
  * Minimal helper to generate mock docs for llm-costs with mixed currency formats.
- * This is used by the over-time integration test to validate parsing rules.
+ * Updated: used by integration tests that now only target /api/llm-costs (list/CRUD).
  */
 function makeCostDoc({ tenant = 'org_test', date = '2025-01-01', amount = '$0.100000', fields = {} } = {}) {
   const d = new Date(`${date}T12:00:00.000Z`);
