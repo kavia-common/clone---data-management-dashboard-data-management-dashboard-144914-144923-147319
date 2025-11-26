@@ -77,7 +77,18 @@ export default function OverviewWrapper() {
         const labels = Array.isArray(res?.labels) ? res.labels : [];
         const datasets = Array.isArray(res?.datasets) ? res.datasets : [{ label: 'Total Cost', data: [] }];
         const first = datasets[0] || { data: [] };
-        const data = Array.isArray(first.data) ? first.data : [];
+
+        const num = (v) => {
+          if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+          if (typeof v === 'string') {
+            const n = Number(v.replace(/[$,]/g, ''));
+            return Number.isFinite(n) ? n : 0;
+          }
+          const n = Number(v);
+          return Number.isFinite(n) ? n : 0;
+        };
+
+        const data = Array.isArray(first.data) ? first.data.map(num) : [];
         const L = Math.min(labels.length, data.length);
         setCostSeries({
           labels: labels.slice(0, L),

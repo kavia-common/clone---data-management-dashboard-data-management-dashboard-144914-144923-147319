@@ -27,7 +27,10 @@ export async function getLlmCostsOverTime({ granularity = 'day', from, to } = {}
       },
     });
     const payload = res?.data ?? {};
+    // Normalize envelope vs raw array
     items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : (payload?.items || []);
+    // Defensive: ensure objects; drop nulls
+    items = Array.isArray(items) ? items.filter(Boolean) : [];
   } catch (e) {
     // Non-fatal: return empty normalized structure
     if (process.env.NODE_ENV !== 'production') {
