@@ -138,7 +138,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
   return {
     // PUBLIC_INTERFACE
     async list(req, res) {
-      console.debug("print the data -------------->>>>>>",req.params)
+      // list handler for generic model with tenant scoping
       // Determine effective tenant from JWT-backed middleware
       const effectiveTenant = req?.tenantId ? String(req.tenantId) : undefined;
 
@@ -211,7 +211,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
-      console.log('----------->>>>>',req.query)
+      // parse query filter JSON if provided
       let filter = {};
       try {
         filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
@@ -273,7 +273,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
       const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
-      console.log('below try ---->')
+      // execute DB operations with safe sort and enforced tenant filter
       try {
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
         let existsSample = 'unknown';
@@ -303,10 +303,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
           } catch (_) {}
         }
-          console.log('below if ---->')
+          // pagination path
 
         if (req.method === 'GET' && explicit) {
-                    console.log('inside if  ---->')
+                    // cache and return envelope
 
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);

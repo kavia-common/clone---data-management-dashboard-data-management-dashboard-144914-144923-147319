@@ -24,6 +24,8 @@ const LLMCostsSchema = new mongoose.Schema(
     provider: { type: String }, // openai, anthropic, etc.
     service_type: { type: String }, // code generation, query, etc.
     operation: { type: String }, // e.g., "chat.completions"
+    // Numeric total cost; callers should strip currency symbols before persisting.
+    // Server list/aggregation endpoints defensively coerce strings (e.g. "$1.23") to numbers where needed.
     total_cost: { type: Number, index: true },
     currency: { type: String, default: 'USD' },
     breakdown: { type: CostBreakdownSchema, default: () => ({}) },
