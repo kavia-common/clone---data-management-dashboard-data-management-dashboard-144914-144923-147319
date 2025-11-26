@@ -11,6 +11,71 @@ const SessionTracking = require('../models/sessionTracking.model');
 const Tenant = require('../models/tenant.model');
 
 const router = express.Router();
+
+// Legacy alias: /api/users/active-trend-from-users (non-breaking proxy to analytics users active trend)
+// This preserves old consumers expecting labels/datasets by adapting from the existing controller logic.
+router.get(
+  '/active-trend-from-users',
+  asyncHandler(async (req, res) => {
+    try {
+      // Reuse analytics active trend controller by importing service-level logic through the analytics controller.
+      // We simulate an internal call by requiring the controller module and invoking underlying aggregate with req/res shim.
+      const { getUsersActiveTrendController } = require('../controllers/users.activeTrend.controller');
+
+      // Create a mini response collector to capture JSON and then normalize to expected legacy shape.
+      let captured = null;
+      const captureRes = {
+        status(code) {
+          this._code = code;
+          return this;
+        },
+        json(payload) {
+          captured = { code: this._code || 200, payload };
+          // Return a no-op object to satisfy any chaining
+          return this;
+        },
+        set() { return this; },
+      };
+
+      // Clone query, accept optional filters without changing defaults
+      const passthroughReq = Object.assign({}, req, {
+        query: {
+          ...req.query,
+          // Keep aliasing intact: support granularity=day|week|month, from/to passthrough
+        },
+      });
+
+      await getUsersActiveTrendController(passthroughReq, captureRes);
+
+      const ok = captured && captured.code === 200 && captured.payload;
+      if (!ok) {
+        return res.status(200).json({ labels: [], datasets: [{ label: 'Active Users', data: [] }], meta: { } });
+      }
+      const p = captured.payload;
+
+      // Normalize shape:
+      // If response already is {labels,datasets}, forward as-is.
+      if (Array.isArray(p.labels) && Array.isArray(p.datasets)) {
+        return res.status(200).json(p);
+      }
+      // If response is {items:[{date,total}]}, map to labels/datasets preserving order.
+      if (Array.isArray(p.items)) {
+        const labels = p.items.map(r => String(r.date));
+        const data = p.items.map(r => Number(r.total || 0));
+        return res.status(200).json({
+          labels,
+          datasets: [{ label: 'Active Users', data }],
+          meta: p.meta || {},
+        });
+      }
+      // Fallback empty
+      return res.status(200).json({ labels: [], datasets: [{ label: 'Active Users', data: [] }], meta: {} });
+    } catch (err) {
+      console.error('[users.routes] legacy /active-trend-from-users proxy error:', err?.message || err);
+      return res.status(200).json({ labels: [], datasets: [{ label: 'Active Users', data: [] }], meta: {} });
+    }
+  })
+);
 const controller = buildCrudController(User, '-created_at');
 
 /**
