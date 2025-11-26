@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import Card from '../../components/common/Card';
+import Card from '../../components/ui/Card.jsx';
 import LoadingState from '../../components/common/LoadingState';
 import ErrorState from '../../components/common/ErrorState';
 import OverviewChartFilters from '../../components/overview/OverviewChartFilters';
@@ -140,36 +140,48 @@ export default function OverviewWrapper() {
           <pre>{JSON.stringify(totals, null, 2)}</pre>
         </Card>
 
-        <Card title="LLM Costs Over Time">
-          <OverviewChartFilters
-            value={costFilters}
-            onChange={setCostFilters}
-            tenants={tenantsList}
-            showGranularity={true}
-          />
+        <Card
+          title="LLM Costs Over Time"
+          actions={
+            <OverviewChartFilters
+              value={costFilters}
+              onChange={setCostFilters}
+              tenants={tenantsList}
+              showGranularity={true}
+            />
+          }
+        >
           <pre>{JSON.stringify(costSeries, null, 2)}</pre>
         </Card>
 
-        <Card title="Active Users Trend">
-          <OverviewChartFilters
-            value={activeUsersFilters}
-            onChange={setActiveUsersFilters}
-            tenants={tenantsList}
-            showGranularity={true}
-          />
+        <Card
+          title="Active Users Trend"
+          actions={
+            <OverviewChartFilters
+              value={activeUsersFilters}
+              onChange={setActiveUsersFilters}
+              tenants={tenantsList}
+              showGranularity={true}
+            />
+          }
+        >
           <pre>{JSON.stringify(activeUsersSeries, null, 2)}</pre>
         </Card>
 
-        <Card title="New Users Over Time">
-          <OverviewChartFilters
-            value={newUsersFilters}
-            onChange={(next) => {
-              // For this endpoint, we support month/week/day; custom handled via from/to
-              setNewUsersFilters(next);
-            }}
-            tenants={tenantsList}
-            showGranularity={true}
-          />
+        <Card
+          title="New Users Over Time"
+          actions={
+            <OverviewChartFilters
+              value={newUsersFilters}
+              onChange={(next) => {
+                // For this endpoint, we support month/week/day; custom handled via from/to
+                setNewUsersFilters(next);
+              }}
+              tenants={tenantsList}
+              showGranularity={true}
+            />
+          }
+        >
           <pre>{JSON.stringify(newUsersSeries, null, 2)}</pre>
         </Card>
       </div>
