@@ -4,6 +4,7 @@ const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { newUsersOverTime } = require('../controllers/analytics.controller');
 const { getLlmCostByAgentController } = require('../controllers/llmCost.controller');
+const { getLlmCostsOverTimeController } = require('../controllers/llmCosts.overTime.controller');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 
@@ -49,6 +50,14 @@ analyticsRouter.get(
   verifyAuth,
   requireTenant,
   asyncHandler(getLlmCostByAgentController)
+);
+
+// Costs over time (time series for Overview chart)
+analyticsRouter.get(
+  '/llm-costs/over-time',
+  verifyAuth,
+  requireTenant,
+  asyncHandler(getLlmCostsOverTimeController)
 );
 
 // New users over time
