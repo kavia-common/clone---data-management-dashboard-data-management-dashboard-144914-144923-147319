@@ -344,16 +344,28 @@ export default function DataTable({
                 return (
                   <th
                     key={c.key}
-                    onClick={() => toggleSort(c.key)}
-                    role="button"
                     className={thClass}
                     scope="col"
                     aria-sort={sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-                    title="Click to sort"
                     style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
                   >
-                    {c.label}
-                    {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(c.key)}
+                      className="th-sort-button"
+                      title="Click to sort"
+                      aria-label={`Sort by ${c.label}`}
+                      style={{
+                        all: "unset",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <span>{c.label}</span>
+                      {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
+                    </button>
                   </th>
                 );
               })}

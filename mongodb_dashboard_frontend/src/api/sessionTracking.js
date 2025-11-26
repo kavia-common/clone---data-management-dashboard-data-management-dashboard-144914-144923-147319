@@ -43,4 +43,4 @@ export async function fetchSessionTracking(params = {}) {
   return { items, total, meta };
 }
 
-export default { fetchSessionTracking };
+/* No default export to favor named exports (lint rule) */

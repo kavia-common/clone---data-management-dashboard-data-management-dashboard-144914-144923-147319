@@ -1,4 +1,4 @@
-import { getApiClient } from "../api";
+import { listUsers } from "../api";
 
 /**
  * PUBLIC_INTERFACE
@@ -19,28 +19,26 @@ import { getApiClient } from "../api";
  * - { items: Array<any>, total: number, meta?: { page: number, limit: number, total: number } }
  */
 export async function getUsers(options = {}, requestOpts = {}) {
-  const api = getApiClient();
+  // Delegates to the centralized API layer listUsers().
+  // Any requestOpts such as AbortSignal are not used by listUsers currently, but retained for future compat.
   const { filter, page, limit, sort, search } = options || {};
 
   const params = {};
   if (page != null) params.page = page;
   if (limit != null) params.limit = limit;
   if (sort) params.sort = sort;
-  if (search) params.search = search;
+  if (search) {
+    // Pass search under 'q' which backend supports for users or ignore if not supported.
+    params.q = search;
+  }
 
   if (filter) {
     params.filter = typeof filter === "string" ? filter : JSON.stringify(filter);
   }
 
-  const res = await api.get("/api/users", { params, ...(requestOpts || {}) });
-  const payload = res?.data ?? res; // getApiClient returns { data }
-  // Normalize both array and envelope shapes
-  const items = Array.isArray(payload) ? payload : payload?.data || payload?.items || [];
-  const total =
-    (payload && payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
-    (Array.isArray(items) ? items.length : 0);
-
-  return { items: Array.isArray(items) ? items : [], total, meta: payload?.meta || null };
+  // listUsers returns normalized { items, total, meta }
+  const res = await listUsers(params);
+  return res;
 }
 
-export default { getUsers };
+// No default export to adhere to named exports convention

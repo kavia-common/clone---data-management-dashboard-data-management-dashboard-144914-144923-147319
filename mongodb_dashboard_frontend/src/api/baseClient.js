@@ -326,12 +326,4 @@ export async function getTenantUsersSummaryStrict() {
   return res.data;
 }
 
-export default {
-  getApiClient,
-  listUsers,
-  listSessions,
-  listDeployments,
-  listLlmCosts,
-  health,
-  getTenantUsersSummaryStrict,
-};
+/* No default export to favor named exports (lint rule) */
