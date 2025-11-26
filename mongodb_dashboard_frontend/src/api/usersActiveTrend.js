@@ -1,4 +1,4 @@
-import baseClient from './baseClient';
+import { getApiClient } from './baseClient';
 import { getApiBase } from './config';
 
 /**
@@ -9,8 +9,7 @@ import { getApiBase } from './config';
  * Strategy:
  * 1) Prefer backend active users trend from USERS collection if available:
  *    GET /api/users/active-trend-from-users?granularity=day|week&start=&end=
- *    - Treat organization_id as tenant scope (auto-injected by baseClient)
- *    - active user: updated_at within range, status != 'deleted'
+ *    - Treat organization_id as tenant scope (auto-injected by base client)
  * 2) Fallback to sessions-based endpoint:
  *    GET /api/users/active-trend (session_tracking derived)
  *
@@ -23,22 +22,15 @@ import { getApiBase } from './config';
  * @returns {Promise<{items: Array<{date: string, total: number}>, meta: any}>}
  */
 export async function getActiveUsersTrend(params = {}) {
-  const {
-    from,
-    to,
-    granularity = 'day',
-    status,
-    tenantId,
-  } = params;
+  const { from, to, granularity = 'day', status, tenantId } = params;
 
   const toIso = (v) => (v instanceof Date ? v.toISOString() : v);
 
-  // Build query for both endpoints
   const usersQuery = new URLSearchParams();
   if (from) usersQuery.set('start', toIso(from));
   if (to) usersQuery.set('end', toIso(to));
   if (granularity) usersQuery.set('granularity', granularity);
-  if (tenantId) usersQuery.set('tenant_id', tenantId); // baseClient should also inject organization_id
+  if (tenantId) usersQuery.set('tenant_id', tenantId);
 
   const legacyQuery = new URLSearchParams();
   if (from) legacyQuery.set('from', toIso(from));
@@ -48,34 +40,36 @@ export async function getActiveUsersTrend(params = {}) {
   if (tenantId) legacyQuery.set('tenant_id', tenantId);
 
   const baseUrl = getApiBase();
+  const api = getApiClient();
 
-  // Try users-backed analytics endpoint first
   try {
     const urlUsers = `${baseUrl}/users/active-trend-from-users?${usersQuery.toString()}`;
-    const resUsers = await baseClient.get(urlUsers);
-    if (resUsers && (Array.isArray(resUsers.items) || Array.isArray(resUsers))) {
-      if (!resUsers.items) {
-        return { items: Array.isArray(resUsers) ? resUsers : [], meta: { granularity } };
+    const resUsers = await api.get(urlUsers);
+    const dataUsers = resUsers?.data ?? resUsers;
+    if (dataUsers && (Array.isArray(dataUsers.items) || Array.isArray(dataUsers))) {
+      if (!dataUsers.items) {
+        return { items: Array.isArray(dataUsers) ? dataUsers : [], meta: { granularity } };
       }
-      return resUsers;
+      return dataUsers;
     }
-  } catch (e) {
-    // proceed to fallback
+  } catch {
+    // ignore and fallback
   }
 
-  // Fallback to sessions-backed endpoint
   const url = `${baseUrl}/users/active-trend?${legacyQuery.toString()}`;
-  const res = await baseClient.get(url);
-  if (!res || typeof res !== 'object') {
+  const res = await api.get(url);
+  const data = res?.data ?? res;
+  if (!data || typeof data !== 'object') {
     throw new Error('Invalid response');
   }
-  if (!res.items) {
-    return { items: Array.isArray(res) ? res : [], meta: {} };
+  if (!data.items) {
+    return { items: Array.isArray(data) ? data : [], meta: {} };
   }
-  return res;
+  return data;
 }
 
-export default {
-  // PUBLIC_INTERFACE
+const apiUsersActiveTrend = {
   getActiveUsersTrend,
 };
+
+export default apiUsersActiveTrend;

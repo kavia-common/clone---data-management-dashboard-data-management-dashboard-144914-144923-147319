@@ -1,4 +1,3 @@
-// src/utils/hash.js
 import CryptoJS from "crypto-js";
 
 // Constants
@@ -43,6 +42,7 @@ export function decrypt(data, salt = TENANT_SALT) {
 /**
 * Encrypt a tenant ID
 */
+// PUBLIC_INTERFACE
 export function encryptTenantId(tenantId) {
   return encrypt(tenantId, TENANT_SALT);
 }
@@ -75,6 +75,7 @@ export const decryptStringClipboard = (value) => {
 /**
 * Decrypt a tenant ID safely (returns null on failure)
 */
+// PUBLIC_INTERFACE
 export function decryptTenantId(encrypted) {
   try {
     if (!encrypted) throw new Error("Encrypted tenant ID is required");
@@ -97,9 +98,4 @@ export function encryptedTenantId() {
 export function getRootTenantId() {
   return ROOT_TENANT_ID;
 }
-
-export default {
-  encryptTenantId,
-  decryptTenantId,
-};
  
