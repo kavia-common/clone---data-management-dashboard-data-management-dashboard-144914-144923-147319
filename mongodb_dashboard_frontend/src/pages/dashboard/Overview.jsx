@@ -354,46 +354,85 @@ export default function Overview() {
       setCostsError(null);
       try {
         const { startISO, endISO } = costsRange;
-        const filter = {
-          $or: [
-            { timestamp: { $gte: startISO, $lte: endISO } },
-            { created_at: { $gte: startISO, $lte: endISO } },
-            { createdAt: { $gte: startISO, $lte: endISO } },
-          ],
-        };
-        const res = await listLlmCosts({
-          filter: buildFilterParam(filter) || JSON.stringify(filter),
-          limit: 500,
-          sort: "-timestamp",
-        });
 
-        const items = res?.items || (Array.isArray(res) ? res : []);
-        if (aborted) return;
+        // 1) Try analytics endpoint first
+        // Map UI granularity to backend enum
+        const backendGranularity =
+          costsGranularity === "weekly" ? "week" : costsGranularity === "daily" ? "day" : "month";
 
-        const map = new Map();
-        (items || []).forEach((doc) => {
-          const t = doc.timestamp || doc.created_at || doc.createdAt || doc.date;
-          const d = t ? new Date(t) : null;
-          if (!d || Number.isNaN(d.getTime())) return;
+        let usedAnalytics = false;
+        try {
+          const { getLlmCostsOverTime } = await import("../../api/llmCostsAnalytics.js");
+          const analytics = await getLlmCostsOverTime({
+            granularity: backendGranularity,
+            from: startISO,
+            to: endISO,
+          });
 
-          const raw =
-            doc.total_cost ??
-            doc.total_usd ??
-            doc.usd ??
-            doc.amount_usd ??
-            doc.cost ??
-            doc.price ??
-            doc.amount ??
-            0;
-          const num = typeof raw === "number" ? raw : Number(String(raw).replace(/[$,]/g, ""));
-          const value = Number.isFinite(num) ? num : 0;
+          const labels = Array.isArray(analytics?.labels) ? analytics.labels : [];
+          const dataset = Array.isArray(analytics?.datasets) ? analytics.datasets[0] : null;
+          const data = Array.isArray(dataset?.data) ? dataset.data : [];
 
-          const key = costsGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
-          map.set(key, (map.get(key) || 0) + value);
-        });
+          // Validate numeric data
+          const numericOk = data.every((v) => typeof v === "number" && Number.isFinite(v));
+          if (labels.length && data.length && labels.length === data.length && numericOk) {
+            const series = labels.map((label, idx) => ({
+              label: String(label),
+              value: data[idx],
+            }));
+            if (aborted) return;
+            setCostsSeries(series);
+            usedAnalytics = true;
+          }
+        } catch {
+          // ignore analytics failure; fallback below
+          usedAnalytics = false;
+        }
 
-        const series = fillSeries(map, startISO, endISO, costsGranularity);
-        setCostsSeries(series);
+        if (!usedAnalytics) {
+          // 2) Fallback to raw llm-costs list and aggregate client-side
+          const filter = {
+            $or: [
+              { timestamp: { $gte: startISO, $lte: endISO } },
+              { created_at: { $gte: startISO, $lte: endISO } },
+              { createdAt: { $gte: startISO, $lte: endISO } },
+            ],
+          };
+          const res = await listLlmCosts({
+            filter: buildFilterParam(filter) || JSON.stringify(filter),
+            limit: 1000,
+            sort: "-timestamp",
+          });
+
+          const items = res?.items || (Array.isArray(res) ? res : []);
+          if (aborted) return;
+
+          const map = new Map();
+          (items || []).forEach((doc) => {
+            const t = doc.timestamp || doc.created_at || doc.createdAt || doc.date;
+            const d = t ? new Date(t) : null;
+            if (!d || Number.isNaN(d.getTime())) return;
+
+            const raw =
+              doc.total_cost ??
+              doc.total_usd ??
+              doc.usd ??
+              doc.amount_usd ??
+              doc.cost ??
+              doc.price ??
+              doc.amount ??
+              0;
+            const num =
+              typeof raw === "number" ? raw : Number(String(raw).replace(/[$,]/g, ""));
+            const value = Number.isFinite(num) ? num : 0;
+
+            const key = costsGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+            map.set(key, (map.get(key) || 0) + value);
+          });
+
+          const series = fillSeries(map, startISO, endISO, costsGranularity);
+          setCostsSeries(series);
+        }
       } catch (e) {
         if (aborted) return;
         setCostsError(e);
