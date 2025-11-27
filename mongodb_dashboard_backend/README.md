@@ -7,8 +7,9 @@
 
 Quick start (development)
 - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
-- npm ci        # or: npm install
-- npm run dev   # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server)
+- cp .env.example .env    # then edit as needed
+- npm ci                  # or: npm install
+- npm run dev             # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server)
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state
 
@@ -22,9 +23,11 @@ Scripts
 Preview runner compatibility
 - The server binds to 0.0.0.0:PORT and logs readiness pointers: /health | /ready | /api/health | /api/docs | /api-docs
 - Readiness log markers (either is sufficient for detectors):
+  - READY: http://HOST:PORT
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT
   - Server ready: http://HOST:PORT (env=...)
+- If your frontend dev server uses a proxy (http-proxy-middleware) to reach this backend, ensure the proxy target points to the actual backend URL (e.g., http://localhost:3001 or the container hostname) and not to an interface that is not routable from the frontend container. Binding to 0.0.0.0 here avoids EADDRNOTAVAIL, but the proxy target must also be reachable.
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
   - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
