@@ -164,10 +164,12 @@ function startServerStrict() {
   process.on('unhandledRejection', (reason) => {
     // eslint-disable-next-line no-console
     console.error('[unhandledRejection]', reason);
+    // do not exit; keep server alive in preview
   });
   process.on('uncaughtException', (err) => {
     // eslint-disable-next-line no-console
     console.error('[uncaughtException]', err);
+    // do not exit; keep server alive in preview
   });
 
   return server;
