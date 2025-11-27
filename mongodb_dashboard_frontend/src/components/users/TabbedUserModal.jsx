@@ -217,7 +217,7 @@ function UserProjectsView({ userId, tenantId, from, to }) {
 
   const ProjectCard = ({ project }) => {
     const id = project?.project_id || project?.projectId || project?._id || project?.id || '—';
-    const name = project?.name || project?.project_name || project?.projectName || '—';
+    const _name = project?.name || project?.project_name || project?.projectName || '—';
     const status = project?.status || project?.state || '';
     const desc = project?.description || project?.project_description || '';
     const created = project?.createdAt || project?.created_at || '';

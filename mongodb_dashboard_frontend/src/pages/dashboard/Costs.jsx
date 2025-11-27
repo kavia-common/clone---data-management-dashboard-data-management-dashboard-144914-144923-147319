@@ -301,11 +301,10 @@ export default function Costs() {
 
   useEffect(() => {
     // initial load on mount
-    load();
-    // load is stable (declared in component scope) but depends on meta.limit if changed externally
-    // We intentionally do not include 'load' in deps to avoid ref churn and infinite loops.
+    load(1, meta.limit || 10);
+    // Intentionally only depend on meta.limit so initial page size updates trigger reload
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [meta.limit]);
 
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
