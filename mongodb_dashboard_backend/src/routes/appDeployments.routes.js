@@ -104,10 +104,6 @@ function extractNormalizedProjectId(payload) {
  *         description: >
  *           JSON filter (e.g., {"project_id":"p1","status":"success"}).
  *           Any tenant_id/organization_id sent here is ignored; server enforces tenant from JWT/header/query.
- *       - in: query
- *         name: search
- *         schema: { type: string }
- *         description: Case-insensitive search on project name (matches project_name/projectName/metadata.projectName/project.name)
  *     responses:
  *       200:
  *         description: OK (array or envelope based on pagination params)
@@ -186,47 +182,6 @@ router.get('/', deploymentsEarlyBypassDetector, verifyAuth, requireTenant, async
       appliedTenant: String(applied || ''),
     });
   } catch {}
-
-  // Inject case-insensitive project_name search if ?search= is provided.
-  // We match across normalized fields used in aggregation ($addFields in crudFactory):
-  // - project_name (preferred), projectName, metadata.projectName, project.name
-  // The filter is merged with tenant scoping inside the controller.
-  try {
-    const search = typeof req.query?.search === 'string' ? req.query.search.trim() : '';
-    if (search) {
-      const regex = new RegExp(search, 'i');
-      // Parse existing filter if any; if invalid JSON the controller would fail later,
-      // so we keep it as-is (string) and only enrich when it's parseable.
-      let baseFilter = {};
-      if (req.query.filter) {
-        try {
-          baseFilter = typeof req.query.filter === 'string' ? JSON.parse(req.query.filter) : req.query.filter;
-        } catch {
-          // If client sent invalid JSON, we won't mutate it; instead, create a new filter and override the query.
-          baseFilter = {};
-        }
-      }
-      const searchFilter = {
-        $or: [
-          { project_name: regex },
-          { projectName: regex },
-          { 'metadata.projectName': regex },
-          { 'project.name': regex },
-        ],
-      };
-
-      const combined =
-        baseFilter && typeof baseFilter === 'object' && Object.keys(baseFilter).length > 0
-          ? { $and: [baseFilter, searchFilter] }
-          : searchFilter;
-
-      req.query.filter = JSON.stringify(combined);
-      try { res.set('X-Search-Applied', 'true'); res.set('X-Search-Value', search); } catch {}
-    }
-  } catch (e) {
-    // Non-fatal: continue without search
-  }
-
   return controller.list(req, res, next);
 }));
 
