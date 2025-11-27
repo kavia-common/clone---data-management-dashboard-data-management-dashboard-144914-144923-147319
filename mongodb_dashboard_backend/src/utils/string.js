@@ -1,7 +1,7 @@
 
 /**
  * Utility string helpers with safe, minimal transforms used by backend only.
- * Avoids unnecessary escape characters; focuses on trimming and normalizing whitespace.
+ * Avoid unnecessary escapes. Regex literals below are intentionally minimal and standards-compliant.
  */
 
 // PUBLIC_INTERFACE
