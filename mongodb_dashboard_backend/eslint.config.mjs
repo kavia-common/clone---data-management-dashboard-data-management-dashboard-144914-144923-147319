@@ -2,7 +2,6 @@ import globals from "globals";
 
 /**
  * ESLint v9 flat config for Node/Express backend.
- * - Replaces legacy .eslintrc.json
  * - Targets Node (CommonJS) with ES2022
  * - Keep warnings non-fatal in CI by design (lint script should not fail build on warnings)
  */
@@ -45,7 +44,7 @@ export default [
 
       // Not a React project in this container; ensure no react rules interfere even if auto-detected
       "react-hooks/rules-of-hooks": "off",
-      "react-hooks/exhaustive-deps": "off",
-    },
-  },
+      "react-hooks/exhaustive-deps": "off"
+    }
+  }
 ];

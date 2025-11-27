@@ -23,7 +23,7 @@ function parsePagination(query) {
  */
 function success(res, data, meta = undefined, status = 200) {
   const payload = { success: true, data };
-  if (meta) {payload.meta = meta;}
+  if (meta) { payload.meta = meta; }
   return res.status(status).json(payload);
 }
 
@@ -34,7 +34,7 @@ function success(res, data, meta = undefined, status = 200) {
  */
 function failure(res, message, status = 400, details = undefined) {
   const payload = { success: false, message };
-  if (details) {payload.details = details;}
+  if (details) { payload.details = details; }
   return res.status(status).json(payload);
 }
 
