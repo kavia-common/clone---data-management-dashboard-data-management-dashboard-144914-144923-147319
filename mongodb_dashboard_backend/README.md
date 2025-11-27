@@ -28,7 +28,7 @@ Preview runner compatibility
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT
   - Server ready: http://HOST:PORT (env=...)
-- If your frontend dev server uses a proxy (http-proxy-middleware) to reach this backend, ensure the proxy target points to the actual backend URL (e.g., http://localhost:3001 or the container hostname) and not to an interface that is not routable from the frontend container. Binding to 0.0.0.0 here avoids EADDRNOTAVAIL, but the proxy target must also be reachable.
+- If your frontend dev server uses a proxy (http-proxy-middleware) to reach this backend, ensure the proxy target points to the actual backend URL (e.g., http://127.0.0.1:3001 for same machine, or the backend container hostname). Avoid 0.0.0.0 in proxy targets; use 127.0.0.1 or a resolvable host. Binding to 0.0.0.0 here avoids EADDRNOTAVAIL for listeners, but the proxy target must also be reachable.
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
   - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)

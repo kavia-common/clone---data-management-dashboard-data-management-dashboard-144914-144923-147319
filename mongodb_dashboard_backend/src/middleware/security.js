@@ -88,7 +88,10 @@ function corsMiddleware() {
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
 
    
-  console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
+  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+    // eslint-disable-next-line no-console
+    console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
+  }
 
   const corsInstance = cors({
     origin: (origin, callback) => {

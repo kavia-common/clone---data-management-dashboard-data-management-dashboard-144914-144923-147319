@@ -325,8 +325,9 @@ function verifyAuth(req, res, next) {
 
     return next();
   } catch (err) {
+    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     const allowDemoFlag = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
-    if (!process.env.NODE_ENV?.toLowerCase() === 'production' && allowDemoFlag) {
+    if (!isProd && allowDemoFlag) {
       req.auth = {
         sub: 'demo-fallback',
         tenantId:

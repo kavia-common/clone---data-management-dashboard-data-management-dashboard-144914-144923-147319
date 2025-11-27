@@ -180,7 +180,7 @@ const controller = buildCrudController(SessionTracking, '-session_start');
  * Early bypass detector for GET /api/session-tracking
  */
 function sessionsEarlyBypassDetector(req, res, next) {
-  if (req.method !== 'GET' || req.path !== '/') return next();
+  if (req.method !== 'GET' || req.path !== '/') { return next(); }
 
   const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
   const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
