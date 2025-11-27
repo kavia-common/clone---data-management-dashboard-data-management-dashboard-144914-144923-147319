@@ -13,6 +13,22 @@ Quick start (development)
 - curl http://localhost:3001/api/health   # includes db state
 - curl "http://localhost:3001/api/users?organization_id=T0000" -H "Authorization: Bearer <token>" # tenant-scoped users (T0000 special case for super admin)
 
+Dev server binding and proxy notes
+- Host binding is forced to 0.0.0.0 by default. If HOST is set to an unavailable address, the server falls back to 0.0.0.0 automatically to avoid EADDRNOTAVAIL.
+- There is no internal HTTP proxy configured in this backend. Frontend should call backend using:
+  - Relative paths when served via same origin, or
+  - REACT_APP_API_BASE_URL environment variable for absolute target on the frontend side.
+- To customize binding:
+  - HOST=127.0.0.1 npm run dev   # local only
+  - PORT=3100 npm run dev        # different port
+
+Troubleshooting EADDRNOTAVAIL / EADDRINUSE
+- EADDRNOTAVAIL: Caused by binding to a non-existent IP. The server now retries on 0.0.0.0 automatically and still logs READY markers.
+- EADDRINUSE: Another instance is running. A PID file is used: .tmp/server.<port>.pid. Stop the existing process or use a different PORT.
+
+Memory usage
+- Node memory is capped via NODE_OPTIONS=--max_old_space_size=384 in dev/start to avoid OOM kills in preview environments.
+
 Scripts
 - dev: runs the server with PORT/HOST defaults applied in-process (CI-compatible)
 - dev:watch: nodemon watcher if available (hot reload)
@@ -63,6 +79,13 @@ Swagger/OpenAPI servers
   - Spec JSON: /api/docs.json (aliases: /openapi.json, /api-docs.json)
 - Additional helper:
   - GET /api/docs/headers — explains tenant header usage for Try It Out.
+
+Proxy/Frontend integration
+- Frontend should prefer:
+  - Same-origin relative calls when both are served together, or
+  - Configurable absolute base via REACT_APP_API_BASE_URL on the frontend container.
+- Avoid hardcoding IPs in proxy configs; use environment variables to point to this backend:
+  - Example: REACT_APP_API_BASE_URL=http://localhost:3001
 
 Tenant-scoped requests
 - When Authorization (Bearer JWT) is not provided, send x-organization-id header on tenant-scoped endpoints (e.g., /api/llm-costs).

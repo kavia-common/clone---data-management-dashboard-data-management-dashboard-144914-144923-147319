@@ -121,8 +121,8 @@ function corsMiddleware() {
       // return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Content-Length', 'Content-Type'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-organization-id', 'x-tenant-id'],
+    exposedHeaders: ['Content-Length', 'Content-Type', 'X-Applied-Tenant'],
     credentials: allowCredentials,
     optionsSuccessStatus: 204,
   });

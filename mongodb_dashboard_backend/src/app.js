@@ -88,6 +88,15 @@ app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
+// PUBLIC_INTERFACE
+// Helper endpoint to guide using headers in Swagger "Try it out"
+app.get('/api/docs/headers', (req, res) => {
+  return res.status(200).json({
+    note: 'For tenant-scoped endpoints without Authorization header, send x-organization-id header.',
+    example: { 'x-organization-id': 'org_demo' },
+  });
+});
+
 // ---------------------------------------------
 // Health endpoints
 // ---------------------------------------------

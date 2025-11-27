@@ -15,7 +15,9 @@ const PORT = Number(process.env.PORT) || 3001;
 // and ignore any misconfigured localhost/hostname that isn't routable.
 const HOST = (() => {
   const envHost = String(process.env.HOST || '').trim();
-  if (!envHost || envHost.toLowerCase() === 'localhost') return '0.0.0.0';
+  if (!envHost) return '0.0.0.0';
+  const lower = envHost.toLowerCase();
+  if (lower === 'localhost' || lower === '::' || lower === '::1') return '0.0.0.0';
   // If host looks like 127.* or 0.0.0.0 keep it; otherwise still prefer given host.
   return envHost;
 })();
