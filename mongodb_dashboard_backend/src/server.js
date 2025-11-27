@@ -12,7 +12,10 @@ const mongoose = require('mongoose');
 
 const PORT = Number(process.env.PORT || process.env.REACT_APP_PORT) || 3001;
 // Always bind 0.0.0.0 to avoid EADDRNOTAVAIL in container/preview envs when frontend proxy targets localhost
-const HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';
+const HOST =
+  process.env.HOST && process.env.HOST !== 'localhost'
+    ? process.env.HOST
+    : '0.0.0.0'; // Always prefer 0.0.0.0 to avoid EADDRNOTAVAIL in containers/preview
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // PUBLIC_INTERFACE
