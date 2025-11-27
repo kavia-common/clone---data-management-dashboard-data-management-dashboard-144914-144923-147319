@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const routes = require('../index');
 const SessionTracking = require('../../models/sessionTracking.model');
 
-const MONGO_URL = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/test_session_filters';
+const MONGO_URL = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017';
 
 function buildApp() {
   const app = express();
@@ -28,7 +28,12 @@ describe('SessionTracking list filtering (date range, user)', () => {
   const tenant = 'orgFilters';
 
   beforeAll(async () => {
-    await mongoose.connect(MONGO_URL, { dbName: 'test_session_filters' });
+    jest.setTimeout(30000);
+    await mongoose.connect(MONGO_URL, {
+      dbName: 'test_session_filters',
+      serverSelectionTimeoutMS: 2000,
+      socketTimeoutMS: 2000,
+    });
     app = buildApp();
   });
 

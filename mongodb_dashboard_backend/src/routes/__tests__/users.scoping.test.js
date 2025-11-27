@@ -7,7 +7,7 @@ const routes = require('../index');
 const User = require('../../models/user.model');
 const SessionTracking = require('../../models/sessionTracking.model');
 
-const MONGO_URL = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/test_users_scoping';
+const MONGO_URL = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017';
 
 function buildApp() {
   const app = express();
@@ -20,7 +20,12 @@ describe('Users tenant scoping', () => {
   let app;
 
   beforeAll(async () => {
-    await mongoose.connect(MONGO_URL, { dbName: 'test_users_scoping' });
+    jest.setTimeout(30000);
+    await mongoose.connect(MONGO_URL, {
+      dbName: 'test_users_scoping',
+      serverSelectionTimeoutMS: 2000,
+      socketTimeoutMS: 2000,
+    });
     app = buildApp();
   });
 
