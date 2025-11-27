@@ -25,7 +25,7 @@ export function toCamelCaseName(value) {
   const normalized = value
     .trim()
     .replace(/[-_]+/g, ' ')  // underscores/hyphens -> space
-    .replace(/\s+/g, ' ');   // collapse multiple spaces
+    .replace(/\s+/g, ' ');    // collapse multiple spaces
 
   if (!normalized) return '';
 
@@ -63,8 +63,8 @@ export function toTitleCaseName(value) {
   // Normalize delimiters and spacing
   const normalized = value
     .trim()
-    .replace(/[_-]+/g, ' ')  // underscores/hyphens -> space
-    .replace(/\s+/g, ' ');   // collapse multiple spaces
+    .replace(/[_\-]+/g, ' ')  // underscores/hyphens -> space
+    .replace(/\s+/g, ' ');    // collapse multiple spaces
 
   if (!normalized) return '';
 
@@ -73,12 +73,12 @@ export function toTitleCaseName(value) {
 
   // Capitalize first letter of each word and letter after an apostrophe.
   // Use a Latin letter class that includes common accents.
-  const latinLetter = "A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u00ff";
+  const latinLetter = "A-Za-zÀ-ÖØ-öø-ÿ";
   const titleCased = lower
     // Start-of-word capitalization
     .replace(new RegExp(`\\b([${latinLetter}])`, 'g'), (_, ch) => ch.toUpperCase())
     // After apostrophe (straight or curly)
-    .replace(new RegExp(`([\u2019'])(\\s*)([${latinLetter}])`, 'g'), (_, quote, spaces, ch) => quote + spaces + ch.toUpperCase());
+    .replace(new RegExp(`([’'])(\\s*)([${latinLetter}])`, 'g'), (_, quote, spaces, ch) => quote + spaces + ch.toUpperCase());
 
   return titleCased;
 }

@@ -232,7 +232,9 @@ export default function UsersAnalyticsPanel({
 
   // Theme colors
   const primary = "#2563EB";
+  const secondary = "#F59E0B";
   const grid = "#E5E7EB";
+  const text = "#111827";
   const subtle = "#6B7280";
   const palette = ["#2563EB", "#F59E0B", "#10B981", "#EF4444", "#6366F1", "#14B8A6", "#F97316", "#84CC16", "#06B6D4", "#A855F7"];
 
@@ -428,7 +430,7 @@ export default function UsersAnalyticsPanel({
                       <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="total" name="Projects" stroke="#F59E0B" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="total" name="Projects" stroke={secondary} strokeWidth={2} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 )}

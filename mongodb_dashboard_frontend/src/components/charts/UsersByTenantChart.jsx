@@ -101,6 +101,7 @@ export default function UsersByTenantChart({
   const t = getChartTheme();
   const primary = t.primary;
   const primaryDark = t.primaryActive;
+  const secondary = t.primaryHover;
   const gridStroke = t.grid;
 
   const CustomTooltip = ({ active, payload, label }) => {
