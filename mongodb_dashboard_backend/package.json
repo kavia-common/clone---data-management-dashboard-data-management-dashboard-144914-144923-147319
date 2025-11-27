@@ -4,11 +4,11 @@
   "description": "Minimal Express app with scalable structure",
   "main": "src/server.js",
   "scripts": {
-    "start": "NODE_OPTIONS=--max_old_space_size=512 node src/server.js",
-    "dev": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 BROWSERSLIST_DISABLE_CACHE=1 node src/server.js",
-    "dev:watch": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 nodemon --exitcrash src/server.js",
-    "dev:nodemon": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 nodemon --exitcrash src/server.js",
-    "preview": "NODE_OPTIONS=--max_old_space_size=512 node src/server.js",
+    "start": "NODE_OPTIONS=--max-old-space-size=4096 node src/server.js",
+    "dev": "cross-env NODE_ENV=development NODE_OPTIONS=--max-old-space-size=4096 BROWSERSLIST_DISABLE_CACHE=1 node src/server.js",
+    "dev:watch": "cross-env NODE_ENV=development NODE_OPTIONS=--max-old-space-size=4096 CHOKIDAR_USEPOLLING=false WATCHPACK_POLLING=false nodemon --exitcrash src/server.js",
+    "dev:nodemon": "cross-env NODE_ENV=development NODE_OPTIONS=--max-old-space-size=4096 CHOKIDAR_USEPOLLING=false WATCHPACK_POLLING=false nodemon --exitcrash src/server.js",
+    "preview": "NODE_OPTIONS=--max-old-space-size=4096 node src/server.js",
     "docs": "echo 'Swagger UI at http://localhost:3001/api-docs (alias: /docs)' && node -e \"console.log('OpenAPI JSON at /openapi.json')\"",
     "health": "curl -sSf http://127.0.0.1:${PORT:-3001}/health || true",
     "test": "cross-env CI=true NODE_ENV=test jest --runInBand --ci --reporters=default",
@@ -49,13 +49,19 @@
       "*.md",
       ".git",
       "dist",
-      "build"
+      "build",
+      "coverage",
+      "tmp",
+      "docs",
+      "**/*.map"
     ],
     "ext": "js,json",
     "env": {
       "HOST": "0.0.0.0",
       "PORT": "3001",
-      "NODE_ENV": "development"
+      "NODE_ENV": "development",
+      "CHOKIDAR_USEPOLLING": "false",
+      "WATCHPACK_POLLING": "false"
     }
   }
 }
