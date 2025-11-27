@@ -228,19 +228,9 @@ export default function Deployments() {
   const [error, setError] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Local search (client-side only)
+  // Server-side Project Name search
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 300);
-
-  // Filtered items by debounced, case-insensitive project_name match
-  const filteredItems = useMemo(() => {
-    const q = (debouncedSearch || "").trim().toLowerCase();
-    if (!q) return items;
-    return (items || []).filter((it) => {
-      const pn = (it?.project_name ?? "").toString().toLowerCase();
-      return pn.includes(q);
-    });
-  }, [items, debouncedSearch]);
 
   const allowedOrdered = useMemo(
     () => ["branch_name", "project_name", "app_url", "status"],
@@ -330,7 +320,7 @@ export default function Deployments() {
   const [columns, setColumns] = useState(buildColumns());
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
-  /** Load deployments (no changes to backend requests) */
+  /** Load deployments from server with pagination, search and sort */
   async function load(page = 1, limit = meta.limit, sortKey, sortDir) {
     setLoading(true);
     setError("");
@@ -345,10 +335,15 @@ export default function Deployments() {
 
       const params = { page, limit };
 
+      // Preserve server-side sort
       if (sortKey) {
         const backendField = fieldMap[sortKey] || sortKey;
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
       }
+
+      // Include server-side search when present (case-insensitive handled by backend)
+      const q = (debouncedSearch || "").trim();
+      if (q) params.search = q;
 
       const res = await listDeployments(params);
       const arr = res?.items ?? [];
@@ -380,6 +375,13 @@ export default function Deployments() {
     load(1, meta.limit, lastSortRef.current.key, lastSortRef.current.dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // When search changes (debounced), reset to first page and refetch preserving sort
+  useEffect(() => {
+    // Reset pagination to page 1 on new search
+    load(1, meta.limit, lastSortRef.current.key, lastSortRef.current.dir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
 
   /** Deployment status chart */
   const {
@@ -451,14 +453,13 @@ export default function Deployments() {
 
           <DataTable
             columns={columns}
-            data={filteredItems}
+            data={items}
             loading={loading}
             pageSize={meta.limit}
             initialPage={meta.page}
-            // Keep server pagination totals; client filter reduces rendered rows only.
             serverTotal={meta.total}
             fetchPage={async (page, limit, sortKey, sortDir) => {
-              if (sortKey) lastSortRef.current = { key: sortKey, dir: sortDir };
+              if (sortKey) lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
               await load(page, limit, sortKey, sortDir);
             }}
             paginationTitle="Deployment pages"
