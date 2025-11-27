@@ -28,7 +28,21 @@ Preview runner compatibility
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT
   - Server ready: http://HOST:PORT (env=...)
-- If your frontend dev server uses a proxy (http-proxy-middleware) to reach this backend, ensure the proxy target points to the actual backend URL (e.g., http://127.0.0.1:3001 for same machine, or the backend container hostname). Avoid 0.0.0.0 in proxy targets; use 127.0.0.1 or a resolvable host. Binding to 0.0.0.0 here avoids EADDRNOTAVAIL for listeners, but the proxy target must also be reachable.
+- Frontend devServer proxy (webpack/vite) guidance to avoid EADDRNOTAVAIL:
+  - Do NOT set the proxy target to http://0.0.0.0:3001. 0.0.0.0 is a bind address, not a routable destination.
+  - Use a reachable host for the target, e.g. http://127.0.0.1:3001 (same machine) or the backend’s container hostname.
+  - Example (webpack devServer):
+      devServer: {
+        proxy: {
+          '/api': {
+            target: process.env.BACKEND_URL || 'http://127.0.0.1:3001',
+            changeOrigin: true,
+          }
+        }
+      }
+  - If preview URLs are used, set BACKEND_URL to the fully-qualified backend URL (scheme + host + port).
+  - If the proxy target is temporarily unreachable, the frontend may log EADDRNOTAVAIL or ECONNREFUSED; the backend is resilient and continues running.
+- The backend itself does NOT use http-proxy-middleware or reverse-proxy features; errors seen in logs are likely from the frontend dev proxy.
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
   - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
