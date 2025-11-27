@@ -1,7 +1,7 @@
 # Backend (Express) - Dashboard API
 
 - Default port: 3001 (configurable via PORT in .env)
-- Host bind: 0.0.0.0 by default (configurable via HOST)
+- Host bind: 0.0.0.0 by default (configurable via HOST; if HOST is unset or set to 'localhost', the server will bind to 0.0.0.0 to avoid EADDRNOTAVAIL in preview/container environments)
 - Docs (Swagger UI): http://localhost:3001/api/docs (aliases: http://localhost:3001/api-docs and http://localhost:3001/docs)
 - OpenAPI JSON: http://localhost:3001/api/docs.json (aliases: http://localhost:3001/openapi.json and http://localhost:3001/api-docs.json)
 
