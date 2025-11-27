@@ -21,7 +21,7 @@ export default function DeploymentsOverview() {
   return (
     <div className="grid">
       <DeploymentStatusBarChart
-        title="Project Details"
+        title="Project Deployment Status"
         subtitle="Deployments by Status"
         data={data}
         loading={loading}
