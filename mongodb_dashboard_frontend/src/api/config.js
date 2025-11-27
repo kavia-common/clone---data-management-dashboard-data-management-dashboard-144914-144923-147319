@@ -3,7 +3,7 @@
 // Keep this URL exactly as provided.
 //
 const apiBase = 
- `https://kavia-dashboard-kavisa-dev.clsoud.kavia.ai/api`;
+ `https://kavia-dashboard-kavia-dev.clsoud.kavia.ai/api`;
 // 'https://vscode-internal-21554-beta.beta01.cloud.kavia.ai:3001/api';
 
 /**
