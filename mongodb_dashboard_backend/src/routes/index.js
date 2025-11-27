@@ -32,6 +32,8 @@ router.get('/', (req, res) => {
 });
 router.get('/healthz', healthController.check.bind(healthController));
 router.get('/health', healthController.check.bind(healthController));
+// Mirror health under /api for discoverability when mounted at '/'
+router.get('/api/health', healthController.check.bind(healthController));
 
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);

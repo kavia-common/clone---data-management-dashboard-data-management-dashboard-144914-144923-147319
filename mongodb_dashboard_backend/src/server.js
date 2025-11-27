@@ -11,8 +11,14 @@ const app = require('./app');
 const mongoose = require('mongoose');
 
 const PORT = Number(process.env.PORT) || 3001;
-// Prefer 0.0.0.0 binding to avoid EADDRNOTAVAIL when localhost resolves to IPv6/IPv4 mismatches in preview envs
-const HOST = process.env.HOST && process.env.HOST !== 'localhost' ? process.env.HOST : '0.0.0.0';
+// Force 0.0.0.0 binding by default to avoid EADDRNOTAVAIL on preview infra,
+// and ignore any misconfigured localhost/hostname that isn't routable.
+const HOST = (() => {
+  const envHost = String(process.env.HOST || '').trim();
+  if (!envHost || envHost.toLowerCase() === 'localhost') return '0.0.0.0';
+  // If host looks like 127.* or 0.0.0.0 keep it; otherwise still prefer given host.
+  return envHost;
+})();
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // PUBLIC_INTERFACE

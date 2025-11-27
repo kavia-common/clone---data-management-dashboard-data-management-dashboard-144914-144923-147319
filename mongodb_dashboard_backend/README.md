@@ -11,6 +11,7 @@ Quick start (development)
 - npm run dev   # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server)
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state
+- curl "http://localhost:3001/api/users?organization_id=T0000" -H "Authorization: Bearer <token>" # tenant-scoped users (T0000 special case for super admin)
 
 Scripts
 - dev: runs the server with PORT/HOST defaults applied in-process (CI-compatible)

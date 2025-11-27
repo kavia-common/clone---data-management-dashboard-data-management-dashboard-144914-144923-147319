@@ -25,7 +25,11 @@ const JSON_LIMIT = process.env.JSON_LIMIT || process.env.REACT_APP_JSON_LIMIT ||
 app.use(express.json({ limit: JSON_LIMIT }));
 app.use(express.urlencoded({ extended: true, limit: JSON_LIMIT }));
 
-// Note: This backend does not self-proxy to its own host. All handlers invoke services/controllers directly to avoid loopbacks that could cause EADDRNOTAVAIL or memory spikes in constrained previews.
+/**
+ * Note: This backend does not self-proxy to its own host.
+ * All handlers invoke services/controllers directly to avoid loopbacks that could
+ * cause EADDRNOTAVAIL or memory spikes in constrained previews.
+ */
 
 // ---------------------------------------------
 // Swagger setup
