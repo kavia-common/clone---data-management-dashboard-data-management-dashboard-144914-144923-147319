@@ -8,6 +8,11 @@ const { resolveProjectName } = require('../services/projects.service');
 const analytics = require('../services/analytics');
 const { usdToCredits } = require('../utils/credits');
 const { normalizeProjectId: normalizeProjectIdSafe } = require('../services/enrichment.util');
+// New summary controllers
+const {
+  getProjectsSummaryByUser,
+  getProjectsSummaryByDepartment,
+} = require('../controllers/projects.summary.controller');
 
 /**
  * Internal: round to 6 decimal places to match normalization used in routes/costs.js
@@ -43,6 +48,20 @@ function buildUsagePayload({ projectId, costUSD, currency = 'USD' }) {
     currency,
   };
 }
+
+// PUBLIC_INTERFACE
+// GET /api/projects/summary-by-user
+// Aggregated summary of distinct projects per user for given tenant and optional [from,to]
+router.get('/summary-by-user', async (req, res) => {
+  return getProjectsSummaryByUser(req, res);
+});
+
+// PUBLIC_INTERFACE
+// GET /api/projects/summary-by-department
+// Aggregated summary of distinct projects per department for given tenant and optional [from,to]
+router.get('/summary-by-department', async (req, res) => {
+  return getProjectsSummaryByDepartment(req, res);
+});
 
 /**
  * PUBLIC_INTERFACE
