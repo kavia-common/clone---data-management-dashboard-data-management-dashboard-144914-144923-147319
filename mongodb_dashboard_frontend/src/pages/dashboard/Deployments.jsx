@@ -401,7 +401,7 @@ export default function Deployments() {
 
       <div className="block-full">
         <DeploymentStatusBarChart
-          title="Deployments by Status"
+          title="Projects deployments by Status"
           subtitle="All statuses"
           data={statusData}
           loading={statusLoading}
@@ -411,7 +411,8 @@ export default function Deployments() {
       </div>
 
       <div className="block-full">
-        <Card title="App Deployments" subtitle="Deployments list">
+        <Card title="Project Deployment Details
+        " subtitle="Deployments list">
           {/* Search input above the table */}
           <div
             style={{

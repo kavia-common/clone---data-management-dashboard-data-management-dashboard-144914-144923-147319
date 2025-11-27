@@ -139,7 +139,7 @@ function DeploymentsOverTime({ height = 320, className = "" }) {
 
   return (
     <Card
-      title="Deployments Over Time"
+      title="Projects deployed Over Time"
       subtitle="Counts aggregated by day with time range selection"
       className={`block-full chart-card ${className}`.trim()}
     >
