@@ -26,3 +26,4 @@ function errorHandler(err, req, res, _next) {
 }
 
 module.exports = errorHandler;
+module.exports.errorHandler = errorHandler;

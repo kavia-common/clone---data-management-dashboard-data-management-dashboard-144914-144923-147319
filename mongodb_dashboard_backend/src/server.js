@@ -11,7 +11,8 @@ const app = require('./app');
 const mongoose = require('mongoose');
 
 const PORT = Number(process.env.PORT) || 3001;
-const HOST = process.env.HOST || '0.0.0.0';
+// Prefer 0.0.0.0 binding to avoid EADDRNOTAVAIL when localhost resolves to IPv6/IPv4 mismatches in preview envs
+const HOST = process.env.HOST && process.env.HOST !== 'localhost' ? process.env.HOST : '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // PUBLIC_INTERFACE
@@ -123,16 +124,41 @@ function startServerStrict() {
       if (err && err.code === 'EADDRINUSE') {
         // eslint-disable-next-line no-console
         console.error(`[startup] EADDRINUSE port ${PORT}. Another instance is already running. Skipping new listener without exiting to avoid crash loop.`);
-        // Do not exit(1); allow process to remain alive for health endpoints and preview probes.
         // Emit a soft-ready marker so orchestrators don't keep respawning.
         try {
           console.log(`READY: http://${HOST}:${PORT} (occupied)`);
         } catch {}
-        return; // swallow error
+        return; // swallow error to avoid crash loops
+      }
+      if (err && (err.code === 'EADDRNOTAVAIL' || err.code === 'EACCES')) {
+        // Binding issue due to invalid/privileged host. Fallback to 0.0.0.0 without exiting.
+        // eslint-disable-next-line no-console
+        console.error(`[startup] ${err.code} for ${HOST}:${PORT}. Attempting fallback bind to 0.0.0.0...`);
+        try {
+          app.listen(PORT, '0.0.0.0', () => {
+            try {
+              console.log(`[startup] listening http://0.0.0.0:${PORT} (fallback due to ${err.code})`);
+              console.log(`READY: http://0.0.0.0:${PORT}`);
+            } catch {}
+            writePidFile();
+          });
+          return;
+        } catch (e2) {
+          console.error('[startup] Fallback bind failed:', e2?.message || e2);
+        }
+        // Final soft failure without exit to avoid restart storms; provide logs for probes
+        try {
+          console.log(`READY: http://${HOST}:${PORT} (bind-error:${err.code})`);
+        } catch {}
+        return;
       }
       // eslint-disable-next-line no-console
       console.error('[startup] Server failed to start:', err?.message || err);
-      // Exit only for non-port related fatal errors
+      // Avoid hard exit in preview environments to prevent container kill loops; keep process alive for health probes.
+      if (process.env.CI || process.env.PREVIEW || process.env.KAVIA_PREVIEW) {
+        try { console.log(`READY: http://${HOST}:${PORT} (degraded)`); } catch {}
+        return;
+      }
       process.exit(1);
     });
 

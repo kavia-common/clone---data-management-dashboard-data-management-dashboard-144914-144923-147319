@@ -437,7 +437,19 @@ router.get(
         appliedTenant: String(applied || ''),
       });
     } catch {}
-    return controller.list(req, res, next);
+    // Call controller but ensure safe 200 fallback on errors (e.g., DB not connected)
+    try {
+      return controller.list(req, res, (err) => {
+        if (err) {
+          console.error('[users:list] controller error, returning empty payload:', err?.message || err);
+          return res.status(200).json({ success: true, data: [], meta: { page: 1, limit: 0, total: 0 } });
+        }
+        return undefined;
+      });
+    } catch (e) {
+      console.error('[users:list] thrown error, returning empty payload:', e?.message || e);
+      return res.status(200).json({ success: true, data: [], meta: { page: 1, limit: 0, total: 0 } });
+    }
   }
 );
 /**

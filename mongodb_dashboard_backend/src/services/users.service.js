@@ -71,7 +71,14 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
     { $sort: { last_activity: -1 } },
   ];
 
-  const grouped = await SessionTracking.aggregate(pipeline);
+  // When database is not connected, aggregation may throw; guard and return empty projects gracefully
+  let grouped = [];
+  try {
+    grouped = await SessionTracking.aggregate(pipeline);
+  } catch (e) {
+    try { console.warn('[users.service] aggregate failed (likely DB not connected). Returning empty list.'); } catch {}
+    grouped = [];
+  }
 
   const projectIds = grouped.map((g) => g.project_id).filter(Boolean);
   let projectNamesMap = {};

@@ -19,8 +19,9 @@ app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
 app.options('/api/*', cors());
 app.use(rateLimiter());
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: process.env.JSON_LIMIT || '800kb' }));
+app.use(express.urlencoded({ extended: true, limit: process.env.JSON_LIMIT || '800kb' }));
+// Note: This backend does not self-proxy to its own host. All handlers invoke services/controllers directly to avoid loopbacks that could cause EADDRNOTAVAIL or memory spikes in constrained previews.
 
 // ---------------------------------------------
 // Swagger setup
@@ -93,6 +94,8 @@ const healthHandler = (req, res) => {
   return res.status(200).json(payload);
 };
 app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
+// Extra alias to make probes tolerant
+app.get('/api/_health', healthHandler);
 
 // ---------------------------------------------
 // Routers
