@@ -203,6 +203,7 @@ import { listDeployments } from "../../api";
 import DeploymentsOverTime from "../../components/charts/DeploymentsOverTime.jsx";
 import DeploymentStatusBarChart from "../../components/charts/DeploymentStatusBarChart.jsx";
 import useDeploymentStatusCounts from "../../hooks/useDeploymentStatusCounts";
+import useDebouncedValue from "../../hooks/useDebouncedValue";
 
 /**
  * Convert snake_case project_name → Title Case
@@ -226,6 +227,20 @@ export default function Deployments() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+
+  // Local search (client-side only)
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
+
+  // Filtered items by debounced, case-insensitive project_name match
+  const filteredItems = useMemo(() => {
+    const q = (debouncedSearch || "").trim().toLowerCase();
+    if (!q) return items;
+    return (items || []).filter((it) => {
+      const pn = (it?.project_name ?? "").toString().toLowerCase();
+      return pn.includes(q);
+    });
+  }, [items, debouncedSearch]);
 
   const allowedOrdered = useMemo(
     () => ["branch_name", "project_name", "app_url", "status"],
@@ -283,8 +298,14 @@ export default function Deployments() {
                 </a>
                 <button
                   onClick={() => copyToClipboard(v)}
-                  className="copy-btn"
                   title="Copy URL"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '1rem',
+                    color: 'inherit',
+                  }}
                 >
                   📋
                 </button>
@@ -309,7 +330,7 @@ export default function Deployments() {
   const [columns, setColumns] = useState(buildColumns());
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
-  /** Load deployments */
+  /** Load deployments (no changes to backend requests) */
   async function load(page = 1, limit = meta.limit, sortKey, sortDir) {
     setLoading(true);
     setError("");
@@ -391,14 +412,50 @@ export default function Deployments() {
 
       <div className="block-full">
         <Card title="App Deployments" subtitle="Deployments list">
+          {/* Search input above the table */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              marginBottom: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <label htmlFor="project-search" className="muted" style={{ fontWeight: 600 }}>
+              Project Name
+            </label>
+            <input
+              id="project-search"
+              type="text"
+              className="input-search"
+              placeholder="Search by project name..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search by project name"
+              style={{ minWidth: 220, flex: "0 1 320px" }}
+            />
+            {debouncedSearch && (
+              <button
+                className="btn btn-secondary"
+                onClick={() => setSearch("")}
+                aria-label="Clear Project Name search"
+                title="Clear"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
           {error && <div className="error">{error}</div>}
 
           <DataTable
             columns={columns}
-            data={items}
+            data={filteredItems}
             loading={loading}
             pageSize={meta.limit}
             initialPage={meta.page}
+            // Keep server pagination totals; client filter reduces rendered rows only.
             serverTotal={meta.total}
             fetchPage={async (page, limit, sortKey, sortDir) => {
               if (sortKey) lastSortRef.current = { key: sortKey, dir: sortDir };
