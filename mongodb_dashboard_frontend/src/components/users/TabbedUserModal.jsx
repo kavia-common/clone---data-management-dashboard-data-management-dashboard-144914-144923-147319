@@ -13,6 +13,7 @@ import LoadingState from '../common/LoadingState.jsx';
 import ErrorState from '../common/ErrorState.jsx';
 import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
+import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 
 /**
  * Internal presentational view for user details
@@ -393,6 +394,7 @@ export default function TabbedUserModal({
       { key: 'projects', label: 'Project Details' },
       { key: 'sessions', label: 'Session Details' },
       { key: 'credits', label: 'Credits Consumed' },
+      { key: 'analytics', label: 'Analytics' },
     ],
     []
   );
@@ -909,6 +911,14 @@ export default function TabbedUserModal({
           )}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
           {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
+          {activeTab === 'analytics' && (
+            <UsersAnalyticsPanelModal
+              userId={userId}
+              tenantId={tenantId}
+              from={from}
+              to={to}
+            />
+          )}
         </div>
       </div>
 
@@ -931,7 +941,7 @@ TabbedUserModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   user: PropTypes.object,
   tenantId: PropTypes.string,
-  defaultTab: PropTypes.oneOf(['details', 'projects', 'sessions', 'credits']),
+  defaultTab: PropTypes.oneOf(['details', 'projects', 'sessions', 'credits', 'analytics']),
   from: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
   to: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
 };
