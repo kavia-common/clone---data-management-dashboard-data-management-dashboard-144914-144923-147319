@@ -723,6 +723,13 @@ export default function TabbedUserModal({
             </div>
 
             <div>
+              <span style={labelStyle}>User ID</span>
+              <div style={valueStyle} title={userId || undefined}>
+                {userId || '—'}
+              </div>
+            </div>
+
+            <div>
               <span style={labelStyle}>Agents used</span>
               <div style={valueStyle} title={agentsText !== '—' ? agentsText : undefined}>
                 {agentsText}
