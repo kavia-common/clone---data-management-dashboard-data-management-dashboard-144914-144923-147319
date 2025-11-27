@@ -7,6 +7,13 @@ import Modal from '../ui/Modal.jsx';
 // Views
 import { useUserProjects } from '../../hooks/useUserProjects';
 
+// Shared components/utilities
+import DataTable from '../DataTable.jsx';
+import LoadingState from '../common/LoadingState.jsx';
+import ErrorState from '../common/ErrorState.jsx';
+import { listSessions, listLlmCosts } from '../../api/baseClient';
+import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
+
 /**
  * Internal presentational view for user details
  * 2x2 responsive grid with Ocean Professional styling and neutral divider.
@@ -384,6 +391,8 @@ export default function TabbedUserModal({
     () => [
       { key: 'details', label: 'User Details' },
       { key: 'projects', label: 'Project Details' },
+      { key: 'sessions', label: 'Session Details' },
+      { key: 'credits', label: 'Credits Consumed' },
     ],
     []
   );
@@ -421,6 +430,217 @@ export default function TabbedUserModal({
     );
   }
 
+  // Session Details Tab
+  function SessionDetailsTab({ userId }) {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    async function load() {
+      if (!userId) return;
+      setLoading(true);
+      setError('');
+      try {
+        // Backend accepts pagination optionally. Use a reasonable page size.
+        const res = await listSessions({ page: 1, limit: 50, sort: '-last_updated' });
+        // Filter client-side by user_id as requested path requires user_id=<ID>
+        // If backend already supports user_id query, we still filter defensively.
+        const arr = Array.isArray(res?.items) ? res.items : [];
+        const normalizedUserId = String(userId);
+        const filtered = arr.filter((row) => {
+          const uid =
+            row?.user_id ??
+            row?.userId ??
+            row?.user?.id ??
+            row?.user?._id ??
+            row?.user?._source?.id ??
+            row?.user?.user_id;
+          return uid && String(uid) === normalizedUserId;
+        });
+        setItems(filtered);
+      } catch (e) {
+        setItems([]);
+        setError(e?.message || 'Failed to load sessions.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => {
+      load();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId]);
+
+    const columns = [
+      { key: 'sessionId', label: 'Session ID', render: (v, row) => row?.session_id || row?.id || row?._id || '—', priority: 1 },
+      { key: 'startedAt', label: 'Started At', render: (v, row) => {
+          const d = row?.session_start || row?.startedAt || row?.created_at;
+          try { return d ? new Date(d).toLocaleString() : '—'; } catch { return d || '—'; }
+        }, priority: 2 },
+      { key: 'lastActiveAt', label: 'Last Active', render: (v, row) => {
+          const d = row?.last_updated || row?.lastActiveAt || row?.updated_at || row?.ended_at;
+          try { return d ? new Date(d).toLocaleString() : '—'; } catch { return d || '—'; }
+        }, priority: 2 },
+      { key: 'ip', label: 'IP', render: (v, row) => row?.ip || row?.client_ip || row?.session_data?.ip || '—', priority: 3 },
+      { key: 'device', label: 'Device', render: (v, row) => row?.device || row?.session_data?.device || '—', priority: 3 },
+      { key: 'browser', label: 'Browser', render: (v, row) => row?.browser || row?.session_data?.browser || '—', priority: 3 },
+      { key: 'location', label: 'Location', render: (v, row) => {
+          const loc = row?.location || row?.session_data?.location || row?.geo;
+          if (!loc) return '—';
+          if (typeof loc === 'string') return loc;
+          const city = loc.city || loc.town || '';
+          const country = loc.country || loc.country_name || '';
+          const parts = [city, country].filter(Boolean);
+          return parts.length ? parts.join(', ') : '—';
+        }, priority: 3 },
+      { key: 'status', label: 'Status', render: (v, row) => row?.status || '—', priority: 2 },
+    ];
+
+    return (
+      <div data-testid="session-details-tab">
+        {loading && <LoadingState message="Loading sessions..." height={160} />}
+        {!loading && error && <ErrorState message={error} onRetry={load} />}
+        {!loading && !error && (
+          items && items.length > 0 ? (
+            <DataTable
+              columns={columns}
+              data={items}
+              loading={false}
+              pageSize={10}
+              initialPage={1}
+              paginationTitle="Sessions pages"
+              maxBodyHeight={360}
+              forceHorizontalScroll
+            />
+          ) : (
+            <div className="table-empty">No sessions found for this user.</div>
+          )
+        )}
+      </div>
+    );
+  }
+  SessionDetailsTab.propTypes = { userId: PropTypes.string };
+
+  // Credits Consumed Tab
+  function CreditsConsumedTab({ userId }) {
+    const [rows, setRows] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    async function load() {
+      if (!userId) return;
+      setLoading(true);
+      setError('');
+      try {
+        // Fetch costs and filter by user_id if needed
+        const res = await listLlmCosts({ page: 1, limit: 100, sort: '-timestamp' });
+        let items = Array.isArray(res?.items) ? res.items : [];
+        const normalizedUserId = String(userId);
+        items = items.filter((row) => {
+          const uid =
+            row?.user_id ??
+            row?.userId ??
+            row?.user?.id ??
+            row?.user?._id ??
+            row?.user?.user_id;
+          return uid && String(uid) === normalizedUserId;
+        });
+        setRows(items);
+      } catch (e) {
+        setRows([]);
+        setError(e?.message || 'Failed to load credits consumed.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => {
+      load();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId]);
+
+    // compute total cost
+    const totalCost = useMemo(() => {
+      return (rows || []).reduce((acc, r) => {
+        // prefer numeric fields; strip strings like "$1.23"
+        const raw = r?.running_total ?? r?.total_cost ?? r?.cost ?? r?.amount ?? 0;
+        const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[$,]/g, ''));
+        return acc + (Number.isFinite(num) ? num : 0);
+      }, 0);
+    }, [rows]);
+
+    const columns = [
+      { key: 'timestamp', label: 'Timestamp', render: (v, row) => {
+          const d = row?.timestamp || row?.date || row?.created_at;
+          try { return d ? new Date(d).toLocaleString() : '—'; } catch { return d || '—'; }
+        }, priority: 1 },
+      { key: 'model', label: 'Model', render: (v, row) => row?.model || row?.llm_model || '—', priority: 2 },
+      { key: 'operation', label: 'Operation', render: (v, row) => row?.operation || row?.type || row?.action || '—', priority: 2 },
+      { key: 'tokens_in', label: 'Tokens In', render: (v, row) => {
+          const n = row?.tokens_in ?? row?.prompt_tokens ?? row?.input_tokens;
+          return Number.isFinite(Number(n)) ? Number(n).toLocaleString() : '—';
+        }, priority: 3 },
+      { key: 'tokens_out', label: 'Tokens Out', render: (v, row) => {
+          const n = row?.tokens_out ?? row?.completion_tokens ?? row?.output_tokens;
+          return Number.isFinite(Number(n)) ? Number(n).toLocaleString() : '—';
+        }, priority: 3 },
+      { key: 'cost', label: 'Cost', render: (v, row) => {
+          const raw = row?.cost ?? row?.amount ?? row?.total_cost;
+          const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[$,]/g, ''));
+          return Number.isFinite(num) ? formatUsdUpToSixDecimals(num) : '—';
+        }, priority: 1 },
+      { key: 'currency', label: 'Currency', render: (v, row) => row?.currency || 'USD', priority: 3 },
+      { key: 'running_total', label: 'Running Total', render: (v, row) => {
+          const raw = row?.running_total ?? row?.cumulative_cost;
+          const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[$,]/g, ''));
+          return Number.isFinite(num) ? formatUsdUpToSixDecimals(num) : '—';
+        }, priority: 2 },
+    ];
+
+    return (
+      <div data-testid="credits-consumed-tab">
+        {/* Summary header */}
+        <div
+          className="card"
+          style={{
+            marginBottom: 12,
+            padding: 12,
+            background: 'var(--bg-surface, #fff)',
+            border: '1px solid var(--border-subtle,#e5e7eb)',
+            borderRadius: 10,
+          }}
+        >
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 700, letterSpacing: '.02em' }}>
+            Total Cost
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>
+            {formatUsdUpToSixDecimals(totalCost)}
+          </div>
+        </div>
+
+        {loading && <LoadingState message="Loading credits..." height={160} />}
+        {!loading && error && <ErrorState message={error} onRetry={load} />}
+        {!loading && !error && (
+          rows && rows.length > 0 ? (
+            <DataTable
+              columns={columns}
+              data={rows}
+              loading={false}
+              pageSize={10}
+              initialPage={1}
+              paginationTitle="Costs pages"
+              maxBodyHeight={360}
+              forceHorizontalScroll
+            />
+          ) : (
+            <div className="table-empty">No cost records found for this user.</div>
+          )
+        )}
+      </div>
+    );
+  }
+  CreditsConsumedTab.propTypes = { userId: PropTypes.string };
+
   return (
     <Modal title={title} open={open} onClose={onClose} className="tabbed-user-modal">
       <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "var(--bg-surface, #fff)" }}>
@@ -435,6 +655,8 @@ export default function TabbedUserModal({
           {activeTab === 'projects' && (
             <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
           )}
+          {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
+          {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
         </div>
       </div>
 
@@ -457,7 +679,7 @@ TabbedUserModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   user: PropTypes.object,
   tenantId: PropTypes.string,
-  defaultTab: PropTypes.oneOf(['details', 'projects']),
+  defaultTab: PropTypes.oneOf(['details', 'projects', 'sessions', 'credits']),
   from: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
   to: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
 };
