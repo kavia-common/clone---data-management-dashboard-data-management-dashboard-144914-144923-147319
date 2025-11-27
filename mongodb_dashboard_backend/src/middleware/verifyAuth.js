@@ -168,6 +168,8 @@
 // const verifyAuthApi = { verifyAuth };
 // module.exports = { ...verifyAuthApi, default: verifyAuthApi };
 
+'use strict';
+
 const jwt = require('jsonwebtoken');
 
 /**
@@ -324,8 +326,7 @@ function verifyAuth(req, res, next) {
     return next();
   } catch (err) {
     const allowDemoFlag = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
-    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-    if (!isProd && allowDemoFlag) {
+    if (!process.env.NODE_ENV?.toLowerCase() === 'production' && allowDemoFlag) {
       req.auth = {
         sub: 'demo-fallback',
         tenantId:

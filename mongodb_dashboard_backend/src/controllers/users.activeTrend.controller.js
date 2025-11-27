@@ -34,9 +34,9 @@ function resolveRange(from, to) {
 
 function normalizeGranularity(g) {
   const v = String(g || 'day').toLowerCase();
-  if (['day', 'week', 'month'].includes(v)) { return v; }
-  if (v === 'weekly') { return 'week'; }
-  if (v === 'monthly') { return 'month'; }
+  if (['day', 'week', 'month'].includes(v)) return v;
+  if (v === 'weekly') return 'week';
+  if (v === 'monthly') return 'month';
   return 'day';
 }
 
