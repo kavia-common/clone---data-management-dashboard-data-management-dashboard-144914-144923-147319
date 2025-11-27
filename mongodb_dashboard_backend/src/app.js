@@ -89,6 +89,13 @@ const healthHandler = (req, res) => {
   if (db !== 'connected') {
     payload.hint = 'Database not connected. Ensure MONGODB_URI is set.';
   }
+  try {
+    // Minimal log to help diagnose premature terminations in preview CI
+    if (process.env.NODE_ENV !== 'test') {
+      // eslint-disable-next-line no-console
+      console.log(`[health] ${req.path} -> ${payload.status} (db=${db})`);
+    }
+  } catch {}
   res.set('Cache-Control', 'no-store');
   return res.status(200).json(payload);
 };

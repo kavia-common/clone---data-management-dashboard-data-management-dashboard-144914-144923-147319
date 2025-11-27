@@ -11,8 +11,16 @@ const app = require('./app');
 const mongoose = require('mongoose');
 
 const PORT = Number(process.env.PORT || process.env.REACT_APP_PORT) || 3001;
-// Always bind 0.0.0.0 to avoid EADDRNOTAVAIL in container/preview envs when frontend proxy targets localhost
-const HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';
+/**
+ * Determine host binding:
+ * - If HOST explicitly provided and not 'localhost', use it.
+ * - Otherwise prefer 0.0.0.0 to avoid EADDRNOTAVAIL inside containers or preview where ::1/localhost may be unavailable.
+ * - Never bind to 'localhost' explicitly (can resolve to ::1 in some envs).
+ */
+let HOST = '0.0.0.0';
+if (process.env.HOST && process.env.HOST !== 'localhost') {
+  HOST = process.env.HOST;
+}
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // PUBLIC_INTERFACE
@@ -29,10 +37,17 @@ try {
   fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
 } catch {}
 
-// Concise startup banner
+/* Concise startup banner and proxy loop guard hints */
 try {
-  // eslint-disable-next-line no-console
   console.log(`[startup] ${NODE_ENV} | ${HOST}:${PORT}`);
+  const proxyTargets = [
+    process.env.REACT_APP_API_BASE_URL,
+    process.env.REACT_APP_API_URL,
+    process.env.PROXY_TARGET,
+  ].filter(Boolean);
+  if (proxyTargets.length) {
+    console.log('[startup] proxy targets:', proxyTargets.join(', '));
+  }
 } catch {}
 
 /**
@@ -121,13 +136,27 @@ function startServerStrict() {
       writePidFile();
     })
     .on('error', (err) => {
+      try {
+        const envDump = JSON.stringify({
+          host: HOST,
+          port: PORT,
+          nodeEnv: NODE_ENV,
+          reactAppPort: process.env.REACT_APP_PORT || null,
+          reactAppApiUrl: process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || null,
+          proxyHost: process.env.REACT_APP_PROXY_HOST || null,
+        });
+        console.error('[startup] listen() error env:', envDump);
+      } catch {}
       if (err && err.code === 'EADDRINUSE') {
-        // eslint-disable-next-line no-console
-        console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
+        console.error(`[startup] EADDRINUSE: Port ${PORT} already in use. Another process is bound. PID file: ${PID_FILE}.`);
+      } else if (err && err.code === 'EADDRNOTAVAIL') {
+        console.error(`[startup] EADDRNOTAVAIL: Address ${HOST} is not available in this environment.`);
+        console.error('[startup] Hint: Avoid binding to localhost/::1 in containers. Try HOST=0.0.0.0 or unset HOST.');
       } else {
-        // eslint-disable-next-line no-console
         console.error('[startup] Server failed to start:', err?.message || err);
       }
+      // Extra note if proxy could be looping
+      console.error('[startup] If using a dev proxy, ensure it targets 127.0.0.1:3001 (not the same origin:port to avoid self-proxy loops).');
       process.exit(1);
     });
 
