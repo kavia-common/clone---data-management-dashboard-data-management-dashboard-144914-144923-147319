@@ -611,14 +611,18 @@ export default function TabbedUserModal({
         if (Number.isFinite(Number(obj.duration))) return Number(obj.duration);
         return 0;
       };
-
       items.forEach((it) => {
         const bd = it?.session_breakdown ?? it?.breakdown ?? [];
+
         if (Array.isArray(bd)) {
+          // Normal array of steps
           bd.forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
-        } else if (bd && typeof bd === 'object') {
-          // maybe a map of steps
-          Object.values(bd).forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
+
+        } else if (bd && typeof bd === "object") {
+          // Object map → iterate over its values
+          Object.values(bd).forEach((step) =>
+            addDurationSeconds(tryExtractSeconds(step))
+          );
         }
       });
 
@@ -650,21 +654,7 @@ export default function TabbedUserModal({
 
     // Note: Per request, hide sessionId, startedAt, and lastActive. We keep a minimal table for context (optional fields),
     // but the main focus is the AggregatesPanel above. If needed, you can further trim columns here.
-    const columns = [
-      { key: 'ip', label: 'IP', render: (v, row) => row?.ip || row?.client_ip || row?.session_data?.ip || '—', priority: 3 },
-      { key: 'device', label: 'Device', render: (v, row) => row?.device || row?.session_data?.device || '—', priority: 3 },
-      { key: 'browser', label: 'Browser', render: (v, row) => row?.browser || row?.session_data?.browser || '—', priority: 3 },
-      { key: 'location', label: 'Location', render: (v, row) => {
-          const loc = row?.location || row?.session_data?.location || row?.geo;
-          if (!loc) return '—';
-          if (typeof loc === 'string') return loc;
-          const city = loc.city || loc.town || '';
-          const country = loc.country || loc.country_name || '';
-          const parts = [city, country].filter(Boolean);
-          return parts.length ? parts.join(', ') : '—';
-        }, priority: 3 },
-      { key: 'status', label: 'Status', render: (v, row) => row?.status || '—', priority: 2 },
-    ];
+
 
     // Aggregation panel UI (definition list two-column)
     const AggregatesPanel = () => {
@@ -781,10 +771,9 @@ export default function TabbedUserModal({
     return (
       <div data-testid="session-details-tab">
         <AggregatesPanel />
-        {!loading && !error && items && items.length > 0 ? (
+        {!loading && !error && Array.isArray(items) && items.length > 0 ? (
           <DataTable
-            columns={columns}
-            data={items}
+            data={items || []}
             loading={false}
             pageSize={10}
             initialPage={1}
@@ -846,33 +835,7 @@ export default function TabbedUserModal({
       }, 0);
     }, [rows]);
 
-    const columns = [
-      { key: 'timestamp', label: 'Timestamp', render: (v, row) => {
-          const d = row?.timestamp || row?.date || row?.created_at;
-          try { return d ? new Date(d).toLocaleString() : '—'; } catch { return d || '—'; }
-        }, priority: 1 },
-      { key: 'model', label: 'Model', render: (v, row) => row?.model || row?.llm_model || '—', priority: 2 },
-      { key: 'operation', label: 'Operation', render: (v, row) => row?.operation || row?.type || row?.action || '—', priority: 2 },
-      { key: 'tokens_in', label: 'Tokens In', render: (v, row) => {
-          const n = row?.tokens_in ?? row?.prompt_tokens ?? row?.input_tokens;
-          return Number.isFinite(Number(n)) ? Number(n).toLocaleString() : '—';
-        }, priority: 3 },
-      { key: 'tokens_out', label: 'Tokens Out', render: (v, row) => {
-          const n = row?.tokens_out ?? row?.completion_tokens ?? row?.output_tokens;
-          return Number.isFinite(Number(n)) ? Number(n).toLocaleString() : '—';
-        }, priority: 3 },
-      { key: 'cost', label: 'Cost', render: (v, row) => {
-          const raw = row?.cost ?? row?.amount ?? row?.total_cost;
-          const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[$,]/g, ''));
-          return Number.isFinite(num) ? formatUsdUpToSixDecimals(num) : '—';
-        }, priority: 1 },
-      { key: 'currency', label: 'Currency', render: (v, row) => row?.currency || 'USD', priority: 3 },
-      { key: 'running_total', label: 'Running Total', render: (v, row) => {
-          const raw = row?.running_total ?? row?.cumulative_cost;
-          const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[$,]/g, ''));
-          return Number.isFinite(num) ? formatUsdUpToSixDecimals(num) : '—';
-        }, priority: 2 },
-    ];
+
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -898,10 +861,9 @@ export default function TabbedUserModal({
         {loading && <LoadingState message="Loading credits..." height={160} />}
         {!loading && error && <ErrorState message={error} onRetry={load} />}
         {!loading && !error && (
-          rows && rows.length > 0 ? (
+          Array.isArray(rows) && rows.length > 0 ? (
             <DataTable
-              columns={columns}
-              data={rows}
+              data={rows || []}
               loading={false}
               pageSize={10}
               initialPage={1}

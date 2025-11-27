@@ -572,9 +572,9 @@ export default function Sessions() {
           </div>
         )}
         <DataTable
-          columns={columns}
-          data={items}
-          loading={loading}
+          columns={Array.isArray(columns) ? columns : []}
+          data={Array.isArray(items) ? items : []}
+          loading={!!loading}
 
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}

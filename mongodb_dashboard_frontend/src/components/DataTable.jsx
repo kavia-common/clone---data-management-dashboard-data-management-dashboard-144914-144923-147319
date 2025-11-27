@@ -24,9 +24,9 @@ function measureTextWidth(text, font = "14px Helvetica, Arial, sans-serif") {
  */
 // PUBLIC_INTERFACE
 export default function DataTable({
-  columns,
-  data,
-  loading,
+  columns = [],
+  data = [],
+  loading = false,
   onEdit,
   onDelete,
   onRowClick,
@@ -79,11 +79,14 @@ export default function DataTable({
     }
   }
 
+  const safeColumns = Array.isArray(columns) ? columns : [];
+  const safeData = Array.isArray(data) ? data : [];
+
   // In server mode, do not apply client-side sorting: trust server ordering for global sort correctness.
   const sorted = useMemo(() => {
-    if (isServerMode) return data || [];
-    if (!sortKey) return data || [];
-    const copy = [...(data || [])];
+    if (isServerMode) return safeData;
+    if (!sortKey) return safeData;
+    const copy = [...safeData];
     copy.sort((a, b) => {
       const av = getValue(a, sortKey);
       const bv = getValue(b, sortKey);
@@ -99,7 +102,7 @@ export default function DataTable({
 
   // Determine total and pagination mode
   const clientTotal = sorted?.length || 0;
-  const total = isServerMode ? Math.max(0, serverTotal) : clientTotal;
+  const total = isServerMode ? Math.max(0, serverTotal ?? clientTotal) : clientTotal;
 
   const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
   const currentPage = Math.min(Math.max(1, page), totalPages);
@@ -296,7 +299,7 @@ export default function DataTable({
     const fontCell = "14px Helvetica, Arial, sans-serif";
 
     const widths = {};
-    (columns || []).forEach((c) => {
+    (safeColumns || []).forEach((c) => {
       const headerW = measureTextWidth(c.label ?? c.key, fontHeader);
       let maxW = headerW;
       (pageRows || []).forEach((row) => {
@@ -324,7 +327,7 @@ export default function DataTable({
   }, [columns, pageRows, autoWidth, minColWidth, maxColWidth, actionColIncluded]);
 
   // If forced, set a minWidth on tables to ensure horizontal scrollbar appears even with a few columns.
-  const forcedMinWidth = forceHorizontalScroll ? Math.max(960, (columns?.length || 1) * 160 + (actionColIncluded ? 160 : 0)) : undefined;
+  const forcedMinWidth = forceHorizontalScroll ? Math.max(960, (safeColumns.length || 1) * 160 + (actionColIncluded ? 160 : 0)) : undefined;
 
   return (
     <div className="table-wrapper" role="region" aria-label="Data table">
@@ -332,14 +335,14 @@ export default function DataTable({
       <div className="table-header" ref={headerRef}>
         <table className="table" aria-hidden="true" style={forcedMinWidth ? { minWidth: forcedMinWidth } : undefined}>
           <colgroup>
-            {(columns || []).map((c) => (
+            {(safeColumns || []).map((c) => (
               <col key={c.key} style={autoWidth ? { width: columnWidths[c.key] } : undefined} />
             ))}
             {actionColIncluded ? <col style={{ width: columnWidths.__actions }} /> : null}
           </colgroup>
           <thead>
             <tr>
-              {columns.map((c) => {
+              {safeColumns.map((c) => {
                 const thClass = `th ${c.priority ? `col-priority-${c.priority}` : ""} ${c.className || ""}`.trim();
                 return (
                   <th
@@ -394,7 +397,7 @@ export default function DataTable({
       >
         <table className="table" style={forcedMinWidth ? { minWidth: forcedMinWidth } : undefined}>
           <colgroup>
-            {(columns || []).map((c) => (
+            {(safeColumns || []).map((c) => (
               <col key={c.key} style={autoWidth ? { width: columnWidths[c.key] } : undefined} />
             ))}
             {actionColIncluded ? <col style={{ width: columnWidths.__actions }} /> : null}
@@ -404,9 +407,9 @@ export default function DataTable({
               <>
                 {Array.from({ length: Math.min(6, Math.max(3, Math.floor((maxBodyHeight || 320) / 48))) }).map((_, i) => (
                   <tr className="tr" key={`sk-${i}`}>
-                    <td colSpan={columns.length + actionColIncluded}>
-                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns.length + actionColIncluded}, 1fr)`, gap: 12 }}>
-                        {Array.from({ length: columns.length + actionColIncluded }).map((__, j) => (
+                    <td colSpan={safeColumns.length + actionColIncluded}>
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${safeColumns.length + actionColIncluded}, 1fr)`, gap: 12 }}>
+                        {Array.from({ length: safeColumns.length + actionColIncluded }).map((__, j) => (
                           <Skeleton key={j} height={16} />
                         ))}
                       </div>
@@ -417,7 +420,7 @@ export default function DataTable({
             )}
             {!loading && (!sorted || sorted.length === 0) && (
               <tr className="tr">
-                <td colSpan={columns.length + actionColIncluded}>
+                <td colSpan={safeColumns.length + actionColIncluded}>
                   <div className="table-empty">No data</div>
                 </td>
               </tr>
@@ -508,7 +511,7 @@ export default function DataTable({
               fillerCount > 0 &&
               Array.from({ length: fillerCount }).map((_, idx) => (
                 <tr className="tr tr--filler" key={`filler-${idx}`} aria-hidden="true">
-                  <td className="td" colSpan={columns.length + actionColIncluded}>
+                  <td className="td" colSpan={safeColumns.length + actionColIncluded}>
                     &nbsp;
                   </td>
                 </tr>
