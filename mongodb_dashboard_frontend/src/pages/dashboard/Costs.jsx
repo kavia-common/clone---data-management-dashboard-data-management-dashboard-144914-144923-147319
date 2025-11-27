@@ -331,6 +331,7 @@ export default function Costs() {
   }, [query, allItems]);
 
   const columns = useMemo(() => {
+    // buildColumnsFromSample is a pure function defined in this file; items is the only reactive input
     const base = buildColumnsFromSample(items || []);
     return base.slice();
   }, [items]);

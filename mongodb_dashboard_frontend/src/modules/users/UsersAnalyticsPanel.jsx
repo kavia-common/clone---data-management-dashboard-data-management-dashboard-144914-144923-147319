@@ -18,7 +18,6 @@ import {
 import { useUsers } from "../../hooks/useUsers";
 import { getApiClient } from "../../api";
 import { getActiveTenant } from "../../utils/tenantClient";
-import Card from "../../components/ui/Card";
 import Skeleton from "../../components/ui/Skeleton";
 
 /**
