@@ -40,7 +40,33 @@ router.use('/auth', authRoutes);
  * Protected core routes behind auth + tenant
  * Note: Super Admins (req.user.isSuperAdmin or T0000) are allowed to bypass tenant scoping by requireTenant/verifyAuth.
  */
-router.use('/users', verifyAuth, requireTenant, usersRoutes);
+router.use('/users',
+  verifyAuth,
+  // Conditional tenant enforcement: if T0000/all-tenants is requested and user is super admin, skip requireTenant scoping
+  (req, res, next) => {
+    try {
+      const allFlag = String(req.headers['x-all-tenants'] || req.query?.all_tenants || '').toLowerCase().trim();
+      const wantsAll = ['1','true','yes','on'].includes(allFlag);
+      const requestedTenant =
+        (typeof req.query?.organization_id === 'string' && req.query.organization_id) ||
+        (typeof req.query?.tenant_id === 'string' && req.query.tenant_id) ||
+        (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id']) ||
+        (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id']) ||
+        (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant']) ||
+        '';
+      const isT0000 = /^T0+$/i.test(String(requestedTenant || '').trim());
+      const roles = Array.isArray(req?.auth?.roles) ? req.auth.roles : [];
+      const isSA = roles.map(r => String(r).toLowerCase()).includes('super admin');
+      if (isSA && (wantsAll || isT0000)) {
+        req.tenantScopeDisabled = true;
+        req.allTenants = true;
+        return next();
+      }
+    } catch {}
+    return requireTenant(req, res, next);
+  },
+  usersRoutes
+);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 
 router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);

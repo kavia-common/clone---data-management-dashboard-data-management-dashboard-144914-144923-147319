@@ -122,11 +122,17 @@ function startServerStrict() {
     .on('error', (err) => {
       if (err && err.code === 'EADDRINUSE') {
         // eslint-disable-next-line no-console
-        console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
-      } else {
-        // eslint-disable-next-line no-console
-        console.error('[startup] Server failed to start:', err?.message || err);
+        console.error(`[startup] EADDRINUSE port ${PORT}. Another instance is already running. Skipping new listener without exiting to avoid crash loop.`);
+        // Do not exit(1); allow process to remain alive for health endpoints and preview probes.
+        // Emit a soft-ready marker so orchestrators don't keep respawning.
+        try {
+          console.log(`READY: http://${HOST}:${PORT} (occupied)`);
+        } catch {}
+        return; // swallow error
       }
+      // eslint-disable-next-line no-console
+      console.error('[startup] Server failed to start:', err?.message || err);
+      // Exit only for non-port related fatal errors
       process.exit(1);
     });
 

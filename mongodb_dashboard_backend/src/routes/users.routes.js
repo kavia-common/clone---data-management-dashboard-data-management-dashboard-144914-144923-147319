@@ -114,6 +114,7 @@ function usersEarlyBypassDetector(req, res, next) {
       res.set('X-Requested-Tenant', 'T0000');
       res.set('X-All-Tenants', 'true');
       res.set('X-Applied-Tenant', 'all-tenants');
+      res.set('X-Applied-Filter', JSON.stringify({ $match: 'none (users bypass all tenants)' }));
     } catch {}
   } else {
     try {
