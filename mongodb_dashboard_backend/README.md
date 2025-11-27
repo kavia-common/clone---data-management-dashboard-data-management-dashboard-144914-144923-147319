@@ -27,7 +27,8 @@ Troubleshooting EADDRNOTAVAIL / EADDRINUSE
 - EADDRINUSE: Another instance is running. A PID file is used: .tmp/server.<port>.pid. Stop the existing process or use a different PORT.
 
 Memory usage
-- Node memory is capped via NODE_OPTIONS=--max_old_space_size=384 in dev/start to avoid OOM kills in preview environments.
+- Node memory is capped via NODE_OPTIONS=--max-old-space-size=3072 in dev/start to avoid OOM kills in preview environments.
+- You can raise to 4096 locally if still seeing V8 OOM: NODE_OPTIONS=--max-old-space-size=4096 npm run dev
 
 Scripts
 - dev: runs the server with PORT/HOST defaults applied in-process (CI-compatible)
