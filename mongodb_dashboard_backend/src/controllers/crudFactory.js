@@ -261,6 +261,46 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       }
 
       // Build final applied filter with robust tenant alias removal and normalized OR across aliases
+      // First, enrich incoming client filter with user_id/project_id query params if present.
+      // We will not alter any existing filter keys; instead we add array $elemMatch constraints into an $and chain.
+      // This happens BEFORE tenant scoping merge so tenant is also enforced.
+      (function applyUserAndProjectQueryParams() {
+        try {
+          const q = req.query || {};
+          // Helper: detect strictly numeric string for coercion to Number
+          const isStrictNumeric = (val) =>
+            typeof val === 'string' && val.trim().length > 0 && /^[+-]?\d+(\.\d+)?$/.test(val.trim());
+          // Start with existing filter object
+          const base = filter && typeof filter === 'object' ? filter : {};
+          const andClauses = [];
+
+          if (typeof q.user_id === 'string' && q.user_id.trim()) {
+            // users array contains elements with { user_id: <string> }
+            andClauses.push({ users: { $elemMatch: { user_id: String(q.user_id.trim()) } } });
+          }
+
+          if (typeof q.project_id === 'string' && q.project_id.trim()) {
+            const raw = q.project_id.trim();
+            const coerced = isStrictNumeric(raw) ? Number(raw) : raw; // numeric coercion when strictly numeric
+            andClauses.push({ projects: { $elemMatch: { project_id: coerced } } });
+          }
+
+          if (andClauses.length > 0) {
+            // Merge by building an $and that includes existing base filter if non-empty
+            if (Object.keys(base).length > 0) {
+              filter = { $and: [base, ...andClauses] };
+            } else {
+              filter = andClauses.length === 1 ? andClauses[0] : { $and: andClauses };
+            }
+          } else {
+            // keep original filter as-is
+            filter = base;
+          }
+        } catch (_) {
+          // non-fatal; leave filter unchanged if any error
+        }
+      })();
+
       const appliedFilter = (req.tenantScopeDisabled || req.allTenants) ? (filter && typeof filter === 'object' ? filter : {}) : mergeFilterWithTenant(filter, req.tenantId);
 
       // Expose applied filter, model collection and quick existence probe for diagnostics
