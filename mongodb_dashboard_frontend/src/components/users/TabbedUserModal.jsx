@@ -436,15 +436,42 @@ export default function TabbedUserModal({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
+    // Helpers: safe getters and formatting for aggregation panel
+    const toStringSafe = (v) => (v === null || v === undefined ? '' : String(v));
+
+    // Attempt to parse ISO8601 duration like PT1H2M3S -> seconds
+    const parseIsoDurationToSeconds = (txt) => {
+      try {
+        if (typeof txt !== 'string') return null;
+        const m = txt.match(/^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/i);
+        if (!m) return null;
+        const days = Number(m[1] || 0);
+        const hours = Number(m[2] || 0);
+        const minutes = Number(m[3] || 0);
+        const seconds = Number(m[4] || 0);
+        return days * 86400 + hours * 3600 + minutes * 60 + seconds;
+      } catch {
+        return null;
+      }
+    };
+
+    const formatSecondsHHMMSS = (totalSeconds) => {
+      if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '—';
+      const sec = Math.floor(totalSeconds);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(h)}:${pad(m)}:${pad(s)}`;
+    };
+
     async function load() {
       if (!userId) return;
       setLoading(true);
       setError('');
       try {
-        // Backend accepts pagination optionally. Use a reasonable page size.
-        const res = await listSessions({ page: 1, limit: 50, sort: '-last_updated' });
-        // Filter client-side by user_id as requested path requires user_id=<ID>
-        // If backend already supports user_id query, we still filter defensively.
+        // Keep using existing endpoint and client normalization
+        const res = await listSessions({ page: 1, limit: 100, sort: '-last_updated' });
         const arr = Array.isArray(res?.items) ? res.items : [];
         const normalizedUserId = String(userId);
         const filtered = arr.filter((row) => {
@@ -471,6 +498,156 @@ export default function TabbedUserModal({
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);
 
+    // Aggregation logic derived from session_breakdown
+    const aggregate = useMemo(() => {
+      if (!items || items.length === 0) return null;
+
+      // Choose a representative doc for top-level fields
+      const first = items[0] || {};
+
+      // Resolve user_name with fallbacks
+      const userName =
+        first?.user_name ??
+        first?.User_name ??
+        first?.user?.name ??
+        first?.user?.full_name ??
+        first?.user?.email ??
+        '';
+
+      // Agents aggregation: accept array of strings or objects or nested under first.agents
+      let agentsList = [];
+      const normalizeAgentName = (a) => {
+        if (!a) return null;
+        if (typeof a === 'string') return a;
+        if (typeof a === 'object') {
+          return (
+            a.name ||
+            a.agent_name ||
+            a.agentName ||
+            a.displayName ||
+            a.username ||
+            a.user_name ||
+            null
+          );
+        }
+        return null;
+      };
+      // Collect agents across all items (if present)
+      items.forEach((it) => {
+        const agents = it?.agents ?? it?.session_data?.agents ?? [];
+        if (Array.isArray(agents)) {
+          agents.forEach((a) => {
+            const nm = normalizeAgentName(a);
+            if (nm) agentsList.push(nm);
+          });
+        } else if (agents && typeof agents === 'object') {
+          // agents as map { id: {name}, ...}
+          Object.values(agents).forEach((a) => {
+            const nm = normalizeAgentName(a);
+            if (nm) agentsList.push(nm);
+          });
+        }
+      });
+      // Deduplicate while preserving order
+      const seen = new Set();
+      agentsList = agentsList.filter((n) => {
+        const k = toStringSafe(n).trim();
+        if (!k) return false;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+
+      // service_type and organization_name from first
+      const serviceType = first?.service_type ?? first?.serviceType ?? first?.session_data?.service_type ?? '';
+      const organizationName =
+        first?.organization_name ??
+        first?.tenant_name ??
+        first?.organization ??
+        first?.org_name ??
+        '';
+
+      // Sessions count from session_breakdown array length or count field; fallback to total items
+      let sessionsCount = 0;
+      const breakdownFromFirst = first?.session_breakdown;
+      if (Array.isArray(breakdownFromFirst)) {
+        sessionsCount = breakdownFromFirst.length;
+      } else if (breakdownFromFirst && typeof breakdownFromFirst === 'object' && typeof breakdownFromFirst.count === 'number') {
+        sessionsCount = breakdownFromFirst.count;
+      } else {
+        // if not provided as aggregate, fallback to per-item view
+        sessionsCount = items.length;
+      }
+
+      // Total duration: sum durations from session_breakdown across docs, supporting various keys
+      let totalSeconds = 0;
+      const addDurationSeconds = (sec) => {
+        if (Number.isFinite(sec) && sec > 0) totalSeconds += sec;
+      };
+
+      const tryExtractSeconds = (obj) => {
+        if (!obj || typeof obj !== 'object') return 0;
+        // Priority order
+        if (Number.isFinite(Number(obj.duration_seconds))) return Number(obj.duration_seconds);
+        if (Number.isFinite(Number(obj.duration_sec))) return Number(obj.duration_sec);
+        if (Number.isFinite(Number(obj.duration_ms))) return Number(obj.duration_ms) / 1000;
+        // Sometimes store as time_ms, elapsed_ms, latency_ms
+        if (Number.isFinite(Number(obj.time_ms))) return Number(obj.time_ms) / 1000;
+        if (Number.isFinite(Number(obj.elapsed_ms))) return Number(obj.elapsed_ms) / 1000;
+        if (Number.isFinite(Number(obj.latency_ms))) return Number(obj.latency_ms) / 1000;
+        // seconds-like alternatives
+        if (Number.isFinite(Number(obj.time_s))) return Number(obj.time_s);
+        if (Number.isFinite(Number(obj.elapsed_s))) return Number(obj.elapsed_s);
+        if (Number.isFinite(Number(obj.latency_s))) return Number(obj.latency_s);
+        // ISO 8601 duration
+        if (obj.duration_iso) {
+          const secs = parseIsoDurationToSeconds(obj.duration_iso);
+          if (Number.isFinite(secs)) return secs;
+        }
+        if (typeof obj.duration === 'string') {
+          const secs = parseIsoDurationToSeconds(obj.duration);
+          if (Number.isFinite(secs)) return secs;
+        }
+        if (Number.isFinite(Number(obj.duration))) return Number(obj.duration);
+        return 0;
+      };
+
+      items.forEach((it) => {
+        const bd = it?.session_breakdown ?? it?.breakdown ?? [];
+        if (Array.isArray(bd)) {
+          bd.forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
+        } else if (bd && typeof bd === 'object') {
+          // maybe a map of steps
+          Object.values(bd).forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
+        }
+      });
+
+      // Total cost: pick aggregate total_cost if present on first, else sum across items fallback
+      let currencyHint = first?.currency || first?.cost_currency || 'USD';
+      let totalCost = 0;
+      if (Number.isFinite(Number(first?.total_cost))) {
+        totalCost = Number(first.total_cost);
+      } else {
+        items.forEach((it) => {
+          const raw = it?.total_cost ?? it?.cost ?? it?.amount ?? it?.session_data?.total_cost;
+          const num = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/[$,]/g, ''));
+          if (Number.isFinite(num)) totalCost += num;
+          if (!currencyHint) currencyHint = it?.currency || it?.cost_currency || currencyHint;
+        });
+      }
+
+      return {
+        userName: userName || '',
+        agents: agentsList,
+        serviceType: serviceType || '',
+        organizationName: organizationName || '',
+        sessionsCount,
+        totalSeconds,
+        totalCost,
+        currency: currencyHint || 'USD',
+      };
+    }, [items]);
+
     const columns = [
       { key: 'sessionId', label: 'Session ID', render: (v, row) => row?.session_id || row?.id || row?._id || '—', priority: 1 },
       { key: 'startedAt', label: 'Started At', render: (v, row) => {
@@ -496,26 +673,133 @@ export default function TabbedUserModal({
       { key: 'status', label: 'Status', render: (v, row) => row?.status || '—', priority: 2 },
     ];
 
+    // Aggregation panel UI (definition list two-column)
+    const AggregatesPanel = () => {
+      if (loading) {
+        return <LoadingState message="Loading sessions..." height={120} />;
+      }
+      if (error) {
+        return <ErrorState message={error} onRetry={load} />;
+      }
+      if (!aggregate) {
+        return (
+          <div
+            style={{
+              background: 'transparent',
+              color: '#ffffff',
+              border: 'none',
+              boxShadow: 'none',
+              textAlign: 'center',
+              padding: 12,
+              borderRadius: 8,
+            }}
+          >
+            No session details found for this user.
+          </div>
+        );
+      }
+
+      const valueStyle = { margin: 0, color: 'var(--text-primary, #111827)', fontWeight: 600, wordBreak: 'break-word' };
+      const labelStyle = { display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary, #64748B)', letterSpacing: '.02em', marginBottom: 6 };
+
+      const cardStyle = {
+        background: 'var(--bg-surface, #ffffff)',
+        border: '1px solid var(--border-subtle, #e5e7eb)',
+        borderRadius: 12,
+        boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
+        padding: 16,
+        marginBottom: 12,
+      };
+
+      const agentsText = aggregate.agents && aggregate.agents.length > 0 ? aggregate.agents.join(', ') : '—';
+      const totalDurationText = formatSecondsHHMMSS(aggregate.totalSeconds);
+
+      // Currency formatting with 2 decimals and currency symbol if USD
+      const toCurrency = (n, currency) => {
+        const num = Number(n);
+        if (!Number.isFinite(num)) return '—';
+        try {
+          // Prefer USD symbol if applicable, else generic currency display with 2 decimals
+          if (String(currency || 'USD').toUpperCase() === 'USD') {
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+          }
+          return `${num.toFixed(2)} ${currency || ''}`.trim();
+        } catch {
+          return `$${num.toFixed(2)}`;
+        }
+      };
+
+      return (
+        <section aria-label="Aggregated session details" style={cardStyle}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
+            <div>
+              <span style={labelStyle}>User name</span>
+              <div style={valueStyle} title={aggregate.userName || undefined}>
+                {aggregate.userName || (toStringSafe(user?.name || user?.full_name || user?.email) || '—')}
+              </div>
+            </div>
+
+            <div>
+              <span style={labelStyle}>Agents used</span>
+              <div style={valueStyle} title={agentsText !== '—' ? agentsText : undefined}>
+                {agentsText}
+              </div>
+            </div>
+
+            <div>
+              <span style={labelStyle}>Service type</span>
+              <div style={valueStyle} title={aggregate.serviceType || undefined}>
+                {aggregate.serviceType || '—'}
+              </div>
+            </div>
+
+            <div>
+              <span style={labelStyle}>Organization</span>
+              <div style={valueStyle} title={aggregate.organizationName || undefined}>
+                {aggregate.organizationName || '—'}
+              </div>
+            </div>
+
+            <div>
+              <span style={labelStyle}>Number of sessions</span>
+              <div style={valueStyle}>
+                {Number.isFinite(aggregate.sessionsCount) ? aggregate.sessionsCount : '—'}
+              </div>
+            </div>
+
+            <div>
+              <span style={labelStyle}>Total Duration</span>
+              <div style={valueStyle} title={aggregate.totalSeconds ? `${aggregate.totalSeconds.toFixed(0)} seconds` : undefined}>
+                {totalDurationText}
+              </div>
+            </div>
+
+            <div>
+              <span style={labelStyle}>Total Cost consumed</span>
+              <div style={valueStyle}>
+                {toCurrency(aggregate.totalCost, aggregate.currency)}
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    };
+
     return (
       <div data-testid="session-details-tab">
-        {loading && <LoadingState message="Loading sessions..." height={160} />}
-        {!loading && error && <ErrorState message={error} onRetry={load} />}
-        {!loading && !error && (
-          items && items.length > 0 ? (
-            <DataTable
-              columns={columns}
-              data={items}
-              loading={false}
-              pageSize={10}
-              initialPage={1}
-              paginationTitle="Sessions pages"
-              maxBodyHeight={360}
-              forceHorizontalScroll
-            />
-          ) : (
-            <div className="table-empty">No sessions found for this user.</div>
-          )
-        )}
+        <AggregatesPanel />
+        {!loading && !error && items && items.length > 0 ? (
+          <DataTable
+            columns={columns}
+            data={items}
+            loading={false}
+            pageSize={10}
+            initialPage={1}
+            paginationTitle="Sessions pages"
+            maxBodyHeight={360}
+            forceHorizontalScroll
+          />
+        ) : null}
       </div>
     );
   }
