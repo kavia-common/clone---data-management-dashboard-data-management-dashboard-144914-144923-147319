@@ -16,12 +16,14 @@ const { createProxyMiddleware } = require("http-proxy-middleware");
 module.exports = function setupProxy(app) {
   const port = process.env.REACT_APP_BACKEND_PORT || process.env.PORT || "3001";
   // Prefer explicit base URL if set; otherwise, infer from current host to avoid localhost/IP mismatch in preview
-  let inferredHost = "localhost";
-  try {
-    // CRA proxy runs in node (dev server). We cannot access window here, but we can use the host header at runtime.
-    // http-proxy-middleware will rewrite based on target; we'll keep protocol http for local dev.
-    inferredHost = process.env.REACT_APP_PROXY_HOST || "localhost";
-  } catch {}
+  // Force loopback to avoid EADDRNOTAVAIL in container/preview where hostname may not be bound.
+  // Allow override via REACT_APP_API_BASE_URL or REACT_APP_API_URL.
+  const loopback = "127.0.0.1";
+  const inferredHost =
+    process.env.REACT_APP_PROXY_HOST && process.env.REACT_APP_PROXY_HOST.trim().length > 0
+      ? process.env.REACT_APP_PROXY_HOST.trim()
+      : loopback;
+
   const target =
     process.env.REACT_APP_API_BASE_URL ||
     process.env.REACT_APP_API_URL ||
