@@ -15,9 +15,11 @@ Frontend proxy configuration (important)
 - If you see EADDRNOTAVAIL or ECONNREFUSED from the frontend dev proxy, validate that the target host is resolvable and reachable, and ensure the backend is running and bound to the correct port.
 
 Dev server and CI reliability
+- Node engine: Prefer Node 18.x to 20.x (see package.json engines). This avoids unexpected behavior with older runtimes.
 - Scripts:
-  - npm run dev — starts the backend with NODE_ENV=development. If the port is already in use (e.g., another instance is running), it exits without failing CI.
-  - npm run dev:watch — nodemon with hot reload for local development.
+  - npm run dev — starts the backend with NODE_ENV=development. If the port is already in use (e.g., another instance is running), it exits without failing CI (script ends with `|| true`).
+  - npm run preview — same behavior as dev for preview systems, ensuring non-fatal exit in orchestrators.
+  - npm run dev:watch — nodemon with hot reload for local development (not recommended in low-resource preview environments).
 - The server writes readiness markers to stdout:
   - READY: http://HOST:PORT
   - BACKEND_READY: url=http://HOST:PORT

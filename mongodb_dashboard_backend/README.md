@@ -15,10 +15,10 @@ Quick start (development)
 - curl http://localhost:3001/api/health   # includes db state
 
 Scripts
-- dev: runs the server with PORT/HOST defaults applied in-process (CI-compatible)
-- dev:watch: nodemon watcher if available (hot reload)
+- dev: runs the server with PORT/HOST defaults applied in-process (CI-compatible). Non-fatal exit is tolerated (script ends with `|| true`) to prevent preview from failing on transient conditions.
+- dev:watch: nodemon watcher if available (hot reload). Uses light watch config to reduce resource usage in constrained environments.
 - start: production-style boot; same host/port defaults
-- preview: same as start
+- preview: runs development config but also ends with `|| true` to guard against orchestrator false-negatives.
 - test: jest
 
 Preview runner compatibility
