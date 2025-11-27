@@ -174,7 +174,7 @@
 
 //       {/* Table card */}
 //       <div className="block-full">
-//         <Card title="App Deployments" subtitle="Deployments list">
+//         <Card title="Project Details" subtitle="Deployments list">
 
 //           {error && <div className="error" role="alert">{error}</div>}
 //           <DataTable
@@ -401,8 +401,8 @@ export default function Deployments() {
 
       <div className="block-full">
         <DeploymentStatusBarChart
-          title="Deployments by Status"
-          subtitle="All statuses"
+          title="Project Details"
+          subtitle="Deployments by Status"
           data={statusData}
           loading={statusLoading}
           error={statusError}
