@@ -648,16 +648,9 @@ export default function TabbedUserModal({
       };
     }, [items]);
 
+    // Note: Per request, hide sessionId, startedAt, and lastActive. We keep a minimal table for context (optional fields),
+    // but the main focus is the AggregatesPanel above. If needed, you can further trim columns here.
     const columns = [
-      { key: 'sessionId', label: 'Session ID', render: (v, row) => row?.session_id || row?.id || row?._id || '—', priority: 1 },
-      { key: 'startedAt', label: 'Started At', render: (v, row) => {
-          const d = row?.session_start || row?.startedAt || row?.created_at;
-          try { return d ? new Date(d).toLocaleString() : '—'; } catch { return d || '—'; }
-        }, priority: 2 },
-      { key: 'lastActiveAt', label: 'Last Active', render: (v, row) => {
-          const d = row?.last_updated || row?.lastActiveAt || row?.updated_at || row?.ended_at;
-          try { return d ? new Date(d).toLocaleString() : '—'; } catch { return d || '—'; }
-        }, priority: 2 },
       { key: 'ip', label: 'IP', render: (v, row) => row?.ip || row?.client_ip || row?.session_data?.ip || '—', priority: 3 },
       { key: 'device', label: 'Device', render: (v, row) => row?.device || row?.session_data?.device || '—', priority: 3 },
       { key: 'browser', label: 'Browser', render: (v, row) => row?.browser || row?.session_data?.browser || '—', priority: 3 },
