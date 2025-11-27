@@ -22,9 +22,9 @@ Scripts
 Preview runner compatibility
 - The server binds to 0.0.0.0:PORT and logs readiness pointers: /health | /ready | /api/health | /api/docs | /api-docs
 - Readiness log markers (either is sufficient for detectors):
-  - READY: http://HOST:PORT
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT
+  - Server ready: http://HOST:PORT (env=...)
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
   - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
@@ -60,6 +60,8 @@ Swagger/OpenAPI servers
 - Endpoints:
   - UI: /api/docs (aliases: /api-docs, /docs)
   - Spec JSON: /api/docs.json (aliases: /openapi.json, /api-docs.json)
+- Additional helper:
+  - GET /api/docs/headers — explains tenant header usage for Try It Out.
 
 Tenant-scoped requests
 - When Authorization (Bearer JWT) is not provided, send x-organization-id header on tenant-scoped endpoints (e.g., /api/llm-costs).
@@ -77,11 +79,6 @@ Notes on authentication and hashing
   - POST /api/auth/signup
   - POST /api/auth/login
   - POST /api/auth/reset-password
-
-Frontend dev proxy guidance (avoid EADDRNOTAVAIL)
-- In the React frontend, prefer setting REACT_APP_API_BASE_URL to a full, reachable backend URL (e.g., http://localhost:3001 or your preview hostname with port 3001).
-- Alternatively, set REACT_APP_PROXY_HOST and REACT_APP_BACKEND_PORT in the frontend .env to allow dynamic target inference.
-- Do not hardcode "localhost" in preview environments; use the preview hostname.
 
 Troubleshooting
 - Port already in use (EADDRINUSE):
