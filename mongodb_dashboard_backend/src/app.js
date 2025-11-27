@@ -13,14 +13,18 @@ const app = express();
 // ---------------------------------------------
 // Middleware
 // ---------------------------------------------
-app.set('trust proxy', 1);
+app.set('trust proxy', String(process.env.REACT_APP_TRUST_PROXY || '1') === '0' ? 0 : 1);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
 app.options('/api/*', cors());
 app.use(rateLimiter());
-app.use(express.json({ limit: process.env.JSON_LIMIT || '800kb' }));
-app.use(express.urlencoded({ extended: true, limit: process.env.JSON_LIMIT || '800kb' }));
+
+// Reduce memory footprint: default request body limits lowered to 256kb unless overridden by env JSON_LIMIT
+const JSON_LIMIT = process.env.JSON_LIMIT || process.env.REACT_APP_JSON_LIMIT || '256kb';
+app.use(express.json({ limit: JSON_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: JSON_LIMIT }));
+
 // Note: This backend does not self-proxy to its own host. All handlers invoke services/controllers directly to avoid loopbacks that could cause EADDRNOTAVAIL or memory spikes in constrained previews.
 
 // ---------------------------------------------
@@ -97,6 +101,16 @@ app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler
 // Extra alias to make probes tolerant
 app.get('/api/_health', healthHandler);
 
+// PUBLIC_INTERFACE
+// Health docs/usage note for preview systems that browse to /api/health-help
+app.get('/api/health-help', (req, res) => {
+  return res.status(200).json({
+    message: 'Health endpoints',
+    endpoints: ['/health', '/healthz', '/ready', '/api/health', '/api/_health'],
+    dbNote: 'DB connectivity is not required to return 200 from health; see "db" field.',
+  });
+});
+
 // ---------------------------------------------
 // Routers
 // ---------------------------------------------
@@ -138,10 +152,14 @@ app.get('/api/users/tenant-summary', async (req, res) => {
  // Protected routes (with auth + tenant)
  // ---------------------------------------------
 app.use((req, res, next) => {
-  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-    if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
-      // Developer debug headers (disabled logs)
-    }
+  const level = String(process.env.REACT_APP_LOG_LEVEL || '').toLowerCase().trim();
+  const isVerbose = level === 'debug' || level === 'trace';
+  const allowDev = process.env.NODE_ENV !== 'production' && isVerbose;
+  if (allowDev && req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
+    // Minimal dev logging when explicitly enabled
+    try {
+      console.debug(`[req] ${req.method} ${req.originalUrl}`);
+    } catch {}
   }
   next();
 });

@@ -123,7 +123,7 @@ function usersEarlyBypassDetector(req, res, next) {
     } catch {}
   }
 
-  console.log('[users.routes][GET /api/users] earlyBypassDetector', {
+  if (String(process.env.REACT_APP_LOG_LEVEL || '').toLowerCase() === 'debug') console.log('[users.routes][GET /api/users] earlyBypassDetector', {
     qOrg,
     qTenant,
     hdrOrg,
@@ -427,7 +427,7 @@ router.get(
       res.set('X-All-Tenants', String(!!(req.tenantScopeDisabled || req.allTenants)));
       const applied = req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : (req.tenantId || '');
       res.set('X-Applied-Tenant', String(applied));
-      console.log('[users:list] handler-entry', {
+      if (String(process.env.REACT_APP_LOG_LEVEL || '').toLowerCase() === 'debug') console.log('[users:list] handler-entry', {
         qOrg: req.query?.organization_id,
         qTenant: req.query?.tenant_id,
         hdrOrg: req.headers?.['x-organization-id'],

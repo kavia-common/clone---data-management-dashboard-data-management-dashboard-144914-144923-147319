@@ -110,7 +110,11 @@ function startServerStrict() {
         console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
         logListening(HOST, PORT);
         // concise pointers
-        console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
+        if (String(process.env.REACT_APP_LOG_LEVEL || '').toLowerCase() !== 'trace') {
+          console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
+        } else {
+          console.log(`[startup] endpoints: /health,/ready,/api/health,/api/docs,/api-docs`);
+        }
         // Single unambiguous readiness marker required by orchestrator:
         // EXACT STRING: READY: http://HOST:PORT
         console.log(`READY: http://${HOST}:${PORT}`);
