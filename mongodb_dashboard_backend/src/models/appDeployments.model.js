@@ -14,7 +14,7 @@ const appDeploymentSchema = new Schema(
     tenant_id: { type: String, index: true },
     tenant_name: { type: String },
     project_id: { type: String, index: true },
-    projectName: { type: String },
+    
     project_name: { type: String },
     metadata: Schema.Types.Mixed,
     project: Schema.Types.Mixed, // may contain { id, name }

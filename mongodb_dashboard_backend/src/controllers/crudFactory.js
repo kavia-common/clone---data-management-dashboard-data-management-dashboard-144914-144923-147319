@@ -5,12 +5,15 @@ const { parsePagination, success, failure } = require('../utils/http');
  * Supports formats: "field" or "-field". Returns a safe sort string.
  */
 function validateSort(sort, allowed = ['timestamp', 'created_at', '_id']) {
-  if (!sort || typeof sort !== 'string') {return '-timestamp';}
+  // Returns a safe sort string "-field" or "field" constrained to allowed list.
+  // If sort is missing or not allowed, default to first item from allowed prefixed with '-'.
+  const fallback = allowed && allowed.length ? `-${allowed[0]}` : '-timestamp';
+  if (!sort || typeof sort !== 'string') {return fallback;}
   const trimmed = sort.trim();
   const desc = trimmed.startsWith('-');
   const field = desc ? trimmed.slice(1) : trimmed;
   if (!allowed.includes(field)) {
-    return '-timestamp';
+    return fallback;
   }
   return desc ? `-${field}` : field;
 }
@@ -271,8 +274,14 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
       } catch (_) {}
 
-      // Validate sort string against whitelist; default is listDefaultSort (expected '-timestamp').
-      const safeSort = validateSort(req.query.sort || listDefaultSort, ['timestamp', 'created_at', '_id']);
+      // Determine allowed sort fields per model and validate sort string
+      const isAppDeployment = Model?.modelName === 'AppDeployment';
+      const isLLMCost = Model?.modelName === 'LLMCost';
+      const allowedSorts = isAppDeployment
+        ? ['timestamp', 'created_at', 'updated_at', '_id', 'status', 'branch_name', 'project_name']
+        : ['timestamp', 'created_at', '_id'];
+      const safeSort = validateSort(req.query.sort || listDefaultSort, allowedSorts);
+
       // execute DB operations with safe sort and enforced tenant filter
       try {
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
@@ -314,7 +323,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           let items;
-          if (Model?.modelName === 'LLMCost') {
+          if (isLLMCost) {
             try {
               const sortStage = safeSort
                 ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
@@ -348,6 +357,36 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             } catch (_) {
               items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
             }
+          } else if (isAppDeployment) {
+            try {
+              const sortStage = safeSort
+                ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
+                : { timestamp: -1 };
+              const pipeline = [
+                { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+                { $addFields: {
+                    // Normalize timestamp fields for consistent sorting
+                    timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                    created_at: { $ifNull: ['$created_at', '$createdAt'] },
+                    updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
+                    // Compute project_name from various sources
+                    project_name: {
+                      $ifNull: [
+                        '$project_name',
+                        { $ifNull: ['$projectName', { $ifNull: ['$metadata.projectName', '$project.name'] }] }
+                      ]
+                    }
+                  }
+                },
+                { $sort: sortStage },
+                { $skip: skip },
+                { $limit: hardCappedLimit },
+              ];
+              items = await Model.aggregate(pipeline).allowDiskUse(true);
+            } catch (_) {
+              // Fallback: simple find; project_name may be missing if stored under a different key
+              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+            }
           } else {
             items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
@@ -361,7 +400,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
         let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
         try {
-          if (Model?.modelName === 'LLMCost') {
+          if (isLLMCost) {
             // Use aggregation for minimal transformation without large memory footprint
             const pipeline = [
               { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
@@ -384,7 +423,26 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                   }
                 }
               },
-              // Respect safeSort
+              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
+            ];
+            const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            return res.status(200).json(items);
+          }
+          if (isAppDeployment) {
+            const pipeline = [
+              { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+              { $addFields: {
+                  timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                  created_at: { $ifNull: ['$created_at', '$createdAt'] },
+                  updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
+                  project_name: {
+                    $ifNull: [
+                      '$project_name',
+                      { $ifNull: ['$projectName', { $ifNull: ['$metadata.projectName', '$project.name'] }] }
+                    ]
+                  }
+                }
+              },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
             const items = await Model.aggregate(pipeline).allowDiskUse(true);
