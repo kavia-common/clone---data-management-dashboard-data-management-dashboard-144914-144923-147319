@@ -11,7 +11,7 @@
     "preview": "NODE_OPTIONS=--max-old-space-size=4096 node src/server.js",
     "docs": "echo 'Swagger UI at http://localhost:3001/api-docs (alias: /docs)' && node -e \"console.log('OpenAPI JSON at /openapi.json')\"",
     "health": "curl -sSf http://127.0.0.1:${PORT:-3001}/health || true",
-    "test": "cross-env CI=true NODE_ENV=test jest --runInBand --ci --reporters=default",
+    "test": "cross-env CI=true NODE_ENV=test NODE_OPTIONS=--max-old-space-size=4096 jest --runInBand --ci --reporters=default",
     "lint": "eslint . || true",
     "lint:fix": "eslint . --fix || true",
     "postinstall": "echo 'Skipping browserslist update for backend' && npx --yes update-browserslist-db@latest --no-funding --no-update-notifier || true",
