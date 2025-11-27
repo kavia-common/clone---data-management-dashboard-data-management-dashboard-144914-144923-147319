@@ -437,96 +437,18 @@ function SessionDetailsModal({ open, onClose, session }) {
           </div>
         </section>
 
-        <h3
-          style={{
-            fontSize: 16,
-            fontWeight: 700,
-            color: 'var(--text-primary, #111827)',
-            marginBottom: 8,
-          }}
-        >
-          Session Breakdowns
-        </h3>
-
-        {/* Session Breakdown: render all sessions at once in a vertically stacked, scrollable list */}
-        <section
-          aria-label="Session breakdown"
-          className="details-card"
-          style={{
-            position: 'relative',
-            background: 'var(--bg-surface, #ffffff)',
-            border: '1px solid var(--border-subtle, #E5E7EB)',
-            borderRadius: 16,
-            padding: 10,
-            boxShadow: 'var(--shadow-md, 0 8px 24px rgba(16,24,40,0.12))',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-            maxHeight: 600,
-            overflow: 'auto',
-            WebkitOverflowScrolling: 'touch',
-          }}
-        >
-          {breakdownList.length === 0 ? (
-            <div
-              style={{
-                fontSize: 13,
-                color: 'var(--text-tertiary, #6B7280)',
-                padding: '8px 6px',
-              }}
-            >
-              No sessions in breakdown
-            </div>
-          ) : (
-            breakdownList.map((b, idx) => (
-              <div
-                key={idx}
-                role="group"
-                aria-label={`Session ${idx + 1}`}
-                style={{
-                  border: '1px solid var(--border-subtle, #E5E7EB)',
-                  borderRadius: 14,
-                  padding: 16,
-                  background: 'transparent',
-                  display: 'grid',
-                  gap: 12,
-                }}
-              >
-                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary, #111827)' }}>
-                  Session {idx + 1}
-                </div>
-
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Session Start
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                  {b.start || '—'}
-                </div>
-
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Session End
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                  {b.end || '—'}
-                </div>
-
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Duration
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                  {b.duration || '—'}
-                </div>
-
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary, #6B7280)', fontWeight: 600 }}>
-                  Agent
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary, #111827)' }}>
-                  {b.agent || '—'}
-                </div>
-              </div>
-            ))
-          )}
-        </section>
+        {/* Per requirements: remove the entire second section; only keep the summary fields above. */}
+        {breakdownList.length === 0 ? (
+          <div
+            style={{
+              fontSize: 13,
+              color: 'var(--text-tertiary, #6B7280)',
+              padding: '8px 6px',
+            }}
+          >
+            No additional session breakdown available.
+          </div>
+        ) : null}
       </div>
 
       {/* Footer */}

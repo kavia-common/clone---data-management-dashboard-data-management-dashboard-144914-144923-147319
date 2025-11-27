@@ -771,16 +771,22 @@ export default function TabbedUserModal({
     return (
       <div data-testid="session-details-tab">
         <AggregatesPanel />
-        {!loading && !error && Array.isArray(items) && items.length > 0 ? (
-          <DataTable
-            data={items || []}
-            loading={false}
-            pageSize={10}
-            initialPage={1}
-            paginationTitle="Sessions pages"
-            maxBodyHeight={360}
-            forceHorizontalScroll
-          />
+        {/* Per requirements: remove any table/pagination and the entire second section.
+            Only the summary fields should remain visible. */}
+        {!loading && !error && (!Array.isArray(items) || items.length === 0) ? (
+          <div
+            style={{
+              background: 'transparent',
+              color: '#ffffff',
+              border: 'none',
+              boxShadow: 'none',
+              textAlign: 'center',
+              padding: 12,
+              borderRadius: 8,
+            }}
+          >
+            No session details found for this user.
+          </div>
         ) : null}
       </div>
     );
