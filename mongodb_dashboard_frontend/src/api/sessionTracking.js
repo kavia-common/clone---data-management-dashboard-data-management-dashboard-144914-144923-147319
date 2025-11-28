@@ -33,8 +33,12 @@ export async function fetchSessionTracking(params = {}) {
 
   // Build safe param bag; do not forward unknown keys
   const safeParams = {};
+
+  // Default limit=5 for Overview if not provided
+  const effLimit = limit === undefined || limit === null ? 5 : limit;
+
   if (page !== undefined) safeParams.page = page;
-  if (limit !== undefined) safeParams.limit = limit;
+  if (effLimit !== undefined) safeParams.limit = effLimit;
 
   // Resolve tenant from supported aliases (explicit precedence order)
   const resolvedTenant = tenant_id ?? tenantId ?? organization_id;
