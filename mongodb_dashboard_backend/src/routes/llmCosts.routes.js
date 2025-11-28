@@ -199,18 +199,34 @@ router.use((req, res, next) => {
 router.get(
   '/',
   asyncHandler(async (req, res, next) => {
+    const rid =
+      (typeof req.headers['x-request-id'] === 'string' && req.headers['x-request-id']) ||
+      (req.traceId || undefined);
+    try { if (rid) res.set('X-Request-Id', rid); } catch (_) {}
+    if (req.markTiming) req.markTiming('route:/api/llm-costs:entry');
+
     // Defensive pagination defaults for the main /api/llm-costs list as well.
     try {
       const hasExplicitPagination =
         (typeof req.query.page !== 'undefined') || (typeof req.query.limit !== 'undefined');
       if (!hasExplicitPagination) {
         req.query.page = req.query.page ?? '1';
-        req.query.limit = req.query.limit ?? '100';
+        // default smaller to reduce load
+        req.query.limit = req.query.limit ?? '50';
         req.query.sort = req.query.sort ?? '-timestamp';
         res.set('X-Pagination-Defaulted', 'true');
       }
+      // enforce maximum limit even if explicitly provided
+      const lim = parseInt(req.query.limit, 10);
+      if (!Number.isFinite(lim) || lim > 200) {
+        req.query.limit = '200';
+        res.set('X-Limit-Clamped', 'true');
+      }
     } catch {}
-    return controller.list(req, res);
+
+    const result = await controller.list(req, res);
+    if (req.markTiming) req.markTiming('route:/api/llm-costs:response');
+    return result;
   })
 );
 

@@ -1,32 +1,28 @@
-# LLM Costs Endpoints - Timeout Prevention Notes
+# LLM Costs Endpoint Timeout Notes
 
-PUBLIC_INTERFACE
-This document explains backend behavior to prevent gateway timeouts for LLM cost endpoints.
+This service implements safeguards to prevent timeouts for GET /api/llm-costs:
+- Request-id propagation: send `X-Request-Id`; logs will include it and the response will echo it.
+- Timing logs: server logs `TIMING` events at route entry/exit and during DB operations.
+- Pagination: If page/limit are omitted, defaults apply (page=1, limit=50). Max limit is clamped to 200.
+- Query guards:
+  - Mongo maxTimeMS: aggregate/find/count use maxTimeMS (default 5000ms for LLM costs). Set MONGO_MAX_TIME_MS to override.
+  - Count fallback: when exact count times out, falls back to estimatedDocumentCount or approximation.
+  - Aggregation uses allowDiskUse(true), normalizes timestamp and tenant/org fields for index friendliness.
+- Micro-caching: identical list requests are cached for MICRO_CACHE_TTL_MS (default 2000ms) to smooth bursts.
+- Timeouts: Node server `headersTimeout`, `keepAliveTimeout`, and `requestTimeout` are aligned above typical proxy defaults.
 
-- Endpoints:
-  - GET /api/llm-costs (primary list)
-  - GET /api/projects/:projectId/llm-costs (deprecated alias)
-  - GET /api/llm-costs/hierarchy (aggregation endpoint)
+Useful environment variables:
+- MONGO_MAX_TIME_MS=5000
+- MICRO_CACHE_TTL_MS=2000
+- SERVER_HEADERS_TIMEOUT_MS=65000
+- SERVER_KEEPALIVE_TIMEOUT_MS=70000
+- SERVER_REQUEST_TIMEOUT_MS=60000
+- DEBUG=true
+- DEBUG_EXPLAIN=1
 
-What changed:
-- When clients do NOT pass explicit pagination parameters (page, limit), the backend now defaults to:
-  - page=1
-  - limit=100
-  - sort=-timestamp (indexed-friendly)
-- This defaulting is applied in both the public and the primary llm-costs routers before delegating to the generic controller.
-- The generic controller also hard-clamps page size and prioritizes indexed sorts.
-
-Why:
-- Large result sets without pagination can overwhelm the DB and API gateway, leading to 504 gateway timeouts.
-- Default pagination keeps responses responsive and predictable.
-
-Client guidance:
-- Prefer explicit pagination for data tables (e.g., page=1&limit=50).
-- Use an indexed sort field (timestamp, created_at, or _id).
-- For big data visualizations prefer dedicated aggregate endpoints (e.g., /api/analytics/llm-cost-by-agent or /api/llm-costs/hierarchy) instead of fetching raw records.
-
-Diagnostics:
-- Responses may include headers:
-  - X-Pagination-Defaulted: true when the server applied defaults
-  - X-Applied-Tenant: the resolved tenant
-  - X-Applied-Filter: the enforced tenant filter
+Index considerations:
+- The LLMCost model defines indexes:
+  - { tenant_id: 1, timestamp: -1 } (preferred path for list default sort)
+  - { tenant_id: 1, created_at: -1 }
+  - Other supporting indexes on session_id, llm_model, etc.
+Ensure that listing with sort by -timestamp will use the composite index when a tenant_id filter is applied (which is enforced by the controller unless bypass is active).

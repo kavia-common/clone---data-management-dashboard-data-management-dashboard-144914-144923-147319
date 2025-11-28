@@ -41,7 +41,10 @@ const LLMCostsSchema = new mongoose.Schema(
   }
 );
 
-// Useful indexes for common filter/sort combos
+/**
+ * Useful indexes for common filter/sort combos
+ * Note: GET /api/llm-costs enforces tenant filtering and sorts by -timestamp, which is supported by this composite index.
+ */
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
 LLMCostsSchema.index({ project_id: 1, timestamp: -1 });

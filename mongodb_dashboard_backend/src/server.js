@@ -131,6 +131,21 @@ function startServerStrict() {
       process.exit(1);
     });
 
+  // Align server timeouts to avoid premature proxy 504s, while bounding long-hangs.
+  try {
+    const READ_TIMEOUT_MS = parseInt(process.env.SERVER_HEADERS_TIMEOUT_MS || '65000', 10); // headersTimeout
+    const KEEPALIVE_TIMEOUT_MS = parseInt(process.env.SERVER_KEEPALIVE_TIMEOUT_MS || '70000', 10);
+    const REQUEST_TIMEOUT_MS = parseInt(process.env.SERVER_REQUEST_TIMEOUT_MS || '60000', 10); // inactive socket timeout
+    server.headersTimeout = READ_TIMEOUT_MS;
+    server.keepAliveTimeout = KEEPALIVE_TIMEOUT_MS;
+    server.requestTimeout = REQUEST_TIMEOUT_MS;
+    console.log(
+      `[startup] server timeouts headers=${server.headersTimeout} keepAlive=${server.keepAliveTimeout} request=${server.requestTimeout}`
+    );
+  } catch (e) {
+    console.warn('[startup] Unable to set server timeouts', e?.message || e);
+  }
+
   const shutdown = (signal) => {
     try {
       // eslint-disable-next-line no-console
