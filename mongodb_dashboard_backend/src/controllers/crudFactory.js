@@ -347,8 +347,33 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               const sortStage = safeSort
                 ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
                 : { timestamp: -1 };
+
+              // Cap skip to avoid pathological large offsets
+              const MAX_SKIP = 5000;
+              const safeSkip = Number.isFinite(skip) ? Math.min(skip, MAX_SKIP) : 0;
+              if (safeSkip !== skip) {
+                try { res.set('X-Skip-Clamped', 'true'); } catch (_) {}
+              }
+
+              // Only return necessary fields for list table to reduce payload/IO
+              const projection = {
+                _id: 1,
+                tenant_id: 1,
+                organization_id: 1,
+                user_id: 1,
+                project_id: 1,
+                llm_model: 1,
+                provider: 1,
+                total_cost: 1,
+                currency: 1,
+                timestamp: 1,
+                created_at: 1,
+              };
+
               const pipeline = [
+                // Ensure match first for index utilization
                 { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+                // Normalize fields used by UI and sorting
                 { $addFields: {
                     timestamp: { $ifNull: ['$timestamp', '$created_at'] },
                     organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
@@ -369,18 +394,40 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                   }
                 },
                 { $sort: sortStage },
-                { $skip: skip },
+                { $skip: safeSkip },
                 { $limit: hardCappedLimit },
+                { $project: projection },
               ];
+
               if (withExplain) {
                 try {
                   const explanation = await Model.aggregate(pipeline).option({ explain: true });
                   console.log('[crudFactory.list] aggregate.explain llm-costs', JSON.stringify(explanation?.stages ? explanation.stages : explanation)?.slice(0, 4000));
                 } catch (_) {}
               }
+
               items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: qMax });
             } catch (_) {
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).maxTimeMS(qMax).lean();
+              // Fallback to find with projection
+              items = await Model.find(appliedFilter, {
+                _id: 1,
+                tenant_id: 1,
+                organization_id: 1,
+                user_id: 1,
+                project_id: 1,
+                llm_model: 1,
+                provider: 1,
+                total_cost: 1,
+                currency: 1,
+                timestamp: 1,
+                created_at: 1,
+              })
+                .sort(safeSort)
+                .skip(Number.isFinite(skip) ? Math.min(skip, 5000) : 0)
+                .limit(hardCappedLimit)
+                .allowDiskUse(true)
+                .maxTimeMS(qMax)
+                .lean();
             }
           } else if (isAppDeployment) {
             try {
@@ -471,8 +518,24 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
+            if (withExplain) {
+              try {
+                const explanation = await Model.aggregate(pipeline).option({ explain: true });
+                console.log('[crudFactory.list] aggregate.explain llm-costs (no-pagination)', JSON.stringify(explanation?.stages ? explanation.stages : explanation)?.slice(0, 4000));
+              } catch (_) {}
+            }
             const items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: qMax });
-            return res.status(200).json(items);
+            // Apply projection to limit payload even in non-paginated path
+            const projected = Array.isArray(items)
+              ? items.map((d) => {
+                  const {
+                    _id, tenant_id, organization_id, user_id, project_id,
+                    llm_model, provider, total_cost, currency, timestamp, created_at
+                  } = d;
+                  return { _id, tenant_id, organization_id, user_id, project_id, llm_model, provider, total_cost, currency, timestamp, created_at };
+                })
+              : items;
+            return res.status(200).json(projected);
           }
           if (isAppDeployment) {
             const pipeline = [
