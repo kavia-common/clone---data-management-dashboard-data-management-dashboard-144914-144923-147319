@@ -93,6 +93,7 @@ export default function Overview() {
 
   // KPI metrics
   useEffect(() => {
+    let cancelled = false;
     async function fetchData() {
       setLoading(true);
       setError("");
@@ -102,19 +103,25 @@ export default function Overview() {
           listSessions({ limit: 5 }),
           listDeployments({ limit: 5 }),
         ]);
+        if (cancelled) return;
         setMetrics({
           users: users?.total || users?.length || 0,
           sessions: sessions?.total || sessions?.length || 0,
           deployments: deployments?.total || deployments?.length || 0,
         });
       } catch (e) {
-        setError(e?.response?.data?.message || e?.message || "Failed to load overview data.");
+        if (!cancelled) {
+          setError(e?.response?.data?.message || e?.message || "Failed to load overview data.");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     fetchData();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [setLoading, setError, setMetrics]);
 
   // Backend health check (non-blocking)
   useEffect(() => {
