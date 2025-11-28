@@ -242,9 +242,13 @@ router.get(
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
 
-    // --------------------------------------------------
-    // FIXED: Single bypass variable, declared once
-    // --------------------------------------------------
+    // Ensure DB is connected; avoid buffering timeouts
+    const ready = require('mongoose').connection.readyState;
+    if (ready !== 1) {
+      res.set('X-DB-ReadyState', String(ready));
+      return res.status(503).json({ success: false, message: 'Database not connected' });
+    }
+
     const bypass = !!(
       req.tenantScopeDisabled ||
       req.allTenants ||
@@ -252,9 +256,6 @@ router.get(
       req?.user?.isSuperAdmin
     );
 
-    // --------------------------------------------------
-    // FIXED: Single enforcedTenant variable
-    // --------------------------------------------------
     const enforcedTenant =
       req.tenantId ||
       (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
@@ -263,7 +264,6 @@ router.get(
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
       null;
 
-    // If not bypassing and no tenant provided → error
     if (!bypass && !enforcedTenant) {
       return res.status(400).json({
         success: false,
@@ -271,25 +271,18 @@ router.get(
       });
     }
 
-    // --------------------------------------------------
-    // Request logging
-    // --------------------------------------------------
-    try {
-      res.set('X-Sessions-Bypass', String(bypass));
-      const appliedTenant = bypass ? 'all-tenants' : enforcedTenant;
-      res.set('X-Applied-Tenant', String(appliedTenant));
-    } catch {}
+    try { res.set('X-Sessions-Bypass', String(bypass)); } catch {}
+    const appliedTenant = bypass ? 'all-tenants' : enforcedTenant;
+    try { res.set('X-Applied-Tenant', String(appliedTenant)); } catch {}
 
-    // Pagination
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
 
+    // Cap non-explicit listing to a safe max to avoid heavy queries
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
+    const cappedLimit = explicit ? limit : Math.min(limit, 200);
 
-    // --------------------------------------------------
-    // Search filter
-    // --------------------------------------------------
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let qFilter = {};
 
@@ -314,20 +307,10 @@ router.get(
       };
     }
 
-    // --------------------------------------------------
-    // Filtering changes per requirement:
-    // - Ignore/remove any 'filter' query parameter entirely.
-    // - Do not construct or apply compound date filters from start/end.
-    // - Retain tenant/organization scoping and optional text search (q).
-    // --------------------------------------------------
-
-    // Explicitly ignore 'filter' param if present
     if (typeof req.query.filter !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch {}
     }
-    const filter = {}; // no additional filter from client
 
-    // Tenant enforced scope (unchanged)
     const enforcedScope = (!bypass && enforcedTenant)
       ? {
           $or: [
@@ -338,10 +321,6 @@ router.get(
         }
       : {};
 
-    // Do not apply server-side date filters for this listing endpoint now
-    const timeFilter = {};
-
-    // Combine qFilter and enforcedScope only
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
 
@@ -350,24 +329,22 @@ router.get(
 
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
-    // --------------------------------------------------
-    // Execute
-    // --------------------------------------------------
     try {
       if (explicit) {
         const [docs, total] = await Promise.all([
-          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
+          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(cappedLimit),
           SessionTracking.countDocuments(finalFilter),
         ]);
 
         return res.json({
           success: true,
           data: docs,
-          meta: { page, limit, total }
+          meta: { page, limit: cappedLimit, total }
         });
       }
 
-      const docs = await SessionTracking.find(finalFilter).sort(sort);
+      // Non-explicit: return capped limited list for safety
+      const docs = await SessionTracking.find(finalFilter).sort(sort).limit(cappedLimit);
       return res.json(docs);
 
     } catch (err) {

@@ -3,7 +3,7 @@ const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
-const { connectDB } = require('./config/db');
+const { connectDB, isDbConnected } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
@@ -13,7 +13,7 @@ const app = express();
 // ---------------------------------------------
 // Middleware
 // ---------------------------------------------
-app.set('trust proxy', 1);
+app.set('trust proxy', process.env.REACT_APP_TRUST_PROXY ? Number(process.env.REACT_APP_TRUST_PROXY) : 1);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
@@ -21,6 +21,20 @@ app.options('/api/*', cors());
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Global request timeout to avoid hanging requests when DB is down
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 15000);
+app.use((req, res, next) => {
+  // Skip for swagger assets
+  if (req.path.startsWith('/api-docs') || req.path.startsWith('/docs') || req.path.startsWith('/openapi')) {
+    return next();
+  }
+  req.setTimeout(REQUEST_TIMEOUT_MS);
+  res.setTimeout(REQUEST_TIMEOUT_MS, () => {
+    try { res.status(503).json({ success: false, message: 'Request timed out' }); } catch {}
+  });
+  next();
+});
 
 // ---------------------------------------------
 // Swagger setup

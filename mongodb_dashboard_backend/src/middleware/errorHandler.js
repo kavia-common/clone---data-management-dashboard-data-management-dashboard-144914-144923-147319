@@ -1,5 +1,3 @@
-'use strict';
-
 /**
  * PUBLIC_INTERFACE
  * Express error handler that returns consistent JSON errors.
