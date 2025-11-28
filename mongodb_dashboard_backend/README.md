@@ -9,7 +9,7 @@ Quick start (development)
 - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
 - cp .env.example .env    # then edit as needed
 - npm ci                  # or: npm install
-- npm run dev             # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server). Uses NODE_OPTIONS=--max-old-space-size=640 by default.
+- npm run dev             # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server). Uses NODE_OPTIONS=--max-old-space-size=1536 by default.
 - npm run dev:watch       # same as dev, but with nodemon hot reload for local changes (memory limit applied)
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state
@@ -94,6 +94,7 @@ Tenant-scoped requests
 
 Health/readiness
 - GET /health → Fast readiness with { status: "ok", db: connected|connecting|disconnected, timestamp }
+- GET /sanity → Ultra-light liveness check (no DB touch), suitable for frequent polling
 - GET /api/health → Same payload; safe for monitoring
 - Health responses include no-store Cache-Control headers.
 

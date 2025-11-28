@@ -94,6 +94,17 @@ const healthHandler = (req, res) => {
 };
 app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
 
+// PUBLIC_INTERFACE
+// A very lightweight sanity endpoint that does not touch DB and is safe for
+// periodic probes to ensure the process is alive without causing memory growth.
+app.get('/sanity', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json({
+    ok: true,
+    ts: Date.now(),
+  });
+});
+
 // ---------------------------------------------
 // Routers
 // ---------------------------------------------
