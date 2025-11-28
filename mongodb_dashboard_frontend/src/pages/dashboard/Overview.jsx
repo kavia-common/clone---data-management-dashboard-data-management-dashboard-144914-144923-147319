@@ -361,30 +361,33 @@ export default function Overview() {
   }, [usersRange, usersGranularity, usersStatus, fillSeries]);
 
   // Overall Features chart data: counts by service_type from session-tracking list
+  // Stable derived deps to avoid object identity churn in effect deps
+  const featuresTenant = useMemo(
+    () =>
+      featuresFilters?.tenant_id ||
+      featuresFilters?.organization_id ||
+      localStorage.getItem('organization_id') ||
+      undefined,
+    [featuresFilters?.tenant_id, featuresFilters?.organization_id]
+  );
+  const featuresServiceType = useMemo(
+    () => (featuresFilters?.service_type || '').trim(),
+    [featuresFilters?.service_type]
+  );
+
   useEffect(() => {
     let aborted = false;
     async function loadFeatures() {
       setFeaturesLoading(true);
       setFeaturesError(null);
       try {
-        // Determine active tenant and requested service_type from filters
-        const tenantId =
-          featuresFilters?.tenant_id ||
-          featuresFilters?.organization_id ||
-          localStorage.getItem('organization_id') ||
-          undefined;
-
-        const selectedServiceType = (featuresFilters?.service_type || '').trim();
-
-        // Build query params: pass tenant and, if present, a text query for service_type
-        // Backend supports ?q for fuzzy search across fields including service_type.
+        // Build query params: pass tenant and explicit service_type (exact) plus optional q fuzzy
         const { items } = await fetchSessionTracking({
-          tenant_id: tenantId,
-          // Forward service_type explicitly to API in addition to generic q search
-          service_type: selectedServiceType || undefined,
+          tenant_id: featuresTenant,
+          service_type: featuresServiceType || undefined,
           limit: 1000,
           sort: '-last_updated',
-          q: selectedServiceType ? selectedServiceType : undefined,
+          q: featuresServiceType ? featuresServiceType : undefined,
         });
         if (aborted) return;
 
@@ -395,7 +398,7 @@ export default function Overview() {
           return;
         }
 
-        // Group by service_type
+        // Group by service_type with multiple fallbacks and normalization
         const counts = new Map();
         safeItems.forEach((row) => {
           const raw =
@@ -404,14 +407,19 @@ export default function Overview() {
             row?.session_data?.service_type ??
             row?.session_data?.serviceType ??
             null;
-          const label = String(raw && String(raw).trim() ? raw : 'Unknown');
+
+          const normalized = raw == null ? '' : String(raw).trim();
+          const label = normalized.length > 0 ? normalized : 'Unknown';
+
           // If a specific service_type filter is selected, only count matching ones
-          if (selectedServiceType && label !== selectedServiceType) return;
+          if (featuresServiceType && label !== featuresServiceType) return;
+
           counts.set(label, (counts.get(label) || 0) + 1);
         });
 
         const shaped = Array.from(counts.entries())
           .map(([k, v]) => ({ label: k, value: v }))
+          .filter((d) => Number.isFinite(d.value))
           .sort((a, b) => b.value - a.value);
 
         setFeaturesData(shaped);
@@ -427,7 +435,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [featuresFilters?.tenant_id, featuresFilters?.organization_id, featuresFilters?.service_type]);
+  }, [featuresTenant, featuresServiceType]);
 
   // Reusable controls renderers (per-chart)
   const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {

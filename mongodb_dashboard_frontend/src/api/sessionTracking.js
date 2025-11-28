@@ -5,16 +5,18 @@ import { buildQueryString } from './util';
  * PUBLIC_INTERFACE
  * fetchSessionTracking
  * Fetch session tracking records with pagination, sorting, and optional text search.
- * Note: Backend no longer accepts or applies a 'filter' parameter or date-range compound filters.
- * Tenant scoping is enforced via tenant_id only (handled by baseClient).
- * Supports lightweight text search via ?q which includes service_type field on backend.
+ * Enforces tenant scoping via tenant_id and forwards service_type filter explicitly.
+ * Safely merges only supported params and ignores unknown/rest values to avoid leaking.
  *
  * @param {Object} params
  * @param {number} [params.page]
  * @param {number} [params.limit]
- * @param {string} [params.tenant_id] Active tenant scope (alias: organization_id on server)
+ * @param {string} [params.tenant_id] Active tenant scope (alias: tenantId, organization_id)
+ * @param {string} [params.tenantId] Alias for tenant scope
+ * @param {string} [params.organization_id] Alias for tenant scope
  * @param {string} [params.sort]
  * @param {string} [params.q] Text search query (applies to service_type and other fields)
+ * @param {string} [params.service_type] Explicit filter for service type
  * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
  */
 export async function fetchSessionTracking(params = {}) {
@@ -22,23 +24,26 @@ export async function fetchSessionTracking(params = {}) {
     page,
     limit,
     tenant_id,
-    tenantId,           // alias support
+    tenantId,            // alias support
+    organization_id,     // alias support
     sort,
     q,
-    service_type,       // explicit service_type filter passthrough
-    ...rest             // ignore unknowns but allow future expansion
+    service_type,        // explicit service_type filter passthrough
   } = params || {};
 
+  // Build safe param bag; do not forward unknown keys
   const safeParams = {};
   if (page !== undefined) safeParams.page = page;
   if (limit !== undefined) safeParams.limit = limit;
 
-  // Prefer explicit tenant_id, then alias tenantId
-  const resolvedTenant = tenant_id ?? tenantId;
-  if (resolvedTenant !== undefined) safeParams.tenant_id = resolvedTenant;
+  // Resolve tenant from supported aliases (explicit precedence order)
+  const resolvedTenant = tenant_id ?? tenantId ?? organization_id;
+  if (resolvedTenant !== undefined && resolvedTenant !== null && resolvedTenant !== '') {
+    safeParams.tenant_id = resolvedTenant;
+  }
 
   if (sort !== undefined) safeParams.sort = sort;
-  if (q !== undefined) safeParams.q = q;
+  if (q !== undefined && q !== '') safeParams.q = q;
 
   // Forward service_type if present
   if (service_type !== undefined && service_type !== '') {
@@ -50,6 +55,7 @@ export async function fetchSessionTracking(params = {}) {
   const res = await getApiClient().get(url);
   const payload = res?.data ?? res;
 
+  // Normalize to items/total/meta with guards for malformed responses
   const items = Array.isArray(payload) ? payload : payload?.data ?? [];
   const total =
     (payload && payload.meta && typeof payload.meta.total === 'number' && payload.meta.total) ||
