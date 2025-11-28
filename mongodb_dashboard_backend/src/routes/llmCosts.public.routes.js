@@ -38,6 +38,20 @@ router.get(
     if (typeof req.query.from !== 'undefined') delete req.query.from;
     if (typeof req.query.to !== 'undefined') delete req.query.to;
 
+    // Enforce safe defaults to avoid huge responses causing gateway timeouts.
+    // If client did not specify pagination, set defaults page=1&limit=100 and an indexed sort.
+    try {
+      const hasExplicitPagination =
+        (typeof req.query.page !== 'undefined') || (typeof req.query.limit !== 'undefined');
+      if (!hasExplicitPagination) {
+        req.query.page = req.query.page ?? '1';
+        req.query.limit = req.query.limit ?? '100';
+        // Ensure sort is on an indexed/time field to keep ops efficient
+        req.query.sort = req.query.sort ?? '-timestamp';
+        res.set('X-Pagination-Defaulted', 'true');
+      }
+    } catch {}
+
     // Mark possible super-admin bypass headers similarly to other routes (diagnostic only)
     try {
       const hdr = (req.headers?.['x-organization-id'] || '').toString();

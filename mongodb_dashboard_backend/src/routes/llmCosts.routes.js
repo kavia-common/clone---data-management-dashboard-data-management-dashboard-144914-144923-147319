@@ -196,7 +196,23 @@ router.use((req, res, next) => {
  *       403:
  *         description: Forbidden on tenant mismatch with Authorization
  */
-router.get('/', asyncHandler(controller.list));
+router.get(
+  '/',
+  asyncHandler(async (req, res, next) => {
+    // Defensive pagination defaults for the main /api/llm-costs list as well.
+    try {
+      const hasExplicitPagination =
+        (typeof req.query.page !== 'undefined') || (typeof req.query.limit !== 'undefined');
+      if (!hasExplicitPagination) {
+        req.query.page = req.query.page ?? '1';
+        req.query.limit = req.query.limit ?? '100';
+        req.query.sort = req.query.sort ?? '-timestamp';
+        res.set('X-Pagination-Defaulted', 'true');
+      }
+    } catch {}
+    return controller.list(req, res);
+  })
+);
 
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));
