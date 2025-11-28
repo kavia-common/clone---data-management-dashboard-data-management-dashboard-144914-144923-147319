@@ -170,13 +170,23 @@ export default function Overview() {
   }, []);
 
   // Derived ISO ranges for each chart
+  // Memoize custom ranges to provide stable references for dependency arrays
+  const stableSessionsCustomRange = useMemo(
+    () => ({ start: sessionsCustomRange.start, end: sessionsCustomRange.end }),
+    [sessionsCustomRange.start, sessionsCustomRange.end]
+  );
+  const stableUsersCustomRange = useMemo(
+    () => ({ start: usersCustomRange.start, end: usersCustomRange.end }),
+    [usersCustomRange.start, usersCustomRange.end]
+  );
+
   const sessionsRange = useMemo(
-    () => computeRange(sessionsRangeKey, sessionsCustomRange),
-    [sessionsRangeKey, sessionsCustomRange]
+    () => computeRange(sessionsRangeKey, stableSessionsCustomRange),
+    [sessionsRangeKey, stableSessionsCustomRange]
   );
   const usersRange = useMemo(
-    () => computeRange(usersRangeKey, usersCustomRange),
-    [usersRangeKey, usersCustomRange]
+    () => computeRange(usersRangeKey, stableUsersCustomRange),
+    [usersRangeKey, stableUsersCustomRange]
   );
 
   // Sessions trend fetcher — independent
