@@ -121,4 +121,14 @@ Production build and CI
 Avoid React tooling in backend
 - Do not invoke React/Vite/Webpack tasks from this backend container. Frontend assets are built in the frontend container.
 - If a mono-repo tool attempts to run browserslist/webpack tasks from this directory, ensure the runner is scoped to the frontend folder only.
-- Verification: `cat package.json` contains no scripts referencing webpack-dev-server, react-scripts, vite, or CRA. The start/dev scripts launch `node src/server.js` only.
+- Verification checklist:
+  - `npm run explain:dev` prints: Backend dev starts Express via node src/server.js. No CRA/react-scripts here.
+  - `npm run guard:no-cra` exits 0 and prints OK (aborts with guidance if CRA is detected).
+  - `package.json` scripts do NOT reference react-scripts, webpack-dev-server, or vite.
+  - `dependencies` do NOT include react-scripts. If ever present, remove it.
+- The start/dev scripts launch `node src/server.js` only.
+
+Memory diagnostics (optional)
+- Set `DEBUG_MEMORY=true` to print a one-line memory usage on boot and periodic ticks (see KEEPALIVE_MS).
+- GET `/api/memory` returns current process memory usage (in MB) without heavy allocations.
+- Default memory cap: `NODE_OPTIONS=--max-old-space-size=1536` (applied by scripts). You may tune lower if needed.

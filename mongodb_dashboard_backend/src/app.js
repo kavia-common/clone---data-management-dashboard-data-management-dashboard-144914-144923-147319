@@ -79,9 +79,10 @@ app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-// ---------------------------------------------
-// Health endpoints
-// ---------------------------------------------
+/**
+ * PUBLIC_INTERFACE
+ * Lightweight health endpoint. Safe for readiness probes.
+ */
 const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
@@ -93,6 +94,21 @@ const healthHandler = (req, res) => {
   return res.status(200).json(payload);
 };
 app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
+
+// PUBLIC_INTERFACE
+// Minimal memory usage endpoint for debugging OOMs without heavy allocations.
+app.get('/api/memory', (req, res) => {
+  const m = process.memoryUsage();
+  const asMB = (v) => Math.round(v / 1048576);
+  res.json({
+    rssMB: asMB(m.rss),
+    heapTotalMB: asMB(m.heapTotal),
+    heapUsedMB: asMB(m.heapUsed),
+    externalMB: asMB(m.external || 0),
+    arrayBuffersMB: asMB(m.arrayBuffers || 0),
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // ---------------------------------------------
 // Routers

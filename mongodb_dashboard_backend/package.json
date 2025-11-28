@@ -8,6 +8,9 @@
     "npm": ">=9"
   },
   "scripts": {
+    "guard:no-cra": "node -e \"if(require('fs').existsSync('node_modules/react-scripts')){console.error('ABORT: react-scripts detected in backend. Remove it from dependencies.');process.exit(1)}; if((process.env.npm_lifecycle_script||'').includes('react-scripts')){console.error('ABORT: npm script tries to run react-scripts in backend. Fix scripts to use node src/server.js or nodemon.');process.exit(1)}; console.log('OK: No CRA/react-scripts in use for backend.')\"",
+    "predev": "npm run guard:no-cra",
+    "prestart": "npm run guard:no-cra",
     "start": "cross-env NODE_ENV=production NODE_OPTIONS=--max-old-space-size=1536 --max_old_space_size=1536 node src/server.js",
     "dev": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=1536 --max_old_space_size=1536 BROWSERSLIST_DISABLE_CACHE=1 node --trace-warnings src/server.js",
     "dev:watch": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=1536 --max_old_space_size=1536 nodemon --watch src --ext js,json --delay 200ms --exitcrash src/server.js",
@@ -19,7 +22,7 @@
     "test": "cross-env CI=true NODE_ENV=test jest --runInBand --ci --reporters=default",
     "lint": "eslint . || true",
     "lint:fix": "eslint . --fix || true",
-    "postinstall": "cross-env BROWSERSLIST_DISABLE_CACHE=1 echo 'Backend: skipping browserslist update; keeping lightweight postinstall' && npx --yes update-browserslist-db@latest --no-funding --no-update-notifier || true",
+    "postinstall": "cross-env BROWSERSLIST_DISABLE_CACHE=1 echo 'Backend: skipping browserslist update; keeping lightweight postinstall' && npx --yes update-browserslist-db@latest --no-funding --no-update-notifier || true && node -e \"if(require('fs').existsSync('node_modules/react-scripts')){console.warn('Warning: react-scripts present but unused in backend. Remove from dependencies to reduce size.')}\"",
     "gen:openapi": "node generate_openapi.js",
     "explain:dev": "node -e \"console.log('Backend dev starts Express via node src/server.js. No CRA/react-scripts here.')\""
   },
