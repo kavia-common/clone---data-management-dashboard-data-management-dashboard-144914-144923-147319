@@ -9,10 +9,10 @@
   },
   "scripts": {
     "start": "cross-env NODE_ENV=production HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=1024 node src/server.js",
-    "dev": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=1536 BROWSERSLIST_DISABLE_CACHE=1 nodemon --watch src --ext js,json --delay 200ms --signal SIGTERM --exitcrash src/server.js",
-    "dev:watch": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=1536 nodemon --watch src --ext js,json --delay 200ms --signal SIGTERM --exitcrash src/server.js",
-    "dev:nodemon": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=1536 nodemon --watch src --ext js,json --delay 200ms --signal SIGTERM --exitcrash src/server.js",
-    "preview": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=1536 node --trace-warnings src/server.js || true",
+    "dev": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=2048 CHOKIDAR_USEPOLLING=false BROWSERSLIST_DISABLE_CACHE=1 nodemon --watch src --ext js,json --delay 250ms --signal SIGTERM --exitcrash src/server.js",
+    "dev:watch": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=2048 CHOKIDAR_USEPOLLING=false nodemon --watch src --ext js,json --delay 250ms --signal SIGTERM --exitcrash src/server.js",
+    "dev:nodemon": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=2048 CHOKIDAR_USEPOLLING=false nodemon --watch src --ext js,json --delay 250ms --signal SIGTERM --exitcrash src/server.js",
+    "preview": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=2048 node --trace-warnings src/server.js || true",
     "docs": "echo 'Swagger UI at http://localhost:3001/api-docs (alias: /docs)' && node -e \"console.log('OpenAPI JSON at /openapi.json')\"",
     "health": "curl -sSf http://127.0.0.1:${PORT:-3001}/health || true",
     "test": "cross-env CI=true NODE_ENV=test jest --runInBand --ci --reporters=default",
@@ -54,15 +54,20 @@
       ".git/**",
       "dist/**",
       "build/**",
-      ".tmp/**"
+      ".tmp/**",
+      "coverage/**",
+      "**/__tests__/**",
+      "**/*.test.js"
     ],
     "ext": "js,json",
-    "delay": "200ms",
+    "delay": "250ms",
     "signal": "SIGTERM",
     "env": {
       "HOST": "0.0.0.0",
       "PORT": "3001",
-      "NODE_ENV": "development"
+      "NODE_ENV": "development",
+      "CHOKIDAR_USEPOLLING": "false",
+      "BROWSERSLIST_DISABLE_CACHE": "1"
     },
     "legacyWatch": false,
     "stdin": false,
