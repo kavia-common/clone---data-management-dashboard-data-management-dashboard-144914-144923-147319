@@ -4,6 +4,40 @@
  */
 try { require('dotenv').config(); } catch {}
 
+// Light memory diagnostics in dev when DEBUG_MEMORY=true
+const DEBUG_MEMORY = String(process.env.DEBUG_MEMORY || '').toLowerCase() === 'true';
+if (DEBUG_MEMORY) {
+  try {
+    const format = (mb) => `${(mb).toFixed(1)} MB`;
+    const mm = process.memoryUsage();
+    // eslint-disable-next-line no-console
+    console.log(
+      `[mem] rss=${format(mm.rss/1048576)} heapTotal=${format(mm.heapTotal/1048576)} heapUsed=${format(mm.heapUsed/1048576)} ext=${format(mm.external/1048576)}`
+    );
+  } catch {}
+}
+
+// Cap console logs volume to avoid accidental memory bloat from verbose logging loops
+(function capConsoleSpam() {
+  const MAX_LOGS = Number(process.env.MAX_STARTUP_LOGS || 1000);
+  let count = 0;
+  ['log','info','warn','error'].forEach((m) => {
+    const orig = console[m].bind(console);
+    console[m] = (...args) => {
+      if (count < MAX_LOGS) {
+        count += 1;
+        return orig(...args);
+      }
+      if (count === MAX_LOGS) {
+        count += 1;
+        return orig('[log-cap] Further logs suppressed to prevent memory growth. Increase MAX_STARTUP_LOGS to override.');
+      }
+      // suppress
+      return undefined;
+    };
+  });
+})();
+
 const fs = require('fs');
 const path = require('path');
 const net = require('net');

@@ -8,11 +8,11 @@
     "npm": ">=9"
   },
   "scripts": {
-    "start": "cross-env NODE_ENV=production NODE_OPTIONS=--max_old_space_size=512 node src/server.js",
-    "dev": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max_old_space_size=512 BROWSERSLIST_DISABLE_CACHE=1 node src/server.js || true",
-    "dev:watch": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max_old_space_size=512 nodemon --watch src --ext js,json --delay 200ms --exitcrash src/server.js",
-    "dev:nodemon": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max_old_space_size=512 nodemon --watch src --ext js,json --delay 200ms --exitcrash src/server.js",
-    "preview": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max_old_space_size=512 node src/server.js || true",
+    "start": "cross-env NODE_ENV=production NODE_OPTIONS=--max-old-space-size=640 --max_old_space_size=640 node src/server.js",
+    "dev": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=640 --max_old_space_size=640 BROWSERSLIST_DISABLE_CACHE=1 node --trace-warnings src/server.js || true",
+    "dev:watch": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=640 --max_old_space_size=640 nodemon --watch src --ext js,json --delay 200ms --exitcrash src/server.js",
+    "dev:nodemon": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=640 --max_old_space_size=640 nodemon --watch src --ext js,json --delay 200ms --exitcrash src/server.js",
+    "preview": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=--max-old-space-size=640 --max_old_space_size=640 node src/server.js || true",
     "docs": "echo 'Swagger UI at http://localhost:3001/api-docs (alias: /docs)' && node -e \"console.log('OpenAPI JSON at /openapi.json')\"",
     "health": "curl -sSf http://127.0.0.1:${PORT:-3001}/health || true",
     "test": "cross-env CI=true NODE_ENV=test jest --runInBand --ci --reporters=default",
