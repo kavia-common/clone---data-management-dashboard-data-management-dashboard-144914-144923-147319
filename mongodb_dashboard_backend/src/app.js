@@ -187,46 +187,4 @@ if (process.env.NODE_ENV !== 'test') {
   try { mongoose.set('bufferCommands', false); } catch { }
 }
 
-/**
- * Align server and proxy timeouts to avoid premature 504s while retaining safety.
- * Defaults are conservative; can be tuned via env.
- */
-const http = require('http');
-const server = http.createServer(app);
-
-// PUBLIC_INTERFACE
-function configureServerTimeouts(srv) {
-  /** Configure timeouts using environment variables:
-   *  - SERVER_HEADERS_TIMEOUT_MS (default: 65000)
-   *  - SERVER_KEEPALIVE_TIMEOUT_MS (default: 65000)
-   *  - SERVER_TIMEOUT_MS (default: 60000)
-   */
-  try {
-    const headersTimeout = parseInt(process.env.SERVER_HEADERS_TIMEOUT_MS || '65000', 10);
-    const keepAliveTimeout = parseInt(process.env.SERVER_KEEPALIVE_TIMEOUT_MS || '65000', 10);
-    const serverTimeout = parseInt(process.env.SERVER_TIMEOUT_MS || '60000', 10);
-    srv.headersTimeout = headersTimeout;
-    srv.keepAliveTimeout = keepAliveTimeout;
-    srv.setTimeout(serverTimeout);
-    console.log('[app] Server timeouts configured', { headersTimeout, keepAliveTimeout, serverTimeout });
-  } catch (e) {
-    console.warn('[app] Failed to configure server timeouts', e?.message || e);
-  }
-}
-
-// Apply defaults
-configureServerTimeouts(server);
-
-// Optional: log slow requests to validate improvements
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const dur = Date.now() - start;
-    if (dur > 1500) {
-      console.log('[slow-request]', { method: req.method, url: req.originalUrl, ms: dur, status: res.statusCode });
-    }
-  });
-  next();
-});
-
-module.exports = { app, server, configureServerTimeouts };
+module.exports = app;

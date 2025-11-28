@@ -200,41 +200,17 @@ router.get(
   '/',
   asyncHandler(async (req, res, next) => {
     // Defensive pagination defaults for the main /api/llm-costs list as well.
-    const start = Date.now();
     try {
-      // Enforce explicit pagination and clamp page size
       const hasExplicitPagination =
         (typeof req.query.page !== 'undefined') || (typeof req.query.limit !== 'undefined');
       if (!hasExplicitPagination) {
         req.query.page = req.query.page ?? '1';
         req.query.limit = req.query.limit ?? '100';
+        req.query.sort = req.query.sort ?? '-timestamp';
         res.set('X-Pagination-Defaulted', 'true');
       }
-      // Always enforce a maximum page size and a safe indexed sort
-      const maxLimit = parseInt(process.env.LLMCOSTS_MAX_PAGE_SIZE || '200', 10);
-      const limitNum = parseInt(req.query.limit || '100', 10);
-      if (!Number.isFinite(limitNum) || limitNum < 1 || limitNum > maxLimit) {
-        req.query.limit = String(Math.min(Math.max(limitNum || 100, 1), maxLimit));
-        res.set('X-Limit-Clamped', req.query.limit);
-      }
-      // Force sort to an indexed field if not provided or unsafe
-      const allowedSortFields = ['timestamp', 'created_at', '_id'];
-      const sort = (req.query.sort || '-timestamp').toString();
-      const isDesc = sort.startsWith('-');
-      const sortField = isDesc ? sort.slice(1) : sort;
-      if (!allowedSortFields.includes(sortField)) {
-        req.query.sort = '-timestamp';
-        res.set('X-Sort-Adjusted', 'true');
-      }
-      res.set('X-AllowedSort', allowedSortFields.join(','));
-      res.set('X-Max-Limit', String(maxLimit));
-    } catch (e) {
-      // non-fatal
-    }
-    try { res.set('X-Route-StartMs', String(start)); } catch (_) {}
-    const result = await controller.list(req, res);
-    try { res.set('X-Route-DurationMs', String(Date.now() - start)); } catch (_) {}
-    return result;
+    } catch {}
+    return controller.list(req, res);
   })
 );
 

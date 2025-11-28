@@ -25,7 +25,6 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const start = Date.now();
     // Per requirement: Ignore/remove any 'filter' param entirely for GET /api/llm-costs
     // Preserve tenant scoping via middleware/controller and keep sort/limit behavior.
     if (typeof req.query.filter !== 'undefined') {
@@ -51,22 +50,6 @@ router.get(
         req.query.sort = req.query.sort ?? '-timestamp';
         res.set('X-Pagination-Defaulted', 'true');
       }
-      // Clamp page size and adjust sort to known safe fields
-      const maxLimit = parseInt(process.env.LLMCOSTS_MAX_PAGE_SIZE || '200', 10);
-      const limitNum = parseInt(req.query.limit || '100', 10);
-      if (!Number.isFinite(limitNum) || limitNum < 1 || limitNum > maxLimit) {
-        req.query.limit = String(Math.min(Math.max(limitNum || 100, 1), maxLimit));
-        res.set('X-Limit-Clamped', req.query.limit);
-      }
-      const allowedSortFields = ['timestamp', 'created_at', '_id'];
-      const sort = (req.query.sort || '-timestamp').toString();
-      const sortField = sort.startsWith('-') ? sort.slice(1) : sort;
-      if (!allowedSortFields.includes(sortField)) {
-        req.query.sort = '-timestamp';
-        res.set('X-Sort-Adjusted', 'true');
-      }
-      res.set('X-AllowedSort', allowedSortFields.join(','));
-      res.set('X-Max-Limit', String(maxLimit));
     } catch {}
 
     // Mark possible super-admin bypass headers similarly to other routes (diagnostic only)
@@ -88,10 +71,7 @@ router.get(
       }
     } catch {}
 
-    try { res.set('X-Route-StartMs', String(start)); } catch {}
-    const result = await controller.list(req, res);
-    try { res.set('X-Route-DurationMs', String(Date.now() - start)); } catch {}
-    return result;
+    return controller.list(req, res);
   })
 );
 

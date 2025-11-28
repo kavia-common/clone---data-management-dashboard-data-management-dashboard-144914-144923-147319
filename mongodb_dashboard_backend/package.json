@@ -14,7 +14,6 @@
     "test": "cross-env CI=true NODE_ENV=test jest --runInBand --ci --reporters=default",
     "lint": "eslint . || true",
     "lint:fix": "eslint . --fix || true",
-    "build": "echo 'no-op build for backend'",
     "postinstall": "echo 'Skipping browserslist update for backend' && npx --yes update-browserslist-db@latest --no-funding --no-update-notifier || true",
     "gen:openapi": "node generate_openapi.js"
   },

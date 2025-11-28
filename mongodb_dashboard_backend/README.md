@@ -84,15 +84,6 @@ Notes on authentication and hashing
   - POST /api/auth/login
   - POST /api/auth/reset-password
 
-Operational Notes (504 mitigation)
-- Cost endpoints enforce pagination by default. If page/limit are omitted, the server applies page=1, limit=100 and a safe indexed sort (-timestamp).
-- Max page size is capped by LLMCOSTS_MAX_PAGE_SIZE (default 200).
-- Sorting is restricted to indexed fields: timestamp, created_at, _id. Unsafe sorts are adjusted to -timestamp.
-- Lightweight micro-caching is applied to identical paginated list requests for ~2 seconds (config MICRO_CACHE_TTL_MS).
-- Hierarchical cost aggregation has a 5-minute in-memory cache (LLMCOSTS_HIERARCHY_CACHE_TTL_MS) per tenant+filter to avoid repeated heavy aggregation.
-- Timing headers are added: X-DB-List-DurationMs, X-DB-Count-DurationMs, X-Route-DurationMs. Slow requests are logged with [slow-request].
-- Server timeouts can be tuned with SERVER_HEADERS_TIMEOUT_MS, SERVER_KEEPALIVE_TIMEOUT_MS, SERVER_TIMEOUT_MS.
-
 Troubleshooting
 - Port already in use (EADDRINUSE):
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.

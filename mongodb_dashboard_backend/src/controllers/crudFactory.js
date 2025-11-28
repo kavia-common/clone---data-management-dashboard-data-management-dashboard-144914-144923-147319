@@ -319,14 +319,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
-          if (cached) {
-            try { res.set('X-Cache', 'micro'); } catch (_) {}
-            return res.status(200).json(cached);
-          }
+          if (cached) {return res.status(200).json(cached);}
           
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           let items;
-          const listStart = Date.now();
           if (isLLMCost) {
             try {
               const sortStage = safeSort
@@ -359,9 +355,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               ];
               items = await Model.aggregate(pipeline).allowDiskUse(true);
             } catch (_) {
-              items = await Model.find(appliedFilter).select({ // lean projection to minimize payload
-                timestamp: 1, created_at: 1, organization_id: 1, tenant_id: 1, total_cost: 1, _id: 1
-              }).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
             }
           } else if (isAppDeployment) {
             try {
@@ -396,28 +390,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           } else {
             items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
-          let total;
-          const countStart = Date.now();
-          try {
-            total = await Model.countDocuments(appliedFilter).maxTimeMS(2000);
-          } catch (_) {
-            // As a fallback, try estimatedDocumentCount for collections without filter (bypass) or sample length
-            try {
-              if (!appliedFilter || Object.keys(appliedFilter).length === 0) {
-                total = await Model.estimatedDocumentCount();
-              } else {
-                total = items.length + (page - 1) * hardCappedLimit;
-                res.set('X-Total-Approx', 'true');
-              }
-            } catch {
-              total = items.length;
-              res.set('X-Total-Approx', 'true');
-            }
-          }
-          try {
-            res.set('X-DB-List-DurationMs', String(Date.now() - listStart));
-            res.set('X-DB-Count-DurationMs', String(Date.now() - countStart));
-          } catch (_) {}
+          const total = await Model.countDocuments(appliedFilter);
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
