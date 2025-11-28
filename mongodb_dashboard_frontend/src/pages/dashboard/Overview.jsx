@@ -92,22 +92,31 @@ export default function Overview() {
   const [featuresError, setFeaturesError] = useState(null);
 
   // Features filters: include tenant and optional service_type to narrow chart
+  const initialTenantForFeatures = useMemo(
+    () => localStorage.getItem('organization_id') || undefined,
+    []
+  );
   const [featuresFilters, setFeaturesFilters] = useState({
-    tenant_id: localStorage.getItem('organization_id') || undefined,
+    tenant_id: initialTenantForFeatures,
     service_type: '', // empty means all
   });
 
-  // KPI metrics
+  // KPI metrics: depend only on tenant context (if any) to avoid unstable deps
+  const tenantIdForKpis = useMemo(
+    () => localStorage.getItem('organization_id') || undefined,
+    []
+  );
   useEffect(() => {
     let cancelled = false;
     async function fetchData() {
       setLoading(true);
       setError("");
       try {
+        // Note: API functions are module-level stable; don't place them in deps
         const [usersRes, sessionsRes, deploymentsRes] = await Promise.all([
-          listUsers({ limit: 5 }),
-          listSessions({ limit: 5 }),
-          listDeployments({ limit: 5 }),
+          listUsers({ limit: 5, tenant_id: tenantIdForKpis }),
+          listSessions({ limit: 5, tenant_id: tenantIdForKpis }),
+          listDeployments({ limit: 5, tenant_id: tenantIdForKpis }),
         ]);
         if (cancelled) return;
         setMetrics({
@@ -127,8 +136,7 @@ export default function Overview() {
     return () => {
       cancelled = true;
     };
-    // include API functions as dependencies to satisfy exhaustive-deps; they are module-stable
-  }, [listUsers, listSessions, listDeployments]);
+  }, [tenantIdForKpis]);
 
   // Backend health check (non-blocking)
   useEffect(() => {
@@ -372,6 +380,8 @@ export default function Overview() {
         // Backend supports ?q for fuzzy search across fields including service_type.
         const { items } = await fetchSessionTracking({
           tenant_id: tenantId,
+          // Forward service_type explicitly to API in addition to generic q search
+          service_type: selectedServiceType || undefined,
           limit: 1000,
           sort: '-last_updated',
           q: selectedServiceType ? selectedServiceType : undefined,
