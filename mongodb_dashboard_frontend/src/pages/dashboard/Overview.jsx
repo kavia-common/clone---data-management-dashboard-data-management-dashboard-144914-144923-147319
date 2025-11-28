@@ -98,16 +98,16 @@ export default function Overview() {
       setLoading(true);
       setError("");
       try {
-        const [users, sessions, deployments] = await Promise.all([
+        const [usersRes, sessionsRes, deploymentsRes] = await Promise.all([
           listUsers({ limit: 5 }),
           listSessions({ limit: 5 }),
           listDeployments({ limit: 5 }),
         ]);
         if (cancelled) return;
         setMetrics({
-          users: users?.total || users?.length || 0,
-          sessions: sessions?.total || sessions?.length || 0,
-          deployments: deployments?.total || deployments?.length || 0,
+          users: usersRes?.total || usersRes?.length || 0,
+          sessions: sessionsRes?.total || sessionsRes?.length || 0,
+          deployments: deploymentsRes?.total || deploymentsRes?.length || 0,
         });
       } catch (e) {
         if (!cancelled) {
@@ -121,7 +121,8 @@ export default function Overview() {
     return () => {
       cancelled = true;
     };
-  }, [setLoading, setError, setMetrics]);
+    // include API functions as dependencies to satisfy exhaustive-deps; they are module-stable
+  }, [listUsers, listSessions, listDeployments]);
 
   // Backend health check (non-blocking)
   useEffect(() => {
@@ -171,11 +172,11 @@ export default function Overview() {
   // Derived ISO ranges for each chart
   const sessionsRange = useMemo(
     () => computeRange(sessionsRangeKey, sessionsCustomRange),
-    [sessionsRangeKey, sessionsCustomRange.start, sessionsCustomRange.end]
+    [sessionsRangeKey, sessionsCustomRange]
   );
   const usersRange = useMemo(
     () => computeRange(usersRangeKey, usersCustomRange),
-    [usersRangeKey, usersCustomRange.start, usersCustomRange.end]
+    [usersRangeKey, usersCustomRange]
   );
 
   // Sessions trend fetcher — independent
@@ -240,7 +241,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
+  }, [sessionsRange, sessionsGranularity, fillSeries]);
 
   // Users trend fetcher — independent
   useEffect(() => {
@@ -333,7 +334,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
+  }, [usersRange, usersGranularity, usersStatus, fillSeries]);
 
   // Overall Features chart data: counts by service_type from session-tracking list
   useEffect(() => {
