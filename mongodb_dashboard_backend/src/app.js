@@ -143,6 +143,7 @@ app.use((req, res, next) => {
   next();
 });
 
+try { console.log('[routes] registering /api/session-tracking'); } catch {}
 safeUse('/api/session-tracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
