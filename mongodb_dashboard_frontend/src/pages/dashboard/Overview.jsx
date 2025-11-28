@@ -92,31 +92,22 @@ export default function Overview() {
   const [featuresError, setFeaturesError] = useState(null);
 
   // Features filters: include tenant and optional service_type to narrow chart
-  const initialTenantForFeatures = useMemo(
-    () => localStorage.getItem('organization_id') || undefined,
-    []
-  );
   const [featuresFilters, setFeaturesFilters] = useState({
-    tenant_id: initialTenantForFeatures,
+    tenant_id: localStorage.getItem('organization_id') || undefined,
     service_type: '', // empty means all
   });
 
-  // KPI metrics: depend only on tenant context (if any) to avoid unstable deps
-  const tenantIdForKpis = useMemo(
-    () => localStorage.getItem('organization_id') || undefined,
-    []
-  );
+  // KPI metrics
   useEffect(() => {
     let cancelled = false;
     async function fetchData() {
       setLoading(true);
       setError("");
       try {
-        // Note: API functions are module-level stable; don't place them in deps
         const [usersRes, sessionsRes, deploymentsRes] = await Promise.all([
-          listUsers({ limit: 5, tenant_id: tenantIdForKpis }),
-          listSessions({ limit: 5, tenant_id: tenantIdForKpis }),
-          listDeployments({ limit: 5, tenant_id: tenantIdForKpis }),
+          listUsers({ limit: 5 }),
+          listSessions({ limit: 5 }),
+          listDeployments({ limit: 5 }),
         ]);
         if (cancelled) return;
         setMetrics({
@@ -136,7 +127,8 @@ export default function Overview() {
     return () => {
       cancelled = true;
     };
-  }, [tenantIdForKpis]);
+    // include API functions as dependencies to satisfy exhaustive-deps; they are module-stable
+  }, [listUsers, listSessions, listDeployments]);
 
   // Backend health check (non-blocking)
   useEffect(() => {
@@ -361,33 +353,28 @@ export default function Overview() {
   }, [usersRange, usersGranularity, usersStatus, fillSeries]);
 
   // Overall Features chart data: counts by service_type from session-tracking list
-  // Stable derived deps to avoid object identity churn in effect deps
-  const featuresTenant = useMemo(
-    () =>
-      featuresFilters?.tenant_id ||
-      featuresFilters?.organization_id ||
-      localStorage.getItem('organization_id') ||
-      undefined,
-    [featuresFilters?.tenant_id, featuresFilters?.organization_id]
-  );
-  const featuresServiceType = useMemo(
-    () => (featuresFilters?.service_type || '').trim(),
-    [featuresFilters?.service_type]
-  );
-
   useEffect(() => {
     let aborted = false;
     async function loadFeatures() {
       setFeaturesLoading(true);
       setFeaturesError(null);
       try {
-        // Build query params: pass tenant and explicit service_type (exact) plus optional q fuzzy
+        // Determine active tenant and requested service_type from filters
+        const tenantId =
+          featuresFilters?.tenant_id ||
+          featuresFilters?.organization_id ||
+          localStorage.getItem('organization_id') ||
+          undefined;
+
+        const selectedServiceType = (featuresFilters?.service_type || '').trim();
+
+        // Build query params: pass tenant and, if present, a text query for service_type
+        // Backend supports ?q for fuzzy search across fields including service_type.
         const { items } = await fetchSessionTracking({
-          tenant_id: featuresTenant,
-          service_type: featuresServiceType || undefined,
+          tenant_id: tenantId,
           limit: 1000,
           sort: '-last_updated',
-          q: featuresServiceType ? featuresServiceType : undefined,
+          q: selectedServiceType ? selectedServiceType : undefined,
         });
         if (aborted) return;
 
@@ -398,7 +385,7 @@ export default function Overview() {
           return;
         }
 
-        // Group by service_type with multiple fallbacks and normalization
+        // Group by service_type
         const counts = new Map();
         safeItems.forEach((row) => {
           const raw =
@@ -407,19 +394,14 @@ export default function Overview() {
             row?.session_data?.service_type ??
             row?.session_data?.serviceType ??
             null;
-
-          const normalized = raw == null ? '' : String(raw).trim();
-          const label = normalized.length > 0 ? normalized : 'Unknown';
-
+          const label = String(raw && String(raw).trim() ? raw : 'Unknown');
           // If a specific service_type filter is selected, only count matching ones
-          if (featuresServiceType && label !== featuresServiceType) return;
-
+          if (selectedServiceType && label !== selectedServiceType) return;
           counts.set(label, (counts.get(label) || 0) + 1);
         });
 
         const shaped = Array.from(counts.entries())
           .map(([k, v]) => ({ label: k, value: v }))
-          .filter((d) => Number.isFinite(d.value))
           .sort((a, b) => b.value - a.value);
 
         setFeaturesData(shaped);
@@ -435,7 +417,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [featuresTenant, featuresServiceType]);
+  }, [featuresFilters?.tenant_id, featuresFilters?.organization_id, featuresFilters?.service_type]);
 
   // Reusable controls renderers (per-chart)
   const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {
