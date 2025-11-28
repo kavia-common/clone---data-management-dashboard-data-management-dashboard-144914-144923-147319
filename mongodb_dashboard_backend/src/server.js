@@ -237,6 +237,20 @@ function startServerStrict() {
     // do not exit; keep server alive in preview
   });
 
+  // Lightweight keepalive to prevent idle process exit in constrained preview runners.
+  // This does not retain large references; only logs occasionally when DEBUG_MEMORY is true.
+  const KEEPALIVE_MS = Math.min(Math.max(Number(process.env.KEEPALIVE_MS || 30000), 5000), 60000);
+  const keepalive = setInterval(() => {
+    if (DEBUG_MEMORY) {
+      try {
+        const m = process.memoryUsage();
+        const mb = (v) => (v / 1048576).toFixed(0);
+        console.log(`[tick] rss=${mb(m.rss)}MB heapUsed=${mb(m.heapUsed)}MB`);
+      } catch {}
+    }
+  }, KEEPALIVE_MS);
+  keepalive.unref?.();
+
   return server;
 }
 
