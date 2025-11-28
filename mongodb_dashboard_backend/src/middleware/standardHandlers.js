@@ -24,24 +24,19 @@ function auditLoggerMiddleware() {
   /**
    * GxP audit middleware: logs request start and completion with outcome.
    * Captures: method, path, userId (if available), timestamp, status.
-   * Adds request-id propagation header (X-Request-Id) and attaches req.traceId.
    * In production, replace console with a persistent audit sink.
    */
   return function auditLogger(req, res, next) {
     const start = Date.now();
-    // Reuse inbound X-Request-Id if provided, else generate a new UUID
-    const inboundId =
-      (typeof req.headers['x-request-id'] === 'string' && req.headers['x-request-id'].trim()) || null;
-    const traceId = inboundId || randomUUID();
+    // Generate a trace id for correlation across handlers
+    const traceId = randomUUID();
     req.traceId = traceId;
-    try {
-      res.setHeader('X-Request-Id', traceId);
-    } catch (_) {}
 
     // Extract user id if available (placeholder: req.user?.id from auth layer)
     const userId = (req.user && (req.user.id || req.user.userId)) || null;
 
     // Log start
+     
     console.log(
       JSON.stringify({
         ts: new Date().toISOString(),
@@ -55,28 +50,8 @@ function auditLoggerMiddleware() {
       })
     );
 
-    // Provide a simple timing helper for downstream code
-    req._timings = { start };
-    req.markTiming = (label) => {
-      try {
-        const now = Date.now();
-        const base = req._timings.start || now;
-        req._timings[label] = now;
-        console.log(
-          JSON.stringify({
-            ts: new Date().toISOString(),
-            type: 'TIMING',
-            traceId,
-            label,
-            deltaMs: now - base,
-            path: req.originalUrl,
-            method: req.method,
-          })
-        );
-      } catch (_) {}
-    };
-
     res.on('finish', () => {
+       
       console.log(
         JSON.stringify({
           ts: new Date().toISOString(),

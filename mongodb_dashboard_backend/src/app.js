@@ -5,7 +5,7 @@ const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/
 const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
-const { errorHandler, auditLoggerMiddleware } = require('./middleware/standardHandlers');
+const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
 
 const app = express();
@@ -14,8 +14,6 @@ const app = express();
 // Middleware
 // ---------------------------------------------
 app.set('trust proxy', 1);
-// Request audit and request-id propagation
-app.use(auditLoggerMiddleware());
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);

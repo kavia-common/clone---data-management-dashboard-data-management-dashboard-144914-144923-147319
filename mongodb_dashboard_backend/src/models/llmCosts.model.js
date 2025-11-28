@@ -41,10 +41,7 @@ const LLMCostsSchema = new mongoose.Schema(
   }
 );
 
-/**
- * Useful indexes for common filter/sort combos
- * Note: GET /api/llm-costs enforces tenant filtering and sorts by -timestamp, which is supported by this composite index.
- */
+// Useful indexes for common filter/sort combos
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
 LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
@@ -60,38 +57,4 @@ LLMCostsSchema.pre('findOneAndUpdate', function (next) {
   next();
 });
 
-/**
- * PUBLIC_INTERFACE
- * ensureLLMCostsIndexes
- * Idempotent helper to create critical indexes for the llm-costs collection at runtime.
- * This helps in environments where autoIndex is disabled or when deploying to existing datasets.
- */
-async function ensureLLMCostsIndexes() {
-  try {
-    // Compound indexes to support tenant-scoped queries and default sort
-    await LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 });
-    await LLMCostsSchema.index({ organization_id: 1, timestamp: -1 });
-
-    // Variants for user_id and project_id filtering with timestamp sort
-    await LLMCostsSchema.index({ tenant_id: 1, user_id: 1, timestamp: -1 });
-    await LLMCostsSchema.index({ organization_id: 1, user_id: 1, timestamp: -1 });
-    await LLMCostsSchema.index({ tenant_id: 1, project_id: 1, timestamp: -1 });
-    await LLMCostsSchema.index({ organization_id: 1, project_id: 1, timestamp: -1 });
-
-    // Fall-back sorts
-    await LLMCostsSchema.index({ tenant_id: 1, created_at: -1 });
-    await LLMCostsSchema.index({ organization_id: 1, created_at: -1 });
-
-    // Avoid large skip with seek by supporting timestamp + _id
-    await LLMCostsSchema.index({ tenant_id: 1, timestamp: -1, _id: -1 });
-    await LLMCostsSchema.index({ organization_id: 1, timestamp: -1, _id: -1 });
-  } catch (e) {
-    // non-fatal
-    console.warn('[LLMCosts] ensureLLMCostsIndexes warning:', e?.message || e);
-  }
-}
-
-// Export model and the ensure function
-const LlmCostModel = mongoose.model('LLMCost', LLMCostsSchema);
-LlmCostModel.ensureLLMCostsIndexes = ensureLLMCostsIndexes;
-module.exports = LlmCostModel;
+module.exports = mongoose.model('LLMCost', LLMCostsSchema);

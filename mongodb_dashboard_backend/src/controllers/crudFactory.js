@@ -28,17 +28,6 @@ function clampLimit(limit, max = 500) {
 }
 
 /**
- * Build a .maxTimeMS value for Mongo ops from env or default.
- */
-function resolveMaxTimeMs(modelName) {
-  const envVal = process.env.MONGO_MAX_TIME_MS;
-  const parsed = parseInt(envVal || '', 10);
-  // Default tighter ceiling for LLMCost to prevent 504s under load.
-  if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  return modelName === 'LLMCost' ? 5000 : 10000;
-}
-
-/**
  * Lightweight micro-cache for list endpoints to coalesce identical rapid requests.
  * Default TTL: 2000ms. Intended to mitigate bursts from quick sort/page toggles.
  * Note: In-memory and per-process only.
@@ -73,9 +62,7 @@ function microSet(key, payload) {
  */
 function buildListKey(req, filter, sort, page, limit, skip, explicit) {
   // baseUrl+path are stable per router mount; include query-shaping inputs.
-  const tenant = req.tenantScopeDisabled || req.allTenants ? 'ALL' : String(req.tenantId || 'none');
-  const reqId = (req.traceId || req.headers?.['x-request-id'] || '').toString();
-  return `list:${req.baseUrl}${req.path}:${JSON.stringify({ tenant, filter, sort, page, limit, skip, explicit, reqId })}`;
+  return `list:${req.baseUrl}${req.path}:${JSON.stringify({ filter, sort, page, limit, skip, explicit })}`;
 }
 
 /**
@@ -223,9 +210,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Parse pagination but hard-cap the limit to prevent heavy responses.
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
-      // For LLM costs where lists can be large, enforce a stricter ceiling (200) to reduce response time.
-      const isLLMCostModel = Model?.modelName === 'LLMCost';
-      const hardCappedLimit = clampLimit(parsedLimit, isLLMCostModel ? 200 : 500);
+      const hardCappedLimit = clampLimit(parsedLimit, 500);
 
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
@@ -323,23 +308,19 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
         if (debugOn) {
           try {
+            
             console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
           } catch (_) {}
         }
+          // pagination path
 
-        // pagination path
         if (req.method === 'GET' && explicit) {
-          // cache and return envelope
+                    // cache and return envelope
+
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
           if (cached) {return res.status(200).json(cached);}
-
-          const qMax = resolveMaxTimeMs(Model?.modelName);
-          if (req.markTiming) req.markTiming('beforeQuery');
-
-          // Optional explain() logging for diagnostics if DEBUG_EXPLAIN=1
-          const withExplain = String(process.env.DEBUG_EXPLAIN || '').trim() === '1';
-
+          
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           let items;
           if (isLLMCost) {
@@ -347,33 +328,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               const sortStage = safeSort
                 ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
                 : { timestamp: -1 };
-
-              // Cap skip to avoid pathological large offsets
-              const MAX_SKIP = 5000;
-              const safeSkip = Number.isFinite(skip) ? Math.min(skip, MAX_SKIP) : 0;
-              if (safeSkip !== skip) {
-                try { res.set('X-Skip-Clamped', 'true'); } catch (_) {}
-              }
-
-              // Only return necessary fields for list table to reduce payload/IO
-              const projection = {
-                _id: 1,
-                tenant_id: 1,
-                organization_id: 1,
-                user_id: 1,
-                project_id: 1,
-                llm_model: 1,
-                provider: 1,
-                total_cost: 1,
-                currency: 1,
-                timestamp: 1,
-                created_at: 1,
-              };
-
               const pipeline = [
-                // Ensure match first for index utilization
                 { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-                // Normalize fields used by UI and sorting
                 { $addFields: {
                     timestamp: { $ifNull: ['$timestamp', '$created_at'] },
                     organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
@@ -394,40 +350,12 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                   }
                 },
                 { $sort: sortStage },
-                { $skip: safeSkip },
+                { $skip: skip },
                 { $limit: hardCappedLimit },
-                { $project: projection },
               ];
-
-              if (withExplain) {
-                try {
-                  const explanation = await Model.aggregate(pipeline).option({ explain: true });
-                  console.log('[crudFactory.list] aggregate.explain llm-costs', JSON.stringify(explanation?.stages ? explanation.stages : explanation)?.slice(0, 4000));
-                } catch (_) {}
-              }
-
-              items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: qMax });
+              items = await Model.aggregate(pipeline).allowDiskUse(true);
             } catch (_) {
-              // Fallback to find with projection
-              items = await Model.find(appliedFilter, {
-                _id: 1,
-                tenant_id: 1,
-                organization_id: 1,
-                user_id: 1,
-                project_id: 1,
-                llm_model: 1,
-                provider: 1,
-                total_cost: 1,
-                currency: 1,
-                timestamp: 1,
-                created_at: 1,
-              })
-                .sort(safeSort)
-                .skip(Number.isFinite(skip) ? Math.min(skip, 5000) : 0)
-                .limit(hardCappedLimit)
-                .allowDiskUse(true)
-                .maxTimeMS(qMax)
-                .lean();
+              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
             }
           } else if (isAppDeployment) {
             try {
@@ -454,35 +382,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
-              if (withExplain) {
-                try {
-                  const explanation = await Model.aggregate(pipeline).option({ explain: true });
-                  console.log('[crudFactory.list] aggregate.explain app-deployments', JSON.stringify(explanation?.stages ? explanation.stages : explanation)?.slice(0, 4000));
-                } catch (_) {}
-              }
-              items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: qMax });
+              items = await Model.aggregate(pipeline).allowDiskUse(true);
             } catch (_) {
               // Fallback: simple find; project_name may be missing if stored under a different key
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).maxTimeMS(qMax).lean();
+              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
             }
           } else {
-            items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).maxTimeMS(qMax).lean();
+            items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
-          if (req.markTiming) req.markTiming('afterQuery');
-
-          // Robust count with maxTimeMS and fallback approximate method
-          let total;
-          try {
-            total = await Model.countDocuments(appliedFilter).maxTimeMS(qMax);
-          } catch (err) {
-            // Fallback to approximate when exact count would exceed time budget
-            try {
-              total = await Model.estimatedDocumentCount().maxTimeMS(Math.min(qMax, 2000));
-            } catch {
-              total = Array.isArray(items) ? items.length + skip : 0; // last-resort approximation
-            }
-            try { res.set('X-Count-Approximate', 'true'); } catch (_) {}
-          }
+          const total = await Model.countDocuments(appliedFilter);
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
@@ -490,8 +398,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
         // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
-        const qMax = resolveMaxTimeMs(Model?.modelName);
-        let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).maxTimeMS(qMax).lean();
+        let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
         try {
           if (isLLMCost) {
             // Use aggregation for minimal transformation without large memory footprint
@@ -518,24 +425,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
-            if (withExplain) {
-              try {
-                const explanation = await Model.aggregate(pipeline).option({ explain: true });
-                console.log('[crudFactory.list] aggregate.explain llm-costs (no-pagination)', JSON.stringify(explanation?.stages ? explanation.stages : explanation)?.slice(0, 4000));
-              } catch (_) {}
-            }
-            const items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: qMax });
-            // Apply projection to limit payload even in non-paginated path
-            const projected = Array.isArray(items)
-              ? items.map((d) => {
-                  const {
-                    _id, tenant_id, organization_id, user_id, project_id,
-                    llm_model, provider, total_cost, currency, timestamp, created_at
-                  } = d;
-                  return { _id, tenant_id, organization_id, user_id, project_id, llm_model, provider, total_cost, currency, timestamp, created_at };
-                })
-              : items;
-            return res.status(200).json(projected);
+            const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            return res.status(200).json(items);
           }
           if (isAppDeployment) {
             const pipeline = [
@@ -554,7 +445,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: qMax });
+            const items = await Model.aggregate(pipeline).allowDiskUse(true);
             return res.status(200).json(items);
           }
         } catch (_) {
