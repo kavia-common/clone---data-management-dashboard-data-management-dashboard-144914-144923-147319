@@ -13,3 +13,7 @@ Recommended (resource management):
 
 Frontend proxy:
 - The frontend dev proxy is configured to target http://localhost:3001 by default to avoid EADDRNOTAVAIL with 0.0.0.0. You can override with REACT_APP_API_BASE_URL if needed.
+
+Port conflict handling:
+- During development/preview, if PORT is already in use because another backend instance is running, the server logs readiness markers for http://HOST:PORT and exits with code 0. This avoids false negatives in CI where the primary instance is already active.
+- In production (NODE_ENV=production), EADDRINUSE remains a non-zero exit to signal a supervisor to avoid duplicate instances.

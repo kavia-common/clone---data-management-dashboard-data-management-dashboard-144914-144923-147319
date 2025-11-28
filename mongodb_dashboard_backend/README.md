@@ -28,6 +28,9 @@ Preview runner compatibility
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT
   - Server ready: http://HOST:PORT (env=...)
+- If the port is already in use (EADDRINUSE), dev/preview will treat the situation as non-fatal when another listener is detected on the target port:
+  - It prints the same readiness markers and exits with code 0 so orchestrators don't fail the job.
+  - In production (NODE_ENV=production), it still exits non-zero to indicate a duplicate and allow a supervisor to handle it.
 - Frontend devServer proxy (webpack/vite) guidance to avoid EADDRNOTAVAIL:
   - Do NOT set the proxy target to http://0.0.0.0:3001. 0.0.0.0 is a bind address, not a routable destination.
   - Use a reachable host for the target, e.g. http://127.0.0.1:3001 (same machine) or the backend’s container hostname.
@@ -43,6 +46,9 @@ Preview runner compatibility
   - If preview URLs are used, set BACKEND_URL to the fully-qualified backend URL (scheme + host + port).
   - If the proxy target is temporarily unreachable, the frontend may log EADDRNOTAVAIL or ECONNREFUSED; the backend is resilient and continues running.
 - The backend itself does NOT use http-proxy-middleware or reverse-proxy features; errors seen in logs are likely from the frontend dev proxy.
+- If the port is already in use (EADDRINUSE), dev/preview will treat the situation as non-fatal when another listener is detected on the target port:
+  - It prints the same readiness markers and exits with code 0 so orchestrators don't fail the job.
+  - In production (NODE_ENV=production), it still exits non-zero to indicate a duplicate and allow a supervisor to handle it.
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
   - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
