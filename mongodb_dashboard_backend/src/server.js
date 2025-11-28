@@ -62,8 +62,8 @@ function ensurePidFileGuard() {
         try { client.destroy(); } catch {}
         if (shouldExit) {
           // eslint-disable-next-line no-console
-          console.log(`[startup] Another instance is active (pid=${existingPid}) on port ${PORT}. Continuing without exiting (non-fatal for CI).`);
-          // Do not call process.exit here; allow orchestrator/CI to proceed.
+          console.log(`[startup] Another instance is active (pid=${existingPid}) on port ${PORT}. Exiting.`);
+          process.exit(0);
         }
       };
       client.setTimeout(timeoutMs);
@@ -124,12 +124,11 @@ function startServerStrict() {
       if (err && err.code === 'EADDRINUSE') {
         // eslint-disable-next-line no-console
         console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
-        // Do not terminate the process in CI/build contexts; continue to allow lint/build success
-        return;
+      } else {
+        // eslint-disable-next-line no-console
+        console.error('[startup] Server failed to start:', err?.message || err);
       }
-      // eslint-disable-next-line no-console
-      console.error('[startup] Server failed to start:', err?.message || err);
-      // Avoid abrupt exit during build/lint; only exit in explicit runtime scenarios
+      process.exit(1);
     });
 
   const shutdown = (signal) => {

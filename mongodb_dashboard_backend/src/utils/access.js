@@ -32,7 +32,7 @@ function isSuperAdmin(req) {
  * Special case usage: other middleware may treat values like T0000 as a global selector for Super Admin.
  */
 function normalizeTenantId(id) {
-  if (id === null || id === undefined) return id;
+  if (id == null) return id;
   const s = String(id).trim();
   // Uppercase for consistent compare
   let out = s.toUpperCase();

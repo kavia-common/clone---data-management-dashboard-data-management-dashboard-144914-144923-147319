@@ -244,8 +244,8 @@ function verifyAuth(req, res, next) {
     const verifyOptions = {
       algorithms: [(process.env.JWT_ALG || 'HS256')],
     };
-    if (process.env.JWT_ISSUER) { verifyOptions.issuer = process.env.JWT_ISSUER; }
-    if (process.env.JWT_AUDIENCE) { verifyOptions.audience = process.env.JWT_AUDIENCE; }
+    if (process.env.JWT_ISSUER) verifyOptions.issuer = process.env.JWT_ISSUER;
+    if (process.env.JWT_AUDIENCE) verifyOptions.audience = process.env.JWT_AUDIENCE;
 
     const payload = jwt.verify(token, secret || '', verifyOptions);
 
@@ -326,8 +326,7 @@ function verifyAuth(req, res, next) {
     return next();
   } catch (err) {
     const allowDemoFlag = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
-    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-    if (!isProd && allowDemoFlag) {
+    if (!process.env.NODE_ENV?.toLowerCase() === 'production' && allowDemoFlag) {
       req.auth = {
         sub: 'demo-fallback',
         tenantId:
