@@ -91,6 +91,12 @@ export default function Overview() {
   const [featuresLoading, setFeaturesLoading] = useState(false);
   const [featuresError, setFeaturesError] = useState(null);
 
+  // Features filters: include tenant and optional service_type to narrow chart
+  const [featuresFilters, setFeaturesFilters] = useState({
+    tenant_id: localStorage.getItem('organization_id') || undefined,
+    service_type: '', // empty means all
+  });
+
   // KPI metrics
   useEffect(() => {
     let cancelled = false;
@@ -353,30 +359,52 @@ export default function Overview() {
       setFeaturesLoading(true);
       setFeaturesError(null);
       try {
-        // Reuse session-tracking list; we'll take a reasonable limit to capture variety
+        // Determine active tenant and requested service_type from filters
+        const tenantId =
+          featuresFilters?.tenant_id ||
+          featuresFilters?.organization_id ||
+          localStorage.getItem('organization_id') ||
+          undefined;
+
+        const selectedServiceType = (featuresFilters?.service_type || '').trim();
+
+        // Build query params: pass tenant and, if present, a text query for service_type
+        // Backend supports ?q for fuzzy search across fields including service_type.
         const { items } = await fetchSessionTracking({
-          limit: 500,
-          sort: "-last_updated",
+          tenant_id: tenantId,
+          limit: 1000,
+          sort: '-last_updated',
+          q: selectedServiceType ? selectedServiceType : undefined,
         });
         if (aborted) return;
 
+        // Basic guards for empty/missing data
+        const safeItems = Array.isArray(items) ? items : [];
+        if (safeItems.length === 0) {
+          setFeaturesData([]);
+          return;
+        }
+
+        // Group by service_type
         const counts = new Map();
-        (items || []).forEach((row) => {
-          const key =
-            row.service_type ??
-            row.serviceType ??
-            row.session_data?.service_type ??
-            row.session_data?.serviceType ??
-            "Unknown";
-          const label = String(key || "Unknown");
+        safeItems.forEach((row) => {
+          const raw =
+            row?.service_type ??
+            row?.serviceType ??
+            row?.session_data?.service_type ??
+            row?.session_data?.serviceType ??
+            null;
+          const label = String(raw && String(raw).trim() ? raw : 'Unknown');
+          // If a specific service_type filter is selected, only count matching ones
+          if (selectedServiceType && label !== selectedServiceType) return;
           counts.set(label, (counts.get(label) || 0) + 1);
         });
 
-        const data = Array.from(counts.entries())
+        const shaped = Array.from(counts.entries())
           .map(([k, v]) => ({ label: k, value: v }))
           .sort((a, b) => b.value - a.value);
 
-        setFeaturesData(data);
+        setFeaturesData(shaped);
       } catch (e) {
         if (aborted) return;
         setFeaturesError(e);
@@ -389,7 +417,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, []);
+  }, [featuresFilters?.tenant_id, featuresFilters?.organization_id, featuresFilters?.service_type]);
 
   // Reusable controls renderers (per-chart)
   const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {
@@ -706,6 +734,54 @@ export default function Overview() {
         <Card
           title="Overall Features"
           subtitle="Counts by feature type (service_type) from session activity"
+          actions={
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              {/* Tenant selector (reads from local storage upon init) */}
+              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <span>Tenant</span>
+                <input
+                  type="text"
+                  placeholder="tenant id"
+                  value={featuresFilters.tenant_id || ""}
+                  onChange={(e) =>
+                    setFeaturesFilters((f) => ({ ...f, tenant_id: e.target.value || undefined }))
+                  }
+                  style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #E5E7EB" }}
+                  aria-label="Tenant id for features chart"
+                />
+              </label>
+
+              {/* service_type filter text input (simple includes match server-side via ?q) */}
+              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <span>Feature type</span>
+                <input
+                  type="text"
+                  placeholder="service_type (e.g., chat, summarize)"
+                  value={featuresFilters.service_type}
+                  onChange={(e) =>
+                    setFeaturesFilters((f) => ({ ...f, service_type: e.target.value }))
+                  }
+                  style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #E5E7EB", minWidth: 220 }}
+                  aria-label="Service type filter"
+                />
+              </label>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setFeaturesFilters({
+                    tenant_id: localStorage.getItem('organization_id') || undefined,
+                    service_type: '',
+                  })
+                }
+                className="btn btn-ghost"
+                style={{ marginLeft: 8 }}
+                aria-label="Clear feature filters"
+              >
+                Clear
+              </button>
+            </div>
+          }
         >
           {featuresLoading && <LoadingState message="Loading features…" height={220} />}
           {featuresError && <ErrorState message={featuresError?.message || "Failed to load features."} />}
