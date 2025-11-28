@@ -9,7 +9,7 @@ Quick start (development)
 - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
 - cp .env.example .env    # then edit as needed
 - npm ci                  # or: npm install
-- npm run dev             # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server). Uses NODE_OPTIONS=--max-old-space-size=640 by default.
+- npm run dev             # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server). Uses NODE_OPTIONS=--max-old-space-size=1024 by default.
 - npm run dev:watch       # same as dev, but with nodemon hot reload for local changes (memory limit applied)
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state
@@ -109,3 +109,15 @@ Troubleshooting
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
 - Mongo not connected:
   - /api/health will reflect db: disconnected; verify MONGODB_URI and MONGODB_DB in .env.
+
+Production build and CI
+- This backend does not build a frontend bundle. The `npm run build` script is a lightweight noop for CI consistency and runs with:
+  - CI=true to reduce side effects and parallelism
+  - NODE_OPTIONS=--max-old-space-size=1024 to cap memory
+  - npm_config_jobs=1 to reduce peak memory during any internal parallel tasks
+- Postinstall runs a safe Browserslist DB update with cache disabled; failures are ignored (|| true) to avoid breaking installs in constrained environments.
+- If the environment is very constrained, you may reduce memory further by setting NODE_OPTIONS=--max-old-space-size=768 before running commands.
+
+Avoid React tooling in backend
+- Do not invoke React/Vite/Webpack tasks from this backend container. Frontend assets are built in the frontend container.
+- If a mono-repo tool attempts to run browserslist/webpack tasks from this directory, ensure the runner is scoped to the frontend folder only.
