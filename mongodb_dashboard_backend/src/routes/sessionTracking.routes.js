@@ -167,6 +167,7 @@
 // module.exports = router;
 
 const express = require('express');
+const mongoose = require('mongoose');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
@@ -176,8 +177,20 @@ const { isValidISODate, parseISODateSafe } = require('../utils/date');
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
 
+// Lightweight per-route logger for diagnostics (not global)
+function logRoute(evt, meta = {}) {
+  try {
+    if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+      // eslint-disable-next-line no-console
+      console.log(`[session-tracking][${evt}]`, JSON.stringify(meta));
+    }
+  } catch {}
+}
+
 /**
- * Early bypass detector for GET /api/session-tracking
+ * PUBLIC_INTERFACE
+ * sessionsEarlyBypassDetector
+ * Detect T0000 super-admin all-tenant bypass via headers/query/auth for GET /
  */
 function sessionsEarlyBypassDetector(req, res, next) {
   if (req.method !== 'GET' || req.path !== '/') return next();
@@ -214,7 +227,8 @@ function sessionsEarlyBypassDetector(req, res, next) {
 }
 
 /**
- * Diagnostic headers middleware
+ * PUBLIC_INTERFACE
+ * Diagnostic headers (applied-tenant) for visibility
  */
 router.use((req, res, next) => {
   try {
@@ -224,31 +238,57 @@ router.use((req, res, next) => {
     } else if (req.tenantId) {
       const t = String(req.tenantId);
       res.set('X-Applied-Tenant', t);
-      res.set('X-Applied-Filter', JSON.stringify({
-        $or: [
-          { tenant_id: t },
-          { organization_id: t },
-          { organizationId: t },
-        ]
-      }));
+      res.set(
+        'X-Applied-Filter',
+        JSON.stringify({
+          $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }],
+        })
+      );
     }
   } catch {}
-
   next();
 });
 
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/session-tracking
+ * Query params:
+ * - tenant_id (or organization_id header/query): required unless bypass applies
+ * - limit/page/pageSize: pagination; limit capped to 1000
+ * - sort: e.g. -session_start (default)
+ * - from/to or start/end: ISO date strings (optional); if provided, filter by session_start in range
+ * - q: text search across selected fields
+ *
+ * Behaviors:
+ * - 503 when Mongo not connected (avoids buffering timeouts)
+ * - Projection to reduce payload and index-friendly match (tenant + session_start range if provided)
+ * - Safe sort/limit
+ * - Structured JSON errors with codes
+ * - Lightweight logging on this route only
+ */
 router.get(
   '/',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
+    const reqMeta = {
+      ip: req.ip,
+      path: req.originalUrl,
+      query: { ...req.query, filter: undefined },
+      method: req.method,
+    };
+    logRoute('request', reqMeta);
 
-    // Ensure DB is connected; avoid buffering timeouts
-    const ready = require('mongoose').connection.readyState;
+    // DB readiness
+    const ready = mongoose.connection.readyState;
     if (ready !== 1) {
-      res.set('X-DB-ReadyState', String(ready));
-      return res.status(503).json({ success: false, message: 'Database not connected' });
+      try { res.set('X-DB-ReadyState', String(ready)); } catch {}
+      logRoute('db_not_ready', { ready });
+      return res
+        .status(503)
+        .json({ success: false, code: 'DB_NOT_READY', message: 'Database not connected' });
     }
 
+    // Bypass and tenant resolution
     const bypass = !!(
       req.tenantScopeDisabled ||
       req.allTenants ||
@@ -265,27 +305,37 @@ router.get(
       null;
 
     if (!bypass && !enforcedTenant) {
+      logRoute('missing_tenant', {});
       return res.status(400).json({
         success: false,
-        message: 'tenant_id is required. Provide ?tenant_id=...'
+        code: 'MISSING_TENANT',
+        message: 'tenant_id is required. Provide ?tenant_id=... or header x-organization-id/x-tenant-id',
       });
     }
 
-    try { res.set('X-Sessions-Bypass', String(bypass)); } catch {}
-    const appliedTenant = bypass ? 'all-tenants' : enforcedTenant;
-    try { res.set('X-Applied-Tenant', String(appliedTenant)); } catch {}
+    try {
+      res.set('X-Sessions-Bypass', String(bypass));
+      res.set('X-Applied-Tenant', String(bypass ? 'all-tenants' : enforcedTenant || 'n/a'));
+    } catch {}
 
+    // Parse query params
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
-
-    // Cap non-explicit listing to a safe max to avoid heavy queries
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
-    const sort = req.query.sort || '-session_start';
-    const cappedLimit = explicit ? limit : Math.min(limit, 200);
 
+    // Limit safety max=1000
+    const MAX_LIMIT = 1000;
+    let effectiveLimit = limit;
+    if (!Number.isFinite(effectiveLimit) || effectiveLimit <= 0) effectiveLimit = 50;
+    effectiveLimit = Math.min(effectiveLimit, MAX_LIMIT);
+
+    // Sort default
+    let sort = req.query.sort || '-session_start';
+    if (typeof sort !== 'string' || !sort.trim()) sort = '-session_start';
+
+    // Text search
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let qFilter = {};
-
     if (q) {
       const regex = new RegExp(q, 'i');
       qFilter = {
@@ -307,11 +357,35 @@ router.get(
       };
     }
 
-    if (typeof req.query.filter !== 'undefined') {
-      try { res.set('X-Filter-Ignored', 'true'); } catch {}
+    // Optional date filters: support start/end and from/to
+    let start = undefined;
+    let end = undefined;
+    const now = new Date();
+    const DEFAULT_WINDOW_DAYS = 30;
+
+    const startRaw = req.query.start || req.query.from;
+    const endRaw = req.query.end || req.query.to;
+
+    if (startRaw && isValidISODate(startRaw)) start = parseISODateSafe(startRaw);
+    if (endRaw && isValidISODate(endRaw)) {
+      end = parseISODateSafe(endRaw);
+      // inclusive end-of-day
+      try { end.setUTCHours(23, 59, 59, 999); } catch {}
     }
 
-    const enforcedScope = (!bypass && enforcedTenant)
+    if (!start && !end) {
+      end = now;
+      start = new Date(now.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    } else if (start && !end) {
+      end = now;
+    } else if (!start && end) {
+      start = new Date(end.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    }
+
+    const timeFilter = { session_start: { $gte: start, $lte: end } };
+
+    // Enforced scope (index-friendly)
+    const enforcedScope = !bypass && enforcedTenant
       ? {
           $or: [
             { tenant_id: enforcedTenant },
@@ -323,40 +397,55 @@ router.get(
 
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
-
     if (!isEmpty(qFilter)) parts.push(qFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
+    if (!isEmpty(timeFilter)) parts.push(timeFilter);
 
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
+
+    // Projection to reduce payload
+    const projection = {
+      tenant_id: 1,
+      organization_id: 1,
+      organization_name: 1,
+      user_id: 1,
+      user_name: 1,
+      project_id: 1,
+      container_id: 1,
+      service_type: 1,
+      status: 1,
+      session_start: 1,
+      last_updated: 1,
+      'session_data.session_name': 1,
+      'session_data.llm_model': 1,
+    };
 
     try {
       if (explicit) {
         const [docs, total] = await Promise.all([
-          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(cappedLimit),
+          SessionTracking.find(finalFilter, projection).sort(sort).skip(skip).limit(effectiveLimit).lean(),
           SessionTracking.countDocuments(finalFilter),
         ]);
 
-        return res.json({
-          success: true,
-          data: docs,
-          meta: { page, limit: cappedLimit, total }
-        });
+        const payload = { success: true, data: docs, meta: { page, limit: effectiveLimit, total } };
+        logRoute('response_ok_enveloped', { count: docs.length, total });
+        return res.json(payload);
       }
 
-      // Non-explicit: return capped limited list for safety
-      const docs = await SessionTracking.find(finalFilter).sort(sort).limit(cappedLimit);
+      const docs = await SessionTracking.find(finalFilter, projection).sort(sort).limit(effectiveLimit).lean();
+      logRoute('response_ok_array', { count: docs.length });
       return res.json(docs);
-
     } catch (err) {
-      return res.status(400).json({
-        success: false,
-        message: 'Request failed',
-        details: err?.message || ''
-      });
+      const message = err?.message || 'Query failed';
+      const code = /Cast/i.test(message) ? 'INVALID_VALUE' : 'QUERY_FAILED';
+      logRoute('error', { code, message });
+      const status = code === 'INVALID_VALUE' ? 400 : 500;
+      return res.status(status).json({ success: false, code, message });
     }
   })
 );
 
+// Pass-through CRUD (kept as-is)
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));
 router.put('/:id', asyncHandler(controller.update));
