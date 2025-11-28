@@ -20,7 +20,8 @@
     "lint": "eslint . || true",
     "lint:fix": "eslint . --fix || true",
     "postinstall": "cross-env BROWSERSLIST_DISABLE_CACHE=1 echo 'Backend: skipping browserslist update; keeping lightweight postinstall' && npx --yes update-browserslist-db@latest --no-funding --no-update-notifier || true",
-    "gen:openapi": "node generate_openapi.js"
+    "gen:openapi": "node generate_openapi.js",
+    "explain:dev": "node -e \"console.log('Backend dev starts Express via node src/server.js. No CRA/react-scripts here.')\""
   },
   "dependencies": {
     "cors": "2.8.5",
