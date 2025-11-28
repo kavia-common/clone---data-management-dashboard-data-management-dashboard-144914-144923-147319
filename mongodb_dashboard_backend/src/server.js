@@ -1,3 +1,5 @@
+'use strict';
+
 /* Ensure environment variables from .env are loaded even if the process
  * is started without "-r dotenv/config" (e.g., by external orchestrators).
  * This guarantees preview/CI can boot without special node flags.
@@ -7,9 +9,15 @@ try { require('dotenv').config(); } catch {}
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
-const app = require('./app');
 const mongoose = require('mongoose');
 
+// Import app, server, and timeout configurator from app.js
+// app: express instance
+// server: http.Server created in app.js with default timeouts applied
+// configureServerTimeouts: PUBLIC_INTERFACE to reconfigure timeouts if needed
+const { app, server, configureServerTimeouts } = require('./app');
+
+// Resolve host/port
 const PORT = Number(process.env.PORT || process.env.REACT_APP_PORT) || 3001;
 // Always bind 0.0.0.0 to avoid EADDRNOTAVAIL in container/preview envs when frontend proxy targets localhost
 const HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';
@@ -21,7 +29,7 @@ function logListening(host, port) {
   console.log(`Listening on http://${host}:${port}`);
 }
 
-// PID file path per requirement (shown in logs): .tmp/server.3001.pid
+// PID file path per requirement: .tmp/server.<port>.pid
 const PID_FILE = path.join(process.cwd(), '.tmp', `server.${PORT}.pid`);
 
 // Ensure .tmp exists for pid management
@@ -99,43 +107,48 @@ function removePidFile() {
 ensurePidFileGuard();
 
 function startServerStrict() {
-  const server = app
-    .listen(PORT, HOST, () => {
-      try {
-        const dbName =
-          mongoose?.connection?.db?.databaseName ||
-          process.env.MONGODB_DB ||
-          '(not connected)';
-        // eslint-disable-next-line no-console
-        console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
-        logListening(HOST, PORT);
-        // concise pointers
-        console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
-        // Single unambiguous readiness marker required by orchestrator:
-        // EXACT STRING: READY: http://HOST:PORT
-        console.log(`READY: http://${HOST}:${PORT}`);
-        // Additional compatibility markers for various preview systems
-        console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
-        console.log(`Listening on http://${HOST}:${PORT}`);
-      } catch {}
-      writePidFile();
-    })
-    .on('error', (err) => {
-      if (err && err.code === 'EADDRINUSE') {
-        // eslint-disable-next-line no-console
-        console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
-      } else {
-        // eslint-disable-next-line no-console
-        console.error('[startup] Server failed to start:', err?.message || err);
-      }
-      process.exit(1);
-    });
+  // Ensure timeouts configured from env before listen (idempotent)
+  try { configureServerTimeouts(server); } catch {}
+
+  const srv = (server && typeof server.listen === 'function')
+    ? server
+    : app; // fallback to app.listen if server is not available (backward compatibility)
+
+  const listener = srv.listen(PORT, HOST, () => {
+    try {
+      const dbName =
+        mongoose?.connection?.db?.databaseName ||
+        process.env.MONGODB_DB ||
+        '(not connected)';
+      // eslint-disable-next-line no-console
+      console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
+      logListening(HOST, PORT);
+      // concise pointers
+      console.log('[startup] /health | /ready | /api/health | /api/docs | /api-docs');
+      // Single unambiguous readiness marker required by orchestrator:
+      // EXACT STRING: READY: http://HOST:PORT
+      console.log(`READY: http://${HOST}:${PORT}`);
+      // Additional compatibility markers for various preview systems
+      console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
+      console.log(`Listening on http://${HOST}:${PORT}`);
+    } catch {}
+    writePidFile();
+  }).on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      // eslint-disable-next-line no-console
+      console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
+    } else {
+      // eslint-disable-next-line no-console
+      console.error('[startup] Server failed to start:', err?.message || err);
+    }
+    process.exit(1);
+  });
 
   const shutdown = (signal) => {
     try {
       // eslint-disable-next-line no-console
       console.log(`${signal} received; shutting down`);
-      server.close(async () => {
+      listener.close(async () => {
         try {
           await mongoose.connection.close();
         } catch (e) {
@@ -165,7 +178,7 @@ function startServerStrict() {
     console.error('[uncaughtException]', err);
   });
 
-  return server;
+  return listener;
 }
 
 // Export started server

@@ -8,6 +8,25 @@
 const { getDb } = require('../config/db');
 const { usdToCredits } = require('../utils/credits');
 
+// Simple in-memory cache for common hierarchy queries
+const HIERARCHY_CACHE_TTL_MS = parseInt(process.env.LLMCOSTS_HIERARCHY_CACHE_TTL_MS || '300000', 10); // 5 minutes
+const hierarchyCache = new Map(); // key -> { expiresAt, value }
+function hKey(tenantId, filter) {
+  return JSON.stringify({ tenantId: tenantId || null, filter: filter || {} });
+}
+function hGet(key) {
+  const hit = hierarchyCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    hierarchyCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+function hSet(key, value) {
+  hierarchyCache.set(key, { value, expiresAt: Date.now() + HIERARCHY_CACHE_TTL_MS });
+}
+
 /**
  * Normalize potential field variants present in llm_costs collection.
  * We derive:
@@ -320,6 +339,14 @@ async function aggregateHierarchy({ filter = {}, tenantId } = {}) {
   const db = await getDb();
   const col = db.collection('llm-costs');
 
+  const cacheKey = hKey(tenantId || null, filter || {});
+  const cached = hGet(cacheKey);
+  if (cached) {
+    // Lightweight log for verification
+    try { console.log('[llmCostsHierarchy.service] cache hit'); } catch (_) {}
+    return cached;
+  }
+
   // Build enforced filter with tenant
   const enforcedFilter = (() => {
     const f = filter && typeof filter === 'object' ? { ...filter } : {};
@@ -404,6 +431,9 @@ async function aggregateHierarchy({ filter = {}, tenantId } = {}) {
     });
   });
 
+  try {
+    hSet(cacheKey, formatted);
+  } catch (_) {}
   return formatted;
 }
 
