@@ -88,7 +88,7 @@ function corsMiddleware() {
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
 
    
-  console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
+  try { console.debug('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials); } catch {}
 
   const corsInstance = cors({
     origin: (origin, callback) => {
