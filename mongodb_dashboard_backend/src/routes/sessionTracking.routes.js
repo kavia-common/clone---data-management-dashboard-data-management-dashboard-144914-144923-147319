@@ -315,31 +315,17 @@ router.get(
     }
 
     // --------------------------------------------------
-    // Filtering per requirement:
-    // - Accept service_type as explicit filter
-    // - Ignore/remove any generic 'filter' query parameter entirely
-    // - Retain tenant/organization scoping and optional text search (q)
+    // Filtering changes per requirement:
+    // - Ignore/remove any 'filter' query parameter entirely.
+    // - Do not construct or apply compound date filters from start/end.
+    // - Retain tenant/organization scoping and optional text search (q).
     // --------------------------------------------------
 
     // Explicitly ignore 'filter' param if present
     if (typeof req.query.filter !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch {}
     }
-
-    // Service type allowlist filter
-    const allowedServiceTypes = ['chat', 'agent', 'etl', 'analytics', 'pipeline'];
-    const serviceTypeRaw = typeof req.query.service_type === 'string' ? req.query.service_type.trim() : '';
-    let serviceTypeFilter = {};
-    if (serviceTypeRaw) {
-      // If value is not in allowlist, still allow but sanitize to string regex match
-      if (allowedServiceTypes.includes(serviceTypeRaw)) {
-        serviceTypeFilter = { service_type: serviceTypeRaw };
-      } else {
-        // Use case-insensitive regex for unknown value (safe field only)
-        serviceTypeFilter = { service_type: new RegExp(`^${serviceTypeRaw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') };
-      }
-      try { res.set('X-Service-Type', serviceTypeRaw); } catch {}
-    }
+    const filter = {}; // no additional filter from client
 
     // Tenant enforced scope (unchanged)
     const enforcedScope = (!bypass && enforcedTenant)
@@ -352,12 +338,14 @@ router.get(
         }
       : {};
 
-    // Combine qFilter + service_type + enforcedScope only
+    // Do not apply server-side date filters for this listing endpoint now
+    const timeFilter = {};
+
+    // Combine qFilter and enforcedScope only
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
 
     if (!isEmpty(qFilter)) parts.push(qFilter);
-    if (!isEmpty(serviceTypeFilter)) parts.push(serviceTypeFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
 
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
