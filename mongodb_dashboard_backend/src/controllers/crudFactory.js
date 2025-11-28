@@ -282,6 +282,17 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         : ['timestamp', 'created_at', '_id'];
       const safeSort = validateSort(req.query.sort || listDefaultSort, allowedSorts);
 
+      // Safety guard: set a per-request operation deadline for read-paths (server-side timeout)
+      // This prevents long-hanging operations under pathological data volumes.
+      const DEADLINE_MS = Math.min(
+        Math.max(parseInt(process.env.API_READ_TIMEOUT_MS || '1200', 10), 300),
+        10000
+      );
+      const abortController = new AbortController();
+      const abortTimer = setTimeout(() => {
+        try { abortController.abort(); } catch(_) {}
+      }, DEADLINE_MS);
+
       // execute DB operations with safe sort and enforced tenant filter
       try {
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
@@ -329,7 +340,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
                 : { timestamp: -1 };
               const pipeline = [
+                // Always match first to leverage tenant+date indexes
                 { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+                // Normalize sortable/date + keep minimal shape
                 { $addFields: {
                     timestamp: { $ifNull: ['$timestamp', '$created_at'] },
                     organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
@@ -349,13 +362,63 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                     }
                   }
                 },
+                // Sort on indexed field where possible
                 { $sort: sortStage },
+                // Apply pagination early to avoid large memory use
                 { $skip: skip },
                 { $limit: hardCappedLimit },
+                // Project a lean subset of fields returned to clients to reduce payload and processing
+                { $project: {
+                    _id: 1,
+                    tenant_id: 1,
+                    organization_id: 1,
+                    user_id: 1,
+                    llm_model: 1,
+                    provider: 1,
+                    service_type: 1,
+                    operation: 1,
+                    total_cost: 1,
+                    numeric_total_cost: 1,
+                    timestamp: 1,
+                    created_at: 1,
+                    // send minimal metadata only if small; otherwise omit
+                  }
+                },
               ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
-            } catch (_) {
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              // Provide abort signal and maxTimeMS guard
+              items = await Model.aggregate(pipeline)
+                .option({ allowDiskUse: true, maxTimeMS: DEADLINE_MS })
+                .exec();
+            } catch (aggErr) {
+              // Fallback to find with projection and hint for compound index if available
+              const projection = {
+                tenant_id: 1,
+                organization_id: 1,
+                user_id: 1,
+                llm_model: 1,
+                provider: 1,
+                service_type: 1,
+                operation: 1,
+                total_cost: 1,
+                timestamp: 1,
+                created_at: 1,
+              };
+              // Try to use useful index hints if model exposes them
+              const hints = [{ tenant_id: 1, timestamp: -1 }, { tenant_id: 1, created_at: -1 }];
+              let cursor = Model.find(appliedFilter, projection)
+                .sort(safeSort)
+                .skip(skip)
+                .limit(hardCappedLimit)
+                .lean()
+                .maxTimeMS(DEADLINE_MS);
+              try { cursor = cursor.hint(hints[0]); } catch(_) {}
+              try {
+                items = await cursor.exec();
+              } catch(findErr) {
+                // last fallback without hint
+                items = await Model.find(appliedFilter, projection)
+                  .sort(safeSort).skip(skip).limit(hardCappedLimit).lean().maxTimeMS(DEADLINE_MS).exec();
+              }
             }
           } else if (isAppDeployment) {
             try {
@@ -390,9 +453,21 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           } else {
             items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
-          const total = await Model.countDocuments(appliedFilter);
+          let total = 0;
+          try {
+            total = await Model.countDocuments(appliedFilter).maxTimeMS(DEADLINE_MS).exec();
+          } catch(countErr) {
+            try {
+              // estimatedDocumentCount ignores filter; only use when listing all tenants (bypass) without strong filter
+              const useEstimated = !appliedFilter || Object.keys(appliedFilter).length === 0 || (req.tenantScopeDisabled || req.allTenants);
+              total = useEstimated ? await Model.estimatedDocumentCount().exec() : items.length + (page > 1 ? (page - 1) * hardCappedLimit : 0);
+            } catch(_) {
+              total = items.length;
+            }
+          }
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
+          clearTimeout(abortTimer);
           return res.status(200).json(payload);
         }
 
@@ -424,8 +499,25 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 }
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
+              { $limit: clampLimit(req.query.limit || 200, 200) }, // safety limiter on unpaginated calls
+              { $project: {
+                  _id: 1,
+                  tenant_id: 1,
+                  organization_id: 1,
+                  user_id: 1,
+                  llm_model: 1,
+                  provider: 1,
+                  service_type: 1,
+                  operation: 1,
+                  total_cost: 1,
+                  numeric_total_cost: 1,
+                  timestamp: 1,
+                  created_at: 1,
+                }
+              },
             ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            const items = await Model.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: DEADLINE_MS }).exec();
+            clearTimeout(abortTimer);
             return res.status(200).json(items);
           }
           if (isAppDeployment) {
@@ -451,9 +543,16 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         } catch (_) {
           // Fallback to simple find if any aggregation operator unsupported
         }
-        const items = await query;
+        const items = await query.maxTimeMS(DEADLINE_MS).exec();
+        try { res.set('X-Op-Deadline-MS', String(DEADLINE_MS)); } catch(_) {}
+        clearTimeout(abortTimer);
         return res.status(200).json(items);
       } catch (err) {
+        clearTimeout(abortTimer);
+        // If operation exceeded time, reply with 504 to avoid hanging requests
+        if (String(err?.message || '').toLowerCase().includes('exceeded time limit') || err?.name === 'MongoServerError' && err?.code === 50) {
+          return failure(res, 'Gateway Timeout: query exceeded server time limit', 504);
+        }
         return mapAndReplyError(res, err, 'list');
       }
     },

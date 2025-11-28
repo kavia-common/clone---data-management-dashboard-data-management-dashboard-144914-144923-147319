@@ -14,6 +14,17 @@ const CostBreakdownSchema = new mongoose.Schema(
 
 const LLMCostsSchema = new mongoose.Schema(
   {
+    /**
+     * PUBLIC_INTERFACE
+     * Note on indexes and query performance:
+     * The /api/llm-costs list endpoint filters by tenant/organization and sorts by timestamp/created_at.
+     * To prevent full collection scans and in-memory sorts on large datasets, we define compound indexes:
+     *  - { tenant_id: 1, timestamp: -1 }
+     *  - { tenant_id: 1, created_at: -1 }
+     *  - { organization_id: 1, timestamp: -1 }
+     *  - { organization_id: 1, created_at: -1 }
+     * Consumers should prefer sorting on these fields and always supply tenant scope.
+     */
     task_id: { type: String, index: true },
     session_id: { type: String, index: true }, // if linked with session_tracking
     tenant_id: { type: String, index: true },
@@ -44,6 +55,8 @@ const LLMCostsSchema = new mongoose.Schema(
 // Useful indexes for common filter/sort combos
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
+LLMCostsSchema.index({ organization_id: 1, timestamp: -1 }); // alias index when data uses organization_id
+LLMCostsSchema.index({ organization_id: 1, created_at: -1 }); // alias index when sorting on created_at
 LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ session_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ llm_model: 1, timestamp: -1 });
