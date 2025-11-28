@@ -8,8 +8,7 @@ WORKDIR /usr/src/app
 COPY mongodb_dashboard_backend/package*.json ./
 
 # Install dependencies
-# Keep node memory constrained to avoid OOM during npm lifecycle.
-ENV NODE_OPTIONS="--max_old_space_size=1536"
+ENV NODE_OPTIONS="--max_old_space_size=512"
 # Avoid browserslist update prompts/noise in backend container
 ENV BROWSERSLIST_DISABLE_CACHE=1
 RUN npm install --production --no-audit --no-fund
