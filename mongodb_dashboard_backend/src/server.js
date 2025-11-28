@@ -201,6 +201,20 @@ function startServerStrict() {
       process.exit(1);
     });
 
+  // In dev/preview environments, ignore a single transient SIGTERM sent by orchestrators to prevent early exit.
+  let transientTermHandled = false;
+  if ((process.env.NODE_ENV || 'development') !== 'production') {
+    process.on('SIGTERM', () => {
+      if (!transientTermHandled) {
+        transientTermHandled = true;
+        try { console.log('[signal] Ignoring first SIGTERM (dev) to prevent early exit'); } catch {}
+        return;
+      }
+      // second SIGTERM proceeds to shutdown
+      shutdown('SIGTERM');
+    });
+  }
+
   const shutdown = (signal) => {
     try {
       // eslint-disable-next-line no-console
@@ -222,7 +236,10 @@ function startServerStrict() {
     }
   };
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  // SIGTERM handler is conditionally attached above in dev; always attach SIGINT
+  if ((process.env.NODE_ENV || 'development') === 'production') {
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+  }
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('exit', removePidFile);
 

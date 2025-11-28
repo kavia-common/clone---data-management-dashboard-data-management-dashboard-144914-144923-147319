@@ -215,6 +215,8 @@ function sessionsEarlyBypassDetector(req, res, next) {
 
 /**
  * Diagnostic headers middleware
+ * Note: This route is lightweight and supports single-request access patterns for charts.
+ * Ensure frontend invokes this endpoint once per refresh and caches responses client-side.
  */
 router.use((req, res, next) => {
   try {
