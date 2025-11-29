@@ -62,12 +62,11 @@ router.use((req, res, next) => {
 /**
  * GET /api/llm-costs
  * PUBLIC_INTERFACE
- * Returns a paginated list of full documents augmented with:
- *  - id: MongoDB _id
- *  - user_cost: first non-null users[].user_cost or 0
- *  - project_count: size of project array
- * Supports ?organization_id filter, ?page, ?limit, and ?sort (defaults to createdAt/timestamp/_id desc).
- * Response shape: { items: [...], total, page, limit }.
+ * Optimized listing returning one row per user with only required fields:
+ *  - id (document _id), organization_cost, total_users_with_projects,
+ *  - type, user_id, user_cost, project_count
+ * Supports ?organization_id filter, ?page, ?limit, and ?sort (defaults to createdAt/_id desc).
+ * Response shape: { items: [{ id, organization_cost, total_users_with_projects, type, user_id, user_cost, project_count }], total, page, limit }.
  */
 router.get('/', asyncHandler(controller.listLLMCosts));
 

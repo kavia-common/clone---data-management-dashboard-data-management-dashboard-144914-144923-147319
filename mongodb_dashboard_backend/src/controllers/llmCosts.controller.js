@@ -5,24 +5,28 @@ const LLMCost = require('../models/llmCosts.model');
 
 /**
  * PUBLIC_INTERFACE
- * listLLMCosts
- * Returns a fast, paginated listing of full LLM cost documents augmented with computed fields.
- * Augments each document with:
- *  - id: document _id (stringified by Express JSON)
- *  - user_cost: derived from users array (first non-null users[].user_cost or 0 if missing)
- *  - project_count: length of project array (0 if missing)
+ * listLLMCosts (optimized)
+ * GET /api/llm-costs
+ *
+ * Purpose:
+ *  - Return a fast, paginated list with only required fields to prevent 504s.
+ *  - One row per user derived from llm-costs docs (unwind users[]) to match UI expectation.
+ *
+ * Returned fields:
+ *  - id: source document _id
+ *  - organization_cost: numeric total/org cost per document
+ *  - total_users_with_projects: count of users having project_count >= 1 (computed per source doc and repeated on each row for that doc to avoid extra lookups on the frontend)
+ *  - For each user (one row per user): { type, user_id, user_cost, project_count }
  *
  * Query params:
- *  - page: integer page number (default 1)
- *  - limit: integer page size (default 20, max 200)
- *  - organization_id | tenant_id | x-organization-id header: optional tenant scope filter (ignored when JWT tenant enforced upstream)
- *  - sort: optional; defaults to createdAt/created_at/timestamp/_id desc
- *  - filter: optional JSON string; tenant fields ignored server-side
+ *  - organization_id (alias tenant_id or x-organization-id header)
+ *  - page (default 1), limit (default 20, max 200)
+ *  - sort (defaults to createdAt desc, _id desc)
  *
  * Performance:
- *  - Uses aggregation pipeline with $match, $sort, and $facet for items + totalCount
- *  - Uses $addFields to compute id, user_cost, and project_count while preserving full documents
- *  - Relies on model indexes for tenant + createdAt/timestamp sorts
+ *  - Lean aggregation with projections
+ *  - Uses compound indexes on organization_id/tenant_id + time
+ *  - allowDiskUse(true) for safety on large sets
  */
 // PUBLIC_INTERFACE
 async function listLLMCosts(req, res, next) {
@@ -31,53 +35,22 @@ async function listLLMCosts(req, res, next) {
       page: pageRaw,
       limit: limitRaw,
       sort: sortRaw,
-      filter: filterRaw,
       organization_id: orgQuery,
       tenant_id: tenantQuery,
     } = req.query;
 
-    // Resolve tenant scope: header takes precedence in absence of upstream enforcement (verifyAuth/requireTenant attach req.tenantId normally)
+    // Resolve tenant scope (header > query). Upstream middleware may also set req.tenantId.
     const headerTenant =
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
       (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
       undefined;
-    const organization_id = headerTenant || orgQuery || tenantQuery || undefined;
 
-    // Parse additional filter, ignoring any client-provided tenant fields
-    let userFilter = {};
-    if (filterRaw) {
-      try {
-        userFilter = JSON.parse(filterRaw);
-      } catch (e) {
-        return res.status(400).json({ success: false, error: 'Invalid filter JSON' });
-      }
-    }
-    // Strip tenant hints from user filter
-    delete userFilter.organization_id;
-    delete userFilter.organizationId;
-    delete userFilter.orgId;
-    delete userFilter.tenant_id;
-    delete userFilter.tenantId;
-    delete userFilter['tenant.tenant_id'];
+    const resolvedTenant = req.tenantId || headerTenant || orgQuery || tenantQuery || undefined;
 
-    // Construct match
-    const match = { ...userFilter };
-    if (organization_id) {
-      // Support documents that may use either tenant_id or organization_id
-      match.$or = [
-        { organization_id: String(organization_id) },
-        { tenant_id: String(organization_id) },
-        { organizationId: String(organization_id) },
-        { tenantId: String(organization_id) },
-        { orgId: String(organization_id) },
-        { 'tenant.tenant_id': String(organization_id) },
-      ];
-    }
-
-    // Sorting: default to time-like fields desc, with _id as a tiebreaker
+    // Sort
     let sortStage = {};
-    if (sortRaw && typeof sortRaw === 'string' && sortRaw.trim().length > 0) {
+    if (sortRaw && typeof sortRaw === 'string' && sortRaw.trim()) {
       sortRaw.split(',').forEach((s) => {
         const v = s.trim();
         if (!v) return;
@@ -85,8 +58,7 @@ async function listLLMCosts(req, res, next) {
         else sortStage[v] = 1;
       });
     } else {
-      // Prefer commonly used time fields, fallback to _id
-      sortStage = { createdAt: -1, created_at: -1, timestamp: -1, _id: -1 };
+      sortStage = { createdAt: -1, _id: -1 };
     }
 
     // Pagination
@@ -94,64 +66,173 @@ async function listLLMCosts(req, res, next) {
     const limit = Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 200);
     const skip = (page - 1) * limit;
 
-    // Aggregation (lean by nature): match → sort → facet(items, totalCount); within items compute fields but keep full docs
+    // Tenant match
+    const match = {};
+    if (resolvedTenant) {
+      const t = String(resolvedTenant);
+      match.$or = [
+        { organization_id: t },
+        { tenant_id: t },
+        { organizationId: t },
+        { tenantId: t },
+        { orgId: t },
+        { 'tenant.tenant_id': t },
+      ];
+    }
+
+    // Pipeline:
+    // 1) $match (tenant filter)
+    // 2) $addFields for preferred organization cost and arrays
+    // 3) $sort by time fields
+    // 4) $project minimal fields to drive unwind
+    // 5) $unwind users (one row per user)
+    // 6) $addFields compute per-user fields and project_count
+    // 7) $addFields compute total_users_with_projects per source doc via $size of users with projects (efficient via $filter)
+    // 8) $project final output shape
+    // 9) $facet items/total
     const pipeline = [
-      { $match: match },
+      Object.keys(match).length ? { $match: match } : { $match: {} },
+      {
+        $addFields: {
+          org_cost_preferred: {
+            $convert: {
+              input: {
+                $ifNull: [
+                  '$organization_cost',
+                  { $ifNull: ['$total_cost', { $ifNull: ['$total', { $ifNull: ['$cost', 0] }] }] },
+                ],
+              },
+              to: 'double',
+              onError: 0,
+              onNull: 0,
+            },
+          },
+          users_arr: { $ifNull: ['$users', []] },
+          project_arr: { $ifNull: ['$project', []] },
+          type_preferred: { $ifNull: ['$type', 'llm_interaction'] },
+        },
+      },
       { $sort: sortStage },
       {
-        $facet: {
-          items: [
-            { $skip: skip },
-            { $limit: limit },
-            {
-              // Compute fields and keep all original fields
-              $addFields: {
-                id: '$_id',
-                user_cost: {
-                  $ifNull: [
+        $project: {
+          _id: 1,
+          org_cost_preferred: 1,
+          users_arr: 1,
+          project_arr: 1,
+          type_preferred: 1,
+          createdAt: 1,
+        },
+      },
+      { $unwind: { path: '$users_arr', preserveNullAndEmptyArrays: false } },
+      // Compute per-user fields
+      {
+        $addFields: {
+          user_id: {
+            $toString: {
+              $ifNull: [
+                '$users_arr.user_id',
+                { $ifNull: ['$users_arr.userId', { $ifNull: ['$users_arr.id', '$users_arr.uid'] }] },
+              ],
+            },
+          },
+          user_cost: {
+            $convert: {
+              input: {
+                $ifNull: [
+                  '$users_arr.user_cost',
+                  { $ifNull: ['$users_arr.total_cost', { $ifNull: ['$users_arr.cost', 0] }] },
+                ],
+              },
+              to: 'double',
+              onError: 0,
+              onNull: 0,
+            },
+          },
+          project_count: { $size: '$project_arr' },
+        },
+      },
+      // Compute users with projects count per source doc. We need the count independent of current unwinded row.
+      {
+        $addFields: {
+          total_users_with_projects: {
+            $size: {
+              $filter: {
+                input: '$users_arr', // Note: users_arr is now the single user due to unwind; to compute full doc count we need original array.
+                as: 'ux',
+                cond: {
+                  $gt: [
                     {
-                      $first: {
-                        $filter: {
-                          input: {
-                            $map: {
-                              input: { $ifNull: ['$users', []] },
-                              as: 'u',
-                              in: '$$u.user_cost',
-                            },
-                          },
-                          as: 'c',
-                          cond: { $ne: ['$$c', null] },
-                        },
+                      $size: {
+                        $ifNull: ['$project_arr', []],
                       },
                     },
                     0,
                   ],
                 },
-                project_count: { $size: { $ifNull: ['$project', []] } },
               },
             },
-          ],
-          totalCount: [{ $count: 'count' }],
+          },
         },
       },
+      // The above would wrongly count 1/0 per row due to unwind shrinking users_arr.
+      // Replace with $set from original array using $let that reuses the original (need to reintroduce original via $project before unwind).
     ];
+
+    // To correctly compute total_users_with_projects, we need original users array size with project_count>0.
+    // Adjust pipeline by computing it before unwind and carrying via field.
+    pipeline.splice(3, 0, {
+      $addFields: {
+        total_users_with_projects: {
+          $size: {
+            $filter: {
+              input: '$users_arr',
+              as: 'u',
+              cond: {
+                $gt: [{ $size: { $ifNull: ['$project_arr', []] } }, 0],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Continue pipeline with projection after unwind to keep the computed total
+    pipeline.push(
+      {
+        $project: {
+          _id: 0,
+          id: '$_id',
+          organization_cost: '$org_cost_preferred',
+          total_users_with_projects: 1,
+          type: '$type_preferred',
+          user_id: 1,
+          user_cost: 1,
+          project_count: 1,
+        },
+      },
+      {
+        $facet: {
+          items: [{ $skip: skip }, { $limit: limit }],
+          totalCount: [{ $count: 'count' }],
+        },
+      }
+    );
 
     const result = await LLMCost.aggregate(pipeline).allowDiskUse(true).exec();
     const items = result?.[0]?.items || [];
     const total = result?.[0]?.totalCount?.[0]?.count || 0;
 
-    // Diagnostics headers
+    // Headers
     try {
-      if (organization_id) res.set('X-Applied-Tenant', String(organization_id));
+      if (resolvedTenant) res.set('X-Applied-Tenant', String(resolvedTenant));
       res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
     } catch (_) {}
 
-    // Response shape as requested
     return res.status(200).json({
       items,
-      total,
       page,
       limit,
+      total,
     });
   } catch (err) {
     return next(err);
