@@ -21,7 +21,8 @@ function validateSort(sort, allowed = ['timestamp', 'created_at', '_id']) {
 /**
  * Enforce a maximum page size limit for safety.
  */
-function clampLimit(limit, max = 500) {
+function clampLimit(limit, max = 100) {
+  // Hard cap: 100 to prevent heavy responses
   const n = parseInt(limit, 10);
   if (!Number.isFinite(n)) {return Math.min(20, max);}
   return Math.max(1, Math.min(n, max));
@@ -314,7 +315,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
           // pagination path
 
-        if (req.method === 'GET' && explicit) {
+        // For LLMCost listing we enforce pagination envelope to avoid unbounded scans
+        if (req.method === 'GET' && (explicit || isLLMCost)) {
                     // cache and return envelope
 
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
@@ -330,6 +332,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 : { timestamp: -1 };
               const pipeline = [
                 { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+                // Compute normalized fields early and then project to trim document size
                 { $addFields: {
                     timestamp: { $ifNull: ['$timestamp', '$created_at'] },
                     organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
@@ -349,13 +352,40 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                     }
                   }
                 },
+                { $project: {
+                    _id: 1,
+                    tenant_id: 1,
+                    organization_id: 1,
+                    user_id: 1,
+                    llm_model: 1,
+                    provider: 1,
+                    service_type: 1,
+                    operation: 1,
+                    total_cost: 1,
+                    numeric_total_cost: 1,
+                    currency: 1,
+                    timestamp: 1,
+                    created_at: 1,
+                    updated_at: 1,
+                    // keep lightweight metadata pointers only
+                    'metadata.projectId': 1,
+                    project_id: 1,
+                    session_id: 1
+                  }
+                },
                 { $sort: sortStage },
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
               items = await Model.aggregate(pipeline).allowDiskUse(true);
             } catch (_) {
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              items = await Model.find(appliedFilter)
+                .select('_id tenant_id organization_id user_id llm_model provider service_type operation total_cost currency timestamp created_at updated_at metadata.projectId project_id session_id')
+                .sort(safeSort)
+                .skip(skip)
+                .limit(hardCappedLimit)
+                .allowDiskUse(true)
+                .lean();
             }
           } else if (isAppDeployment) {
             try {
@@ -397,11 +427,13 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
-        // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
+        // For LLMCost model, we avoid returning an unbounded array; serve a capped first page for safety.
         let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
         try {
           if (isLLMCost) {
-            // Use aggregation for minimal transformation without large memory footprint
+            const sortStage = safeSort
+              ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
+              : { timestamp: -1 };
             const pipeline = [
               { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
               { $addFields: {
@@ -423,9 +455,31 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                   }
                 }
               },
-              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
+              { $project: {
+                  _id: 1,
+                  tenant_id: 1,
+                  organization_id: 1,
+                  user_id: 1,
+                  llm_model: 1,
+                  provider: 1,
+                  service_type: 1,
+                  operation: 1,
+                  total_cost: 1,
+                  numeric_total_cost: 1,
+                  currency: 1,
+                  timestamp: 1,
+                  created_at: 1,
+                  updated_at: 1,
+                  'metadata.projectId': 1,
+                  project_id: 1,
+                  session_id: 1
+                }
+              },
+              { $sort: sortStage },
+              { $limit: clampLimit(20, 100) } // small cap for non-paginated safety
             ];
             const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            try { res.set('X-NonPaginated-Fallback', 'true'); } catch {}
             return res.status(200).json(items);
           }
           if (isAppDeployment) {

@@ -7,7 +7,10 @@ const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
 
 const router = express.Router();
-// Default sort retained; list is still tenant-scoped via middleware/controller
+/**
+ * Use '-timestamp' as default sort. This pairs with compound indexes:
+ * { tenant_id: 1, timestamp: -1 } and { organization_id: 1, timestamp: -1 }.
+ */
 const controller = buildCrudController(LLMCost, '-timestamp');
 
 // Enforce tenant isolation for all requests on this router

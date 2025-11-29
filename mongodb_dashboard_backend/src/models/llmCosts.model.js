@@ -41,13 +41,19 @@ const LLMCostsSchema = new mongoose.Schema(
   }
 );
 
-// Useful indexes for common filter/sort combos
-LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
-LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
+/**
+ * Useful indexes for common filter/sort combos
+ * Ensure queries scoped by tenant and sorted by date can use covered/compound indexes.
+ * Note: organization_id is an alias for tenant_id in some data sets; keep both compound indexes.
+ */
+LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 });            // supports default sort and tenant scoping
+LLMCostsSchema.index({ tenant_id: 1, created_at: -1 });            // alternative sort path
+LLMCostsSchema.index({ organization_id: 1, timestamp: -1 });       // alias support when only organization_id is present
+LLMCostsSchema.index({ organization_id: 1, created_at: -1 });      // alias support for created_at
 LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ session_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ llm_model: 1, timestamp: -1 });
-LLMCostsSchema.index({ timestamp: 1, llm_model: 1 }); // composite index to support usage-over-time aggregation
+LLMCostsSchema.index({ timestamp: 1, llm_model: 1 });              // composite index to support usage-over-time aggregation
 LLMCostsSchema.index({ task_id: 1 });
 // Optimize direct project_id lookups for usage endpoint
 LLMCostsSchema.index({ project_id: 1 });
