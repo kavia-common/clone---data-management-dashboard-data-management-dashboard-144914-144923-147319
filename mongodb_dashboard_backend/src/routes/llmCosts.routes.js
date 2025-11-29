@@ -8,7 +8,6 @@ const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
 const controller = require('../controllers/llmCosts.controller');
-const { listPerUserFromMainPath } = require('../controllers/llmCostsAggregate.controller.patch');
 const { buildCrudController } = require('../controllers/crudFactory');
 
 /**
@@ -63,20 +62,13 @@ router.use((req, res, next) => {
 /**
  * GET /api/llm-costs
  * PUBLIC_INTERFACE
- * If pagination and organization filters are present, return the per-user listing for fast tabular data.
- * Otherwise, return the default document list.
+ * Optimized listing returning one row per user with only required fields:
+ *  - id (document _id), organization_cost, total_users_with_projects,
+ *  - type, user_id, user_cost, project_count
+ * Supports ?organization_id filter, ?page, ?limit, and ?sort (defaults to createdAt/_id desc).
+ * Response shape: { items: [{ id, organization_cost, total_users_with_projects, type, user_id, user_cost, project_count }], total, page, limit }.
  */
-router.get('/', asyncHandler((req, res, next) => {
-  const hasPaging = typeof req.query.page !== 'undefined' || typeof req.query.limit !== 'undefined';
-  const hasOrg =
-    typeof req.query.organization_id !== 'undefined' ||
-    typeof req.query.tenant_id !== 'undefined' ||
-    typeof req.headers['x-organization-id'] !== 'undefined';
-  if (hasPaging && hasOrg) {
-    return listPerUserFromMainPath(req, res, next);
-  }
-  return controller.list(req, res, next);
-}));
+router.get('/', asyncHandler(controller.listLLMCosts));
 
 // Keep other CRUD endpoints
 router.get('/:id', asyncHandler(crud.getById));
