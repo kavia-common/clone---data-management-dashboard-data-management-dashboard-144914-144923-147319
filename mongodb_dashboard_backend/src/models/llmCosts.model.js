@@ -33,4 +33,12 @@ LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ organization_id: 1, created_at: -1 });
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1 });
 
+/**
+ * Helpful partial index on users.user_id for faster $unwind lookups if present.
+ * Note: This may be a large index; if not desired in production, gate with env MONGOOSE_AUTO_INDEX.
+ */
+try {
+  LLMCostsSchema.index({ 'users.user_id': 1 }, { sparse: true });
+} catch (_) {}
+
 module.exports = mongoose.model('LLMCost', LLMCostsSchema);

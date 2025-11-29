@@ -735,6 +735,52 @@
         }
       }
     },
+    "/api/llm-costs/users": {
+      "get": {
+        "summary": "Per-user LLM costs listing",
+        "description": "Returns one row per user by unwinding users[] from llm-costs collection. Supports pagination (?page, ?limit), organization filter (?organization_id or ?tenant_id), and stable sort (createdAt desc, _id desc). Fields: id, organization_id, user_id, type, user_cost, project_count, organization_cost.",
+        "tags": ["LLMCosts"],
+        "parameters": [
+          { "in": "query", "name": "page", "schema": { "type": "integer", "minimum": 1 }, "description": "Page number (default 1)" },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "minimum": 1, "maximum": 200 }, "description": "Page size (default 20)" },
+          { "in": "query", "name": "sort", "schema": { "type": "string" }, "description": "Sort string (default createdAt desc, _id desc)" },
+          { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Tenant (organization) filter; alias: tenant_id" },
+          { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Alias for tenant filter" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-user costs page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string" },
+                          "organization_id": { "type": "string" },
+                          "user_id": { "type": "string" },
+                          "type": { "type": "string" },
+                          "user_cost": { "type": "number" },
+                          "project_count": { "type": "integer" },
+                          "organization_cost": { "type": "number" }
+                        }
+                      }
+                    },
+                    "page": { "type": "integer" },
+                    "limit": { "type": "integer" },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/llm-costs": {
       "get": {
         "summary": "List LLM cost records",

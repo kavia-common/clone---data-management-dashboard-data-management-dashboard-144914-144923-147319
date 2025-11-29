@@ -10,6 +10,7 @@ const tenantsRoutes = require('./tenants.routes');
 
 const llmCostsRoutes = require('./llmCosts.routes');
 const llmCostsAggregateRoutes = require('./llmCosts.aggregate.routes');
+const llmCostsUsersRoutes = require('./llmCosts.users.routes');
 const costsByAgentRoutes = require('./costs.byAgent.routes');
 const sessionTrackingRoutes = require('./sessionTracking.routes');
 const sessionRoutes = require('./session.routes');
@@ -44,6 +45,7 @@ router.use('/users', verifyAuth, requireTenant, usersRoutes);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 
 router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);
+router.use('/llm-costs', verifyAuth, requireTenant, llmCostsUsersRoutes);
 router.use('/llm-costs-aggregate', verifyAuth, requireTenant, llmCostsAggregateRoutes);
 router.use('/costs', verifyAuth, requireTenant, costsByAgentRoutes);
 router.use('/session', verifyAuth, requireTenant, sessionRoutes);
