@@ -26,9 +26,7 @@ function maybeSkipNoDb() {
 
 describe('LLM Costs APIs (no analytics over-time)', () => {
   it('GET /api/llm-costs supports limit & sort & T0000 bypass', async () => {
-    if (maybeSkipNoDb()) {
-      return;
-    }
+    if (maybeSkipNoDb()) return;
 
     const baseDate = '2025-01-02';
     // Seed some docs

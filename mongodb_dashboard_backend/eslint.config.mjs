@@ -34,7 +34,7 @@ export default [
       // Keep core safety checks strict
       "no-undef": "error",
       "eqeqeq": ["error", "always"],
-      "curly": ["warn", "all"],
+      "curly": ["error", "all"],
       "no-var": "error",
 
       // Developer ergonomics - warnings only

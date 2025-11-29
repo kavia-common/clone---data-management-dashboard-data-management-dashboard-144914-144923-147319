@@ -348,7 +348,7 @@ function aggregateAgentsInApp(documents = []) {
     for (const a of agents) {
       try {
         const nameRaw = a?.['Agent Name'];
-        const display = String(nameRaw === null || nameRaw === undefined ? '' : nameRaw).trim() || 'Unknown';
+        const display = String(nameRaw == null ? '' : nameRaw).trim() || 'Unknown';
         // Normalize key for grouping
         const key = display ? display.toLowerCase() : 'unknown';
         const cost = parseCurrencyToNumber(a?.['Total Cost']);
