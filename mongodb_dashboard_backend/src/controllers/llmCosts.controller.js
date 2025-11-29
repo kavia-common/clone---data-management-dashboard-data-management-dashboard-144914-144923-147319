@@ -94,56 +94,106 @@ async function listLLMCosts(req, res, next) {
     const limit = Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 200);
     const skip = (page - 1) * limit;
 
-    // Aggregation (lean by nature): match → sort → facet(items, totalCount); within items compute fields but keep full docs
+    // Aggregation (lean by nature) with strict projection to reduce memory:
+    // Normalize minimal fields -> project trimmed doc -> sort -> page -> add computed light fields
+    // Also coerce sort to an index-backed field if none present in schema.
+    const safeSortStage = (function () {
+      const keys = Object.keys(sortStage || {});
+      if (!keys.length) return { timestamp: -1 };
+      // Only allow sort on whitelisted fields to avoid heavy in-memory sorts
+      const allowed = new Set(['timestamp', 'created_at', 'createdAt', '_id']);
+      const out = {};
+      let hasAny = false;
+      for (const k of keys) {
+        if (allowed.has(k)) { out[k] = sortStage[k]; hasAny = true; }
+      }
+      return hasAny ? out : { timestamp: -1, _id: -1 };
+    })();
+
     const pipeline = [
       { $match: match },
-      { $sort: sortStage },
+      // Normalize fields and project a tight document shape to lower per-doc memory
       {
-        $facet: {
-          items: [
-            { $skip: skip },
-            { $limit: limit },
-            {
-              // Compute fields and keep all original fields
-              $addFields: {
-                id: '$_id',
-                user_cost: {
-                  $ifNull: [
-                    {
-                      $first: {
-                        $filter: {
-                          input: {
-                            $map: {
-                              input: { $ifNull: ['$users', []] },
-                              as: 'u',
-                              in: '$$u.user_cost',
-                            },
-                          },
-                          as: 'c',
-                          cond: { $ne: ['$$c', null] },
-                        },
-                      },
-                    },
-                    0,
-                  ],
-                },
-                project_count: { $size: { $ifNull: ['$project', []] } },
-              },
-            },
-          ],
-          totalCount: [{ $count: 'count' }],
+        $addFields: {
+          timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+          organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
         },
       },
+      {
+        $project: {
+          _id: 1,
+          tenant_id: 1,
+          organization_id: 1,
+          user_id: 1,
+          llm_model: 1,
+          provider: 1,
+          service_type: 1,
+          operation: 1,
+          total_cost: 1,
+          currency: 1,
+          timestamp: 1,
+          created_at: 1,
+          updated_at: 1,
+          'metadata.projectId': 1,
+          project_id: 1,
+          session_id: 1,
+          users: { $slice: [{ $ifNull: ['$users', []] }, 3] }, // limit embedded array for computed user_cost
+          project: { $ifNull: ['$project', []] },
+        },
+      },
+      { $sort: safeSortStage },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $addFields: {
+          id: '$_id',
+          user_cost: {
+            $ifNull: [
+              {
+                $first: {
+                  $filter: {
+                    input: {
+                      $map: {
+                        input: { $ifNull: ['$users', []] },
+                        as: 'u',
+                        in: '$$u.user_cost',
+                      },
+                    },
+                    as: 'c',
+                    cond: { $ne: ['$$c', null] },
+                  },
+                },
+              },
+              0,
+            ],
+          },
+          project_count: { $size: { $ifNull: ['$project', []] } },
+        },
+      },
+      // Drop arrays after computing lightweight fields to reduce transfer size
+      {
+        $project: {
+          users: 0,
+          project: 0,
+        },
+      },
+      // Compute total count via $group on first stage match
     ];
 
-    const result = await LLMCost.aggregate(pipeline).allowDiskUse(true).exec();
-    const items = result?.[0]?.items || [];
-    const total = result?.[0]?.totalCount?.[0]?.count || 0;
+    const countPipeline = [{ $match: match }, { $count: 'count' }];
+
+    const [items, countRes] = await Promise.all([
+      LLMCost.aggregate(pipeline).allowDiskUse(true).exec(),
+      LLMCost.aggregate(countPipeline).allowDiskUse(true).exec(),
+    ]);
+    const total = countRes?.[0]?.count || 0;
 
     // Diagnostics headers
     try {
       if (organization_id) res.set('X-Applied-Tenant', String(organization_id));
       res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
+      res.set('X-Applied-Sort', JSON.stringify(sortStage));
+      res.set('X-Applied-Limit', String(limit));
     } catch (_) {}
 
     // Response shape as requested
