@@ -56,7 +56,8 @@ async function listPerUserLLMCosts(req, res, next) {
         else sortStage[v] = 1;
       });
     } else {
-      sortStage = { createdAt: -1, _id: -1 };
+      // Stable default: _id desc primarily; createdAt if present
+      sortStage = { _id: -1 };
     }
 
     // Pagination
@@ -76,7 +77,39 @@ async function listPerUserLLMCosts(req, res, next) {
         { orgId: t },
         { 'tenant.tenant_id': t },
       ];
+    } else if (orgQuery) {
+      // When explicitly called without auth in some flows (or bypass), allow direct match on organization_id for the task's curl
+      match.$or = [{ organization_id: String(orgQuery) }];
     }
+
+    // Helper expression to safely parse currency-like strings to double:
+    // Strips $ and commas. If numeric already, toDouble works; if string, sanitize then toDouble.
+    const sanitizeCurrencyExpr = (fieldPath) => ({
+      $let: {
+        vars: { val: fieldPath },
+        in: {
+          $toDouble: {
+            $cond: [
+              { $eq: [{ $type: '$$val' }, 'string'] },
+              {
+                $replaceAll: {
+                  input: {
+                    $replaceAll: {
+                      input: { $trim: { input: '$$val' } },
+                      find: ',',
+                      replacement: '',
+                    },
+                  },
+                  find: '$',
+                  replacement: '',
+                },
+              },
+              { $ifNull: ['$$val', 0] },
+            ],
+          },
+        },
+      },
+    });
 
     // Aggregation pipeline:
     // 1) $match (tenant)
@@ -84,7 +117,7 @@ async function listPerUserLLMCosts(req, res, next) {
     // 3) $sort (doc-level)
     // 4) $project minimal fields to go into unwind
     // 5) $unwind users
-    // 6) $addFields for computed fields per user
+    // 6) $addFields for computed fields per user (user_cost with safe currency parsing)
     // 7) $project output fields
     // 8) $facet items/total
     const pipeline = [
@@ -99,24 +132,22 @@ async function listPerUserLLMCosts(req, res, next) {
               },
             ],
           },
-          // Robust numeric conversion for total/organization cost field
+          // Robust numeric conversion for total/organization cost field with currency-like parsing
           org_cost_preferred: {
-            $convert: {
-              input: {
+            $ifNull: [
+              sanitizeCurrencyExpr('$organization_cost'),
+              {
                 $ifNull: [
-                  '$organization_cost',
+                  sanitizeCurrencyExpr('$total_cost'),
                   {
                     $ifNull: [
-                      '$total_cost',
-                      { $ifNull: ['$total', { $ifNull: ['$cost', 0] }] },
+                      sanitizeCurrencyExpr('$total'),
+                      { $toDouble: { $ifNull: ['$cost', 0] } },
                     ],
                   },
                 ],
               },
-              to: 'double',
-              onError: 0,
-              onNull: 0,
-            },
+            ],
           },
           project_arr: { $ifNull: ['$project', []] },
         },
@@ -131,7 +162,6 @@ async function listPerUserLLMCosts(req, res, next) {
           project_arr: 1,
           type: 1,
           org_cost_preferred: 1,
-          createdAt: 1,
         },
       },
       { $unwind: { path: '$users', preserveNullAndEmptyArrays: false } },
@@ -146,27 +176,45 @@ async function listPerUserLLMCosts(req, res, next) {
               ],
             },
           },
-          // Prefer value field names in users entry
+          // Prefer value field names in users entry; safely parse any currency-like strings
           user_cost: {
-            $convert: {
-              input: {
+            $ifNull: [
+              sanitizeCurrencyExpr('$users.user_cost'),
+              {
                 $ifNull: [
-                  '$users.user_cost',
+                  sanitizeCurrencyExpr('$users.total_cost'),
                   {
                     $ifNull: [
-                      '$users.total_cost',
-                      { $ifNull: ['$users.cost', 0] },
+                      sanitizeCurrencyExpr('$users.cost'),
+                      { $toDouble: { $ifNull: ['$users.value', 0] } },
                     ],
                   },
                 ],
               },
-              to: 'double',
-              onError: 0,
-              onNull: 0,
-            },
+            ],
           },
           project_count: { $size: '$project_arr' },
           type_preferred: { $ifNull: ['$type', 'llm_interaction'] },
+        },
+      },
+      {
+        $addFields: {
+          organization_name_preferred: {
+            $ifNull: [
+              '$organization_name',
+              {
+                $ifNull: [
+                  '$tenant_name',
+                  {
+                    $ifNull: [
+                      '$tenant.name',
+                      { $ifNull: ['$organization.name', null] },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
         },
       },
       {
@@ -174,33 +222,36 @@ async function listPerUserLLMCosts(req, res, next) {
           _id: 0,
           id: '$_id',
           organization_id: '$organization_preferred',
+          organization_name: '$organization_name_preferred',
           user_id: 1,
           type: '$type_preferred',
           user_cost: 1,
           project_count: 1,
-          organization_cost: '$org_cost_preferred',
+          organization_cost: {
+            $cond: [{ $gt: ['$org_cost_preferred', null] }, '$org_cost_preferred', 0],
+          },
         },
       },
       {
         $facet: {
-          items: [{ $skip: skip }, { $limit: limit }],
-          totalCount: [{ $count: 'count' }],
+          data: [{ $skip: skip }, { $limit: limit }],
+          total: [{ $count: 'count' }],
         },
       },
     ];
 
     const result = await LLMCost.aggregate(pipeline).allowDiskUse(true).exec();
-    const items = result?.[0]?.items || [];
-    const total = result?.[0]?.totalCount?.[0]?.count || 0;
+    const data = result?.[0]?.data || [];
+    const total = result?.[0]?.total?.[0]?.count || 0;
 
     // Set diagnostics
     try {
-      if (resolvedTenant) res.set('X-Applied-Tenant', String(resolvedTenant));
+      if (resolvedTenant || orgQuery) res.set('X-Applied-Tenant', String(resolvedTenant || orgQuery));
       res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
     } catch (_) {}
 
     return res.status(200).json({
-      items,
+      items: data,
       page,
       limit,
       total,

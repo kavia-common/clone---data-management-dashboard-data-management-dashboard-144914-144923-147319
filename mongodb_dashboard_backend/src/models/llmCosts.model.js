@@ -3,6 +3,10 @@ const mongoose = require('mongoose');
 /**
  * LLM Costs model
  * Permissive schema for varied cost records. Includes indexes to optimize listing.
+ * Required performance indexes:
+ *  - { organization_id: 1, _id: -1 }
+ *  - { tenant_id: 1, _id: -1 }
+ * These support the per-user listing fast path that sorts/filters on these fields.
  */
 const LLMCostsSchema = new mongoose.Schema(
   {
