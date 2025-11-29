@@ -165,26 +165,6 @@ function startServerStrict() {
     console.error('[uncaughtException]', err);
   });
 
-  // Prevent premature process exit by keeping an active interval and logging memory headroom periodically.
-  const KEEPALIVE_INTERVAL_MS = parseInt(process.env.KEEPALIVE_INTERVAL_MS || '60000', 10);
-  const logInterval = setInterval(() => {
-    try {
-      const mem = process.memoryUsage();
-      const rssMB = Math.round(mem.rss / 1024 / 1024);
-      const heapMB = Math.round(mem.heapUsed / 1024 / 1024);
-      const heapTotalMB = Math.round(mem.heapTotal / 1024 / 1024);
-      console.log(`[health] rss=${rssMB}MB heap=${heapMB}/${heapTotalMB}MB NODE_OPTIONS=${process.env.NODE_OPTIONS || ''}`);
-    } catch {}
-  }, Math.max(KEEPALIVE_INTERVAL_MS, 15000));
-  logInterval.unref?.();
-
-  // Ensure the interval is cleared on shutdown
-  const clearKeepAlive = () => {
-    try { clearInterval(logInterval); } catch {}
-  };
-  process.on('beforeExit', clearKeepAlive);
-  process.on('exit', clearKeepAlive);
-
   return server;
 }
 
