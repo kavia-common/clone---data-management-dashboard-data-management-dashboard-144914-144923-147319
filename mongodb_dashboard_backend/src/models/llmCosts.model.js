@@ -44,6 +44,7 @@ LLMCostsSchema.index({ tenantId: 1, createdAt: -1, _id: -1 }, { sparse: true });
  */
 try {
   LLMCostsSchema.index({ 'users.user_id': 1 }, { sparse: true });
+  LLMCostsSchema.index({ organization_id: 1, 'users.user_id': 1 }, { sparse: true });
 } catch (_) {}
 
 module.exports = mongoose.model('LLMCost', LLMCostsSchema);

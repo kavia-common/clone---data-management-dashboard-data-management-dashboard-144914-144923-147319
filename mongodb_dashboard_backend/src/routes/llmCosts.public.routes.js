@@ -12,6 +12,8 @@ const router = express.Router();
  * { tenant_id: 1, timestamp: -1 } and { organization_id: 1, timestamp: -1 }.
  */
 const controller = buildCrudController(LLMCost, '-timestamp');
+// Use optimized per-user listing for the base /api/llm-costs route
+const { listLLMCosts } = require('../controllers/llmCosts.controller');
 
 // Enforce tenant isolation for all requests on this router
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
@@ -27,15 +29,14 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
  */
 router.get(
   '/',
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req, res, next) => {
     // Per requirement: Ignore/remove any 'filter' param entirely for GET /api/llm-costs
-    // Preserve tenant scoping via middleware/controller and keep sort/limit behavior.
     if (typeof req.query.filter !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch {}
       delete req.query.filter;
     }
 
-    // Also explicitly drop legacy date range params if present (server no longer applies date compounds here)
+    // Also explicitly drop legacy date range params if present
     if (typeof req.query.start !== 'undefined') delete req.query.start;
     if (typeof req.query.end !== 'undefined') delete req.query.end;
     if (typeof req.query.from !== 'undefined') delete req.query.from;
@@ -60,7 +61,8 @@ router.get(
       }
     } catch {}
 
-    return controller.list(req, res);
+    // Use optimized aggregation controller
+    return listLLMCosts(req, res, next);
   })
 );
 

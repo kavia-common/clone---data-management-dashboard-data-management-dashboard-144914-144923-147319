@@ -1,6 +1,5 @@
 'use strict';
 
-const mongoose = require('mongoose');
 const LLMCost = require('../models/llmCosts.model');
 
 /**
@@ -8,26 +7,24 @@ const LLMCost = require('../models/llmCosts.model');
  * listLLMCosts
  * GET /api/llm-costs
  *
- * Purpose:
- *  - Fix 504s by returning a fast, paginated per-user list using efficient aggregation.
- *  - One row per user from llm-costs (unwind users[]), with only requested fields.
+ * Returns a fast, paginated per-user list derived from llm-costs documents.
+ * Fields: id (source _id), organization_id, organization_name (if present), organization_cost (numeric),
+ *         user_id, type (feature), user_cost (numeric), project_count (size per document for user's projects).
  *
- * Returned fields per row:
- *  - type, user_id, user_cost, organization_cost, project_count, id
- *
- * Query params:
- *  - organization_id (alias tenant_id or x-organization-id header)
- *  - page (default 1), limit (default 20, max 200)
- *  - sort (defaults to createdAt desc, _id desc). Sorting uses indexed fields for performance.
+ * Tenant resolution:
+ * - Uses req.tenantId from middleware if present, else x-organization-id header, else ?organization_id|tenant_id.
+ * - If req.tenantScopeDisabled is set (e.g., T0000 bypass), no tenant $match is applied.
  *
  * Performance:
- *  - $match on organization_id/tenant variants
- *  - $sort on { createdAt: -1, _id: -1 } or {_id:-1} when createdAt missing
- *  - $project to minimize payload
- *  - $unwind users
- *  - allowDiskUse(true)
+ * - $match on organization_id variants
+ * - $addFields numeric conversions (strip '$' when needed) using $replaceAll + $toDouble
+ * - $unwind users
+ * - $addFields project_count = $size of projects array (or 0)
+ * - $project only required fields
+ * - $sort by createdAt desc then _id desc (fallback to _id desc)
+ * - $facet items/total with $skip/$limit
+ * - allowDiskUse(true)
  */
-// PUBLIC_INTERFACE
 async function listLLMCosts(req, res, next) {
   try {
     const {
@@ -38,16 +35,16 @@ async function listLLMCosts(req, res, next) {
       tenant_id: tenantQuery,
     } = req.query;
 
-    // Resolve tenant scope (header > query). Upstream middleware may set req.tenantId.
+    const bypass = !!(req.tenantScopeDisabled || req.allTenants);
     const headerTenant =
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
       (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
       undefined;
 
-    const resolvedTenant = req.tenantId || headerTenant || orgQuery || tenantQuery || undefined;
+    const resolvedTenant = bypass ? undefined : (req.tenantId || headerTenant || orgQuery || tenantQuery || undefined);
 
-    // Sort on indexed fields only
+    // Sorting
     let sortStage = {};
     if (sortRaw && typeof sortRaw === 'string' && sortRaw.trim()) {
       sortRaw.split(',').forEach((s) => {
@@ -61,12 +58,11 @@ async function listLLMCosts(req, res, next) {
       sortStage = { createdAt: -1, _id: -1 };
     }
 
-    // Pagination
     const page = Math.max(parseInt(pageRaw, 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 200);
     const skip = (page - 1) * limit;
 
-    // Tenant $match
+    // Tenant match
     const match = {};
     if (resolvedTenant) {
       const t = String(resolvedTenant);
@@ -80,7 +76,6 @@ async function listLLMCosts(req, res, next) {
       ];
     }
 
-    // Aggregation pipeline returning one row per user with requested fields
     const pipeline = [
       Object.keys(match).length ? { $match: match } : { $match: {} },
       {
@@ -93,19 +88,16 @@ async function listLLMCosts(req, res, next) {
               },
             ],
           },
-          org_cost_preferred: {
-            $convert: {
-              input: {
-                $ifNull: [
-                  '$organization_cost',
-                  { $ifNull: ['$total_cost', { $ifNull: ['$total', { $ifNull: ['$cost', 0] }] }] },
-                ],
-              },
-              to: 'double',
-              onError: 0,
-              onNull: 0,
-            },
+          organization_name_preferred: {
+            $ifNull: ['$organization_name', { $ifNull: ['$tenant.name', null] }],
           },
+          org_cost_str: {
+            $ifNull: [
+              '$organization_cost',
+              { $ifNull: ['$total_cost', { $ifNull: ['$total', { $ifNull: ['$cost', 0] }] }] },
+            ],
+          },
+          users_arr: { $ifNull: ['$users', []] },
           projects_arr: { $ifNull: ['$project', []] },
           type_preferred: { $ifNull: ['$type', 'llm_interaction'] },
         },
@@ -115,37 +107,54 @@ async function listLLMCosts(req, res, next) {
         $project: {
           _id: 1,
           createdAt: 1,
-          type_preferred: 1,
           organization_preferred: 1,
-          org_cost_preferred: 1,
+          organization_name_preferred: 1,
+          org_cost_str: 1,
+          users_arr: 1,
           projects_arr: 1,
-          users: { $ifNull: ['$users', []] },
+          type_preferred: 1,
         },
       },
-      { $unwind: { path: '$users', preserveNullAndEmptyArrays: false } },
+      { $unwind: { path: '$users_arr', preserveNullAndEmptyArrays: false } },
       {
         $addFields: {
+          // Convert organization cost to number: strip '$' when present then toDouble
+          organization_cost: {
+            $toDouble: {
+              $replaceAll: {
+                input: { $toString: '$org_cost_str' },
+                find: '$',
+                replacement: '',
+              },
+            },
+          },
+          // Resolve user_id
           user_id: {
             $toString: {
               $ifNull: [
-                '$users.user_id',
-                { $ifNull: ['$users.userId', { $ifNull: ['$users.id', '$users.uid'] }] },
+                '$users_arr.user_id',
+                { $ifNull: ['$users_arr.userId', { $ifNull: ['$users_arr.id', '$users_arr.uid'] }] },
               ],
             },
           },
+          // Convert user_cost to number: strip '$' when present then toDouble
           user_cost: {
-            $convert: {
-              input: {
-                $ifNull: [
-                  '$users.user_cost',
-                  { $ifNull: ['$users.total_cost', { $ifNull: ['$users.cost', 0] }] },
-                ],
+            $toDouble: {
+              $replaceAll: {
+                input: {
+                  $toString: {
+                    $ifNull: [
+                      '$users_arr.user_cost',
+                      { $ifNull: ['$users_arr.total_cost', { $ifNull: ['$users_arr.cost', 0] }] },
+                    ],
+                  },
+                },
+                find: '$',
+                replacement: '',
               },
-              to: 'double',
-              onError: 0,
-              onNull: 0,
             },
           },
+          project_count: { $size: '$projects_arr' },
         },
       },
       {
@@ -153,11 +162,12 @@ async function listLLMCosts(req, res, next) {
           _id: 0,
           id: '$_id',
           organization_id: '$organization_preferred',
-          type: '$type_preferred',
+          organization_name: '$organization_name_preferred',
+          organization_cost: 1,
           user_id: 1,
+          type: '$type_preferred',
           user_cost: 1,
-          project_count: { $size: '$projects_arr' },
-          organization_cost: '$org_cost_preferred',
+          project_count: 1,
         },
       },
       {
@@ -172,11 +182,10 @@ async function listLLMCosts(req, res, next) {
     const items = result?.[0]?.items || [];
     const total = result?.[0]?.totalCount?.[0]?.count || 0;
 
-    // Headers for diagnostics
     try {
       if (resolvedTenant) res.set('X-Applied-Tenant', String(resolvedTenant));
       res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
-    } catch {}
+    } catch (_) {}
 
     return res.status(200).json({
       items,
