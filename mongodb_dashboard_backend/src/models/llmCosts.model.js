@@ -22,7 +22,10 @@ const LLMCostsSchema = new mongoose.Schema(
   }
 );
 
-// Performance indexes to optimize listing and filtering by tenant + time
+ // Performance indexes to optimize listing and filtering by tenant + time
+// Core indexes: organization_id + _id desc (native uses _id), and createdAt variants for time sort
+LLMCostsSchema.index({ organization_id: 1, _id: -1 });
+LLMCostsSchema.index({ tenant_id: 1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, createdAt: -1, _id: -1 });
 LLMCostsSchema.index({ tenant_id: 1, createdAt: -1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, timestamp: -1, _id: -1 });
@@ -32,8 +35,8 @@ LLMCostsSchema.index({ organization_id: 1, created_at: -1, _id: -1 });
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1, _id: -1 });
 
 // Optional: index for variant field names used in some datasets
-LLMCostsSchema.index({ organizationId: 1, createdAt: -1 }, { sparse: true });
-LLMCostsSchema.index({ tenantId: 1, createdAt: -1 }, { sparse: true });
+LLMCostsSchema.index({ organizationId: 1, createdAt: -1, _id: -1 }, { sparse: true });
+LLMCostsSchema.index({ tenantId: 1, createdAt: -1, _id: -1 }, { sparse: true });
 
 /**
  * Helpful partial index on users.user_id for faster $unwind lookups if present.
