@@ -1,87 +1,153 @@
 'use strict';
 
-const { success, handleError } = require('../utils/http');
-const { aggregateHierarchy, ensureLlmCostsIndexes } = require('../services/llmCostsHierarchy.service');
+const mongoose = require('mongoose');
+const LLMCost = require('../models/llmCosts.model');
 
+/**
+ * PUBLIC_INTERFACE
+ * listLLMCosts
+ * Returns a fast, paginated listing of LLM cost documents with computed fields.
+ * Computes:
+ *  - id: document _id
+ *  - user_cost: derived from users array (first non-null users[].user_cost or 0 if missing)
+ *  - project_count: count of items in project array (0 if missing)
+ *
+ * Query params:
+ *  - page: integer page number (default 1)
+ *  - limit: integer page size (default 20, max 200)
+ *  - organization_id | tenant_id | x-organization-id header: optional tenant scope filter
+ *  - sort: optional; defaults to createdAt/created_at/timestamp desc if present, else _id desc
+ *  - filter: optional JSON string; tenant fields ignored server-side
+ *
+ * Performance:
+ *  - Uses aggregation pipeline with $match, $sort, and $facet for data + totalCount
+ *  - Uses $project to only return id, user_cost, project_count
+ *  - Model defines compound indexes to support sort/filter
+ */
 // PUBLIC_INTERFACE
-async function getHierarchy(req, res) {
-  /**
-   * PUBLIC_INTERFACE
-   * Handler: GET /api/llm-costs/hierarchy
-   * Aggregates hierarchical costs per user -> projects -> agents with per-date breakdown.
-   * Query:
-   *  - filter: optional JSON string to pre-filter the llm_costs collection (tenant keys ignored)
-   * Returns: Array of:
-   * Tenant scoping: server enforces tenant from header x-organization-id (preferred) or query ?tenant_id/?organization_id; any client-provided tenant keys in filter are ignored.
-   *   { user_id, type: 'llm_interaction', user_cost: '$X.XX', projects: [ { project_id, project_cost: '$Y.YY', agents: [ { agent_name, total_cost: '$..', costs_by_date: { 'YYYY-MM-DD': '$..' }, tokens_by_date: { 'YYYY-MM-DD': { input_tokens, output_tokens } } } ] } ] }
-   */
+async function listLLMCosts(req, res, next) {
   try {
-    // Optional filter from query
-    let filter = {};
-    if (req.query && req.query.filter) {
+    const {
+      page: pageRaw,
+      limit: limitRaw,
+      sort: sortRaw,
+      filter: filterRaw,
+      organization_id: orgQuery,
+      tenant_id: tenantQuery,
+    } = req.query;
+
+    // Resolve tenant scope: header takes precedence, allow query aliases if header missing
+    const headerTenant =
+      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+      undefined;
+    const organization_id = headerTenant || orgQuery || tenantQuery || undefined;
+
+    // Parse additional filter, ignoring any client-provided tenant fields
+    let userFilter = {};
+    if (filterRaw) {
       try {
-        filter = JSON.parse(req.query.filter);
+        userFilter = JSON.parse(filterRaw);
+        delete userFilter.organization_id;
+        delete userFilter.tenant_id;
+        delete userFilter.tenantId;
+        delete userFilter.organizationId;
       } catch (e) {
-        return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+        return res.status(400).json({ success: false, error: 'Invalid filter JSON' });
       }
     }
 
-    // Enforce tenant scoping: drop any tenant keys from client filter and inject resolved tenant
-    delete filter.tenant_id;
-    delete filter.tenantId;
-    delete filter.organization_id;
-    delete filter.organizationId;
-    delete filter.orgId;
-
-    // JWT precedence check: if Authorization present and client hints conflict, reject with 403
-    const clientRequestedTenant =
-      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-      (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
-      (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-      (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
-      '';
-    if (req.headers?.authorization && clientRequestedTenant && String(clientRequestedTenant) !== String(req.tenantId || '')) {
-      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+    // Construct match
+    const match = { ...userFilter };
+    if (organization_id) {
+      // Support documents that may use either tenant_id or organization_id
+      match.$or = [
+        { organization_id: String(organization_id) },
+        { tenant_id: String(organization_id) },
+        { organizationId: String(organization_id) },
+        { tenantId: String(organization_id) },
+        { 'tenant.tenant_id': String(organization_id) },
+      ];
     }
 
-    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass);
-    const resolvedTenant = bypass ? undefined : (req?.tenantId || req?.organizationId || (req?.auth?.tenantId ? String(req.auth.tenantId) : undefined));
-    if (bypass) {
-      try { res.set('X-All-Tenants', 'true'); } catch(_) {}
-      console.log('[llmCosts.controller] bypass active: skipping tenant filter injection');
-    }
-    if (resolvedTenant) {
-      const orgFilter = {
-        $or: [
-          { tenant_id: String(resolvedTenant) },
-          { organization_id: String(resolvedTenant) },
-          { orgId: String(resolvedTenant) },
-          { tenantId: String(resolvedTenant) },
-          { organizationId: String(resolvedTenant) },
-          { 'tenant.tenant_id': String(resolvedTenant) },
-        ],
-      };
-      filter = Object.keys(filter).length ? { $and: [filter, orgFilter] } : orgFilter;
+    // Sorting: default to time-like fields desc, with _id as a tiebreaker
+    let sortStage = {};
+    if (sortRaw && typeof sortRaw === 'string' && sortRaw.trim().length > 0) {
+      sortRaw.split(',').forEach((s) => {
+        const v = s.trim();
+        if (!v) return;
+        if (v.startsWith('-')) sortStage[v.slice(1)] = -1;
+        else sortStage[v] = 1;
+      });
+    } else {
+      // Prefer commonly used time fields, fallback to _id
+      sortStage = { createdAt: -1, created_at: -1, timestamp: -1, _id: -1 };
     }
 
-    // Best-effort index creation (non-blocking); ignore errors
-    ensureLlmCostsIndexes().catch(() => {});
+    // Pagination
+    const page = Math.max(parseInt(pageRaw, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 200);
+    const skip = (page - 1) * limit;
 
-    const data = await aggregateHierarchy({ filter, tenantId: resolvedTenant });
+    // Aggregation (lean by nature): match → sort → facet(data, totalCount) → project minimal fields
+    const pipeline = [
+      { $match: match },
+      { $sort: sortStage },
+      {
+        $facet: {
+          data: [
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $project: {
+                _id: 0,
+                id: '$_id',
+                user_cost: {
+                  $ifNull: [
+                    {
+                      $first: {
+                        $filter: {
+                          input: {
+                            $map: {
+                              input: { $ifNull: ['$users', []] },
+                              as: 'u',
+                              in: '$$u.user_cost',
+                            },
+                          },
+                          as: 'c',
+                          cond: { $ne: ['$$c', null] },
+                        },
+                      },
+                    },
+                    0,
+                  ],
+                },
+                project_count: { $size: { $ifNull: ['$project', []] } },
+              },
+            },
+          ],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+    ];
+
+    const result = await LLMCost.aggregate(pipeline).allowDiskUse(true).exec();
+    const data = result?.[0]?.data || [];
+    const total = result?.[0]?.totalCount?.[0]?.count || 0;
+
+    // Diagnostics headers
     try {
-      if (resolvedTenant) {
-        res.set('X-Applied-Tenant', String(resolvedTenant));
-        res.set('x-applied-organization-id', String(resolvedTenant));
-        res.set('x-applied-tenant-filter', JSON.stringify(filter));
-      }
+      if (organization_id) res.set('X-Applied-Tenant', String(organization_id));
+      res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
     } catch (_) {}
-    return success(res, data);
+
+    return res.json({ success: true, data, meta: { page, limit, total } });
   } catch (err) {
-    return handleError(res, err);
+    return next(err);
   }
 }
 
 module.exports = {
-  getHierarchy,
+  listLLMCosts,
 };
