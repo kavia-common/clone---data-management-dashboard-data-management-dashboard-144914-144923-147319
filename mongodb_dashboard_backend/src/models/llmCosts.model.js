@@ -29,5 +29,8 @@ LLMCostsSchema.index({ tenant_id: 1, createdAt: -1 });
 LLMCostsSchema.index({ tenant_id: 1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 });
+// Include created_at (snake) as some datasets store this instead of createdAt
+LLMCostsSchema.index({ organization_id: 1, created_at: -1 });
+LLMCostsSchema.index({ tenant_id: 1, created_at: -1 });
 
 module.exports = mongoose.model('LLMCost', LLMCostsSchema);

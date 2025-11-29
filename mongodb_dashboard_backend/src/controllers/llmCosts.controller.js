@@ -6,23 +6,23 @@ const LLMCost = require('../models/llmCosts.model');
 /**
  * PUBLIC_INTERFACE
  * listLLMCosts
- * Returns a fast, paginated listing of LLM cost documents with computed fields.
- * Computes:
- *  - id: document _id
+ * Returns a fast, paginated listing of full LLM cost documents augmented with computed fields.
+ * Augments each document with:
+ *  - id: document _id (stringified by Express JSON)
  *  - user_cost: derived from users array (first non-null users[].user_cost or 0 if missing)
- *  - project_count: count of items in project array (0 if missing)
+ *  - project_count: length of project array (0 if missing)
  *
  * Query params:
  *  - page: integer page number (default 1)
  *  - limit: integer page size (default 20, max 200)
- *  - organization_id | tenant_id | x-organization-id header: optional tenant scope filter
- *  - sort: optional; defaults to createdAt/created_at/timestamp desc if present, else _id desc
+ *  - organization_id | tenant_id | x-organization-id header: optional tenant scope filter (ignored when JWT tenant enforced upstream)
+ *  - sort: optional; defaults to createdAt/created_at/timestamp/_id desc
  *  - filter: optional JSON string; tenant fields ignored server-side
  *
  * Performance:
- *  - Uses aggregation pipeline with $match, $sort, and $facet for data + totalCount
- *  - Uses $project to only return id, user_cost, project_count
- *  - Model defines compound indexes to support sort/filter
+ *  - Uses aggregation pipeline with $match, $sort, and $facet for items + totalCount
+ *  - Uses $addFields to compute id, user_cost, and project_count while preserving full documents
+ *  - Relies on model indexes for tenant + createdAt/timestamp sorts
  */
 // PUBLIC_INTERFACE
 async function listLLMCosts(req, res, next) {
@@ -36,7 +36,7 @@ async function listLLMCosts(req, res, next) {
       tenant_id: tenantQuery,
     } = req.query;
 
-    // Resolve tenant scope: header takes precedence, allow query aliases if header missing
+    // Resolve tenant scope: header takes precedence in absence of upstream enforcement (verifyAuth/requireTenant attach req.tenantId normally)
     const headerTenant =
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
@@ -49,14 +49,17 @@ async function listLLMCosts(req, res, next) {
     if (filterRaw) {
       try {
         userFilter = JSON.parse(filterRaw);
-        delete userFilter.organization_id;
-        delete userFilter.tenant_id;
-        delete userFilter.tenantId;
-        delete userFilter.organizationId;
       } catch (e) {
         return res.status(400).json({ success: false, error: 'Invalid filter JSON' });
       }
     }
+    // Strip tenant hints from user filter
+    delete userFilter.organization_id;
+    delete userFilter.organizationId;
+    delete userFilter.orgId;
+    delete userFilter.tenant_id;
+    delete userFilter.tenantId;
+    delete userFilter['tenant.tenant_id'];
 
     // Construct match
     const match = { ...userFilter };
@@ -67,6 +70,7 @@ async function listLLMCosts(req, res, next) {
         { tenant_id: String(organization_id) },
         { organizationId: String(organization_id) },
         { tenantId: String(organization_id) },
+        { orgId: String(organization_id) },
         { 'tenant.tenant_id': String(organization_id) },
       ];
     }
@@ -90,18 +94,18 @@ async function listLLMCosts(req, res, next) {
     const limit = Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 200);
     const skip = (page - 1) * limit;
 
-    // Aggregation (lean by nature): match → sort → facet(data, totalCount) → project minimal fields
+    // Aggregation (lean by nature): match → sort → facet(items, totalCount); within items compute fields but keep full docs
     const pipeline = [
       { $match: match },
       { $sort: sortStage },
       {
         $facet: {
-          data: [
+          items: [
             { $skip: skip },
             { $limit: limit },
             {
-              $project: {
-                _id: 0,
+              // Compute fields and keep all original fields
+              $addFields: {
                 id: '$_id',
                 user_cost: {
                   $ifNull: [
@@ -133,7 +137,7 @@ async function listLLMCosts(req, res, next) {
     ];
 
     const result = await LLMCost.aggregate(pipeline).allowDiskUse(true).exec();
-    const data = result?.[0]?.data || [];
+    const items = result?.[0]?.items || [];
     const total = result?.[0]?.totalCount?.[0]?.count || 0;
 
     // Diagnostics headers
@@ -142,7 +146,13 @@ async function listLLMCosts(req, res, next) {
       res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
     } catch (_) {}
 
-    return res.json({ success: true, data, meta: { page, limit, total } });
+    // Response shape as requested
+    return res.status(200).json({
+      items,
+      total,
+      page,
+      limit,
+    });
   } catch (err) {
     return next(err);
   }
