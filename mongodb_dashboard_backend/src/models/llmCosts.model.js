@@ -46,4 +46,4 @@ try {
   LLMCostsSchema.index({ 'users.user_id': 1 }, { sparse: true });
 } catch (_) {}
 
-module.exports = mongoose.model('LLMCost', LLMCostsSchema);
+module.exports = mongoose.model('LLMCost', LLMCostsSchema,'llm-costs');
