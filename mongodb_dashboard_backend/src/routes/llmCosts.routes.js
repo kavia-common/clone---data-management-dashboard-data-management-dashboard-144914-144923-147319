@@ -73,11 +73,14 @@ router.use((req, res, next) => {
 });
 
 /**
- * GET /api/llm-costs
  * PUBLIC_INTERFACE
- * Listing returns llm-costs documents with ListEnvelope:
- *  { success, data: [...], meta: { page, limit, total } }
- * Supports ?organization_id/tenant_id header/query tenant filter, ?page, ?limit, and ?sort.
+ * GET /api/llm-costs
+ * Returns a ListEnvelope:
+ * { success: true, data: [...], meta: { page, limit, total } }
+ * - Supports tenant scoping via header/query when JWT is not present.
+ * - Paginates with default limit=20 (default flow capped to 50; absolute cap 200 when explicitly requested).
+ * - Applies aggregation cursor batchSize and maxTimeMS(8000) to prevent timeouts and memory spikes.
+ * - Avoids heavy unwind/projections in list route; dedicated per-user listing is under /api/llm-costs/users.
  */
 router.get('/', asyncHandler(controller.listLLMCosts));
 

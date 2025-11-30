@@ -47,6 +47,14 @@ async function listLLMCosts(req, res, next) {
 
     const resolvedTenant = req.tenantId || headerTenant || orgQuery || tenantQuery || undefined;
 
+    // Basic input validation: page/limit must be positive integers
+    if (pageRaw && (!/^[0-9]+$/.test(String(pageRaw)) || parseInt(pageRaw, 10) < 1)) {
+      return res.status(400).json({ success: false, message: 'Invalid page parameter' });
+    }
+    if (limitRaw && (!/^[0-9]+$/.test(String(limitRaw)) || parseInt(limitRaw, 10) < 1)) {
+      return res.status(400).json({ success: false, message: 'Invalid limit parameter' });
+    }
+
     // Parse sort; allow only known sortable fields to keep index usage optimal
     const allowedSortKeys = new Set(['createdAt', 'timestamp', 'created_at', '_id']);
     let sortStage = {};
@@ -64,9 +72,16 @@ async function listLLMCosts(req, res, next) {
       sortStage = { createdAt: -1, timestamp: -1, created_at: -1, _id: -1 };
     }
 
-    // Pagination: default envelope pagination
+    // Pagination: default envelope pagination with conservative defaults for performance
+    // Default limit=20 but if not explicitly provided, cap at 50 max. If user provides higher, clamp to 200.
     const page = Math.max(parseInt(pageRaw, 10) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 200);
+    const userLimit = parseInt(limitRaw, 10);
+    const defaultLimit = 20;
+    const computedLimit = Number.isFinite(userLimit) && userLimit > 0 ? userLimit : defaultLimit;
+    // Hard caps: default flow must never exceed 50, absolute cap 200 for explicit requests
+    const hardMaxDefault = 50;
+    const hardMax = 200;
+    const limit = Math.min(computedLimit, userLimit ? hardMax : hardMaxDefault);
     const skip = (page - 1) * limit;
 
     // Tenant match (optional if not provided/resolved). Keep it first to use compound indexes.
@@ -121,9 +136,13 @@ async function listLLMCosts(req, res, next) {
       },
     ];
 
-    // Apply a strict aggregation timeout to prevent request from hanging too long
-    const maxTime = parseInt(process.env.MONGO_QUERY_TIMEOUT_MS || '5000', 10); // 5s default
+    // Apply a strict aggregation timeout and batch size to prevent long/hanging queries
+    const maxTime = parseInt(process.env.MONGO_QUERY_TIMEOUT_MS || '8000', 10); // 8s default per SLA
     const agg = LLMCost.aggregate(pipeline).allowDiskUse(true);
+    // batchSize limits memory usage during aggregation cursor iteration
+    if (typeof agg.cursor === 'function') {
+      try { agg.cursor({ batchSize: Math.max(50, Math.min(200, limit)) }); } catch (_) {}
+    }
     if (typeof agg.maxTimeMS === 'function') {
       agg.maxTimeMS(Math.max(1000, maxTime));
     }
