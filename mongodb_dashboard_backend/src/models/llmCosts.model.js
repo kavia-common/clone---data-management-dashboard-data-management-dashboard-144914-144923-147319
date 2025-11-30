@@ -8,8 +8,12 @@ const LLMCostsSchema = new mongoose.Schema(
   {
     organization_id: { type: String, index: true },
     tenant_id: { type: String, index: true },
-    users: { type: Array, default: [] },     // expected to contain objects possibly with user_cost
-    project: { type: Array, default: [] },   // array for which we compute size as project_count
+    organization_name: { type: String, index: false },
+    organization_cost: { type: mongoose.Schema.Types.Mixed, index: false }, // can be string or number in datasets
+    users: { type: Array, default: [] },
+    project: { type: Array, default: [] },
+    projects: { type: Array, default: [] },
+    agents: { type: Array, default: [] },
     total_cost: { type: Number, default: 0 },
     created_at: { type: Date, index: true, default: Date.now },
     timestamp: { type: Date, index: true, default: Date.now },
@@ -22,7 +26,7 @@ const LLMCostsSchema = new mongoose.Schema(
   }
 );
 
- // Performance indexes to optimize listing and filtering by tenant + time
+// Performance indexes to optimize listing and filtering by tenant + time
 // Core indexes: organization_id + _id desc (native uses _id), and createdAt variants for time sort
 LLMCostsSchema.index({ organization_id: 1, _id: -1 });
 LLMCostsSchema.index({ tenant_id: 1, _id: -1 });
@@ -46,4 +50,4 @@ try {
   LLMCostsSchema.index({ 'users.user_id': 1 }, { sparse: true });
 } catch (_) {}
 
-module.exports = mongoose.model('LLMCost', LLMCostsSchema,'llm-costs');
+module.exports = mongoose.model('LLMCost', LLMCostsSchema, 'llm-costs');
