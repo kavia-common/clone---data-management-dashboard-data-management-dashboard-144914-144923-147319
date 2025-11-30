@@ -59,6 +59,18 @@ async function listLLMCosts(req, res, next) {
 
     const maxTime = 8000;
 
+    // Fast path: HEAD returns only headers/meta with zero body for quick checks
+    if (req.method === 'HEAD') {
+      const totalHead = await LLMCost.countDocuments(match).maxTimeMS(2000).exec();
+      try {
+        if (orgFilter) res.set('X-LlmCosts-OrgFilter', String(orgFilter));
+        res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
+        res.set('X-ListEnvelope', 'true');
+        res.set('X-Total-Count', String(totalHead));
+      } catch (_) {}
+      return res.status(200).end();
+    }
+
     // Total count for meta
     const total = await LLMCost.countDocuments(match).maxTimeMS(maxTime).exec();
 

@@ -9,7 +9,7 @@ Quick start (development)
 - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
 - cp .env.example .env    # then edit as needed
 - npm ci                  # or: npm install
-- npm run dev             # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server)
+- npm run dev             # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (Express-only, no React/webpack dev server). Uses nodemon hot reload.
 - npm run dev:watch       # same as dev, but with nodemon hot reload for local changes
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state

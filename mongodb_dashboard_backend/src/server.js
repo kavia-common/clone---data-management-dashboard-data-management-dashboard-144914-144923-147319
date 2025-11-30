@@ -160,6 +160,15 @@ function startServerStrict() {
   process.on('unhandledRejection', (reason) => {
     try {
       console.error('[unhandledRejection]', reason);
+      const mu = process.memoryUsage?.();
+      if (mu) {
+        console.error('[memory]', {
+          rss: mu.rss,
+          heapTotal: mu.heapTotal,
+          heapUsed: mu.heapUsed,
+          external: mu.external,
+        });
+      }
       if (NODE_ENV === 'production') {
         // In production, fail fast to avoid undefined state
         process.exitCode = 1;
@@ -170,6 +179,15 @@ function startServerStrict() {
   process.on('uncaughtException', (err) => {
     try {
       console.error('[uncaughtException]', err);
+      const mu = process.memoryUsage?.();
+      if (mu) {
+        console.error('[memory]', {
+          rss: mu.rss,
+          heapTotal: mu.heapTotal,
+          heapUsed: mu.heapUsed,
+          external: mu.external,
+        });
+      }
       if (NODE_ENV === 'production') {
         process.exitCode = 1;
       }
