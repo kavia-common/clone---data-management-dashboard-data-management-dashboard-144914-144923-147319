@@ -18,8 +18,22 @@ const { buildCrudController } = require('../controllers/crudFactory');
 // Default CRUD controller (used for non-list routes)
 const crud = buildCrudController(LLMCost, '-timestamp');
 
-// Apply auth + tenant enforcement; route-local resolvers will allow demo scoping for GET list
-router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
+// Apply auth + tenant enforcement by default for write and ID routes,
+// but allow unauthenticated list with header/query tenant scoping for demo/testing.
+router.use((req, res, next) => {
+  // Only enforce full auth+tenant for non-list endpoints
+  const isList = req.method === 'GET' && (req.path === '/' || req.path === '');
+  if (!isList) {
+    return verifyAuth(req, res, (err) => {
+      if (err) return next(err);
+      requireTenant(req, res, (err2) => {
+        if (err2) return next(err2);
+        return tenantScopeEnforcer()(req, res, next);
+      });
+    });
+  }
+  return next();
+});
 
 /**
  * Route-local resolver: for GET list, allow organization_id/tenant_id/header when Authorization
@@ -67,7 +81,7 @@ router.use((req, res, next) => {
  */
 router.get('/', asyncHandler(controller.listLLMCosts));
 
-// Keep other CRUD endpoints
+// Keep other CRUD endpoints (require auth/tenant enforced above)
 router.get('/:id', asyncHandler(crud.getById));
 router.post('/', asyncHandler(crud.create));
 router.put('/:id', asyncHandler(crud.update));

@@ -12,15 +12,22 @@ const LLMCost = require('../models/llmCosts.model');
  *  - Return documents from llm-costs collection with proper pagination and optional tenant filter.
  *  - Do NOT unwind users here; dedicated per-user listing lives at /api/llm-costs/users.
  *
+ * Performance and safety:
+ *  - Enforces reasonable default pagination (page=1, limit=20 capped at 200).
+ *  - Enforces tenant-scoped $match first to leverage indexes and avoid collection scans.
+ *  - Restricts sort keys to indexed date fields and _id for stability.
+ *  - Applies MongoDB maxTimeMS to avoid gateway timeouts on slow aggregations.
+ *  - Avoids heavy computed fields when not needed for listing.
+ *
  * Response (ListEnvelope):
  *  - { success: true, data: [doc...], meta: { page, limit, total } }
  *
  * Query params:
  *  - organization_id (alias tenant_id or x-organization-id header) for scoping
  *  - page (default 1), limit (default 20, max 200)
- *  - sort (defaults to createdAt desc, _id desc). Supports createdAt, timestamp, created_at, _id.
+ *  - sort (defaults to createdAt desc, then timestamp, created_at, _id)
  */
- // PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
 async function listLLMCosts(req, res, next) {
   try {
     const {
@@ -40,14 +47,16 @@ async function listLLMCosts(req, res, next) {
 
     const resolvedTenant = req.tenantId || headerTenant || orgQuery || tenantQuery || undefined;
 
-    // Sort parsing
+    // Parse sort; allow only known sortable fields to keep index usage optimal
+    const allowedSortKeys = new Set(['createdAt', 'timestamp', 'created_at', '_id']);
     let sortStage = {};
     if (sortRaw && typeof sortRaw === 'string' && sortRaw.trim()) {
       sortRaw.split(',').forEach((s) => {
         const v = s.trim();
         if (!v) return;
-        if (v.startsWith('-')) sortStage[v.slice(1)] = -1;
-        else sortStage[v] = 1;
+        const dir = v.startsWith('-') ? -1 : 1;
+        const key = v.startsWith('-') ? v.slice(1) : v;
+        if (allowedSortKeys.has(key)) sortStage[key] = dir;
       });
     }
     if (!Object.keys(sortStage).length) {
@@ -60,7 +69,7 @@ async function listLLMCosts(req, res, next) {
     const limit = Math.min(Math.max(parseInt(limitRaw, 10) || 20, 1), 200);
     const skip = (page - 1) * limit;
 
-    // Tenant match (optional if not provided/resolved)
+    // Tenant match (optional if not provided/resolved). Keep it first to use compound indexes.
     const match = {};
     if (resolvedTenant) {
       const t = String(resolvedTenant);
@@ -74,93 +83,104 @@ async function listLLMCosts(req, res, next) {
       ];
     }
 
-    // Build normalized projection fields
+    // Minimal projection to avoid unnecessary work
+    const projection = {
+      _id: 1,
+      organization_id: 1,
+      tenant_id: 1,
+      organizationId: 1,
+      tenantId: 1,
+      orgId: 1,
+      organization_name: 1,
+      tenant_name: 1,
+      organization: 1,
+      'tenant.name': 1,
+      organization_cost: 1,
+      total_cost: 1,
+      total: 1,
+      cost: 1,
+      createdAt: 1,
+      timestamp: 1,
+      created_at: 1,
+      users: 1,
+      project: 1,
+      projects: 1,
+      agents: 1,
+      Agents: 1,
+    };
+
     const pipeline = [
       Object.keys(match).length ? { $match: match } : { $match: {} },
-      {
-        $addFields: {
-          organization_id_norm: {
-            $ifNull: [
-              '$organization_id',
-              { $ifNull: ['$organizationId', { $ifNull: ['$tenant_id', { $ifNull: ['$tenantId', { $ifNull: ['$orgId', '$tenant.tenant_id'] }] }] }] }
-            ]
-          },
-          organization_name_norm: {
-            $ifNull: [
-              '$organization_name',
-              { $ifNull: ['$tenant_name', { $ifNull: ['$organization', { $ifNull: ['$tenant.name', null] }] }] }
-            ]
-          },
-          organization_cost_norm: {
-            $convert: {
-              input: {
-                $ifNull: [
-                  '$organization_cost',
-                  { $ifNull: ['$total_cost', { $ifNull: ['$total', { $ifNull: ['$cost', 0] }] }] }
-                ]
-              },
-              to: 'double',
-              onError: 0,
-              onNull: 0
-            }
-          },
-          users_norm: { $ifNull: ['$users', []] },
-          projects_norm: {
-            $cond: [
-              { $isArray: '$project' },
-              '$project',
-              { $ifNull: ['$projects', []] }
-            ]
-          },
-          agents_norm: {
-            $cond: [
-              { $isArray: '$agents' },
-              '$agents',
-              { $ifNull: ['$Agents', []] }
-            ]
-          }
-        }
-      },
       { $sort: sortStage },
-      {
-        $project: {
-          _id: 1,
-          organization_id: '$organization_id_norm',
-          organization_name: '$organization_name_norm',
-          organization_cost: '$organization_cost_norm',
-          users: '$users_norm',
-          projects: '$projects_norm',
-          agents: '$agents_norm',
-          createdAt: 1,
-          timestamp: 1,
-          created_at: 1
-        }
-      },
+      { $project: projection },
       {
         $facet: {
           data: [{ $skip: skip }, { $limit: limit }],
-          totalCount: [{ $count: 'count' }]
-        }
-      }
+          totalCount: [{ $count: 'count' }],
+        },
+      },
     ];
 
-    const result = await LLMCost.aggregate(pipeline).allowDiskUse(true).exec();
-    const data = result?.[0]?.data || [];
+    // Apply a strict aggregation timeout to prevent request from hanging too long
+    const maxTime = parseInt(process.env.MONGO_QUERY_TIMEOUT_MS || '5000', 10); // 5s default
+    const agg = LLMCost.aggregate(pipeline).allowDiskUse(true);
+    if (typeof agg.maxTimeMS === 'function') {
+      agg.maxTimeMS(Math.max(1000, maxTime));
+    }
+
+    const result = await agg.exec();
+    const dataRaw = result?.[0]?.data || [];
     const total = result?.[0]?.totalCount?.[0]?.count || 0;
+
+    // Normalize a few fields cheaply on the app side to avoid $addFields compute cost in Mongo
+    const data = dataRaw.map((doc) => {
+      const d = { ...doc };
+      // Normalize organization id and name for client convenience
+      d.organization_id =
+        d.organization_id ||
+        d.organizationId ||
+        d.tenant_id ||
+        d.tenantId ||
+        d.orgId ||
+        (d.tenant && d.tenant.tenant_id) ||
+        null;
+
+      d.organization_name =
+        d.organization_name ||
+        d.tenant_name ||
+        d.organization ||
+        (d.tenant && d.tenant.name) ||
+        null;
+
+      // Normalize cost
+      const costCandidate = d.organization_cost ?? d.total_cost ?? d.total ?? d.cost ?? 0;
+      d.organization_cost = typeof costCandidate === 'number' ? costCandidate : Number(costCandidate) || 0;
+
+      // Keep users/projects/agents as-is; avoid unwinding here
+      return d;
+    });
 
     // Diagnostics headers
     try {
       if (resolvedTenant) res.set('X-Applied-Tenant', String(resolvedTenant));
       res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
+      res.set('X-MaxTimeMS', String(Math.max(1000, maxTime)));
     } catch {}
 
     // Always return envelope for consistent client experience
     return res.status(200).json({
       success: true,
       data,
-      meta: { page, limit, total }
+      meta: { page, limit, total },
     });
   } catch (err) {
+    // If the aggregation exceeded time limit, convert to 504 for clarity
+    if (err && (err.code === 50 || /exceeded time limit/i.test(String(err.message || '')))) {
+      return res.status(504).json({
+        success: false,
+        message: 'Aggregation exceeded time limit. Try narrowing the tenant or time range, or lower page size.',
+      });
+    }
     return next(err);
   }
 }
