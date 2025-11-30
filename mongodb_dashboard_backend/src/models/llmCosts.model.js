@@ -26,8 +26,12 @@ const LLMCostsSchema = new mongoose.Schema(
   }
 );
 
-// Performance indexes to optimize listing and filtering by tenant + time
-// Core indexes: organization_id + _id desc (native uses _id), and createdAt variants for time sort
+/* Performance indexes to optimize listing and filtering by tenant + time
+ * Coverage for the GET /api/llm-costs fast path:
+ *  - Exact match on organization_id (when provided)
+ *  - Sort by _id desc (native ObjectId monotonic order)
+ *  These indexes ensure a bounded, non-scanning query path.
+ */
 LLMCostsSchema.index({ organization_id: 1, _id: -1 });
 LLMCostsSchema.index({ tenant_id: 1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, createdAt: -1, _id: -1 });

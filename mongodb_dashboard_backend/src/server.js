@@ -196,5 +196,10 @@ function startServerStrict() {
   return server;
 }
 
-// Export started server
-module.exports = startServerStrict();
+/* Avoid duplicate listeners if this module is re-evaluated by a hot-reloader */
+if (global.__dashboard_backend_server__) {
+  module.exports = global.__dashboard_backend_server__;
+} else {
+  global.__dashboard_backend_server__ = startServerStrict();
+  module.exports = global.__dashboard_backend_server__;
+}
