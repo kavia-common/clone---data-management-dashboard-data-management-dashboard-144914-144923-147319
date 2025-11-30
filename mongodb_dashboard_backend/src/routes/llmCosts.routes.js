@@ -3,9 +3,8 @@
 const express = require('express');
 const router = express.Router();
 const { asyncHandler } = require('../utils/http');
-const { verifyAuth } = require('../middleware/verifyAuth');
-const { requireTenant } = require('../middleware/requireTenant');
-const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
+// Prefer centralized middleware index to avoid path/syntax mismatches
+const { verifyAuth, requireTenant, tenantScopeEnforcer } = require('../middleware');
 const LLMCost = require('../models/llmCosts.model');
 const controller = require('../controllers/llmCosts.controller');
 const { buildCrudController } = require('../controllers/crudFactory');
@@ -62,11 +61,9 @@ router.use((req, res, next) => {
 /**
  * GET /api/llm-costs
  * PUBLIC_INTERFACE
- * Optimized listing returning one row per user with only required fields:
- *  - id (document _id), organization_cost, total_users_with_projects,
- *  - type, user_id, user_cost, project_count
- * Supports ?organization_id filter, ?page, ?limit, and ?sort (defaults to createdAt/_id desc).
- * Response shape: { items: [{ id, organization_cost, total_users_with_projects, type, user_id, user_cost, project_count }], total, page, limit }.
+ * Listing returns llm-costs documents with ListEnvelope:
+ *  { success, data: [...], meta: { page, limit, total } }
+ * Supports ?organization_id/tenant_id header/query tenant filter, ?page, ?limit, and ?sort.
  */
 router.get('/', asyncHandler(controller.listLLMCosts));
 

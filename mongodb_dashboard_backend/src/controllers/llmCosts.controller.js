@@ -12,18 +12,13 @@ const LLMCost = require('../models/llmCosts.model');
  *  - Return documents from llm-costs collection with proper pagination and optional tenant filter.
  *  - Do NOT unwind users here; dedicated per-user listing lives at /api/llm-costs/users.
  *
- * Response fields per document (normalized):
- *  - _id, organization_id, organization_name, organization_cost, users[], projects[], agents[]
+ * Response (ListEnvelope):
+ *  - { success: true, data: [doc...], meta: { page, limit, total } }
  *
  * Query params:
  *  - organization_id (alias tenant_id or x-organization-id header) for scoping
  *  - page (default 1), limit (default 20, max 200)
  *  - sort (defaults to createdAt desc, _id desc). Supports createdAt, timestamp, created_at, _id.
- *
- * Behavior:
- *  - If tenant not resolved from JWT/header/query, returns paginated list across all tenants (demo mode).
- *  - Returns envelope when page/limit present: { success, data, meta:{ page, limit, total } }
- *  - Otherwise returns raw array of documents.
  */
  // PUBLIC_INTERFACE
 async function listLLMCosts(req, res, next) {

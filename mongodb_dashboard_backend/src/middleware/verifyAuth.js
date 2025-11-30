@@ -326,7 +326,9 @@ function verifyAuth(req, res, next) {
     return next();
   } catch (err) {
     const allowDemoFlag = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
-    if (!process.env.NODE_ENV?.toLowerCase() === 'production' && allowDemoFlag) {
+    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+    // In non-production and when demo is allowed, fabricate minimal auth context on verification failure
+    if (!isProd && allowDemoFlag) {
       req.auth = {
         sub: 'demo-fallback',
         tenantId:
