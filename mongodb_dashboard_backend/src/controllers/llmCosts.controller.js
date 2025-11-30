@@ -92,13 +92,24 @@ async function listLLMCosts(req, res, next) {
     }
 
     // Fetch page, sorted by _id desc
-    const data = await LLMCost.find(match, projection)
-      .sort({ _id: -1 })
+    const dataRaw = await LLMCost.find(match, projection)
+      .sort({ _id: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .maxTimeMS(maxTime)
       .lean()
       .exec();
+
+    // Normalize to exact fields required; preserve optional fields if present
+    const data = (Array.isArray(dataRaw) ? dataRaw : []).map((doc) => ({
+      _id: doc._id,
+      organization_id: doc.organization_id ?? doc.tenant_id, // prefer organization_id
+      organization_name: doc.organization_name ?? null,
+      organization_cost: doc.organization_cost ?? doc.total_cost ?? null,
+      users: Array.isArray(doc.users) ? doc.users : [],
+      projects: Array.isArray(doc.projects) ? doc.projects : (Array.isArray(doc.project) ? doc.project : []),
+      agents: Array.isArray(doc.agents) ? doc.agents : [],
+    }));
 
     return res.status(200).json({
       success: true,

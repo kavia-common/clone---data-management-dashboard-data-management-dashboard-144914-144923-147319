@@ -112,11 +112,10 @@ function startServerStrict() {
         // concise pointers
         console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
         // Single unambiguous readiness marker required by orchestrator:
-        // EXACT STRING: READY: http://HOST:PORT
+        // EXACT STRING: READY: http://${HOST}:${PORT}
         console.log(`READY: http://${HOST}:${PORT}`);
         // Additional compatibility markers for various preview systems
         console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
-        console.log(`Listening on http://${HOST}:${PORT}`);
       } catch {}
       writePidFile();
     })

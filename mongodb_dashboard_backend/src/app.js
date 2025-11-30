@@ -3,7 +3,7 @@ const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
-const { connectDB } = require('./config/db');
+const { connectDB, isDbConnected } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
@@ -79,20 +79,35 @@ app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-// ---------------------------------------------
-// Health endpoints
-// ---------------------------------------------
-const healthHandler = (req, res) => {
-  const ready = mongoose.connection.readyState;
-  const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
-  const payload = { status: 'ok', db, timestamp: new Date().toISOString() };
-  if (db !== 'connected') {
-    payload.hint = 'Database not connected. Ensure MONGODB_URI is set.';
-  }
-  res.set('Cache-Control', 'no-store');
-  return res.status(200).json(payload);
-};
-app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
+ // ---------------------------------------------
+ // Health endpoints
+ // ---------------------------------------------
+ const healthHandler = (req, res) => {
+   const ready = mongoose.connection.readyState;
+   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+   const payload = { status: 'ok', db, timestamp: new Date().toISOString() };
+   if (db !== 'connected') {
+     payload.hint = 'Database not connected. Ensure MONGODB_URI is set.';
+   }
+   res.set('Cache-Control', 'no-store');
+   return res.status(200).json(payload);
+ };
+ app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
+
+ // PUBLIC_INTERFACE
+ // Add explicit DB readiness endpoint which fails when DB is not connected.
+ app.get('/api/db-ready', (req, res) => {
+   const connected = isDbConnected();
+   res.set('Cache-Control', 'no-store');
+   if (!connected) {
+     return res.status(503).json({
+       success: false,
+       status: 'db-not-connected',
+       message: 'MongoDB is not connected. Set MONGODB_URI and restart.',
+     });
+   }
+   return res.status(200).json({ success: true, status: 'ok' });
+ });
 
 // ---------------------------------------------
 // Routers
@@ -143,18 +158,46 @@ app.use((req, res, next) => {
   next();
 });
 
+const requireDb = (req, res, next) => {
+  // Only enforce for API routes that read from Mongo
+  const path = req.path || '';
+  const needsDb = path.startsWith('/llm-costs')
+    || path.startsWith('/session')
+    || path.startsWith('/session-tracking')
+    || path.startsWith('/analytics')
+    || path.startsWith('/app-deployments')
+    || path.startsWith('/tenants')
+    || path.startsWith('/projects')
+    || path.startsWith('/users');
+  if (needsDb && !isDbConnected()) {
+    return res.status(503).json({
+      success: false,
+      status: 'db-not-connected',
+      message: 'Database not connected. Configure MONGODB_URI and try again.',
+    });
+  }
+  return next();
+};
+
 safeUse('/api/session-tracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
+app.use('/api/analytics', requireDb);
 safeUse('/api/analytics', require('./routes/analytics.overview.routes'));
 safeUse('/api/analytics', require('./routes/analytics'));
+app.use('/api/app-deployments', requireDb);
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
+app.use('/api/costs', requireDb);
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
+app.use('/api/llm-costs', requireDb);
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
+app.use('/api/tenants', requireDb);
 safeUse('/api/tenants', require('./routes/tenants.routes'));
+app.use('/api/projects', requireDb);
 safeUse('/api/projects', require('./routes/projects.routes'));
+app.use('/api/session', requireDb);
 safeUse('/api/session', require('./routes/session.routes'));
 safeUse('/api/dashboard', require('./routes/dashboard.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));

@@ -50,7 +50,7 @@ Common variables:
 - MONGODB_URI=mongodb+srv://...
 - MONGODB_DB=test
 
-Note: The app will start even if MONGODB_URI is not set; health/docs endpoints remain available. Mongo connects when properly configured (non-fatal on startup when missing).
+Note: The app will start even if MONGODB_URI is not set; health/docs endpoints remain available. Mongo connects when properly configured (non-fatal on startup when missing). For endpoints that require DB, the server now responds 503 with status=db-not-connected until Mongo is connected. You can check DB readiness via GET /api/db-ready.
 
 CORS
 - Defaults allow localhost:3000 and the current host:3001 (Swagger UI served by backend).
