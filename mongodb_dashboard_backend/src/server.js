@@ -156,13 +156,24 @@ function startServerStrict() {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('exit', removePidFile);
 
+  // In development, log and keep process alive for unhandled async errors to avoid early exit.
   process.on('unhandledRejection', (reason) => {
-    // eslint-disable-next-line no-console
-    console.error('[unhandledRejection]', reason);
+    try {
+      console.error('[unhandledRejection]', reason);
+      if (NODE_ENV === 'production') {
+        // In production, fail fast to avoid undefined state
+        process.exitCode = 1;
+      }
+    } catch {}
   });
+  // In development, log and keep process alive for uncaught exceptions.
   process.on('uncaughtException', (err) => {
-    // eslint-disable-next-line no-console
-    console.error('[uncaughtException]', err);
+    try {
+      console.error('[uncaughtException]', err);
+      if (NODE_ENV === 'production') {
+        process.exitCode = 1;
+      }
+    } catch {}
   });
 
   return server;

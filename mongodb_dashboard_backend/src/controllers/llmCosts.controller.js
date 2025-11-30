@@ -73,6 +73,10 @@ async function listLLMCosts(req, res, next) {
     const data = await cursor.exec();
 
     // Response envelope
+    try {
+      res.set('X-ListEnvelope', 'true');
+      res.set('X-Query-MaxTimeMS', String(maxTime));
+    } catch {}
     return res.status(200).json({
       success: true,
       data,

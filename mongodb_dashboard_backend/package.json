@@ -5,7 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "NODE_OPTIONS=--max_old_space_size=512 node src/server.js",
-    "dev": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 BROWSERSLIST_DISABLE_CACHE=1 node src/server.js",
+    "dev": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 BROWSERSLIST_DISABLE_CACHE=1 nodemon --exitcrash src/server.js",
     "dev:watch": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 nodemon --exitcrash src/server.js",
     "dev:nodemon": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 nodemon --exitcrash src/server.js",
     "dev:express": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 node src/server.js",
