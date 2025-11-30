@@ -14,16 +14,16 @@ const LLMCost = require('../models/llmCosts.model');
  *
  * Performance and safety:
  *  - Enforces reasonable default pagination (page=1, limit=20 capped at 200).
- *  - Enforces tenant-scoped $match first to leverage indexes and avoid collection scans.
+ *  - Allows optional organization/tenant filter but returns all when not provided.
  *  - Restricts sort keys to indexed date fields and _id for stability.
- *  - Applies MongoDB maxTimeMS to avoid gateway timeouts on slow aggregations.
- *  - Avoids heavy computed fields when not needed for listing.
+ *  - Applies MongoDB maxTimeMS to avoid gateway timeouts.
+ *  - Avoids any $unwind or filters that would drop rows.
  *
  * Response (ListEnvelope):
  *  - { success: true, data: [doc...], meta: { page, limit, total } }
  *
  * Query params:
- *  - organization_id (alias tenant_id or x-organization-id header) for scoping
+ *  - organization_id (alias tenant_id or x-organization-id header) optional
  *  - page (default 1), limit (default 20, max 200)
  *  - sort (defaults to createdAt desc, then timestamp, created_at, _id)
  */
@@ -38,7 +38,7 @@ async function listLLMCosts(req, res, next) {
       tenant_id: tenantQuery,
     } = req.query;
 
-    // Resolve tenant scope (JWT via upstream, else header, else query)
+    // Resolve optional tenant filter (do not enforce; allow all when missing)
     const headerTenant =
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
@@ -47,7 +47,7 @@ async function listLLMCosts(req, res, next) {
 
     const resolvedTenant = req.tenantId || headerTenant || orgQuery || tenantQuery || undefined;
 
-    // Basic input validation: page/limit must be positive integers
+    // Validate page/limit
     if (pageRaw && (!/^[0-9]+$/.test(String(pageRaw)) || parseInt(pageRaw, 10) < 1)) {
       return res.status(400).json({ success: false, message: 'Invalid page parameter' });
     }
@@ -55,7 +55,7 @@ async function listLLMCosts(req, res, next) {
       return res.status(400).json({ success: false, message: 'Invalid limit parameter' });
     }
 
-    // Parse sort; allow only known sortable fields to keep index usage optimal
+    // Sort: only allow safe, indexed keys
     const allowedSortKeys = new Set(['createdAt', 'timestamp', 'created_at', '_id']);
     let sortStage = {};
     if (sortRaw && typeof sortRaw === 'string' && sortRaw.trim()) {
@@ -68,23 +68,20 @@ async function listLLMCosts(req, res, next) {
       });
     }
     if (!Object.keys(sortStage).length) {
-      // Prefer createdAt then fallback to timestamp/created_at and always _id desc for stability
       sortStage = { createdAt: -1, timestamp: -1, created_at: -1, _id: -1 };
     }
 
-    // Pagination: default envelope pagination with conservative defaults for performance
-    // Default limit=20 but if not explicitly provided, cap at 50 max. If user provides higher, clamp to 200.
+    // Pagination with safe caps
     const page = Math.max(parseInt(pageRaw, 10) || 1, 1);
     const userLimit = parseInt(limitRaw, 10);
     const defaultLimit = 20;
     const computedLimit = Number.isFinite(userLimit) && userLimit > 0 ? userLimit : defaultLimit;
-    // Hard caps: default flow must never exceed 50, absolute cap 200 for explicit requests
     const hardMaxDefault = 50;
     const hardMax = 200;
     const limit = Math.min(computedLimit, userLimit ? hardMax : hardMaxDefault);
     const skip = (page - 1) * limit;
 
-    // Tenant match (optional if not provided/resolved). Keep it first to use compound indexes.
+    // Optional tenant match (if not provided, match all)
     const match = {};
     if (resolvedTenant) {
       const t = String(resolvedTenant);
@@ -98,7 +95,7 @@ async function listLLMCosts(req, res, next) {
       ];
     }
 
-    // Minimal projection to avoid unnecessary work
+    // Lightweight projection to keep full column-wise data
     const projection = {
       _id: 1,
       organization_id: 1,
@@ -136,10 +133,9 @@ async function listLLMCosts(req, res, next) {
       },
     ];
 
-    // Apply a strict aggregation timeout and batch size to prevent long/hanging queries
-    const maxTime = parseInt(process.env.MONGO_QUERY_TIMEOUT_MS || '8000', 10); // 8s default per SLA
+    // Apply sensible maxTimeMS and batch size
+    const maxTime = parseInt(process.env.MONGO_QUERY_TIMEOUT_MS || '8000', 10);
     const agg = LLMCost.aggregate(pipeline).allowDiskUse(true);
-    // batchSize limits memory usage during aggregation cursor iteration
     if (typeof agg.cursor === 'function') {
       try { agg.cursor({ batchSize: Math.max(50, Math.min(200, limit)) }); } catch (_) {}
     }
@@ -151,10 +147,9 @@ async function listLLMCosts(req, res, next) {
     const dataRaw = result?.[0]?.data || [];
     const total = result?.[0]?.totalCount?.[0]?.count || 0;
 
-    // Normalize a few fields cheaply on the app side to avoid $addFields compute cost in Mongo
+    // Normalize fields for column-wise output
     const data = dataRaw.map((doc) => {
       const d = { ...doc };
-      // Normalize organization id and name for client convenience
       d.organization_id =
         d.organization_id ||
         d.organizationId ||
@@ -171,29 +166,24 @@ async function listLLMCosts(req, res, next) {
         (d.tenant && d.tenant.name) ||
         null;
 
-      // Normalize cost
       const costCandidate = d.organization_cost ?? d.total_cost ?? d.total ?? d.cost ?? 0;
       d.organization_cost = typeof costCandidate === 'number' ? costCandidate : Number(costCandidate) || 0;
 
-      // Keep users/projects/agents as-is; avoid unwinding here
       return d;
     });
 
-    // Diagnostics headers
     try {
       if (resolvedTenant) res.set('X-Applied-Tenant', String(resolvedTenant));
       res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
       res.set('X-MaxTimeMS', String(Math.max(1000, maxTime)));
     } catch {}
 
-    // Always return envelope for consistent client experience
     return res.status(200).json({
       success: true,
       data,
       meta: { page, limit, total },
     });
   } catch (err) {
-    // If the aggregation exceeded time limit, convert to 504 for clarity
     if (err && (err.code === 50 || /exceeded time limit/i.test(String(err.message || '')))) {
       return res.status(504).json({
         success: false,

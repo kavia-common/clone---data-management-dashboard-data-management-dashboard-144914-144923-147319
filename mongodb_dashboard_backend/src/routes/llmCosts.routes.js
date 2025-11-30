@@ -3,7 +3,6 @@
 const express = require('express');
 const router = express.Router();
 const { asyncHandler } = require('../utils/http');
-// Prefer centralized middleware index to avoid path/syntax mismatches
 const { verifyAuth, requireTenant, tenantScopeEnforcer } = require('../middleware');
 const LLMCost = require('../models/llmCosts.model');
 const controller = require('../controllers/llmCosts.controller');
@@ -18,10 +17,8 @@ const { buildCrudController } = require('../controllers/crudFactory');
 // Default CRUD controller (used for non-list routes)
 const crud = buildCrudController(LLMCost, '-timestamp');
 
-// Apply auth + tenant enforcement by default for write and ID routes,
-// but allow unauthenticated list with header/query tenant scoping for demo/testing.
+// Enforce auth+tenant for write and ID routes only; allow list without strict tenant enforcement
 router.use((req, res, next) => {
-  // Only enforce full auth+tenant for non-list endpoints
   const isList = req.method === 'GET' && (req.path === '/' || req.path === '');
   if (!isList) {
     return verifyAuth(req, res, (err) => {
@@ -35,10 +32,7 @@ router.use((req, res, next) => {
   return next();
 });
 
-/**
- * Route-local resolver: for GET list, allow organization_id/tenant_id/header when Authorization
- * is not present or tenant not resolved by upstream middleware.
- */
+// Route-local resolver for optional tenant filter on list endpoint
 router.use((req, res, next) => {
   try {
     const isList = req.method === 'GET' && (req.path === '/' || req.path === '');
@@ -57,7 +51,6 @@ router.use((req, res, next) => {
       if (resolved) req.tenantId = String(resolved);
     }
 
-    // Diagnostics
     try {
       if (req.tenantScopeDisabled || req.allTenants) {
         res.set('X-All-Tenants', 'true');
@@ -77,10 +70,10 @@ router.use((req, res, next) => {
  * GET /api/llm-costs
  * Returns a ListEnvelope:
  * { success: true, data: [...], meta: { page, limit, total } }
- * - Supports tenant scoping via header/query when JWT is not present.
- * - Paginates with default limit=20 (default flow capped to 50; absolute cap 200 when explicitly requested).
- * - Applies aggregation cursor batchSize and maxTimeMS(8000) to prevent timeouts and memory spikes.
- * - Avoids heavy unwind/projections in list route; dedicated per-user listing is under /api/llm-costs/users.
+ * - Optional tenant filter (?organization_id or ?tenant_id). When omitted, returns all documents.
+ * - Safe defaults: limit=20 (default flow capped at 50), absolute cap 200 when explicitly requested.
+ * - Stable sort and maxTimeMS to avoid timeouts.
+ * - No unwinds or restrictive filters that could drop rows.
  */
 router.get('/', asyncHandler(controller.listLLMCosts));
 
