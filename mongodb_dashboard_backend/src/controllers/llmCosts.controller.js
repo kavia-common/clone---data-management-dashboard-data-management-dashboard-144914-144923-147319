@@ -1,174 +1,144 @@
 'use strict';
 
 const mongoose = require('mongoose');
-const LLMCost = require('../models/llmCosts.model');
-const { isDbConnected } = require('../config/db');
+const { isDBReadyFast, isDbConnected, getDb } = require('../config/db');
 
 /**
  * PUBLIC_INTERFACE
  * listLLMCosts
  * GET /api/llm-costs
  *
- * Purpose:
- *  - Return documents from 'llm-costs' collection with exact field names and no transformation/unwind.
- *  - Optional exact filter organization_id=<value> (alias tenant_id). When omitted, return all documents.
- *  - Sort by _id desc. Pagination (page, limit) with sane defaults/caps. Envelope: { success, data, meta }.
- * Behavior:
- *  - If DB not connected, early return 200 with empty data and meta, include header X-DB-Connected:false.
- *  - If required env vars are missing (MONGODB_URI or MONGODB_DB when explicitly required), respond 503 with clear message.
- *  - Add timing logs and headers; bound queries with maxTimeMS(8000) and limit cap.
+ * Deterministic and bounded behavior:
+ *  - Fast readiness short-circuit: if DB isn't ready within ~1s or MONGODB_URI missing, returns 503 JSON
+ *  - Direct find() on 'llm-costs' with exact organization_id match
+ *  - Bounded: maxTimeMS(5000), limit <= 50, stable sort by _id desc
+ *  - Projection only required fields to reduce payload
+ *  - On Mongo network timeout, return 504 concise JSON
+ *  - Adds diagnostic headers: X-DB-Connected, X-Query-Duration, X-Org-Filter
  */
 async function listLLMCosts(req, res, next) {
-  const t0 = Date.now();
+  const start = Date.now();
   try {
-    const {
-      page: pageRaw,
-      limit: limitRaw,
-      organization_id: orgQ,
-      tenant_id: tenantQ,
-    } = req.query;
-
-    // Validate essential env for clarity when failing in demo/preview
-    const hasUri = !!process.env.MONGODB_URI;
-    if (!hasUri) {
+    // Env missing: fail fast
+    if (!process.env.MONGODB_URI) {
       res.set('X-DB-Connected', 'false');
-      res.set('X-Reason', 'MONGODB_URI not set');
+      res.set('X-Org-Filter', String(req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id || ''));
       return res.status(503).json({
         success: false,
-        status: 'db-not-configured',
-        message: 'Database URI is not configured. Set MONGODB_URI in environment.',
+        error: 'Database not configured',
+        detail: 'MONGODB_URI is missing',
       });
     }
 
-    // Early return if not connected to avoid hanging 504
+    // Readiness check within 1s
+    const readiness = await isDBReadyFast(1000);
+    if (!readiness.ok) {
+      res.set('X-DB-Connected', 'false');
+      res.set('X-Org-Filter', String(req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id || ''));
+      return res.status(503).json({
+        success: false,
+        error: 'Database not ready',
+        detail: readiness.reason || 'unknown',
+      });
+    }
+
     if (!isDbConnected()) {
-      try {
-        res.set('X-DB-Connected', 'false');
-      } catch (_) {}
-      return res.status(200).json({
-        success: true,
-        data: [],
-        meta: { page: 1, limit: 0, total: 0 },
+      // Attempt to connect just in case, but keep response bounded
+      try { await mongoose.connect(process.env.MONGODB_URI); } catch {}
+    }
+
+    const db = await getDb();
+    const collection = db.collection('llm-costs');
+
+    // Resolve exact tenant filter; required
+    const headerTenant = req.headers['x-organization-id'];
+    const queryTenant = req.query.organization_id || req.query.tenant_id;
+    const resolvedTenant = headerTenant || queryTenant;
+    if (!resolvedTenant) {
+      res.set('X-DB-Connected', String(isDbConnected()));
+      res.set('X-Org-Filter', '');
+      return res.status(400).json({
+        success: false,
+        error: 'Missing tenant (organization_id). Provide Authorization or x-organization-id header, or ?organization_id',
       });
     }
 
-    // Resolve optional organization filter
-    const orgFilter =
-      (typeof orgQ === 'string' && orgQ.trim()) ||
-      (typeof tenantQ === 'string' && tenantQ.trim()) ||
-      undefined;
+    const filter = { organization_id: String(resolvedTenant) };
+    const sort = { _id: -1 };
 
-    // Pagination: defaults and caps
-    const DEFAULT_LIMIT = 20;
-    const HARD_CAP = 200;
-    const page = Math.max(parseInt(pageRaw, 10) || 1, 1);
-    const requestedLimit = Math.max(parseInt(limitRaw, 10) || DEFAULT_LIMIT, 1);
-    const limit = Math.min(requestedLimit, HARD_CAP);
-    const skip = (page - 1) * limit;
-
-    // Apply exact match when provided
-    const match = {};
-    if (orgFilter) {
-      match.organization_id = String(orgFilter);
+    // Limit cap <= 50
+    let limit = 20;
+    if (req.query.limit) {
+      const l = parseInt(req.query.limit, 10);
+      if (Number.isFinite(l) && l > 0) limit = l;
     }
+    limit = Math.min(limit, 50);
 
-    // Projection: return as stored; do not transform or unwind
+    const page = req.query.page ? parseInt(req.query.page, 10) : 1;
+    const hasPagination = Number.isInteger(page) && page >= 1;
+    const skip = hasPagination ? (page - 1) * limit : 0;
+
+    // Projection of essential fields
     const projection = {
       _id: 1,
       organization_id: 1,
-      organization_name: 1,
-      organization_cost: 1,
-      users: 1,
-      projects: 1,
-      project: 1,
-      agents: 1,
-      created_at: 1,
-      createdAt: 1,
+      project_id: 1,
+      user_id: 1,
+      type: 1,
       timestamp: 1,
+      total_cost: 1,
+      organization_cost: 1,
+      createdAt: 1,
+      created_at: 1,
     };
 
-    const maxTime = 8000;
-
-    // Fast path: HEAD returns only headers/meta with zero body for quick checks
-    if (req.method === 'HEAD') {
-      const totalHead = await LLMCost.countDocuments(match).maxTimeMS(2000).exec();
-      try {
-        if (orgFilter) res.set('X-LlmCosts-OrgFilter', String(orgFilter));
-        res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
-        res.set('X-ListEnvelope', 'true');
-        res.set('X-Total-Count', String(totalHead));
-        res.set('X-Query-MaxTimeMS', '2000');
-      } catch (_) {}
-      return res.status(200).end();
-    }
-
-    const tCount0 = Date.now();
-    // Total count for meta (bounded)
-    const total = await LLMCost.countDocuments(match).maxTimeMS(maxTime).exec();
-    const tCount1 = Date.now();
-
-    // Diagnostics headers (non-breaking)
+    let items;
     try {
-      if (orgFilter) res.set('X-LlmCosts-OrgFilter', String(orgFilter));
-      res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
-      res.set('X-ListEnvelope', 'true');
-      res.set('X-Query-MaxTimeMS', String(maxTime));
-      res.set('X-DB-Connected', 'true');
-      res.set('X-Query-CountMs', String(tCount1 - tCount0));
-    } catch (_) {}
+      const cursor = collection
+        .find(filter, { projection })
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .maxTimeMS(5000);
 
-    // Short-circuit empty
-    if (!total) {
-      const t1 = Date.now();
-      try { res.set('X-Query-TotalMs', String(t1 - t0)); } catch (_) {}
-      return res.status(200).json({
-        success: true,
-        data: [],
-        meta: { page, limit, total: 0 },
-      });
-    }
-
-    const tFind0 = Date.now();
-    // Fetch page, sorted by _id desc
-    const dataRaw = await LLMCost.find(match, projection)
-      .sort({ _id: -1 }) // stable and indexed
-      .skip(skip)
-      .limit(limit)
-      .maxTimeMS(maxTime)
-      .lean()
-      .exec();
-    const tFind1 = Date.now();
-
-    // Normalize to exact fields required; preserve optional fields if present
-    const data = (Array.isArray(dataRaw) ? dataRaw : []).map((doc) => ({
-      _id: doc._id,
-      organization_id: doc.organization_id ?? doc.tenant_id ?? null, // prefer organization_id
-      organization_name: doc.organization_name ?? null,
-      organization_cost: doc.organization_cost ?? doc.total_cost ?? null,
-      users: Array.isArray(doc.users) ? doc.users : [],
-      projects: Array.isArray(doc.projects) ? doc.projects : (Array.isArray(doc.project) ? doc.project : []),
-      agents: Array.isArray(doc.agents) ? doc.agents : [],
-    }));
-
-    const t1 = Date.now();
-    try {
-      res.set('X-Query-FindMs', String(tFind1 - tFind0));
-      res.set('X-Query-TotalMs', String(t1 - t0));
-    } catch (_) {}
-
-    return res.status(200).json({
-      success: true,
-      data,
-      meta: { page, limit, total },
-    });
-  } catch (err) {
-    if (err && (err.code === 50 || /exceeded time limit/i.test(String(err.message || '')))) {
-      return res.status(504).json({
+      items = await cursor.toArray();
+    } catch (e) {
+      // Query timeout or network failures
+      const timedOut =
+        e && (e.code === 50 || /exceeded time limit|network timeout|timed out/i.test(String(e.message)));
+      res.set('X-DB-Connected', String(isDbConnected()));
+      res.set('X-Org-Filter', resolvedTenant);
+      res.set('X-Query-Duration', String(Date.now() - start));
+      return res.status(timedOut ? 504 : 500).json({
         success: false,
-        message: 'Query exceeded time limit.',
+        error: timedOut ? 'Query timed out' : 'Query failed',
       });
     }
-    return next(err);
+
+    res.set('X-DB-Connected', String(isDbConnected()));
+    res.set('X-Org-Filter', resolvedTenant);
+    res.set('X-Query-Duration', String(Date.now() - start));
+
+    if (hasPagination) {
+      let total = 0;
+      try {
+        total = await collection.countDocuments(filter, { maxTimeMS: 2000 });
+      } catch {
+        total = items.length + skip; // fallback estimate
+      }
+      return res.json({
+        success: true,
+        data: items,
+        meta: { page, limit, total },
+      });
+    } else {
+      return res.json(items);
+    }
+  } catch (err) {
+    try {
+      res.set('X-Query-Duration', String(Date.now() - start));
+    } catch {}
+    next(err);
   }
 }
 
