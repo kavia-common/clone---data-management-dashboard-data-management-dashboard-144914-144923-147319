@@ -117,7 +117,14 @@ function numericCostExpr() {
  */
 async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from, to, filter = {} } = {}) {
   const db = await getDb();
-  const col = db.collection('llm-costs');
+  // Prefer primary collection name 'llm-costs' and fallback to 'llm_costs' if needed
+  let col = db.collection('llm-costs');
+  try {
+    // Check collection exists lazily; if not, fallback
+    if (!col) col = db.collection('llm_costs');
+  } catch (_) {
+    try { col = db.collection('llm_costs'); } catch (__) {}
+  }
 
   const match = buildTenantAndTimeFilter({ tenantId, filter, from, to });
 
@@ -260,8 +267,8 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
                 [],
               ],
             },
-            { $multiply: [Math.max(Number(page) || 1, 1) - 1, Math.max(Number(limit) || 20, 1)] },
-            Math.max(Number(limit) || 20, 1),
+            { $multiply: [Math.max(parseInt(page, 10) || 1, 1) - 1, Math.max(parseInt(limit, 10) || 20, 1)] },
+            Math.max(parseInt(limit, 10) || 20, 1),
           ],
         },
       },
@@ -271,8 +278,16 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
   const agg = col.aggregate(facetPipeline, { allowDiskUse: true, maxTimeMS: 3500 });
   // Apply covered index hint when possible
   try {
-    const usesOrgInMatch = JSON.stringify(match || {}).includes('"organization_id"');
-    agg.hint(usesOrgInMatch ? { organization_id: 1, timestamp: -1, _id: 1 } : { tenant_id: 1, timestamp: -1, _id: 1 });
+    const mstr = JSON.stringify(match || {});
+    const usesOrgInMatch = mstr.includes('"organization_id"') || mstr.includes('"organizationId"');
+    const usesTenantInMatch = mstr.includes('"tenant_id"') || mstr.includes('"tenantId"');
+    if (usesOrgInMatch) {
+      agg.hint({ organization_id: 1, timestamp: -1, _id: 1 });
+    } else if (usesTenantInMatch) {
+      agg.hint({ tenant_id: 1, timestamp: -1, _id: 1 });
+    } else {
+      agg.hint({ timestamp: -1, _id: 1 });
+    }
   } catch (_) {}
 
   const docs = await agg.toArray();

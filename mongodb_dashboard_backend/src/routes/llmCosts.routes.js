@@ -300,6 +300,11 @@ const { aggregateOrganizationCosts } = require('../services/llmCosts.organizatio
 /**
  * Organization-level aggregated costs with nested users and projects.
  * Applies pagination to user rows and returns envelope { success, data, meta }.
+ * Response data shape for GET /api/llm-costs:
+ *   [
+ *     { _id: "<organization_id>::<user_id>", organization_cost: number, user_id: string, user_cost: number, projects_count: number }
+ *   ]
+ * meta: { page, limit, total } where total = number of user rows for the organization.
  */
 router.get('/', asyncHandler(async (req, res) => {
   // Validate pagination presence (as before)
@@ -335,12 +340,23 @@ router.get('/', asyncHandler(async (req, res) => {
       filter,
     });
 
-    const data = [result]; // Return as array of one org-row; compatible with frontend table expecting rows
-    const meta = { page, limit, total: result.totalUsers }; // total counts user rows for pagination
+    // Expected by frontend: flat rows per user with these fields
+    // { _id, organization_cost, user_id, user_cost, projects_count }
+    const users = Array.isArray(result?.users) ? result.users : [];
+    const flatRows = users.map(u => ({
+      _id: `${result.organization_id || tenantId || 'all'}::${u.user_id}`,
+      organization_cost: Number(result.organization_cost || 0),
+      user_id: u.user_id,
+      user_cost: Number(u.user_cost || 0),
+      projects_count: Number(u.project_count || (Array.isArray(u.projects) ? u.projects.length : 0)),
+    }));
+
+    const total = Number(result?.totalUsers || users.length || 0);
+    const meta = { page, limit, total };
 
     // Diagnostics headers
     try {
-      res.set('X-Aggregation', 'organization->users->projects');
+      res.set('X-Aggregation', 'organization->users->projects(flat-users)');
       if (tenantId) {
         res.set('X-Applied-Tenant', String(tenantId));
         res.set('x-applied-organization-id', String(tenantId));
@@ -355,10 +371,11 @@ router.get('/', asyncHandler(async (req, res) => {
     }
     try { res.set('X-Elapsed-MS', String(elapsed)); } catch (_) {}
 
-    return res.status(200).json({ success: true, data, meta });
+    return res.status(200).json({ success: true, data: flatRows, meta });
   } catch (err) {
-    console.error('[llm-costs:org-aggregate] failed', err?.message || err);
-    return res.status(500).json({ success: false, message: 'Aggregation failed' });
+    const message = err?.message || 'Aggregation failed';
+    console.error('[llm-costs:org-aggregate] failed', message);
+    return res.status(500).json({ success: false, message, details: { hint: 'Check llm-costs schema fields, pipeline, and tenant filter' } });
   }
 }));
 
