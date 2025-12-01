@@ -143,6 +143,18 @@ async function listLLMCosts(req, res, next) {
         }
       }
 
+      // Temporary guarded debug: log only once per process when BACKEND_DEBUG_ONCE=true
+      try {
+        const shouldDebugOnce = String(process.env.BACKEND_DEBUG_ONCE || 'false').toLowerCase() === 'true';
+        if (shouldDebugOnce && !global.__LLM_COSTS_DEBUG_ONCE__) {
+          global.__LLM_COSTS_DEBUG_ONCE__ = true;
+          const sampleDoc = docs.find((d) => Array.isArray(d.users) && d.users.length > 0);
+          const sampleUsers = sampleDoc ? sampleDoc.users.slice(0, 3) : [];
+          console.log('[debug:/api/llm-costs] sample users entries (first doc, up to 3):', sampleUsers);
+          console.log('[debug:/api/llm-costs] distinct candidate user ids (up to 10):', Array.from(allIdsSet).slice(0, 10));
+        }
+      } catch {}
+
       // Minimal diagnostics on first few ids
       const firstFew = Array.from(allIdsSet).slice(0, 5);
       try {

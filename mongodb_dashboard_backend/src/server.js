@@ -10,8 +10,11 @@ const PORT = Number(process.env.PORT || 4000);
 const HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// Ensure we only start the Express server for the backend.
-// No React dev server is started from this file.
+/**
+ * Backend runtime note:
+ * - Pure Express server only; no CRA/Vite/webpack dev server is started here.
+ * - NODE_OPTIONS can cap memory via --max_old_space_size=256 and disable source maps for speed.
+ */
 const server = http.createServer(app);
 server.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console

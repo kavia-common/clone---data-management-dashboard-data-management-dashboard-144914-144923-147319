@@ -27,6 +27,10 @@ app.use((req, res, next) => {
   const t0 = Date.now();
   res.on('finish', () => {
     try { res.setHeader('X-Response-Time', String(Date.now() - t0)); } catch {}
+    try {
+      const dbg = String(process.env.BACKEND_DEBUG_ONCE || 'false').toLowerCase() === 'true';
+      res.setHeader('X-Debug-Once', dbg ? 'true' : 'false');
+    } catch {}
   });
   return next();
 });

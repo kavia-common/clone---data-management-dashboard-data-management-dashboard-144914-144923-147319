@@ -1,16 +1,12 @@
-# Backend Dev Run Notes
+# Backend Runtime Stabilization Notes
 
-- This container is an Express-only backend. It does NOT run any React dev server.
-- Use these scripts:
-  - npm run dev        -> nodemon + NODE_OPTIONS=--max_old_space_size=512
-  - npm run dev:express -> plain node run (no file watching)
-  - npm start          -> production-like run (plain node)
-- Crash guards:
-  - server.js logs unhandledRejection/uncaughtException and keeps the process alive in development.
-  - In production, the process sets exitCode=1 so orchestrators can restart the service.
-- Memory guard:
-  - NODE_OPTIONS=--max_old_space_size=512 is set in scripts; increase to 1024 if needed for large datasets.
-- /api/llm-costs:
-  - Implements fast ListEnvelope response whenever ?page and ?limit are used.
-  - Supports optional exact match filter by organization_id.
-  - Returns { success, data, meta{ page, limit, total } }.
+- Pure Express server: This backend does not start any React or webpack dev server. Scripts run Node on src/server.js only.
+- Memory cap: Scripts set NODE_OPTIONS=--max_old_space_size=256 and disable source maps for performance in CI/dev.
+- Nodemon: Now watches only server sources (src, swagger.js) and ignores heavy directories (node_modules, build, coverage, interfaces, kavia-docs, tests).
+- Guarded debug: To emit a single, one-time debug dump for /api/llm-costs user enrichment, set BACKEND_DEBUG_ONCE=true in the environment.
+  This prints sample users entries and a few candidate IDs to the console once per process.
+- Validation: Hit GET /api/llm-costs with a known tenant (x-organization-id or JWT). The response should include:
+  - X-Users-Enriched: "<matched>/<requested>"
+  - X-Users-Match-Field: "<field used in users collection>"
+  - X-Users-Sample-Ids: "<first few ids>"
+  Users entries should have users[i].user populated when a match exists; null otherwise.

@@ -1,5 +1,5 @@
 {
-  "watch": ["src"],
+  "watch": ["src", "swagger.js"],
   "ignore": [
     "node_modules",
     "package.json",
@@ -11,7 +11,10 @@
     "dist",
     "build",
     "coverage",
-    ".tmp"
+    ".tmp",
+    "**/__tests__/**",
+    "kavia-docs",
+    "interfaces"
   ],
   "ext": "js json",
   "delay": "2000",
@@ -20,7 +23,8 @@
   "env": {
     "HOST": "0.0.0.0",
     "PORT": "3001",
-    "NODE_ENV": "development"
+    "NODE_ENV": "development",
+    "BACKEND_DEBUG_ONCE": "false"
   },
   "events": {
     "restart": "echo '[nodemon] Restarting server due to changes...'"
