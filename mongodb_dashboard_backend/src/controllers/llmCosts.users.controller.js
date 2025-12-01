@@ -165,7 +165,12 @@ async function listPerUserLLMCosts(req, res, next) {
               onNull: 0,
             },
           },
-          project_count: { $size: '$project_arr' },
+          // Project count strictly from users.projects?.length
+          project_count: {
+            $size: {
+              $ifNull: ['$users.projects', []],
+            },
+          },
           type_preferred: { $ifNull: ['$type', 'llm_interaction'] },
         },
       },

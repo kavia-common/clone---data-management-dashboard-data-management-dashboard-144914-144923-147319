@@ -57,6 +57,7 @@ const buildDynamicSpec = (req) => {
 };
 
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
+app.get('/api/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api/docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 
