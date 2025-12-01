@@ -215,12 +215,19 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
   // - users (with pagination)
   // - totalUsers (count)
   // - orgTotal (organization_cost)
+  // Build a safe facet that avoids unsupported expressions like $sortArray in server versions < 5.2
+  // We will compute org total in one facet branch and the per-user rows in another,
+  // then perform pagination using $skip/$limit on the array via $slice with precomputed bounds.
+  const safePage = Math.max(parseInt(page, 10) || 1, 1);
+  const safeLimit = Math.max(parseInt(limit, 10) || 20, 1);
+  const clampedLimit = safeLimit > 100 ? 100 : safeLimit;
+  const skipCount = (safePage - 1) * clampedLimit;
+
   const facetPipeline = [
     { $match: match || {} },
     { $addFields: { timestamp: { $ifNull: ['$timestamp', '$created_at'] } } },
     {
       $facet: {
-        // Compute org total across all matched docs
         orgTotal: [
           {
             $group: {
@@ -246,38 +253,26 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
             },
           },
         ],
-        // Build flattened user/project view then paginate
-        userProjects: pipeline, // reuses the earlier built steps that end with user rows
+        userProjects: pipeline,
       },
     },
-    // Now compute counts and pagination on the facet output
+    // Post-process facet: sort user rows, count, then slice for pagination using computed bounds
     {
       $project: {
         orgTotal: { $arrayElemAt: ['$orgTotal', 0] },
-        usersAll: '$userProjects',
+        usersSorted: {
+          $sortArray: {
+            input: { $ifNull: ['$userProjects', []] },
+            sortBy: { user_cost: -1, user_id: 1 },
+          },
+        },
       },
     },
     {
       $project: {
         orgTotal: 1,
-        totalUsers: { $size: { $ifNull: ['$usersAll', []] } },
-        users: {
-          $slice: [
-            {
-              $ifNull: [
-                {
-                  $sortArray: {
-                    input: '$usersAll',
-                    sortBy: { user_cost: -1, user_id: 1 },
-                  },
-                },
-                [],
-              ],
-            },
-            { $multiply: [Math.max(parseInt(page, 10) || 1, 1) - 1, Math.max(parseInt(limit, 10) || 20, 1)] },
-            Math.max(parseInt(limit, 10) || 20, 1),
-          ],
-        },
+        totalUsers: { $size: { $ifNull: ['$usersSorted', []] } },
+        users: { $slice: [{ $ifNull: ['$usersSorted', []] }, skipCount, clampedLimit] },
       },
     },
   ];

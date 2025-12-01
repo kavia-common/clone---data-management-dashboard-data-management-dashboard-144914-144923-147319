@@ -338,6 +338,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const started = Date.now();
   let elapsed = 0;
   try {
+    const t0 = Date.now();
     const result = await aggregateOrganizationCosts({
       tenantId,
       page,
@@ -410,6 +411,9 @@ router.get('/', asyncHandler(async (req, res) => {
     }
 
     // Envelope response
+    try {
+      res.set('X-Query-Duration-ms', String(elapsed));
+    } catch (_) {}
     return res.status(200).json({ success: true, data: flatRows, meta });
   } catch (err) {
     elapsed = Date.now() - started;
