@@ -331,24 +331,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           const cached = microGet(key);
           if (cached) { return res.status(200).json(cached); }
 
-          // Build projection to reduce payload size for list
-          const projection = isLLMCost
-            ? {
-                _id: 1,
-                tenant_id: 1,
-                organization_id: 1,
-                timestamp: 1,
-                created_at: 1,
-                total_cost: 1,
-                llm_model: 1,
-                provider: 1,
-                task_id: 1,
-                session_id: 1,
-              }
-            : undefined;
-
-          // Use indexed find with sort and projection
-          const items = await Model.find(appliedFilter, projection)
+          // Return full documents (no restrictive projection) while preserving indexed sort and pagination
+          const items = await Model.find(appliedFilter)
             .sort(safeSort)
             .skip(skip)
             .limit(hardCappedLimit)
@@ -369,24 +353,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           return res.status(200).json(payload);
         }
 
-        // Non-paginated path: use light projection and safe sort.
-        // For LLMCost, avoid aggregations; use indexed find.
-        const projectionNonPaged = isLLMCost
-          ? {
-              _id: 1,
-              tenant_id: 1,
-              organization_id: 1,
-              timestamp: 1,
-              created_at: 1,
-              total_cost: 1,
-              llm_model: 1,
-              provider: 1,
-              task_id: 1,
-              session_id: 1,
-            }
-          : undefined;
-
-        const items = await Model.find(appliedFilter, projectionNonPaged).sort(safeSort).lean().exec();
+        // Non-paginated path: return full documents; keep safe sort and tenant filter
+        const items = await Model.find(appliedFilter).sort(safeSort).lean().exec();
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
