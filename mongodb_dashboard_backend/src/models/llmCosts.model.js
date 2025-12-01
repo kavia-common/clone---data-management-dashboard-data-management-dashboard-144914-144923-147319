@@ -43,14 +43,18 @@ const LLMCostsSchema = new mongoose.Schema(
 
 // Useful indexes for common filter/sort combos
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
+LLMCostsSchema.index({ organization_id: 1, timestamp: -1 }); // support alias field when tenant saved as organization_id
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
+LLMCostsSchema.index({ organization_id: 1, created_at: -1 }); // alias support for created_at sort
 LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ session_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ llm_model: 1, timestamp: -1 });
 LLMCostsSchema.index({ timestamp: 1, llm_model: 1 }); // composite index to support usage-over-time aggregation
 LLMCostsSchema.index({ task_id: 1 });
-// Optimize direct project_id lookups for usage endpoint
-LLMCostsSchema.index({ project_id: 1 });
+LLMCostsSchema.index({ project_id: 1 }); // Optimize direct project_id lookups for usage endpoint
+// Covered index to support pagination windowing with _id tiebreaker (common pattern)
+LLMCostsSchema.index({ tenant_id: 1, timestamp: -1, _id: 1 });
+LLMCostsSchema.index({ organization_id: 1, timestamp: -1, _id: 1 });
 
 LLMCostsSchema.pre('findOneAndUpdate', function (next) {
   this.set({ updated_at: new Date() });

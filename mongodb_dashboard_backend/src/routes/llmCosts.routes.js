@@ -7,6 +7,7 @@ const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
+const { ensureLlmCostsIndexesSafe } = require('../services/llmCosts.index.ensure');
 
 /**
  * PUBLIC_INTERFACE
@@ -19,6 +20,8 @@ const router = express.Router();
  * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } on the model.
  */
 const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
+// Best effort: ensure critical indexes without blocking startup
+ensureLlmCostsIndexesSafe().catch(() => {});
 
 /**
  * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls
@@ -197,7 +200,11 @@ router.use((req, res, next) => {
  *       403:
  *         description: Forbidden on tenant mismatch with Authorization
  */
-router.get('/', asyncHandler(controller.list));
+router.get('/', asyncHandler(async (req, res) => {
+  // Best-effort ensure indexes before heavy operations
+  try { await ensureLlmCostsIndexesSafe(); } catch (_) {}
+  return controller.list(req, res);
+}));
 
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));

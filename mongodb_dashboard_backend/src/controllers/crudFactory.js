@@ -21,6 +21,7 @@ function withMaxTime(queryOrAgg) {
     if (queryOrAgg && typeof queryOrAgg.maxTimeMS === 'function') {
       return queryOrAgg.maxTimeMS(SAFE_MAX_TIME_MS);
     }
+    // For native MongoDB collection ops via Model.collection, support passing { maxTimeMS } where applicable.
   } catch (_) {
     // ignore and fall through
   }
@@ -314,7 +315,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const isLLMCost = Model?.modelName === 'LLMCost';
       const allowedSorts = isAppDeployment
         ? ['timestamp', 'created_at', 'updated_at', '_id', 'status', 'branch_name', 'project_name']
-        : ['timestamp', 'created_at', '_id'];
+        : (isLLMCost ? ['timestamp', 'created_at', '_id'] : ['timestamp', 'created_at', '_id']);
       const safeSort = validateSort(req.query.sort || listDefaultSort, allowedSorts);
 
       // execute DB operations with safe sort and enforced tenant filter
@@ -388,7 +389,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
-              items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true)).exec?.() || await Model.aggregate(pipeline).allowDiskUse(true);
+              const agg = Model.aggregate(pipeline).allowDiskUse(true);
+              items = await withMaxTime(agg).exec();
             } catch (_) {
               items = await withMaxTime(
                 Model.find(appliedFilter)
@@ -423,7 +425,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
-              items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true));
+              const agg = Model.aggregate(pipeline).allowDiskUse(true);
+              items = await withMaxTime(agg).exec();
             } catch (_) {
               // Fallback: simple find; project_name may be missing if stored under a different key
               items = await withMaxTime(
@@ -431,7 +434,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                   .sort(safeSort)
                   .skip(skip)
                   .limit(hardCappedLimit)
-                  .allowDiskUse(true)
                   .lean()
               );
             }
@@ -485,7 +487,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
-            const items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true)).exec?.() || await Model.aggregate(pipeline).allowDiskUse(true);
+            const agg = Model.aggregate(pipeline).allowDiskUse(true);
+            const items = await withMaxTime(agg).exec();
             return res.status(200).json(items);
           }
           if (isAppDeployment) {
@@ -505,7 +508,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
-            const items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true));
+            const agg = Model.aggregate(pipeline).allowDiskUse(true);
+            const items = await withMaxTime(agg).exec();
             return res.status(200).json(items);
           }
         } catch (_) {
@@ -536,7 +540,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { 'tenant.tenant_id': String(req.tenantId) },
               ],
             };
-        const doc = await Model.findOne(match).lean();
+        const doc = await withMaxTime(Model.findOne(match).lean());
         if (!doc) {return failure(res, 'Not found', 404);}
         return res.status(200).json(doc);
       } catch (err) {
@@ -576,7 +580,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { 'tenant.tenant_id': String(req.tenantId) },
               ],
             };
-        const doc = await Model.findOneAndUpdate(match, clean, { new: true }).lean();
+        const doc = await withMaxTime(Model.findOneAndUpdate(match, clean, { new: true }).lean());
         if (!doc) {return failure(res, 'Not found', 404);}
         return res.status(200).json(doc);
       } catch (err) {
@@ -602,7 +606,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { 'tenant.tenant_id': String(req.tenantId) },
               ],
             };
-        const doc = await Model.findOneAndDelete(match).lean();
+        const doc = await withMaxTime(Model.findOneAndDelete(match).lean());
         if (!doc) {return failure(res, 'Not found', 404);}
         return res.status(200).json({ _id: id });
       } catch (err) {
