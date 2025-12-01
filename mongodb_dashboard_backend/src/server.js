@@ -27,6 +27,53 @@ if (process.env.NODE_OPTIONS) {
  */
 const server = http.createServer(app);
 
+// Simple keepalive: periodic no-op to keep event loop active in low-traffic previews
+const KEEPALIVE_INTERVAL_MS = Number(process.env.KEEPALIVE_INTERVAL_MS || 30000);
+let keepaliveTimer = null;
+function startKeepalive() {
+  try {
+    if (keepaliveTimer) return;
+    keepaliveTimer = setInterval(() => {
+      try {
+        // No-op. If needed, we could ping a simple function or log infrequently.
+      } catch {}
+    }, KEEPALIVE_INTERVAL_MS);
+    // In Node >= 11, unref to allow clean exit when needed
+    if (keepaliveTimer && typeof keepaliveTimer.unref === 'function') {
+      keepaliveTimer.unref();
+    }
+  } catch {}
+}
+startKeepalive();
+
+// Graceful shutdown handlers
+function shutdown(signal) {
+  // eslint-disable-next-line no-console
+  console.log(`[process] Received ${signal}. Closing server gracefully...`);
+  try {
+    clearInterval(keepaliveTimer);
+  } catch {}
+  try {
+    server.close(() => {
+      // eslint-disable-next-line no-console
+      console.log('[process] HTTP server closed. Exiting.');
+      process.exit(0);
+    });
+    // Failsafe exit if close takes too long
+    setTimeout(() => {
+      // eslint-disable-next-line no-console
+      console.warn('[process] Force exiting after timeout.');
+      process.exit(0);
+    }, 5000).unref?.();
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[process] Error during shutdown:', e?.message || e);
+    process.exit(1);
+  }
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
 // Attach early error logging to avoid silent exits
 server.on('error', (err) => {
   const code = err && err.code ? err.code : 'UNKNOWN';
@@ -68,6 +115,8 @@ server.listen(PORT, HOST, () => {
   // eslint-disable-next-line no-console
   console.log(`Express API server listening on http://${HOST}:${PORT} (${NODE_ENV})`);
   console.log(`READY: http://${HOST}:${PORT}`);
+  // Make sure keepalive is running after bind
+  startKeepalive();
 });
 
 module.exports = server;
