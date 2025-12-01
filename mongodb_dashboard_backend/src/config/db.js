@@ -45,15 +45,23 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'test'; // Optional; if not set, Mongo will use the URI/path default
+  // Respect explicit MONGODB_DB, else do not override the URI's db component.
+  const dbNameEnv = (process.env.MONGODB_DB || '').trim();
+  const dbName = dbNameEnv !== '' ? dbNameEnv : undefined;
+
+  // Use smaller pool in low-memory preview environments
+  const maxPoolSize =
+    Number.isFinite(Number(process.env.MONGOOSE_POOL_SIZE))
+      ? Number(process.env.MONGOOSE_POOL_SIZE)
+      : 5;
 
   const options = {
     autoIndex,
-    maxPoolSize: 10,
+    maxPoolSize,
     serverSelectionTimeoutMS: isTest ? 250 : 5000,
     socketTimeoutMS: isTest ? 500 : 45000,
     family: 4,
-    dbName,
+    ...(dbName ? { dbName } : {}),
   };
 
   // Prepare a safe, masked log for the cluster host (never log credentials)

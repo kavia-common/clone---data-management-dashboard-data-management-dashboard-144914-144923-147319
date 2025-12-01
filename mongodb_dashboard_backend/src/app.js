@@ -34,9 +34,9 @@ app.use(express.urlencoded({ extended: true }));
 // Swagger setup
 // ---------------------------------------------
 const buildDynamicSpec = (req) => {
-  const host = req.get('host');
+  const host = req.get('host') || `${req.hostname || 'localhost'}:${req.socket?.localPort || process.env.PORT || 3001}`;
   const protocol = req.secure ? 'https' : req.protocol;
-  const actualPort = req.socket?.localPort;
+  const actualPort = req.socket?.localPort || Number(process.env.PORT || 3001);
   const hasPort = host.includes(':');
   const needsPort =
     !hasPort &&

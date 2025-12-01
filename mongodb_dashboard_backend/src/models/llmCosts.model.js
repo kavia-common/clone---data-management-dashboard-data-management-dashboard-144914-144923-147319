@@ -104,4 +104,8 @@ try {
 /**
  * LLMCost model export with ensured background index creation.
  */
+/**
+ * PUBLIC_INTERFACE
+ * LLMCost model export with ensured background index creation.
+ */
 module.exports = LLMCost;

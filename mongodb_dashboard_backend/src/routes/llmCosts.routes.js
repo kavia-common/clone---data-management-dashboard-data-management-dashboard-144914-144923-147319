@@ -18,7 +18,11 @@ const router = express.Router();
  * Use safe default sort on indexed field 'timestamp' in descending order.
  * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } on the model.
  */
-const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
+const controller = buildCrudController(LLMCost, '-timestamp', {
+  lean: true, // use lean queries to reduce memory
+  defaultLimit: 20,
+  maxLimit: 200,
+});
 
 // Proactively ensure indexes for fast tenant+timestamp queries (non-blocking)
 try {
