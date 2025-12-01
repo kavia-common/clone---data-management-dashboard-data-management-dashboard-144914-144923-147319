@@ -184,10 +184,13 @@ async function listLLMCosts(req, res, next) {
         // 4) Attach matches: users[i].user = userMap[String(users[i].user_id)] || null
         for (const d of docs) {
           if (Array.isArray(d.users)) {
+            // Preserve original per-user fields (including user_cost) and only add 'user'
             d.users = d.users.map((entry) => {
-              const key = entry?.user_id != null ? String(entry.user_id).trim() : '';
+              const key = entry && entry.user_id != null ? String(entry.user_id).trim() : '';
+              // Shallow copy preserves user_cost and any other fields from source
               const enriched = { ...entry };
-              enriched.user = key ? userMap[String(key)] || null : null;
+              // Attach full user doc without mutating original properties
+              enriched.user = key ? (userMap[key] || null) : null;
               return enriched;
             });
           }
