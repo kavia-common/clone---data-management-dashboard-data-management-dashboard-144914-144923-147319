@@ -298,27 +298,30 @@ router.use((req, res, next) => {
 const { aggregateOrganizationCosts } = require('../services/llmCosts.organization.service');
 
 /**
- * Organization-level aggregated costs with nested users and projects.
- * Applies pagination to user rows and returns envelope { success, data, meta }.
- * Response data shape for GET /api/llm-costs:
- *   [
- *     { _id: "<organization_id>::<user_id>", organization_cost: number, user_id: string, user_cost: number, projects_count: number }
- *   ]
- * meta: { page, limit, total } where total = number of user rows for the organization.
+ * Organization-level flat rows with per-user totals and organization total.
+ * Implements minimal pipeline:
+ *   1) $match by resolved tenant (organization_id/tenant)
+ *   2) $group by user_id computing user_cost and projects_count
+ *   3) compute organization_cost in a parallel facet
+ *   4) $facet for pagination (data/count), sorted by user_cost desc, limit<=100
+ * Returns rows: [{ _id, organization_cost, user_id, user_cost, projects_count }]
  */
 router.get('/', asyncHandler(async (req, res) => {
-  // Normalize and clamp pagination; enforce <= 100
+  const started = Date.now();
+
+  // Enforce pagination and clamp limit <= 100
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   let limit = Math.max(parseInt(req.query.limit, 10) || 20, 1);
   if (limit > 100) {
     limit = 100;
-    try { res.set('X-Limit-Clamped', '100'); } catch(_) {}
+    try { res.set('X-Limit-Clamped', '100'); } catch (_) {}
   }
+  const skip = (page - 1) * limit;
 
-  // Resolve tenant/bypass
+  // Tenant resolution (bypass if super admin/T0000 already set by middleware)
   const tenantId = (req.tenantScopeDisabled || req.allTenants) ? null : (req.tenantId || null);
 
-  // Parse filter JSON (tenant fields ignored in service)
+  // Parse optional filter safely; tenant fields are ignored server-side
   let filter = {};
   if (req.query && req.query.filter) {
     try {
@@ -327,136 +330,238 @@ router.get('/', asyncHandler(async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
   }
+  // Drop tenant hints from client filter
+  delete filter.tenant_id;
+  delete filter.tenantId;
+  delete filter.organization_id;
+  delete filter.organizationId;
+  delete filter.orgId;
 
   // Optional time window
   const from = typeof req.query.from === 'string' ? req.query.from : undefined;
   const to = typeof req.query.to === 'string' ? req.query.to : undefined;
-
-  // For diagnostics: sort param pass-through (service sorts by cost desc internally)
-  const sort = typeof req.query.sort === 'string' ? req.query.sort : undefined;
-
-  const started = Date.now();
-  let elapsed = 0;
-  try {
-    const t0 = Date.now();
-    const result = await aggregateOrganizationCosts({
-      tenantId,
-      page,
-      limit,
-      from,
-      to,
-      filter,
-    });
-
-    // Flatten users rows
-    const users = Array.isArray(result && result.users) ? result.users : [];
-    const orgCost = Number((result && result.organization_cost) || 0);
-    const orgId = (result && (result.organization_id || result._id)) || (tenantId || 'all');
-
-    const flatRows = users.map((u) => {
-      const uid = u && (u.user_id != null ? String(u.user_id) : '');
-      const projects = Array.isArray(u && u.projects) ? u.projects : [];
-      const projCount = Number(
-        (u && typeof u.project_count === 'number' ? u.project_count : projects.length) || 0
-      );
-      return {
-        _id: `${orgId}::${uid}`,
-        organization_cost: orgCost,
-        user_id: uid,
-        user_cost: Number((u && u.user_cost) || 0),
-        projects_count: projCount,
-      };
-    });
-
-    const total = Number((result && result.totalUsers) || users.length || 0);
-    const meta = { page, limit, total };
-
-    // Diagnostics headers and logging
-    elapsed = Date.now() - started;
-    try {
-      res.set('X-Aggregation', 'organization->users->projects(flat-users)');
-      res.set('X-Collection-llm-costs', (LLMCost && LLMCost.collection && LLMCost.collection.name) || 'llm-costs');
-      res.set('X-Query-Duration-ms', String(elapsed));
-      res.set('X-Pagination-Page', String(page));
-      res.set('X-Pagination-Limit', String(limit));
-      res.set('X-Pagination-Total', String(total));
-      if (tenantId) {
-        res.set('X-Applied-Tenant', String(tenantId));
-        res.set('x-applied-organization-id', String(tenantId));
-      } else {
-        res.set('X-All-Tenants', 'true');
-      }
-    } catch (_) {}
-
-    // Slow query logging >1500ms
-    if (elapsed > 1500) {
-      console.warn('[llm-costs:list] slow-query', {
-        ms: elapsed,
-        tenantId,
-        page,
-        limit,
-        sort,
-        total
-      });
-    } else {
-      // Structured info log for observability
-      console.log('[llm-costs:list] ok', {
-        ms: elapsed,
-        tenantId,
-        page,
-        limit,
-        sort,
-        total
-      });
+  const timeFilter = {};
+  if (from || to) {
+    const range = {};
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+    if (fromDate && !isNaN(fromDate.getTime())) range.$gte = fromDate;
+    if (toDate && !isNaN(toDate.getTime())) range.$lte = toDate;
+    if (Object.keys(range).length) {
+      timeFilter.timestamp = range;
     }
-
-    // Envelope response
-    try {
-      res.set('X-Query-Duration-ms', String(elapsed));
-    } catch (_) {}
-    return res.status(200).json({ success: true, data: flatRows, meta });
-  } catch (err) {
-    elapsed = Date.now() - started;
-
-    // Extract mongo-ish code/message safely
-    const errCode = err && (err.code || err.codeName);
-    const errMsg = err && (err.message || err.errmsg || String(err));
-
-    // Log structured error with context
-    try {
-      console.error('[llm-costs:list] aggregation-failed', {
-        ms: elapsed,
-        tenantId,
-        page,
-        limit,
-        sort,
-        error: { code: errCode, message: errMsg },
-      });
-    } catch (_) {}
-
-    // Send diagnostics headers even on fallback
-    try {
-      res.set('X-Query-Duration-ms', String(elapsed));
-      res.set('X-Pagination-Page', String(page));
-      res.set('X-Pagination-Limit', String(limit));
-      res.set('X-Pagination-Total', '0');
-      if (tenantId) {
-        res.set('X-Applied-Tenant', String(tenantId));
-        res.set('x-applied-organization-id', String(tenantId));
-      }
-    } catch (_) {}
-
-    // Fallback minimal envelope with HTTP 200 so UI can render an empty table
-    return res.status(200).json({
-      success: true,
-      data: [],
-      meta: { page, limit, total: 0 },
-      meta_debug: {
-        fallback: true,
-        error: { code: errCode || null, message: errMsg || 'aggregation failed' },
-      },
-    });
   }
+
+  // Build base match with tenant if provided
+  let match = filter && Object.keys(filter).length ? { ...filter } : {};
+  if (tenantId) {
+    const orgFilter = {
+      $or: [
+        { tenant_id: String(tenantId) },
+        { organization_id: String(tenantId) },
+        { organizationId: String(tenantId) },
+        { tenantId: String(tenantId) },
+        { orgId: String(tenantId) },
+        { 'tenant.tenant_id': String(tenantId) },
+      ],
+    };
+    match = Object.keys(match).length ? { $and: [match, orgFilter] } : orgFilter;
+  }
+  if (Object.keys(timeFilter).length) {
+    match = Object.keys(match).length ? { $and: [match, timeFilter] } : timeFilter;
+  }
+
+  // Mongo driver via model collection
+  const collection = LLMCost.collection;
+
+  // Build numeric cost expression with $ifNull coercion
+  const numericCostExpr = {
+    $let: {
+      vars: {
+        raw: {
+          $ifNull: [
+            '$total_cost',
+            { $ifNull: ['$cost', { $ifNull: ['$usage.cost', 0] }] },
+          ],
+        },
+      },
+      in: {
+        $convert: {
+          input: {
+            $cond: [
+              { $isNumber: '$$raw' }, '$$raw',
+              {
+                $cond: [
+                  { $and: [{ $eq: [{ $type: '$$raw' }, 'string'] }, { $eq: [{ $substrCP: ['$$raw', 0, 1] }, '$'] }] },
+                  { $substrCP: ['$$raw', 1, { $strLenCP: '$$raw' }] },
+                  { $toString: '$$raw' },
+                ],
+              },
+            ],
+          },
+          to: 'double',
+          onError: 0,
+          onNull: 0,
+        },
+      },
+    },
+  };
+
+  // Core per-user grouping pipeline
+  const userPipeline = [
+    { $match: match || {} },
+    { $addFields: { timestamp: { $ifNull: ['$timestamp', '$created_at'] } } },
+    {
+      $project: {
+        _id: 0,
+        user_id: { $toString: { $ifNull: ['$user_id', { $ifNull: ['$userId', '$user'] }] } },
+        project_id: {
+          $toString: {
+            $ifNull: ['$project_id', { $ifNull: ['$projectId', { $ifNull: ['$project', '$project_code'] }] }],
+          },
+        },
+        org_id: {
+          $toString: {
+            $ifNull: [
+              '$tenant_id',
+              { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
+            ],
+          },
+        },
+        numeric_cost: numericCostExpr,
+      },
+    },
+    { $match: { user_id: { $ne: null }, project_id: { $ne: null } } },
+    {
+      $group: {
+        _id: { user_id: '$user_id', project_id: '$project_id' },
+        project_cost: { $sum: '$numeric_cost' },
+        org_id: { $first: '$org_id' },
+      },
+    },
+    {
+      $group: {
+        _id: { user_id: '$_id.user_id', org_id: '$org_id' },
+        user_cost: { $sum: '$project_cost' },
+        projects: { $addToSet: '$_id.project_id' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        user_id: '$_id.user_id',
+        org_id: '$_id.org_id',
+        user_cost: { $round: ['$user_cost', 6] },
+        projects_count: { $size: '$projects' },
+      },
+    },
+  ];
+
+  // Facet with orgTotal and user data
+  const pipeline = [
+    { $match: match || {} },
+    { $addFields: { timestamp: { $ifNull: ['$timestamp', '$created_at'] } } },
+    {
+      $facet: {
+        orgTotal: [
+          {
+            $group: {
+              _id: null,
+              organization_cost: { $sum: numericCostExpr },
+              org_id: {
+                $first: {
+                  $toString: {
+                    $ifNull: [
+                      '$tenant_id',
+                      { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+          { $project: { _id: 0, organization_cost: { $round: ['$organization_cost', 6] }, org_id: 1 } },
+        ],
+        usersRaw: userPipeline,
+      },
+    },
+    {
+      $project: {
+        orgTotal: { $arrayElemAt: ['$orgTotal', 0] },
+        usersSorted: {
+          $sortArray: {
+            input: { $ifNull: ['$usersRaw', []] },
+            sortBy: { user_cost: -1, user_id: 1 },
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        orgTotal: 1,
+        totalUsers: { $size: { $ifNull: ['$usersSorted', []] } },
+        users: { $slice: [{ $ifNull: ['$usersSorted', []] }, skip, limit] },
+      },
+    },
+  ];
+
+  // Execute aggregation with maxTimeMS(4000) and allowDiskUse
+  const agg = collection.aggregate(pipeline, { allowDiskUse: true, maxTimeMS: 4000 });
+  // Best-effort index hinting
+  try {
+    if (tenantId) {
+      agg.hint({ tenant_id: 1, timestamp: -1, _id: 1 });
+    } else {
+      agg.hint({ timestamp: -1, _id: 1 });
+    }
+  } catch (_) {}
+
+  let docs = [];
+  try {
+    docs = await agg.toArray();
+  } catch (e) {
+    // If aggregation fails, return empty envelope but do not crash
+    const elapsed = Date.now() - started;
+    try { res.set('X-Query-Duration-ms', String(elapsed)); } catch (_) {}
+    return res.status(200).json({ success: true, data: [], meta: { page, limit, total: 0 }, meta_debug: { fallback: true, error: e?.message || String(e) } });
+  }
+
+  const first = docs && docs[0] ? docs[0] : { orgTotal: null, users: [], totalUsers: 0 };
+  const org = first.orgTotal || { organization_cost: 0, org_id: tenantId ? String(tenantId) : 'all' };
+  const orgCost = Number(org.organization_cost || 0);
+  const orgId = String(org.org_id || (tenantId || 'all'));
+
+  // Flatten rows
+  const rows = (first.users || []).map((u) => ({
+    _id: `${orgId}::${String(u.user_id || '')}`,
+    organization_cost: orgCost,
+    user_id: String(u.user_id || ''),
+    user_cost: Number(u.user_cost || 0),
+    projects_count: Number(u.projects_count || 0),
+  }));
+
+  const total = Number(first.totalUsers || 0);
+  const elapsed = Date.now() - started;
+  try {
+    res.set('X-Query-Duration-ms', String(elapsed));
+    res.set('X-Pagination-Page', String(page));
+    res.set('X-Pagination-Limit', String(limit));
+    res.set('X-Pagination-Total', String(total));
+    res.set('X-Aggregation', 'facet:orgTotal+users(grouped)');
+    res.set('X-Collection-llm-costs', LLMCost.collection?.name || 'llm-costs');
+    if (tenantId) {
+      res.set('X-Applied-Tenant', String(tenantId));
+      res.set('x-applied-organization-id', String(tenantId));
+    } else {
+      res.set('X-All-Tenants', 'true');
+    }
+  } catch (_) {}
+
+  return res.status(200).json({
+    success: true,
+    data: rows,
+    meta: { page, limit, total },
+  });
 }));
 
 router.get('/:id', asyncHandler(controller.getById));
