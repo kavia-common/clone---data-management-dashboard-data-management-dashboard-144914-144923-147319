@@ -3,6 +3,8 @@
 const express = require('express');
 const router = express.Router();
 const { listLLMCosts } = require('../controllers/llmCosts.controller');
+// Note: This router is mounted at /api/llm-costs by the base router (routes/index.js).
+// The root path '/' here corresponds to GET /api/llm-costs.
 
 /**
 // PUBLIC_INTERFACE

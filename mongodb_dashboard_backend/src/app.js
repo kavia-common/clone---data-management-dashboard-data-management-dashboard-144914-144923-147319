@@ -102,7 +102,8 @@ const safeUse = (path, router) => {
 };
 
 const baseRouter = require('./routes');
-safeUse('/', baseRouter);
+// Mount all core routes under /api to ensure paths like /api/llm-costs resolve correctly
+safeUse('/api', baseRouter);
 
 safeUse('/api/dev', require('./routes/dev.routes'));
 safeUse('/api/users', require('./routes/users.routes'));

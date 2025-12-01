@@ -47,6 +47,20 @@ router.use('/auth', authRoutes);
 router.use('/users', verifyAuth, requireTenant, usersRoutes);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 
+/**
+ * Minimal health/diagnostic for the llm-costs group (protected)
+ * Returns 200 JSON and logs a one-line debug entry.
+ */
+router.get('/llm-costs/health', verifyAuth, requireTenant, (req, res) => {
+  try {
+    // one-line, low-noise debug
+    if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+      console.debug('[llm-costs][health] ok tenant=', req.tenantId || req.auth?.tenantId || '(none)');
+    }
+  } catch (_) {}
+  return res.status(200).json({ ok: true, route: '/api/llm-costs', ts: new Date().toISOString() });
+});
+
 router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);
 router.use('/llm-costs', verifyAuth, requireTenant, llmCostsUsersRoutes);
 router.use('/llm-costs-aggregate', verifyAuth, requireTenant, llmCostsAggregateRoutes);
