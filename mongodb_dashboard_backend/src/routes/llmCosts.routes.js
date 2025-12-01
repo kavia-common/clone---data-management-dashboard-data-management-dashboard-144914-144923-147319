@@ -158,8 +158,9 @@ router.use((req, res, next) => {
  *       In demo mode without JWT, x-organization-id header or query aliases (?tenant_id/organization_id) can be used to set scope.
  *       The server ignores any tenant fields in the filter and injects the resolved tenant internally.
  *       Sorting does not require a timestamp field; it defaults safely to -timestamp if provided or allowed.
- *       Currency and numeric parsing: documents may contain currency strings (e.g., \"$1.23\"). Server-side aggregation
+ *       Currency and numeric parsing: documents may contain currency strings (e.g., "$1.23"). Server-side aggregation
  *       and clients defensively coerce to numbers where needed. Prefer storing total_cost as a number.
+ *       Note: Server applies a maxTimeMS guard using SAFE_MAX_TIME_MS (or legacy MAX_TIME_MS) with a safe default when unset.
  *     tags: [LLMCosts]
  *     operationId: listLlmCosts
  *     parameters:

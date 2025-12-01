@@ -1,16 +1,29 @@
-const { parsePagination, success, failure } = require('../utils/http');
+const { parsePagination, failure } = require('../utils/http');
 
-// Safety: cap Mongo operations to avoid long-running queries that can lead to 504s.
-// Allow override via env MAX_TIME_MS; default 9000ms to complete within typical proxy timeouts.
-const SAFE_MAX_TIME_MS = parseInt(process.env.MAX_TIME_MS || '9000', 10);
+/**
+ * Max time for Mongo operations to help prevent 504s. Backward compatible:
+ * - Primary variable: SAFE_MAX_TIME_MS
+ * - Legacy alias: MAX_TIME_MS
+ * - Default: 12000ms
+ */
+const SAFE_MAX_TIME_MS = (() => {
+  const v = process.env.SAFE_MAX_TIME_MS || process.env.MAX_TIME_MS || '12000';
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : 12000;
+})();
 
-// Helper to apply maxTimeMS to Mongoose Query or Aggregation
+/**
+ * Apply maxTimeMS to a Mongoose Query/Aggregate if supported by the driver version.
+ * Returns the same object if maxTimeMS() is not available.
+ */
 function withMaxTime(queryOrAgg) {
   try {
     if (queryOrAgg && typeof queryOrAgg.maxTimeMS === 'function') {
       return queryOrAgg.maxTimeMS(SAFE_MAX_TIME_MS);
     }
-  } catch (_) {}
+  } catch (_) {
+    // ignore and fall through
+  }
   return queryOrAgg;
 }
 
@@ -136,6 +149,14 @@ function mergeFilterWithTenant(filter, tenantId) {
 
 /**
  * Build a REST controller for a Mongoose model with tenant enforcement.
+ */
+/**
+ * PUBLIC_INTERFACE
+ * buildCrudController
+ * Factory to create CRUD handlers with tenant scoping, safe sorting, and defensive timeouts.
+ * @param {import('mongoose').Model} Model - Mongoose model
+ * @param {string} listDefaultSort - default sort string, e.g., '-timestamp'
+ * @returns {{list:Function,getById:Function,create:Function,update:Function,remove:Function}}
  */
 function buildCrudController(Model, listDefaultSort = '-timestamp') {
   // Map known Mongoose errors to user-friendly responses
@@ -367,14 +388,13 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
-              items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true));
+              items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true)).exec?.() || await Model.aggregate(pipeline).allowDiskUse(true);
             } catch (_) {
               items = await withMaxTime(
                 Model.find(appliedFilter)
                   .sort(safeSort)
                   .skip(skip)
                   .limit(hardCappedLimit)
-                  .allowDiskUse(true)
                   .lean()
               );
             }
@@ -421,7 +441,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 .sort(safeSort)
                 .skip(skip)
                 .limit(hardCappedLimit)
-                .allowDiskUse(true)
                 .lean()
             );
           }
@@ -439,7 +458,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
         // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
-        let query = withMaxTime(Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean());
+        let query = withMaxTime(Model.find(appliedFilter).sort(safeSort).lean());
         try {
           if (isLLMCost) {
             // Use aggregation for minimal transformation without large memory footprint
@@ -466,7 +485,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
-            const items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true));
+            const items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true)).exec?.() || await Model.aggregate(pipeline).allowDiskUse(true);
             return res.status(200).json(items);
           }
           if (isAppDeployment) {
@@ -593,4 +612,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
   };
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Exports the CRUD controller factory.
+ */
 module.exports = { buildCrudController };
