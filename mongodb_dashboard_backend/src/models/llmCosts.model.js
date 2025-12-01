@@ -39,10 +39,8 @@ LLMCostsSchema.post('init', function ensureArrays() {
  *  - Sort by _id desc (native ObjectId monotonic order)
  *  These indexes ensure a bounded, non-scanning query path.
  */
-LLMCostsSchema.index({ organization_id: 1, _id: -1 }); // Critical index to serve GET /api/llm-costs with tenant filter and sort by _id desc
-LLMCostsSchema.index({ tenant_id: 1, _id: -1 });       // Alternate tenant field index
-
-// Time-based variants to allow future sorts while preserving index scan order for pagination
+LLMCostsSchema.index({ organization_id: 1, _id: -1 }); // required by task
+LLMCostsSchema.index({ tenant_id: 1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, createdAt: -1, _id: -1 });
 LLMCostsSchema.index({ tenant_id: 1, createdAt: -1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, timestamp: -1, _id: -1 });
@@ -51,14 +49,9 @@ LLMCostsSchema.index({ tenant_id: 1, timestamp: -1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, created_at: -1, _id: -1 });
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1, _id: -1 });
 
-// Legacy field name compatibility (sparse to avoid bloat)
+// Optional: index for variant field names used in some datasets
 LLMCostsSchema.index({ organizationId: 1, createdAt: -1, _id: -1 }, { sparse: true });
 LLMCostsSchema.index({ tenantId: 1, createdAt: -1, _id: -1 }, { sparse: true });
-
-/** Join note:
- * users[].user_id is expected to be a string UUID that matches users._id (string).
- * Enrichment in the controller performs a single batched fetch by users._id using $in.
- */
 
 /**
  * Helpful partial index on users.user_id for faster $unwind lookups if present.
