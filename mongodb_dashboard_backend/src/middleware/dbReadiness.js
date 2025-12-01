@@ -16,7 +16,8 @@ async function dbReadyOr503(req, res, next) {
       return res.status(503).json({
         success: false,
         error: 'Database not ready',
-        detail: readiness.reason || 'unknown'
+        detail: readiness.reason || 'unknown',
+        hint: !process.env.MONGODB_URI ? 'Set MONGODB_URI (and optional MONGODB_DB)' : undefined
       });
     }
     return next();

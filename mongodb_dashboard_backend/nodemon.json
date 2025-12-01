@@ -35,7 +35,9 @@
     "KEEPALIVE_INTERVAL_MS": "30000",
     "BROWSERSLIST_DISABLE_CACHE": "1",
     "DISABLE_OPENCOLLECTIVE": "true",
-    "npm_config_loglevel": "warn"
+    "npm_config_loglevel": "warn",
+    "NODE_OPTIONS": "--max-old-space-size=2048 --heapsnapshot-near-heap-limit=1 --no-concurrent-array-buffer-freeing",
+    "NODE_ENV_DISABLE_SOURCE_MAPS": "1"
   },
   "events": {
     "restart": "echo '[nodemon] Restarting server due to changes...'"

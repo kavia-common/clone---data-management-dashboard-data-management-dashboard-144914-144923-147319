@@ -95,7 +95,19 @@ const healthHandler = (req, res) => {
   res.set('Cache-Control', 'no-store');
   return res.status(200).json(payload);
 };
-app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
+app.get(['/api/health', '/health', '/healthz', '/live'], healthHandler);
+// readiness that returns 503 when DB not configured/ready
+app.get('/ready', async (req, res) => {
+  const { isDBReadyFast } = require('./config/db');
+  const ready = await isDBReadyFast(1000);
+  if (!process.env.MONGODB_URI) {
+    return res.status(503).json({ status: 'not-ready', reason: 'MONGODB_URI missing' });
+  }
+  if (!ready.ok) {
+    return res.status(503).json({ status: 'not-ready', reason: ready.reason || 'db' });
+  }
+  return res.status(200).json({ status: 'ok' });
+});
 
 // ---------------------------------------------
 // Routers

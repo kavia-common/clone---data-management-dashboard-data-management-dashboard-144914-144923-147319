@@ -15,7 +15,8 @@ const { listLLMCostsStd } = require('../controllers/llmCosts.list.controller');
  * { data, page, limit, total, hasMore }
  * Headers include X-Request-Id, X-Route-Timing, and X-Applied-Tenant when applicable.
  */
-router.get('/', listLLMCostsStd);
+const { dbReadyOr503 } = require('../middleware/dbReadiness');
+router.get('/', dbReadyOr503, listLLMCostsStd);
 
 const { getDb } = require('../config/db');
 

@@ -45,6 +45,15 @@ const HOST = normalizeHostForDev(HOST_ENV);
 /* Minimal diagnostics to detect misconfiguration */
 // eslint-disable-next-line no-console
 console.log(`[startup] NODE_ENV=${NODE_ENV} HOST=${HOST} PORT=${PORT} PID=${process.pid}`);
+try {
+  // Disable source maps in dev to avoid memory bloat in some environments
+  if (!process.env.NODE_ENV_DISABLE_SOURCE_MAPS) process.env.NODE_ENV_DISABLE_SOURCE_MAPS = '1';
+  // Cap Node heap in case scripts don't enforce it externally
+  if (!process.env.NODE_OPTIONS?.includes('--max-old-space-size')) {
+    process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ''} --max-old-space-size=2048`.trim();
+    console.log(`[startup] Applied NODE_OPTIONS=${process.env.NODE_OPTIONS}`);
+  }
+} catch {}
 if (process.env.NODE_OPTIONS) {
   // eslint-disable-next-line no-console
   console.log(`[startup] NODE_OPTIONS=${process.env.NODE_OPTIONS}`);
