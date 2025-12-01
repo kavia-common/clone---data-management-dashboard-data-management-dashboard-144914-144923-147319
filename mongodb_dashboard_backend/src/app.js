@@ -93,6 +93,19 @@ const healthHandler = (req, res) => {
   return res.status(200).json(payload);
 };
 app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
+// Additional explicit health endpoint with underscore to bypass certain proxy patterns
+app.get('/api/_health_info', (req, res) => {
+  const ready = mongoose.connection.readyState;
+  const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json({
+    status: 'ok',
+    db,
+    pid: process.pid,
+    uptime_s: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // ---------------------------------------------
 // Routers
