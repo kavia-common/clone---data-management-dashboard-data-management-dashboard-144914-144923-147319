@@ -8,20 +8,28 @@ const { isDBReadyFast, isDbConnected, getDb } = require('../config/db');
  * listLLMCosts
  * GET /api/llm-costs
  *
- * Deterministic and bounded behavior for listing documents from 'llm-costs':
- *  - Fast readiness short-circuit: if DB isn't ready or MONGODB_URI missing, return 503 JSON (no gateway timeout)
- *  - Direct find() on 'llm-costs' with exact organization_id filter when provided; otherwise return all
- *  - Bounded: maxTimeMS(5000), limit capped at 50, stable sort by _id desc
- *  - Projection includes: _id, organization_id, organization_name, organization_cost, users, projects, agents
- *  - Adds diagnostic headers: X-DB-Connected, X-Org-Filter, X-Query-Duration
- *  - Pagination: ?page, ?limit; returns { success, data, meta } when paginating; raw array otherwise
- *  - Enhancement: For each document, embed full user document for each users[i] based on users[i].user_id into users[i].user (null when not found).
+ * Hardened handler to prevent 500s:
+ * - Wraps DB and enrichment logic with try/catch and returns safe JSON errors (4xx/5xx) instead of bubbling exceptions.
+ * - Applies tenant filter (organization_id) when present, with stable pagination and safeguards on count/find.
+ * - Uses maxTimeMS to avoid long-running queries, and guards against undefined arrays to prevent map/reduce errors.
+ * - Preserves users[] array and user_cost during enrichment; joins by string user_id to users._id (string UUIDs).
+ * - Adds one-time debug diagnostics when BACKEND_DEBUG_ONCE=true (auto-disables after one request).
  */
 async function listLLMCosts(req, res, next) {
   const t0 = Date.now();
 
+  // One-time debug diagnostics
+  let debugOnce = String(process.env.BACKEND_DEBUG_ONCE || '').toLowerCase() === 'true';
+  const debugInfo = (label, data) => {
+    try {
+      if (debugOnce) {
+        console.debug(`[llm-costs DEBUG] ${label}:`, data);
+      }
+    } catch {}
+  };
+
   // Hard ceiling for this handler to avoid hanging connections (graceful 504)
-  const HARD_TIMEOUT_MS = 10000; // 10s ceiling for the entire request lifecycle
+  const HARD_TIMEOUT_MS = 10000; // 10s ceiling
   let hardTimeoutFired = false;
   const hardTimer = setTimeout(() => {
     hardTimeoutFired = true;
@@ -46,7 +54,7 @@ async function listLLMCosts(req, res, next) {
       });
     }
 
-    // Quick readiness probe (~1s)
+    // Quick readiness probe
     const readiness = await isDBReadyFast(800);
     if (!readiness.ok) {
       res.set('X-DB-Connected', 'false');
@@ -59,7 +67,7 @@ async function listLLMCosts(req, res, next) {
       });
     }
 
-    // Attempt opportunistic connect if not connected (non-blocking)
+    // Opportunistic connect if not connected (non-blocking)
     if (!isDbConnected()) {
       try { await mongoose.connect(process.env.MONGODB_URI); } catch (_) {}
     }
@@ -107,6 +115,15 @@ async function listLLMCosts(req, res, next) {
       agents: 1,
     };
 
+    debugInfo('Incoming query', {
+      org_header: req.headers['x-organization-id'],
+      org_query: req.query.organization_id || req.query.tenant_id,
+      resolvedTenant,
+      page: safePage,
+      limit,
+      skip,
+    });
+
     let docs = [];
     try {
       const cursor = collection
@@ -114,23 +131,25 @@ async function listLLMCosts(req, res, next) {
         .sort(sort)
         .skip(skip)
         .limit(limit)
-        .maxTimeMS(4000); // slightly reduced to avoid long waits
+        .maxTimeMS(4000);
 
       docs = await cursor.toArray();
 
-      // Ensure arrays present even if absent in source document for UI expectations
-      docs = docs.map((d) => {
+      // Ensure arrays present even if absent in source document
+      docs = (Array.isArray(docs) ? docs : []).map((d) => {
+        const out = d && typeof d === 'object' ? { ...d } : {};
         try {
-          if (!Array.isArray(d.users)) d.users = Array.isArray(d.users) ? d.users : (d.users ? d.users : []);
-          if (!Array.isArray(d.projects)) {
-            if (Array.isArray(d.project)) d.projects = d.project;
-            else d.projects = [];
+          if (!Array.isArray(out.users)) {
+            // preserve provided shape if not array but truthy; else set []
+            out.users = Array.isArray(out.users) ? out.users : (out.users ? out.users : []);
           }
-          if (!Array.isArray(d.agents)) d.agents = Array.isArray(d.agents) ? d.agents : (d.agents ? d.agents : []);
-          return d;
-        } catch {
-          return d || {};
-        }
+          if (!Array.isArray(out.projects)) {
+            if (Array.isArray(out.project)) out.projects = out.project;
+            else out.projects = [];
+          }
+          if (!Array.isArray(out.agents)) out.agents = Array.isArray(out.agents) ? out.agents : (out.agents ? out.agents : []);
+        } catch {}
+        return out;
       });
     } catch (e) {
       const timedOut = e && (e.code === 50 || /exceeded time limit|network timeout|timed out/i.test(String(e.message)));
@@ -138,7 +157,12 @@ async function listLLMCosts(req, res, next) {
       res.set('X-Org-Filter', resolvedTenant ? String(resolvedTenant) : '');
       res.set('X-Query-Duration', String(Date.now() - t0));
       clearTimeout(hardTimer);
-      return res.status(timedOut ? 504 : 500).json({ success: false, error: timedOut ? 'Query timed out' : 'Query failed' });
+      const status = timedOut ? 504 : 500;
+      if (debugOnce) {
+        console.error('[llm-costs] find failed:', { message: e?.message, code: e?.code, stack: e?.stack });
+        process.env.BACKEND_DEBUG_ONCE = 'false';
+      }
+      return res.status(status).json({ success: false, error: timedOut ? 'Query timed out' : 'Query failed' });
     }
 
     // Batched enrichment: fetch full user docs for all users[].user_id across returned docs
@@ -162,6 +186,7 @@ async function listLLMCosts(req, res, next) {
         const usersColl = db.collection('users');
 
         const ids = Array.from(allIdsSet);
+        // Ensure string-based join: user collection uses string UUIDs in _id
         const userQuery = { _id: { $in: ids } };
         const userProjection = {
           _id: 1,
@@ -191,6 +216,9 @@ async function listLLMCosts(req, res, next) {
           // Skip enrichment on timeout or failure
           try { res.set('X-Users-Enriched', 'skipped'); } catch {}
           foundUsers = [];
+          if (debugOnce) {
+            console.warn('[llm-costs] user enrichment query failed:', e?.message || e);
+          }
         }
 
         const userMap = {};
@@ -200,12 +228,12 @@ async function listLLMCosts(req, res, next) {
           }
         }
 
+        // Null-safe mapping; preserve user_cost and original shape
         for (const d of docs) {
           if (Array.isArray(d.users)) {
             d.users = d.users.map((entry) => {
               try {
                 const key = entry && entry.user_id != null ? String(entry.user_id).trim() : '';
-                // Preserve all original user subfields including user_cost
                 const enriched = { ...entry };
                 enriched.user = key ? (userMap[key] || null) : null;
                 return enriched;
@@ -213,6 +241,8 @@ async function listLLMCosts(req, res, next) {
                 return entry;
               }
             });
+          } else if (!d.users) {
+            d.users = [];
           }
         }
 
@@ -235,7 +265,7 @@ async function listLLMCosts(req, res, next) {
       } catch {}
     }
 
-    // Diagnostics
+    // Diagnostics and headers
     res.set('X-DB-Connected', String(isDbConnected()));
     res.set('X-Org-Filter', resolvedTenant ? String(resolvedTenant) : (superAdminBypass ? 'all-tenants' : ''));
     res.set('X-Query-Duration', String(Date.now() - t0));
@@ -244,11 +274,19 @@ async function listLLMCosts(req, res, next) {
       let total = 0;
       try {
         total = await collection.countDocuments(filter, { maxTimeMS: 1500 });
-      } catch (_) {
-        // deterministic fallback without extra DB roundtrips
+      } catch (e) {
+        // fallback if count times out/fails
         total = docs.length + skip;
+        if (debugOnce) {
+          console.warn('[llm-costs] countDocuments failed, using fallback:', e?.message || e);
+        }
       }
       clearTimeout(hardTimer);
+      if (debugOnce) {
+        console.debug('[llm-costs DEBUG] returning envelope page', { page: safePage, limit, total, items: docs.length });
+        process.env.BACKEND_DEBUG_ONCE = 'false';
+        debugOnce = false;
+      }
       return res.status(200).json({
         success: true,
         data: docs,
@@ -258,13 +296,23 @@ async function listLLMCosts(req, res, next) {
 
     // Raw array when no pagination requested
     clearTimeout(hardTimer);
-    return res.status(200).json(docs);
+    if (debugOnce) {
+      console.debug('[llm-costs DEBUG] returning raw array', { count: Array.isArray(docs) ? docs.length : 0 });
+      process.env.BACKEND_DEBUG_ONCE = 'false';
+      debugOnce = false;
+    }
+    return res.status(200).json(Array.isArray(docs) ? docs : []);
   } catch (err) {
     try { res.set('X-Query-Duration', String(Date.now() - t0)); } catch {}
     clearTimeout(hardTimer);
-    return next(err);
+    // Safe error response instead of unhandled exception
+    const status = err.status || err.statusCode || 500;
+    if (debugOnce) {
+      console.error('[llm-costs] handler failed:', err?.message || err, err?.stack);
+      process.env.BACKEND_DEBUG_ONCE = 'false';
+    }
+    return res.status(status).json({ success: false, error: err?.message || 'Internal Server Error' });
   } finally {
-    // If hard-timeout fired and we already responded, ensure timer cleared
     if (!hardTimeoutFired) {
       try { clearTimeout(hardTimer); } catch {}
     }
