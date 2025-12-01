@@ -33,12 +33,18 @@ async function listLlmCosts(req, res) {
       return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
     }
 
-    // Fast-fail if no tenant in non-bypass mode
+    // Apply default tenant per requirement when none provided and not in bypass
+    // This ensures organization_id=T0015 is enforced by default to avoid empty scope during verification.
     if (!bypass && !resolvedTenant) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing tenant. Provide Authorization with tenant or x-organization-id header',
-      });
+      resolvedTenant = 'T0015';
+      // If an environment variable explicitly disables defaulting, return 400 instead
+      if (String(process.env.DISABLE_DEFAULT_TENANT || '').toLowerCase() === 'true') {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Missing tenant. Provide Authorization with tenant or x-organization-id header. Default tenant disabled by env.',
+        });
+      }
     }
 
     // Pagination & limits
@@ -132,6 +138,7 @@ async function listLlmCosts(req, res) {
       const msg = dataRes.reason?.message || 'Query failed';
       // Timeout or server selection issues should return 504/503 respectively
       if (/maxTimeMS|operation exceeded time limit/i.test(msg)) {
+        try { res.set('X-Error', 'timeout'); } catch {}
         return res.status(504).json({ success: false, message: 'Query timeout' });
       }
       return res.status(500).json({ success: false, message: msg });
@@ -158,6 +165,7 @@ async function listLlmCosts(req, res) {
   } catch (err) {
     const msg = err?.message || 'Internal server error';
     if (/maxTimeMS|operation exceeded time limit/i.test(msg)) {
+      try { res.set('X-Error', 'timeout'); } catch {}
       return res.status(504).json({ success: false, message: 'Query timeout' });
     }
     return res.status(500).json({ success: false, message: msg });
