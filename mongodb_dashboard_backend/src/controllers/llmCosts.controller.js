@@ -18,7 +18,21 @@ const { isDBReadyFast, isDbConnected, getDb } = require('../config/db');
  *  - Enhancement: For each document, embed full user document for each users[i] based on users[i].user_id into users[i].user (null when not found).
  */
 async function listLLMCosts(req, res, next) {
+  /**
+   * Controller profiling/timeout notes:
+   * - Controlled query timeouts via maxTimeMS and a soft server-side timeout guard (LLM_COSTS_QUERY_TIMEOUT_MS).
+   * - Optional profiling logs when LLM_COSTS_PROFILE=true (logs single-line timings and counts).
+   * - Pagination is applied early (sort + skip + limit) before any heavy processing.
+   */
   const t0 = Date.now();
+  const profileEnabled = String(process.env.LLM_COSTS_PROFILE || '').toLowerCase() === 'true';
+  const serverTimeoutMs = Number.isFinite(parseInt(process.env.LLM_COSTS_QUERY_TIMEOUT_MS || '', 10))
+    ? parseInt(process.env.LLM_COSTS_QUERY_TIMEOUT_MS, 10)
+    : 8000; // server-side guard (soft), DB has its own maxTimeMS
+  let timedOutServerGuard = false;
+  const serverTimeoutHandle = setTimeout(() => {
+    timedOutServerGuard = true;
+  }, Math.max(1000, serverTimeoutMs));
 
   try {
     // Fail fast if DB is not configured
@@ -98,14 +112,46 @@ async function listLLMCosts(req, res, next) {
 
     let docs = [];
     try {
+      const mongoTimeout = 4500; // find stage should be fast due to indexes; keep tight
+      const qStart = Date.now();
       const cursor = collection
         .find(filter, { projection })
         .sort(sort)
         .skip(skip)
         .limit(limit)
-        .maxTimeMS(5000);
+        .maxTimeMS(mongoTimeout);
+
+      // Optional one-off explain to capture executionStats if profiling enabled and page 1
+      if (profileEnabled && safePage === 1) {
+        try {
+          const plan = await collection
+            .find(filter, { projection })
+            .sort(sort)
+            .skip(0)
+            .limit(Math.max(1, Math.min(10, limit)))
+            .maxTimeMS(mongoTimeout)
+            .explain('executionStats');
+          // Log minimal info (no huge dump)
+          const nReturned = plan?.executionStats?.nReturned ?? null;
+          const totalDocsExamined = plan?.executionStats?.totalDocsExamined ?? null;
+          const totalKeysExamined = plan?.executionStats?.totalKeysExamined ?? null;
+          console.info(
+            `[llm-costs] explain page=1 limit=${limit} filterKeys=${Object.keys(filter)} returned=${nReturned} keysExamined=${totalKeysExamined} docsExamined=${totalDocsExamined}`
+          );
+        } catch (explainErr) {
+          console.warn('[llm-costs] explain failed:', explainErr?.message || explainErr);
+        }
+      }
 
       docs = await cursor.toArray();
+      const qDuration = Date.now() - qStart;
+      if (profileEnabled) {
+        console.info(
+          `[llm-costs] query page=${safePage} limit=${limit} took=${qDuration}ms (mongoTimeout=${mongoTimeout}ms) match=${JSON.stringify(
+            filter
+          )}`
+        );
+      }
 
       // Ensure arrays present even if absent in source document for UI expectations
       docs = docs.map((d) => {
@@ -118,6 +164,19 @@ async function listLLMCosts(req, res, next) {
         if (!Array.isArray(d.agents)) d.agents = Array.isArray(d.agents) ? d.agents : (d.agents ? d.agents : []);
         return d;
       });
+
+      // Server guard check after the primary query to avoid long enrichments
+      if (timedOutServerGuard) {
+        res.set('X-DB-Connected', String(isDbConnected()));
+        res.set('X-Org-Filter', resolvedTenant ? String(resolvedTenant) : '');
+        res.set('X-Query-Duration', String(Date.now() - t0));
+        clearTimeout(serverTimeoutHandle);
+        return res.status(504).json({
+          success: false,
+          error: 'Query exceeded server timeout',
+          detail: 'Reduce limit or refine filters (LLM_COSTS_QUERY_TIMEOUT_MS hit).',
+        });
+      }
     } catch (e) {
       const timedOut = e && (e.code === 50 || /exceeded time limit|network timeout|timed out/i.test(String(e.message)));
       res.set('X-DB-Connected', String(isDbConnected()));
@@ -168,10 +227,25 @@ async function listLLMCosts(req, res, next) {
           updated_at: 1,
         };
 
+        const enrichStart = Date.now();
         const foundUsers = await usersColl
           .find(userQuery, { projection: userProjection })
-          .maxTimeMS(4000)
+          .maxTimeMS(3500)
           .toArray();
+
+        if (profileEnabled) {
+          console.info(
+            `[llm-costs] enrichment fetch users=${ids.length} fetched=${foundUsers.length} took=${Date.now() - enrichStart}ms`
+          );
+        }
+
+        if (timedOutServerGuard) {
+          // Do not fail entire request; return partial without enrichment
+          if (profileEnabled) {
+            console.warn('[llm-costs] enrichment skipped due to server timeout guard');
+          }
+          throw new Error('enrichment-skipped-server-timeout');
+        }
 
         // 3) Build user map keyed by String(doc._id)
         const userMap = {};
@@ -227,9 +301,17 @@ async function listLLMCosts(req, res, next) {
     if (hasPagination) {
       let total = 0;
       try {
+        const ctStart = Date.now();
         total = await collection.countDocuments(filter, { maxTimeMS: 2000 });
+        if (profileEnabled) {
+          console.info(`[llm-costs] countDocuments took=${Date.now() - ctStart}ms total=${total}`);
+        }
       } catch (_) {
         total = docs.length + skip;
+      }
+      clearTimeout(serverTimeoutHandle);
+      if (profileEnabled) {
+        console.info(`[llm-costs] total handler time=${Date.now() - t0}ms items=${docs.length}`);
       }
       return res.status(200).json({
         success: true,
@@ -239,8 +321,13 @@ async function listLLMCosts(req, res, next) {
     }
 
     // Raw array when no pagination requested
+    clearTimeout(serverTimeoutHandle);
+    if (profileEnabled) {
+      console.info(`[llm-costs] total handler time=${Date.now() - t0}ms items=${docs.length}`);
+    }
     return res.status(200).json(docs);
   } catch (err) {
+    clearTimeout(serverTimeoutHandle);
     try { res.set('X-Query-Duration', String(Date.now() - t0)); } catch {}
     return next(err);
   }

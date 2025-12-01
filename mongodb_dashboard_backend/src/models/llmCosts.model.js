@@ -49,9 +49,14 @@ LLMCostsSchema.index({ tenant_id: 1, timestamp: -1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, created_at: -1, _id: -1 });
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1, _id: -1 });
 
-// Optional: index for variant field names used in some datasets
+/** Optional: index for variant field names used in some datasets (legacy fields) */
 LLMCostsSchema.index({ organizationId: 1, createdAt: -1, _id: -1 }, { sparse: true });
 LLMCostsSchema.index({ tenantId: 1, createdAt: -1, _id: -1 }, { sparse: true });
+
+/** Join note:
+ * users[].user_id is expected to be a string UUID that matches users._id (string).
+ * Enrichment in the controller performs a single batched fetch by users._id using $in.
+ */
 
 /**
  * Helpful partial index on users.user_id for faster $unwind lookups if present.
