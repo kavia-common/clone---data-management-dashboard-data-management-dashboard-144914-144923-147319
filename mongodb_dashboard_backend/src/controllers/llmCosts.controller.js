@@ -2,6 +2,111 @@
 
 const { success, handleError } = require('../utils/http');
 const { aggregateHierarchy, ensureLlmCostsIndexes } = require('../services/llmCostsHierarchy.service');
+const LLMCost = require('../models/llmCosts.model');
+
+/**
+ * PUBLIC_INTERFACE
+ * listLlmCosts
+ * GET /api/llm-costs
+ * Returns full LLM cost documents, quickly. Defaults to:
+ *  - sort: -timestamp (if present)
+ *  - limit: 100 (to avoid huge payloads), can be overridden up to 200
+ * Tenant scoping is enforced similar to other routes. If explicit pagination (page/limit)
+ * is provided, returns envelope; otherwise raw array.
+ */
+async function listLlmCosts(req, res) {
+  try {
+    // Parse filter safely
+    let filter = {};
+    if (req.query && req.query.filter) {
+      try { filter = JSON.parse(req.query.filter); }
+      catch { return res.status(400).json({ success: false, message: 'Invalid filter JSON' }); }
+    }
+
+    // Drop any tenant keys from client filter
+    delete filter.tenant_id;
+    delete filter.tenantId;
+    delete filter.organization_id;
+    delete filter.organizationId;
+    delete filter.orgId;
+
+    // Resolve tenant with bypass support (T0000 etc)
+    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
+    const resolvedTenant = bypass
+      ? undefined
+      : (req?.tenantId || req?.organizationId || (req?.auth?.tenantId ? String(req.auth.tenantId) : undefined));
+
+    if (req.headers?.authorization) {
+      const clientRequestedTenant =
+        (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+        (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+        (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) || '';
+      if (clientRequestedTenant && String(clientRequestedTenant) !== String(resolvedTenant || '')) {
+        return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+      }
+    }
+
+    if (resolvedTenant) {
+      const t = String(resolvedTenant);
+      const tenantOr = {
+        $or: [
+          { tenant_id: t },
+          { organization_id: t },
+          { orgId: t },
+          { tenantId: t },
+          { organizationId: t },
+          { 'tenant.tenant_id': t },
+        ],
+      };
+      filter = Object.keys(filter).length ? { $and: [filter, tenantOr] } : tenantOr;
+      try { res.set('X-Applied-Tenant', t); } catch {}
+    } else if (bypass) {
+      try { res.set('X-All-Tenants', 'true'); res.set('X-Applied-Tenant', 'all-tenants'); } catch {}
+    }
+
+    // Sorting: default -timestamp, fallback to -_id
+    const sortStr = (req.query?.sort || '-timestamp').toString();
+    const sort = {};
+    for (const token of sortStr.split(',').map(s => s.trim()).filter(Boolean)) {
+      const dir = token.startsWith('-') ? -1 : 1;
+      const key = token.replace(/^-/, '');
+      sort[key] = dir;
+    }
+    if (Object.keys(sort).length === 0) sort._id = -1;
+
+    // Pagination handling
+    const limitParam = Number(req.query?.limit);
+    const pageParam = Number(req.query?.page);
+    const explicitPagination = Number.isFinite(limitParam) || Number.isFinite(pageParam);
+    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(200, limitParam)) : 100;
+    const page = Number.isFinite(pageParam) ? Math.max(1, pageParam) : 1;
+    const skip = (page - 1) * limit;
+
+    // Fast path when no explicit pagination: limit default to 100 and return array
+    // Always use lean() to reduce memory overhead and speed up JSON serialization
+    // Try to apply common index hint for speed if present
+    let cursor = LLMCost.find(filter, null, { strictQuery: true }).sort(sort).lean();
+    try { cursor = cursor.hint({ tenant_id: 1, timestamp: -1 }); } catch {}
+    cursor = explicitPagination ? cursor.skip(skip).limit(limit) : cursor.limit(limit);
+
+    const docs = await cursor.exec();
+
+    if (!explicitPagination) {
+      // Raw array
+      return res.status(200).json(docs);
+    }
+
+    // Envelope response
+    const total = await LLMCost.countDocuments(filter).exec();
+    return res.status(200).json({
+      success: true,
+      data: docs,
+      meta: { page, limit, total },
+    });
+  } catch (err) {
+    return handleError(res, err);
+  }
+}
 
 // PUBLIC_INTERFACE
 async function getHierarchy(req, res) {

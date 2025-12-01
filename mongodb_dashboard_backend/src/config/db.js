@@ -15,88 +15,84 @@ const mongoose = require('mongoose');
  * - MONGOOSE_AUTO_INDEX (optional): 'true' to enable autoIndex
  */
 async function connectDB() {
-  // Enforce env-based configuration; never hard-code credentials
   const uri = process.env.MONGODB_URI;
 
   if (!uri || typeof uri !== 'string' || uri.trim() === '') {
-     
-    console.warn(
-      '[db] MONGODB_URI is not set. Skipping MongoDB connection. The API will start, health endpoints will report db=disconnected.'
-    );
-    // Return the current mongoose.connection without attempting to connect
+    console.warn('[db] MONGODB_URI is not set. Skipping MongoDB connection. The API will start, health endpoints will report db=disconnected.');
     return mongoose.connection;
   }
 
   mongoose.set('strictQuery', true);
 
-  // In test mode, prefer fast failures and no buffering to keep tests snappy.
-  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
+  const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
+  const isTest = nodeEnv === 'test';
+  const isDev = nodeEnv === 'development';
+
   if (isTest) {
-    try {
-      mongoose.set('bufferCommands', false);
-    } catch {
-      // ignore
-    }
+    try { mongoose.set('bufferCommands', false); } catch {}
   }
 
-  // Connection options recommended for modern Mongoose
-  // - Disable autoIndex by default to avoid failures on clusters with existing duplicate data.
-  //   You can override by setting MONGOOSE_AUTO_INDEX=true
-  const autoIndex =
-    (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
-
-  // Respect explicit MONGODB_DB, else do not override the URI's db component.
+  const autoIndex = (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
   const dbNameEnv = (process.env.MONGODB_DB || '').trim();
   const dbName = dbNameEnv !== '' ? dbNameEnv : undefined;
 
-  // Use smaller pool in low-memory preview environments
-  const maxPoolSize =
-    Number.isFinite(Number(process.env.MONGOOSE_POOL_SIZE))
-      ? Number(process.env.MONGOOSE_POOL_SIZE)
-      : 5;
+  // Reduce pool and timeouts for preview/dev to limit memory and speed failures
+  const maxPoolSize = Number.isFinite(Number(process.env.MONGOOSE_POOL_SIZE))
+    ? Number(process.env.MONGOOSE_POOL_SIZE)
+    : (isDev ? 3 : 5);
 
   const options = {
     autoIndex,
     maxPoolSize,
-    serverSelectionTimeoutMS: isTest ? 250 : 5000,
-    socketTimeoutMS: isTest ? 500 : 45000,
+    serverSelectionTimeoutMS: isTest ? 250 : 3500,
+    socketTimeoutMS: isTest ? 500 : 20000,
     family: 4,
     ...(dbName ? { dbName } : {}),
   };
 
-  // Prepare a safe, masked log for the cluster host (never log credentials)
   let clusterHost = 'unknown-host';
-  try {
-    const parsed = new URL(uri);
-    clusterHost = parsed.hostname || clusterHost;
-  } catch {
-    // swallow parse errors; we will still attempt to connect
-  }
+  try { const parsed = new URL(uri); clusterHost = parsed.hostname || clusterHost; } catch {}
+
+  mongoose.connection.removeAllListeners('connected');
+  mongoose.connection.removeAllListeners('error');
+  mongoose.connection.removeAllListeners('disconnected');
 
   mongoose.connection.on('connected', () => {
-     
-    console.log(
-      `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
-    );
-    if (dbName) {
-       
-      console.log(`MongoDB dbName selected via env: ${dbName}`);
-    }
-     
-    console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
+    console.log(`MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`);
+    if (dbName) console.log(`MongoDB dbName selected via env: ${dbName}`);
+    console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'} maxPoolSize=${maxPoolSize}`);
   });
 
   mongoose.connection.on('error', (err) => {
-     
     console.error('MongoDB connection error:', err.message);
   });
 
   mongoose.connection.on('disconnected', () => {
-     
     console.warn('MongoDB disconnected');
   });
 
-  await mongoose.connect(uri, options);
+  // Lightweight retry with backoff to handle brief Mongo unavailability without crashing the process
+  const maxAttempts = Number.isFinite(Number(process.env.MONGOOSE_CONNECT_ATTEMPTS))
+    ? Number(process.env.MONGOOSE_CONNECT_ATTEMPTS)
+    : 3;
+  const baseDelay = Number.isFinite(Number(process.env.MONGOOSE_CONNECT_BACKOFF_MS))
+    ? Number(process.env.MONGOOSE_CONNECT_BACKOFF_MS)
+    : 300;
+
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await mongoose.connect(uri, options);
+      return mongoose.connection;
+    } catch (err) {
+      lastErr = err;
+      const delay = baseDelay * attempt;
+      console.warn(`[db] connect attempt ${attempt}/${maxAttempts} failed: ${err?.message || err}. Retrying in ${delay}ms`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  // Give up but do not throw; keep API alive. Health endpoint will reflect disconnected status.
+  console.error('[db] All connection attempts failed. Continuing without DB connection. Health endpoints will show db=disconnected.');
   return mongoose.connection;
 }
 

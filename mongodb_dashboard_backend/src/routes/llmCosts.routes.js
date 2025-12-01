@@ -18,6 +18,7 @@ const router = express.Router();
  * Use safe default sort on indexed field 'timestamp' in descending order.
  * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } on the model.
  */
+const { listLlmCosts } = require('../controllers/llmCosts.controller');
 const controller = buildCrudController(LLMCost, '-timestamp');
 
 // Proactively ensure indexes for fast tenant+timestamp queries (non-blocking)
@@ -218,7 +219,7 @@ router.get('/health', (req, res) => {
   return res.status(200).json({ ok: true, module: 'llm-costs' });
 });
 
-router.get('/', asyncHandler(controller.list));
+router.get('/', asyncHandler(listLlmCosts));
 
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));
