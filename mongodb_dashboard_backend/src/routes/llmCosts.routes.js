@@ -208,6 +208,16 @@ router.use((req, res, next) => {
  *       403:
  *         description: Forbidden on tenant mismatch with Authorization
  */
+router.get('/health', (req, res) => {
+  // Fast path health for module-specific checks
+  try { res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs'); } catch (_) {}
+  try {
+    const tenant = req.tenantId || req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id || '';
+    if (tenant) res.set('X-Applied-Tenant', String(tenant));
+  } catch (_) {}
+  return res.status(200).json({ ok: true, module: 'llm-costs' });
+});
+
 router.get('/', asyncHandler(controller.list));
 
 router.get('/:id', asyncHandler(controller.getById));

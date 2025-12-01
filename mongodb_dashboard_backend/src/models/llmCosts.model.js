@@ -92,4 +92,16 @@ async function ensureLLMCostsIndexes() {
 const LLMCost = mongoose.model('LLMCost', LLMCostsSchema);
 LLMCost.ensureLLMCostsIndexes = ensureLLMCostsIndexes;
 
+// Ensure critical indexes in background at module load (non-blocking)
+try {
+  ensureLLMCostsIndexes().catch((e) => {
+    // log only; do not throw at import time
+    console.warn('[LLMCost.model] ensureLLMCostsIndexes at import failed:', e?.message || e);
+  });
+} catch (_) {}
+
+// PUBLIC_INTERFACE
+/**
+ * LLMCost model export with ensured background index creation.
+ */
 module.exports = LLMCost;

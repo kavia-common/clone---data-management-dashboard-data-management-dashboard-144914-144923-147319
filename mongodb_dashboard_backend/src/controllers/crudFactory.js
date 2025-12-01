@@ -208,9 +208,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         } catch (_) {}
       }
 
-      // Parse pagination but hard-cap the limit to prevent heavy responses.
+      // Parse pagination with enforced defaults/caps (default 20, max 200 for list endpoints)
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
-      const hardCappedLimit = clampLimit(parsedLimit, 500);
+      const hardCappedLimit = clampLimit(parsedLimit, 200);
 
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
@@ -284,6 +284,17 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // execute DB operations with safe sort and enforced tenant filter
       try {
+        // Fast-path: if MONGODB_URI missing, report clearly instead of hanging
+        if (!process.env.MONGODB_URI) {
+          return failure(res, 'Database not configured: MONGODB_URI is missing', 500);
+        }
+
+        // Guardrail: if request has been open too long (>8s), abort before DB-heavy work
+        const reqStart = req._startTime || new Date();
+        const elapsedMs = Date.now() - new Date(reqStart).getTime();
+        if (elapsedMs > 8000) {
+          return failure(res, 'Request timed out early guard', 504);
+        }
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
         let existsSample = 'unknown';
         try {
@@ -315,143 +326,67 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           // pagination path
 
         if (req.method === 'GET' && explicit) {
-                    // cache and return envelope
-
+          // Pagination path: cache and return envelope
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
-          if (cached) {return res.status(200).json(cached);}
-          
-          // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
-          let items;
-          if (isLLMCost) {
-            try {
-              const sortStage = safeSort
-                ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
-                : { timestamp: -1 };
-              const pipeline = [
-                { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-                { $addFields: {
-                    timestamp: { $ifNull: ['$timestamp', '$created_at'] },
-                    organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
-                    numeric_total_cost: {
-                      $convert: {
-                        input: {
-                          $replaceAll: {
-                            input: { $toString: { $ifNull: ['$total_cost', 0] } },
-                            find: '$',
-                            replacement: ''
-                          }
-                        },
-                        to: 'double',
-                        onError: 0,
-                        onNull: 0
-                      }
-                    }
-                  }
-                },
-                { $sort: sortStage },
-                { $skip: skip },
-                { $limit: hardCappedLimit },
-              ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
-            } catch (_) {
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
-            }
-          } else if (isAppDeployment) {
-            try {
-              const sortStage = safeSort
-                ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
-                : { timestamp: -1 };
-              const pipeline = [
-                { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-                { $addFields: {
-                    // Normalize timestamp fields for consistent sorting
-                    timestamp: { $ifNull: ['$timestamp', '$created_at'] },
-                    created_at: { $ifNull: ['$created_at', '$createdAt'] },
-                    updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
-                    // Compute project_name from various sources
-                    project_name: {
-                      $ifNull: [
-                        '$project_name',
-                        { $ifNull: ['$projectName', { $ifNull: ['$metadata.projectName', '$project.name'] }] }
-                      ]
-                    }
-                  }
-                },
-                { $sort: sortStage },
-                { $skip: skip },
-                { $limit: hardCappedLimit },
-              ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
-            } catch (_) {
-              // Fallback: simple find; project_name may be missing if stored under a different key
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
-            }
-          } else {
-            items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+          if (cached) { return res.status(200).json(cached); }
+
+          // Build projection to reduce payload size for list
+          const projection = isLLMCost
+            ? {
+                _id: 1,
+                tenant_id: 1,
+                organization_id: 1,
+                timestamp: 1,
+                created_at: 1,
+                total_cost: 1,
+                llm_model: 1,
+                provider: 1,
+                task_id: 1,
+                session_id: 1,
+              }
+            : undefined;
+
+          // Use indexed find with sort and projection
+          const items = await Model.find(appliedFilter, projection)
+            .sort(safeSort)
+            .skip(skip)
+            .limit(hardCappedLimit)
+            .lean()
+            .exec();
+
+          // Fast 204/200 behavior when no records for tenant (explicit pagination only)
+          if (Array.isArray(items) && items.length === 0) {
+            res.set('X-Empty', 'true');
+            const payload = { success: true, data: [], meta: { page, limit: hardCappedLimit, total: 0 } };
+            microSet(key, payload);
+            return res.status(200).json(payload);
           }
-          const total = await Model.countDocuments(appliedFilter);
+
+          const total = await Model.countDocuments(appliedFilter).exec();
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
         }
 
-        // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
-        // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
-        let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
-        try {
-          if (isLLMCost) {
-            // Use aggregation for minimal transformation without large memory footprint
-            const pipeline = [
-              { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-              { $addFields: {
-                  timestamp: { $ifNull: ['$timestamp', '$created_at'] },
-                  organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
-                  numeric_total_cost: {
-                    $convert: {
-                      input: {
-                        $replaceAll: {
-                          input: { $toString: { $ifNull: ['$total_cost', 0] } },
-                          find: '$',
-                          replacement: ''
-                        }
-                      },
-                      to: 'double',
-                      onError: 0,
-                      onNull: 0
-                    }
-                  }
-                }
-              },
-              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
-            ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
-            return res.status(200).json(items);
-          }
-          if (isAppDeployment) {
-            const pipeline = [
-              { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-              { $addFields: {
-                  timestamp: { $ifNull: ['$timestamp', '$created_at'] },
-                  created_at: { $ifNull: ['$created_at', '$createdAt'] },
-                  updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
-                  project_name: {
-                    $ifNull: [
-                      '$project_name',
-                      { $ifNull: ['$projectName', { $ifNull: ['$metadata.projectName', '$project.name'] }] }
-                    ]
-                  }
-                }
-              },
-              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
-            ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
-            return res.status(200).json(items);
-          }
-        } catch (_) {
-          // Fallback to simple find if any aggregation operator unsupported
-        }
-        const items = await query;
+        // Non-paginated path: use light projection and safe sort.
+        // For LLMCost, avoid aggregations; use indexed find.
+        const projectionNonPaged = isLLMCost
+          ? {
+              _id: 1,
+              tenant_id: 1,
+              organization_id: 1,
+              timestamp: 1,
+              created_at: 1,
+              total_cost: 1,
+              llm_model: 1,
+              provider: 1,
+              task_id: 1,
+              session_id: 1,
+            }
+          : undefined;
+
+        const items = await Model.find(appliedFilter, projectionNonPaged).sort(safeSort).lean().exec();
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');

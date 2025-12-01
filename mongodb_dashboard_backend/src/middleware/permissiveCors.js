@@ -36,8 +36,8 @@ function permissiveCorsMiddleware(req, res, next) {
       : defaultAllowed
   );
 
-  // Expose some common headers (safe)
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Type,Content-Length');
+  // Expose some common headers (safe) including tenant diagnostics
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Type,Content-Length,X-Applied-Tenant,X-Applied-Filter,X-Model-Collection,X-Tenant-Bypass');
 
   // Cache preflight result briefly (optional, conservative)
   res.setHeader('Access-Control-Max-Age', '600');

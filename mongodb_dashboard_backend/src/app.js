@@ -20,6 +20,14 @@ app.use('/api', permissiveCorsMiddleware);
 app.options('/api/*', cors());
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
+// Add lightweight header logger/exposer for tenant diagnostics
+app.use((req, res, next) => {
+  try {
+    const tenant = req.tenantId || req.headers['x-organization-id'] || req.query?.organization_id || req.query?.tenant_id;
+    if (tenant) res.set('X-Applied-Tenant', String(tenant));
+  } catch (_) {}
+  next();
+});
 app.use(express.urlencoded({ extended: true }));
 
 // ---------------------------------------------
