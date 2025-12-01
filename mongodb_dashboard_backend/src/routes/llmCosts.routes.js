@@ -11,11 +11,9 @@ const { listLLMCostsStd } = require('../controllers/llmCosts.list.controller');
 // PUBLIC_INTERFACE
 /**
  * GET /api/llm-costs
- * List LLM cost documents (tenant-scoped) with pagination.
- * Query params:
- *  - organization_id (alias tenant_id)
- *  - page (default 1)
- *  - limit (default 20, max 100)
+ * Returns paginated LLM cost records with standard envelope:
+ * { data, page, limit, total, hasMore }
+ * Headers include X-Request-Id, X-Route-Timing, and X-Applied-Tenant when applicable.
  */
 router.get('/', listLLMCostsStd);
 

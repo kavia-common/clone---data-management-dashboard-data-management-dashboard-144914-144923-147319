@@ -26,39 +26,59 @@ async function listLLMCostsStd(req, res, next) {
   const MAX_LIMIT = 100;
   const DEFAULT_LIMIT = 20;
   const DEFAULT_PAGE = 1;
-  const QUERY_TIMEOUT_MS_INPUT = Number.parseInt(process.env.LLM_COSTS_QUERY_TIMEOUT_MS || '8000', 10);
-  const QUERY_TIMEOUT_MS = Number.isFinite(QUERY_TIMEOUT_MS_INPUT) && QUERY_TIMEOUT_MS_INPUT > 0 ? QUERY_TIMEOUT_MS_INPUT : 8000;
+  const timeoutCfg = Number.parseInt(process.env.LLM_COSTS_QUERY_TIMEOUT_MS || '8000', 10);
+  const QUERY_TIMEOUT_MS = Number.isFinite(timeoutCfg) && timeoutCfg > 0 ? timeoutCfg : 8000;
 
   try {
-    // Attach correlation and tenant headers at start
+    // Attach correlation and required headers up-front
     try {
       if (req.traceId) res.set('X-Request-Id', req.traceId);
     } catch {}
-    // Ensure DB configured and briefly ready to avoid hanging
+
+    // Validate DB configuration
     if (!process.env.MONGODB_URI) {
-      return res.status(503).json({ success: false, message: 'Database not configured' });
+      // Return fast with standard envelope to avoid 502 bubbles
+      return res.status(503).json({
+        data: [],
+        page: DEFAULT_PAGE,
+        limit: DEFAULT_LIMIT,
+        total: 0,
+        hasMore: false,
+        error: 'Database not configured',
+      });
     }
 
+    // Fast readiness probe with bounded time
     const readiness = await isDBReadyFast(Math.min(1000, QUERY_TIMEOUT_MS));
-    if (!readiness.ok) {
-      try { res.set('X-Applied-Tenant', organizationId ? String(organizationId) : ''); } catch {}
-      // Graceful degrade with 200 + empty envelope if DB read fails quickly
-      return res.status(200).json({ data: [], page: DEFAULT_PAGE, limit: DEFAULT_LIMIT, total: 0, hasMore: false, note: 'DB not ready' });
-    }
-
-    // Resolve tenant (organization) from context first
+    // Compute tenant as early as possible for headers even on readiness failure
     const ctxTenant = req.tenantId || req.organizationId || req.auth?.tenantId;
     const headerTenant = req.headers['x-organization-id'] || req.headers['organization_id'];
     const queryTenant = req.query.organization_id || req.query.tenant_id;
     const organizationId = ctxTenant || headerTenant || queryTenant;
 
-    // Defensive: missing organization_id is a 400 (when not in super-admin all-tenants mode)
-    if (!organizationId && !(req.tenantScopeDisabled || req.allTenants)) {
-      try { res.set('X-Applied-Tenant', ''); } catch {}
-      return res.status(400).json({ success: false, message: 'Missing organization_id. Provide via auth tenant, x-organization-id header, or ?organization_id' });
+    if (!readiness.ok) {
+      try { res.set('X-Applied-Tenant', organizationId ? String(organizationId) : ''); } catch {}
+      // Graceful degrade to 200 + empty envelope to keep gateway happy
+      return res
+        .status(200)
+        .json({ data: [], page: DEFAULT_PAGE, limit: DEFAULT_LIMIT, total: 0, hasMore: false, note: 'DB not ready' });
     }
 
-    // Enforce sane pagination defaults and caps
+    // Tenant scoping decision (respect SA/all-tenants bypass)
+    const isBypass = !!(req.tenantScopeDisabled || req.allTenants);
+    if (!organizationId && !isBypass) {
+      try { res.set('X-Applied-Tenant', ''); } catch {}
+      return res.status(400).json({
+        data: [],
+        page: DEFAULT_PAGE,
+        limit: DEFAULT_LIMIT,
+        total: 0,
+        hasMore: false,
+        error: 'Missing organization_id. Provide via auth tenant, x-organization-id header, or ?organization_id',
+      });
+    }
+
+    // Pagination setup
     let limit = DEFAULT_LIMIT;
     if (req.query.limit) {
       const l = parseInt(req.query.limit, 10);
@@ -73,13 +93,13 @@ async function listLLMCostsStd(req, res, next) {
     }
     const skip = (page - 1) * limit;
 
-    // Index-friendly filter
+    // Filter on organization_id when available; allow all tenants in SA bypass
     const filter = {};
-    if (organizationId) {
+    if (organizationId && !isBypass) {
       filter.organization_id = String(organizationId);
     }
 
-    // Projection to keep payload small
+    // Projection small, arrays included for FE expectations
     const projection = {
       _id: 1,
       organization_id: 1,
@@ -95,20 +115,19 @@ async function listLLMCostsStd(req, res, next) {
       agents: 1,
     };
 
-    // Sort: prefer createdAt desc then _id desc; fall back to _id desc when needed
-    // We'll attempt a compound sort; Mongo will use _id when createdAt missing
+    // Stable sort: createdAt desc, then _id desc to leverage compound indexes
     const sort = { createdAt: -1, _id: -1 };
 
-    // Ensure connection (non-blocking failure tolerated by readiness above)
+    // Ensure a connection, but don't block long
     if (!isDbConnected()) {
-      try { await mongoose.connect(process.env.MONGODB_URI); } catch { /* no-op */ }
+      try { await mongoose.connect(process.env.MONGODB_URI); } catch { /* ignore */ }
     }
     const db = await getDb();
-    const collection = db.collection('llm-costs'); // Model/collection name already normalized to 'llm-costs'
+    const collection = db.collection('llm-costs');
 
-    // Query page
     let data = [];
     let total = 0;
+
     try {
       const cursor = collection
         .find(filter, { projection })
@@ -119,7 +138,7 @@ async function listLLMCostsStd(req, res, next) {
 
       data = await cursor.toArray();
 
-      // Defensive field normalization for FE expectations
+      // Normalize arrays
       data = data.map((d) => {
         const doc = { ...d };
         if (!Array.isArray(doc.users)) doc.users = Array.isArray(doc.users) ? doc.users : (doc.users ? doc.users : []);
@@ -131,32 +150,34 @@ async function listLLMCostsStd(req, res, next) {
         return doc;
       });
 
-      // Count with small timeout, degrade gracefully
+      // Count with bounded time; fall back to estimate
       try {
         total = await collection.countDocuments(filter, { maxTimeMS: Math.min(QUERY_TIMEOUT_MS, 3000) });
       } catch {
-        // fallback estimate
         total = data.length + skip;
       }
     } catch (e) {
-      const timedOut = e && (e.code === 50 || /exceeded time limit|network timeout|timed out/i.test(String(e.message)));
+      const msg = String(e?.message || '');
+      const timedOut = e && (e.code === 50 || /exceeded time limit|network timeout|timed out/i.test(msg));
       if (timedOut) {
-        // Graceful 200 with empty data to avoid 504 bubbles for list UX
+        // Graceful 200 to avoid gateway 504 with a clear note
+        try { if (organizationId) res.set('X-Applied-Tenant', String(organizationId)); } catch {}
         return res.status(200).json({ data: [], page, limit, total: 0, hasMore: false, note: 'Query timed out' });
       }
-      // If server rate limiting occurred upstream
-      if (String(e?.message || '').toLowerCase().includes('rate limit')) {
-        return res.status(429).json({ success: false, message: 'Too many requests. Please slow down and try again.' });
+      if (msg.toLowerCase().includes('rate limit')) {
+        return res.status(429).json({ data: [], page, limit, total: 0, hasMore: false, error: 'Too many requests' });
       }
-      return res.status(500).json({ success: false, message: 'Failed to fetch llm-costs', detail: e?.message || 'Unknown error' });
+      return res.status(500).json({ data: [], page, limit, total: 0, hasMore: false, error: 'Failed to fetch llm-costs', detail: msg });
     }
 
     const hasMore = skip + data.length < total;
+
     try {
-      if (organizationId) res.set('X-Applied-Tenant', String(organizationId));
+      if (isBypass) res.set('X-Applied-Tenant', 'all-tenants');
+      else if (organizationId) res.set('X-Applied-Tenant', String(organizationId));
     } catch {}
 
-    // Standard list envelope
+    // Standard envelope
     return res.status(200).json({
       data,
       page,
@@ -187,8 +208,17 @@ async function ensureLlmCostsIndexes() {
   try {
     await collection.createIndex({ organization_id: 1, createdAt: -1, _id: -1 }, { background: true, name: 'org_createdAt__id' });
   } catch (e) {
-    // eslint-disable-next-line no-console
-    console.warn('[llm-costs] index creation skipped:', e?.message || e);
+    console.warn('[llm-costs] index creation skipped (createdAt):', e?.message || e);
+  }
+  try {
+    await collection.createIndex({ organization_id: 1, _id: -1 }, { background: true, name: 'org___id' });
+  } catch (e) {
+    console.warn('[llm-costs] index creation skipped (_id):', e?.message || e);
+  }
+  try {
+    await collection.createIndex({ organization_id: 1, created_at: -1, _id: -1 }, { background: true, name: 'org_created_at__id' });
+  } catch (e) {
+    console.warn('[llm-costs] index creation skipped (created_at):', e?.message || e);
   }
 }
 
