@@ -3,7 +3,12 @@
 const { success, handleError } = require('../utils/http');
 const { aggregateHierarchy, ensureLlmCostsIndexes } = require('../services/llmCostsHierarchy.service');
 
-// PUBLIC_INTERFACE
+/** 
+ * PUBLIC_INTERFACE
+ * getHierarchy
+ * Handler for hierarchical LLM cost aggregation endpoint.
+ * Returns structured costs per user->project->agent with defensive tenant enforcement.
+ */
 async function getHierarchy(req, res) {
   /**
    * PUBLIC_INTERFACE

@@ -449,7 +449,6 @@ router.get('/', asyncHandler(async (req, res) => {
     const elapsed = Date.now() - started;
     try { res.set('X-Query-Duration-ms', String(elapsed)); } catch (_) {}
     console.error('[llm-costs] aggregateOrganizationCosts failed', { err: err?.message || err, stageInfo });
-    // Preserve envelope, but no fake data fallback beyond empty with debug
     return res.status(500).json({
       success: false,
       data: [],
