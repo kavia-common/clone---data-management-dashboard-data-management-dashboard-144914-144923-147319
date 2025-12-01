@@ -145,8 +145,9 @@ async function listLLMCosts(req, res, next) {
         const userIds = Array.from(allIdsSet);
         const usersColl = db.collection('users');
 
-        // Build query to also respect tenant when present to avoid cross-tenant leakage
-        const userQuery = { user_id: { $in: userIds } };
+        // Build query to also respect tenant when present to avoid cross-tenant leakage.
+        // IMPORTANT: Match by string user_id directly (no ObjectId conversion). Normalize both sides to strings.
+        const userQuery = { user_id: { $in: userIds.map((v) => String(v)) } };
         if (resolvedTenant) {
           // Try to prefer tenant scoped users; support variants for safety
           userQuery.$or = [
@@ -180,7 +181,7 @@ async function listLLMCosts(req, res, next) {
           .maxTimeMS(3000)
           .toArray();
 
-        // Map by user_id string
+        // Map by user_id string (defensively normalize to String to avoid mixed type mismatches)
         const byId = new Map();
         for (const u of foundUsers) {
           if (u && (u.user_id != null)) {
@@ -188,12 +189,12 @@ async function listLLMCosts(req, res, next) {
           }
         }
 
-        // Attach to each users[i] as 'user'
+        // Attach to each users[i] as 'user' using string-based matching
         for (const d of docs) {
           if (Array.isArray(d.users)) {
             d.users = d.users.map((entry) => {
               const uid = entry?.user_id || entry?.userId || entry?.id || entry?.uid;
-              const key = uid != null ? String(uid) : null;
+              const key = uid != null ? String(uid) : null; // normalize to string for matching
               const enriched = { ...entry };
               enriched.user = key ? (byId.get(key) || null) : null;
               return enriched;
