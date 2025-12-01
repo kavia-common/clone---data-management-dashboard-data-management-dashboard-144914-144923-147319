@@ -302,6 +302,75 @@ const { aggregateOrganizationCosts } = require('../services/llmCosts.organizatio
  * Returns rows: [{ _id, organization_cost, user_id, user_cost, projects_count }] with a flat paginated envelope.
  * Adds precise logging and includes meta_debug on failure.
  */
+/**
+ * PUBLIC_INTERFACE
+ * Diagnostic: dump a single raw LLM cost doc for organization_id=b2c (redacted)
+ * GET /api/llm-costs/_diagnostics/sample?organization_id=b2c
+ * Returns: { success, data: { _id, tenant_id, organization_id, user_id, project_id, total_cost, timestamp, ...subset }, meta }
+ */
+router.get('/_diagnostics/sample', asyncHandler(async (req, res) => {
+  const started = Date.now();
+  const { getDb } = require('../config/db');
+
+  const org = (req.query.organization_id || req.query.tenant_id || req.headers['x-organization-id'] || 'b2c') + '';
+  const db = await getDb();
+
+  // try multiple candidate collections
+  const candidates = ['llm-costs', 'llm_costs', 'llm_events'];
+  let col = null;
+  for (const name of candidates) {
+    try { col = db.collection(name); break; } catch { /* ignore */ }
+  }
+  if (!col) return res.status(200).json({ success: true, data: null, meta: { note: 'no collection' } });
+
+  const match = {
+    $or: [
+      { tenant_id: org },
+      { organization_id: org },
+      { organizationId: org },
+      { tenantId: org },
+      { orgId: org },
+      { 'tenant.tenant_id': org },
+    ],
+  };
+
+  const doc = await col.findOne(match, {
+    projection: {
+      _id: 1,
+      tenant_id: 1,
+      organization_id: 1,
+      organizationId: 1,
+      tenantId: 1,
+      orgId: 1,
+      user_id: 1,
+      userId: 1,
+      user: 1,
+      project_id: 1,
+      projectId: 1,
+      project: 1,
+      project_code: 1,
+      total_cost: 1,
+      cost: 1,
+      'usage.cost': 1,
+      timestamp: 1,
+      created_at: 1,
+      updated_at: 1,
+      llm_model: 1,
+      session_id: 1,
+    },
+    maxTimeMS: 4000,
+  });
+
+  const elapsed = Date.now() - started;
+  try { res.set('X-Query-Duration-ms', String(elapsed)); } catch {}
+
+  return res.status(200).json({
+    success: true,
+    data: doc,
+    meta: { organization_id: org, collection: col.collectionName },
+  });
+}));
+
 router.get('/', asyncHandler(async (req, res) => {
   const started = Date.now();
   const stageInfo = [];
@@ -365,6 +434,9 @@ router.get('/', asyncHandler(async (req, res) => {
       } else {
         res.set('X-All-Tenants', 'true');
       }
+      if (elapsed > 1500) {
+        console.warn('[llm-costs] slow aggregation', { ms: elapsed, tenantId: tenantId || 'all', page, limit });
+      }
     } catch (_) {}
 
     return res.status(200).json({
@@ -377,11 +449,12 @@ router.get('/', asyncHandler(async (req, res) => {
     const elapsed = Date.now() - started;
     try { res.set('X-Query-Duration-ms', String(elapsed)); } catch (_) {}
     console.error('[llm-costs] aggregateOrganizationCosts failed', { err: err?.message || err, stageInfo });
-    return res.status(200).json({
-      success: true,
+    // Preserve envelope, but no fake data fallback beyond empty with debug
+    return res.status(500).json({
+      success: false,
       data: [],
       meta: { page, limit, total: 0 },
-      meta_debug: { stageInfo },
+      meta_debug: { stageInfo, error: err?.message || String(err) },
     });
   }
 }));

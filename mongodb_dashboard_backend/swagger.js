@@ -191,6 +191,14 @@ function getBaseOpenApiSpec() {
   }
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Diagnostic Endpoints Notes
+ * This service exposes a minimal diagnostics route to help validate data shape:
+ *   GET /api/llm-costs/_diagnostics/sample?organization_id=b2c
+ * It returns a single redacted document (when available) for the specified organization.
+ * This route is intended for troubleshooting only and may be rate-limited or restricted in production.
+ */
 const swaggerSpecApi = { getBaseOpenApiSpec };
 
 module.exports = {

@@ -151,50 +151,55 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
   // 3) $group user totals and collect projects set
   // 4) $project users with projects_count
   // 5) $facet { data:[ $sort, $skip, $limit ], count:[ $count ] }
+  // Normalize fields prior to grouping to avoid $type errors and simplify grouping keys
   const pipeline = [
     { $match: match || {} },
+    {
+      $addFields: {
+        _org: {
+          $toString: {
+            $ifNull: [
+              '$tenant_id',
+              { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
+            ],
+          },
+        },
+        _user: { $toString: { $ifNull: ['$user_id', { $ifNull: ['$userId', '$user'] }] } },
+        _project: {
+          $toString: {
+            $ifNull: ['$project_id', { $ifNull: ['$projectId', { $ifNull: ['$project', '$project_code'] }] }],
+          },
+        },
+        _cost: numericCostExpr(),
+      },
+    },
     {
       $facet: {
         org: [
           {
             $group: {
-              _id: null,
-              organization_cost: { $sum: numericCostExpr() },
-              organization_id: {
-                $first: {
-                  $toString: {
-                    $ifNull: [
-                      '$tenant_id',
-                      { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
-                    ],
-                  },
-                },
-              },
+              _id: '$_org',
+              organization_cost: { $sum: '$_cost' },
             },
           },
-          { $project: { _id: 0, organization_cost: { $round: ['$organization_cost', 6] }, organization_id: 1 } },
+          {
+            $project: {
+              _id: 0,
+              organization_id: '$_id',
+              organization_cost: { $round: ['$organization_cost', 6] },
+            },
+          },
         ],
         users: [
           {
             $group: {
-              _id: {
-                user_id: { $toString: { $ifNull: ['$user_id', { $ifNull: ['$userId', '$user'] }] } },
-                project_id: { $toString: { $ifNull: ['$project_id', { $ifNull: ['$projectId', { $ifNull: ['$project', '$project_code'] }] }] } },
-                org: {
-                  $toString: {
-                    $ifNull: [
-                      '$tenant_id',
-                      { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
-                    ],
-                  },
-                },
-              },
-              user_project_cost: { $sum: numericCostExpr() },
+              _id: { user_id: '$_user', project_id: '$_project', organization_id: '$_org' },
+              user_project_cost: { $sum: '$_cost' },
             },
           },
           {
             $group: {
-              _id: { user_id: '$_id.user_id', organization_id: '$_id.org' },
+              _id: { user_id: '$_id.user_id', organization_id: '$_id.organization_id' },
               user_cost: { $sum: '$user_project_cost' },
               projects: { $addToSet: '$_id.project_id' },
             },
@@ -213,22 +218,7 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
           { $limit: clampedLimit },
         ],
         totalUsers: [
-          {
-            $group: {
-              _id: {
-                user_id: { $toString: { $ifNull: ['$user_id', { $ifNull: ['$userId', '$user'] }] } },
-                org: {
-                  $toString: {
-                    $ifNull: [
-                      '$tenant_id',
-                      { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
-                    ],
-                  },
-                },
-              },
-              c: { $sum: 1 },
-            },
-          },
+          { $group: { _id: { user_id: '$_user', organization_id: '$_org' } } },
           { $group: { _id: '$_id.user_id' } },
           { $count: 'total' },
         ],
