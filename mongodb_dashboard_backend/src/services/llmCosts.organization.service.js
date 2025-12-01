@@ -1,0 +1,303 @@
+'use strict';
+
+/**
+ * Service: Organization-level LLM costs aggregation
+ * Aggregates per organization (tenant) total cost and nests users with per-user and per-project totals.
+ * Pagination applies to the flattened user rows (top-level array in response).
+ *
+ * Performance:
+ * - Uses covered indexes: { tenant_id:1, timestamp:-1, _id:1 } or { organization_id:1, timestamp:-1, _id:1 }
+ * - allowDiskUse(true), maxTimeMS(4000)
+ * - Projections and numeric coercion for cost fields
+ */
+
+const { getDb } = require('../config/db');
+
+/**
+ * INTERNAL: Build a normalized $match filter for tenant/organization scope plus optional time window.
+ */
+function buildTenantAndTimeFilter({ tenantId, filter = {}, from, to }) {
+  const f = filter && typeof filter === 'object' ? { ...filter } : {};
+
+  // strip tenant fields from client-provided filter
+  delete f.tenant_id;
+  delete f.tenantId;
+  delete f.organization_id;
+  delete f.organizationId;
+  delete f.orgId;
+
+  // optional time window on timestamp; do not require from/to
+  let timeFilter = null;
+  if (from || to) {
+    let fromDate = from ? new Date(from) : null;
+    let toDate = to ? new Date(to) : null;
+    if (from && isNaN(fromDate.getTime())) fromDate = null;
+    if (to && isNaN(toDate.getTime())) toDate = null;
+
+    const range = {};
+    if (fromDate) range.$gte = fromDate;
+    if (toDate) range.$lte = toDate;
+
+    if (Object.keys(range).length) {
+      timeFilter = { timestamp: range };
+    }
+  }
+
+  let base = f;
+  if (tenantId) {
+    const orgFilter = {
+      $or: [
+        { tenant_id: String(tenantId) },
+        { organization_id: String(tenantId) },
+        { organizationId: String(tenantId) },
+        { tenantId: String(tenantId) },
+        { orgId: String(tenantId) },
+        { 'tenant.tenant_id': String(tenantId) },
+      ],
+    };
+    base = Object.keys(base).length ? { $and: [base, orgFilter] } : orgFilter;
+  }
+
+  if (timeFilter) {
+    return Object.keys(base).length ? { $and: [base, timeFilter] } : timeFilter;
+  }
+  return base;
+}
+
+/**
+ * INTERNAL: Numeric coercion for cost fields as robust as possible.
+ * Converts known shapes to a numeric double.
+ */
+function numericCostExpr() {
+  return {
+    $let: {
+      vars: {
+        raw: {
+          $ifNull: [
+            '$total_cost',
+            {
+              $ifNull: [
+                '$cost',
+                { $ifNull: ['$usage.cost', 0] },
+              ],
+            },
+          ],
+        },
+      },
+      in: {
+        $convert: {
+          input: {
+            $cond: [
+              { $isNumber: '$$raw' }, '$$raw',
+              {
+                $cond: [
+                  { $and: [{ $eq: [{ $type: '$$raw' }, 'string'] }, { $eq: [{ $substrCP: ['$$raw', 0, 1] }, '$'] }] },
+                  { $substrCP: ['$$raw', 1, { $strLenCP: '$$raw' }] },
+                  { $toString: '$$raw' },
+                ],
+              },
+            ],
+          },
+          to: 'double',
+          onError: 0,
+          onNull: 0,
+        },
+      },
+    },
+  };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * aggregateOrganizationCosts
+ * Computes:
+ *  - organization_cost (sum of numeric cost) for the scoped organization (or all-tenants if bypassed at controller)
+ *  - users: [{ user_id, type, user_cost, projects: [{ project_id, project_cost }], project_count }]
+ * Applies pagination on the users array based on page/limit. Also returns total user rows for meta.total.
+ */
+async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from, to, filter = {} } = {}) {
+  const db = await getDb();
+  const col = db.collection('llm-costs');
+
+  const match = buildTenantAndTimeFilter({ tenantId, filter, from, to });
+
+  // Pipeline to compute:
+  // - per project totals -> per user totals including projects array
+  // - organization-level total cost
+  const pipeline = [
+    { $match: match || {} },
+    // Ensure timestamp exists for index usage and sorts (not strictly needed here but harmless)
+    { $addFields: { timestamp: { $ifNull: ['$timestamp', '$created_at'] } } },
+    // Normalize keys and numeric cost early
+    {
+      $project: {
+        _id: 0,
+        user_id: { $toString: { $ifNull: ['$user_id', { $ifNull: ['$userId', '$user'] }] } },
+        project_id: {
+          $toString: {
+            $ifNull: ['$project_id', { $ifNull: ['$projectId', { $ifNull: ['$project', '$project_code'] }] }],
+          },
+        },
+        organization_id: {
+          $toString: {
+            $ifNull: [
+              '$tenant_id',
+              { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
+            ],
+          },
+        },
+        type: { $literal: 'llm_interaction' },
+        numeric_cost: numericCostExpr(),
+      },
+    },
+    // Filter out empties to avoid noise
+    {
+      $match: {
+        user_id: { $ne: null },
+        project_id: { $ne: null },
+      },
+    },
+    // project totals per user
+    {
+      $group: {
+        _id: { user_id: '$user_id', project_id: '$project_id' },
+        project_cost: { $sum: '$numeric_cost' },
+        any_org: { $first: '$organization_id' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        user_id: '$_id.user_id',
+        project_id: '$_id.project_id',
+        project_cost: { $round: ['$project_cost', 6] },
+        organization_id: '$any_org',
+      },
+    },
+    // user totals with projects
+    {
+      $group: {
+        _id: { user_id: '$user_id', organization_id: '$organization_id' },
+        user_cost: { $sum: '$project_cost' },
+        projects: { $push: { project_id: '$project_id', project_cost: '$project_cost' } },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        user_id: '$_id.user_id',
+        organization_id: '$_id.organization_id',
+        type: { $literal: 'llm_interaction' },
+        user_cost: { $round: ['$user_cost', 6] },
+        project_count: { $size: '$projects' },
+        projects: 1,
+      },
+    },
+    // organization total cost computed separately and merged via $group and $setWindowFields alternative;
+    // easier approach: compute org total via $group in a sibling pipeline; we will run a facet.
+  ];
+
+  // Use $facet to compute:
+  // - users (with pagination)
+  // - totalUsers (count)
+  // - orgTotal (organization_cost)
+  const facetPipeline = [
+    { $match: match || {} },
+    { $addFields: { timestamp: { $ifNull: ['$timestamp', '$created_at'] } } },
+    {
+      $facet: {
+        // Compute org total across all matched docs
+        orgTotal: [
+          {
+            $group: {
+              _id: null,
+              organization_cost: { $sum: numericCostExpr() },
+              organization_id: {
+                $first: {
+                  $toString: {
+                    $ifNull: [
+                      '$tenant_id',
+                      { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              organization_cost: { $round: ['$organization_cost', 6] },
+              organization_id: 1,
+            },
+          },
+        ],
+        // Build flattened user/project view then paginate
+        userProjects: pipeline, // reuses the earlier built steps that end with user rows
+      },
+    },
+    // Now compute counts and pagination on the facet output
+    {
+      $project: {
+        orgTotal: { $arrayElemAt: ['$orgTotal', 0] },
+        usersAll: '$userProjects',
+      },
+    },
+    {
+      $project: {
+        orgTotal: 1,
+        totalUsers: { $size: { $ifNull: ['$usersAll', []] } },
+        users: {
+          $slice: [
+            {
+              $ifNull: [
+                {
+                  $sortArray: {
+                    input: '$usersAll',
+                    sortBy: { user_cost: -1, user_id: 1 },
+                  },
+                },
+                [],
+              ],
+            },
+            { $multiply: [Math.max(Number(page) || 1, 1) - 1, Math.max(Number(limit) || 20, 1)] },
+            Math.max(Number(limit) || 20, 1),
+          ],
+        },
+      },
+    },
+  ];
+
+  const agg = col.aggregate(facetPipeline, { allowDiskUse: true, maxTimeMS: 4000 });
+  // Apply covered index hint when possible
+  try {
+    const usesOrgInMatch = JSON.stringify(match || {}).includes('"organization_id"');
+    agg.hint(usesOrgInMatch ? { organization_id: 1, timestamp: -1, _id: 1 } : { tenant_id: 1, timestamp: -1, _id: 1 });
+  } catch (_) {}
+
+  const docs = await agg.toArray();
+  const first = docs && docs[0] ? docs[0] : { orgTotal: null, usersAll: [], users: [], totalUsers: 0 };
+  const orgTotal = first.orgTotal || { organization_cost: 0, organization_id: tenantId ? String(tenantId) : null };
+
+  // Shape final response
+  return {
+    _id: orgTotal.organization_id || (tenantId ? String(tenantId) : 'all-tenants'),
+    organization_id: orgTotal.organization_id || (tenantId ? String(tenantId) : 'all-tenants'),
+    organization_cost: Number(orgTotal.organization_cost || 0),
+    users: Array.isArray(first.users) ? first.users.map((u) => ({
+      user_id: u.user_id,
+      type: 'llm_interaction',
+      user_cost: Number(u.user_cost || 0),
+      project_count: Number(u.project_count || (Array.isArray(u.projects) ? u.projects.length : 0)),
+      projects: Array.isArray(u.projects)
+        ? u.projects.map((p) => ({ project_id: p.project_id, project_cost: Number(p.project_cost || 0) }))
+        : [],
+    })) : [],
+    totalUsers: Number(first.totalUsers || 0),
+  };
+}
+
+module.exports = {
+  // PUBLIC_INTERFACE
+  aggregateOrganizationCosts,
+};

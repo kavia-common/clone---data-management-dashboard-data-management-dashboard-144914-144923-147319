@@ -295,7 +295,70 @@ router.use((req, res, next) => {
  *       403:
  *         description: Forbidden on tenant mismatch with Authorization
  */
-router.get('/', asyncHandler(listWithPerf));
+const { aggregateOrganizationCosts } = require('../services/llmCosts.organization.service');
+
+/**
+ * Organization-level aggregated costs with nested users and projects.
+ * Applies pagination to user rows and returns envelope { success, data, meta }.
+ */
+router.get('/', asyncHandler(async (req, res) => {
+  // Validate pagination presence (as before)
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  let limit = Math.max(parseInt(req.query.limit, 10) || 20, 1);
+  if (limit > 100) limit = 100;
+
+  // Resolve tenant/bypass (already handled by middleware); enforce JWT mismatch rule done earlier
+  const tenantId = (req.tenantScopeDisabled || req.allTenants) ? null : (req.tenantId || null);
+
+  // Optional filter JSON (tenant fields ignored inside service)
+  let filter = {};
+  if (req.query && req.query.filter) {
+    try {
+      filter = JSON.parse(req.query.filter);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+    }
+  }
+
+  // Optional time window, but not required
+  const from = typeof req.query.from === 'string' ? req.query.from : undefined;
+  const to = typeof req.query.to === 'string' ? req.query.to : undefined;
+
+  const started = Date.now();
+  try {
+    const result = await aggregateOrganizationCosts({
+      tenantId,
+      page,
+      limit,
+      from,
+      to,
+      filter,
+    });
+
+    const data = [result]; // Return as array of one org-row; compatible with frontend table expecting rows
+    const meta = { page, limit, total: result.totalUsers }; // total counts user rows for pagination
+
+    // Diagnostics headers
+    try {
+      res.set('X-Aggregation', 'organization->users->projects');
+      if (tenantId) {
+        res.set('X-Applied-Tenant', String(tenantId));
+        res.set('x-applied-organization-id', String(tenantId));
+      } else {
+        res.set('X-All-Tenants', 'true');
+      }
+    } catch (_) {}
+
+    if (Date.now() - started > 1000) {
+      console.warn('[llm-costs:org-aggregate] slow', { ms: Date.now() - started, page, limit });
+    }
+
+    return res.status(200).json({ success: true, data, meta });
+  } catch (err) {
+    console.error('[llm-costs:org-aggregate] failed', err?.message || err);
+    return res.status(500).json({ success: false, message: 'Aggregation failed' });
+  }
+}));
 
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));
