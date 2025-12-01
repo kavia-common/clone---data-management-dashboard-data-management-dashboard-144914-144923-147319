@@ -133,8 +133,8 @@ async function listLLMCosts(req, res, next) {
       for (const d of docs) {
         if (Array.isArray(d.users)) {
           for (const u of d.users) {
-            const raw =
-              u?.user_id ?? u?.userId ?? u?.id ?? u?.uid ?? u?.email ?? null;
+            // Only consider users[].user_id; _id in users collection is a string/UUID
+            const raw = u?.user_id ?? null;
             if (raw !== null && raw !== undefined) {
               const s = String(raw).trim();
               if (s) allIdsSet.add(s);
@@ -143,83 +143,17 @@ async function listLLMCosts(req, res, next) {
         }
       }
 
-      // Temporary guarded debug: log only once per process when BACKEND_DEBUG_ONCE=true
-      try {
-        const shouldDebugOnce = String(process.env.BACKEND_DEBUG_ONCE || 'false').toLowerCase() === 'true';
-        if (shouldDebugOnce && !global.__LLM_COSTS_DEBUG_ONCE__) {
-          global.__LLM_COSTS_DEBUG_ONCE__ = true;
-          const sampleDoc = docs.find((d) => Array.isArray(d.users) && d.users.length > 0);
-          const sampleUsers = sampleDoc ? sampleDoc.users.slice(0, 3) : [];
-          console.log('[debug:/api/llm-costs] sample users entries (first doc, up to 3):', sampleUsers);
-          console.log('[debug:/api/llm-costs] distinct candidate user ids (up to 10):', Array.from(allIdsSet).slice(0, 10));
-        }
-      } catch {}
-
       // Minimal diagnostics on first few ids
       const firstFew = Array.from(allIdsSet).slice(0, 5);
-      try {
-        if (firstFew.length > 0) {
-          console.debug(
-            `[llm-costs] enrichment sample user_ids (first up to 5):`,
-            firstFew
-          );
-        }
-      } catch {}
 
       if (allIdsSet.size > 0) {
         const usersColl = db.collection('users');
 
-        // 2) Determine which field in users collection corresponds to the string we receive.
-        // We try in priority order based on our model and common patterns.
-        const candidateFields = ['user_id', 'authId', 'id', 'email', 'uid', 'username'];
+        // 2) Directly query users by _id using $in with string UUIDs (no ObjectId conversion)
         const ids = Array.from(allIdsSet);
-
-        // We'll probe with a small sample set for each candidate field to see which yields results.
-        let chosenField = null;
-        let sampleMatchCount = 0;
-        for (const f of candidateFields) {
-          try {
-            const probe = await usersColl
-              .find(
-                { [f]: { $in: ids.slice(0, 50).map((v) => String(v)) } },
-                { projection: { _id: 1 } }
-              )
-              .limit(3)
-              .maxTimeMS(1500)
-              .toArray();
-            if (probe && probe.length > 0) {
-              chosenField = f;
-              sampleMatchCount = probe.length;
-              break;
-            }
-          } catch {
-            // ignore probe errors and continue
-          }
-        }
-        // Fallback to 'user_id' if nothing matched during probe
-        if (!chosenField) chosenField = 'user_id';
-
-        // Minimal logging of field choice
-        try {
-          console.debug(
-            `[llm-costs] enrichment matching via field="${chosenField}" (sample matches=${sampleMatchCount})`
-          );
-        } catch {}
-
-        // 3) Fetch all matching user documents in a single query with $in against the chosen field
-        const userQuery = { [chosenField]: { $in: ids.map((v) => String(v)) } };
-        if (resolvedTenant) {
-          userQuery.$or = [
-            { organization_id: String(resolvedTenant) },
-            { tenant_id: String(resolvedTenant) },
-            { tenantId: String(resolvedTenant) },
-            { organizationId: String(resolvedTenant) },
-          ];
-        }
-
+        const userQuery = { _id: { $in: ids } }; // _id is stored as string UUID
         const userProjection = {
-          _id: 1,
-          user_id: 1,
+          _id: 1, // string UUID
           email: 1,
           username: 1,
           name: 1,
@@ -232,7 +166,6 @@ async function listLLMCosts(req, res, next) {
           profile: 1,
           created_at: 1,
           updated_at: 1,
-          [chosenField]: 1,
         };
 
         const foundUsers = await usersColl
@@ -240,28 +173,19 @@ async function listLLMCosts(req, res, next) {
           .maxTimeMS(4000)
           .toArray();
 
-        // 4) Build a map using String(...) for keys based on the chosen field
+        // 3) Build user map keyed by String(doc._id)
         const userMap = {};
         for (const u of foundUsers) {
-          if (u && u[chosenField] != null) {
-            const key = String(u[chosenField]).trim();
-            if (key) {
-              userMap[String(key)] = u;
-            }
-          } else if (u && u.user_id != null && chosenField !== 'user_id') {
-            // secondary safety net
-            const key = String(u.user_id).trim();
-            if (key) userMap[String(key)] = u;
+          if (u && u._id != null) {
+            userMap[String(u._id)] = u;
           }
         }
 
-        // 5) Attach normalized matches: users[i].user = userMap[String(users[i].user_id)] || null
+        // 4) Attach matches: users[i].user = userMap[String(users[i].user_id)] || null
         for (const d of docs) {
           if (Array.isArray(d.users)) {
             d.users = d.users.map((entry) => {
-              const raw =
-                entry?.user_id ?? entry?.userId ?? entry?.id ?? entry?.uid ?? entry?.email ?? null;
-              const key = raw !== null && raw !== undefined ? String(raw).trim() : '';
+              const key = entry?.user_id != null ? String(entry.user_id).trim() : '';
               const enriched = { ...entry };
               enriched.user = key ? userMap[String(key)] || null : null;
               return enriched;
@@ -269,11 +193,12 @@ async function listLLMCosts(req, res, next) {
           }
         }
 
-        // Diagnostics header
+        // Diagnostics headers (optional): indicate match field used
         try {
           const enrichedCount = Object.keys(userMap).length;
           res.set('X-Users-Enriched', `${enrichedCount}/${allIdsSet.size}`);
-          res.set('X-Users-Match-Field', chosenField);
+          // One-time debug header to record which field was used for matching
+          res.set('X-Users-Match-Field', '_id'); // _id is a string UUID
           if (firstFew.length > 0) {
             res.set('X-Users-Sample-Ids', firstFew.join(',').slice(0, 128));
           }
