@@ -14,6 +14,45 @@
 const { getDb } = require('../config/db');
 
 /**
+ * Normalize a potentially currency-formatted value to a number (double).
+ * Ensures we never use a bare '$' in any expression to prevent Mongo 16872.
+ */
+function normalizeCurrencyToDoubleExpr(pathExpr) {
+  return {
+    $let: {
+      vars: {
+        raw: { $ifNull: [pathExpr, 0] },
+      },
+      in: {
+        $convert: {
+          input: {
+            $cond: [
+              { $isNumber: '$$raw' },
+              '$$raw',
+              {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: [{ $type: '$$raw' }, 'string'] },
+                      { $eq: [{ $substrCP: ['$$raw', 0, 1] }, '$'] },
+                    ],
+                  },
+                  { $substrCP: ['$$raw', 1, { $strLenCP: '$$raw' }] },
+                  { $toString: '$$raw' },
+                ],
+              },
+            ],
+          },
+          to: 'double',
+          onError: 0,
+          onNull: 0,
+        },
+      },
+    },
+  };
+}
+
+/**
  * INTERNAL: Build a normalized $match filter for tenant/organization scope plus optional time window.
  */
 function buildTenantAndTimeFilter({ tenantId, filter = {}, from, to }) {

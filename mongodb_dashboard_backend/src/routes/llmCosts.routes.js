@@ -520,10 +520,15 @@ router.get('/', asyncHandler(async (req, res) => {
   try {
     docs = await agg.toArray();
   } catch (e) {
-    // If aggregation fails, return empty envelope but do not crash
+    // On error, return a structured error envelope to surface the issue to clients; no silent fallback
     const elapsed = Date.now() - started;
     try { res.set('X-Query-Duration-ms', String(elapsed)); } catch (_) {}
-    return res.status(200).json({ success: true, data: [], meta: { page, limit, total: 0 }, meta_debug: { fallback: true, error: e?.message || String(e) } });
+    return res.status(500).json({
+      success: false,
+      message: 'Aggregation failed',
+      error: e?.message || String(e),
+      meta: { page, limit, total: 0 }
+    });
   }
 
   const first = docs && docs[0] ? docs[0] : { orgTotal: null, users: [], totalUsers: 0 };
