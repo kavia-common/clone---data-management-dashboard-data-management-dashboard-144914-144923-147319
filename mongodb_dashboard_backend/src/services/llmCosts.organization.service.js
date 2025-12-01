@@ -282,7 +282,7 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
     },
   ];
 
-  const agg = col.aggregate(facetPipeline, { allowDiskUse: true, maxTimeMS: 3500 });
+  const agg = col.aggregate(facetPipeline, { allowDiskUse: true, maxTimeMS: 4000 });
   // Apply covered index hint when possible
   try {
     const mstr = JSON.stringify(match || {});

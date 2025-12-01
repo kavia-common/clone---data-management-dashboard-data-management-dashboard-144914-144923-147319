@@ -307,15 +307,18 @@ const { aggregateOrganizationCosts } = require('../services/llmCosts.organizatio
  * meta: { page, limit, total } where total = number of user rows for the organization.
  */
 router.get('/', asyncHandler(async (req, res) => {
-  // Validate pagination presence (as before)
+  // Normalize and clamp pagination; enforce <= 100
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   let limit = Math.max(parseInt(req.query.limit, 10) || 20, 1);
-  if (limit > 100) limit = 100;
+  if (limit > 100) {
+    limit = 100;
+    try { res.set('X-Limit-Clamped', '100'); } catch(_) {}
+  }
 
-  // Resolve tenant/bypass (already handled by middleware); enforce JWT mismatch rule done earlier
+  // Resolve tenant/bypass
   const tenantId = (req.tenantScopeDisabled || req.allTenants) ? null : (req.tenantId || null);
 
-  // Optional filter JSON (tenant fields ignored inside service)
+  // Parse filter JSON (tenant fields ignored in service)
   let filter = {};
   if (req.query && req.query.filter) {
     try {
@@ -325,11 +328,15 @@ router.get('/', asyncHandler(async (req, res) => {
     }
   }
 
-  // Optional time window, but not required
+  // Optional time window
   const from = typeof req.query.from === 'string' ? req.query.from : undefined;
   const to = typeof req.query.to === 'string' ? req.query.to : undefined;
 
+  // For diagnostics: sort param pass-through (service sorts by cost desc internally)
+  const sort = typeof req.query.sort === 'string' ? req.query.sort : undefined;
+
   const started = Date.now();
+  let elapsed = 0;
   try {
     const result = await aggregateOrganizationCosts({
       tenantId,
@@ -340,8 +347,7 @@ router.get('/', asyncHandler(async (req, res) => {
       filter,
     });
 
-    // Expected by frontend: flat rows per user with these fields
-    // { _id, organization_cost, user_id, user_cost, projects_count }
+    // Flatten users rows
     const users = Array.isArray(result && result.users) ? result.users : [];
     const orgCost = Number((result && result.organization_cost) || 0);
     const orgId = (result && (result.organization_id || result._id)) || (tenantId || 'all');
@@ -364,10 +370,15 @@ router.get('/', asyncHandler(async (req, res) => {
     const total = Number((result && result.totalUsers) || users.length || 0);
     const meta = { page, limit, total };
 
-    // Diagnostics headers
+    // Diagnostics headers and logging
+    elapsed = Date.now() - started;
     try {
       res.set('X-Aggregation', 'organization->users->projects(flat-users)');
       res.set('X-Collection-llm-costs', (LLMCost && LLMCost.collection && LLMCost.collection.name) || 'llm-costs');
+      res.set('X-Query-Duration-ms', String(elapsed));
+      res.set('X-Pagination-Page', String(page));
+      res.set('X-Pagination-Limit', String(limit));
+      res.set('X-Pagination-Total', String(total));
       if (tenantId) {
         res.set('X-Applied-Tenant', String(tenantId));
         res.set('x-applied-organization-id', String(tenantId));
@@ -376,37 +387,71 @@ router.get('/', asyncHandler(async (req, res) => {
       }
     } catch (_) {}
 
-    const elapsed = Date.now() - started;
-    if (elapsed > 1000) {
-      console.warn('[llm-costs:org-aggregate] slow', { ms: elapsed, page, limit, tenantId, total });
+    // Slow query logging >1500ms
+    if (elapsed > 1500) {
+      console.warn('[llm-costs:list] slow-query', {
+        ms: elapsed,
+        tenantId,
+        page,
+        limit,
+        sort,
+        total
+      });
+    } else {
+      // Structured info log for observability
+      console.log('[llm-costs:list] ok', {
+        ms: elapsed,
+        tenantId,
+        page,
+        limit,
+        sort,
+        total
+      });
     }
-    try {
-      res.set('X-Elapsed-MS', String(elapsed));
-    } catch (_) {}
 
     // Envelope response
     return res.status(200).json({ success: true, data: flatRows, meta });
   } catch (err) {
-    const message = (err && err.message) || 'Aggregation failed';
-    // Log detailed error including stack when available
-    console.error('[llm-costs:org-aggregate] failed', {
-      message,
-      stack: err && err.stack,
-      tenantId,
-      page,
-      limit,
-    });
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message,
-        details: {
-          hint: 'Check llm-costs schema fields, pipeline, and tenant filter',
-          code: err && err.code,
-          name: err && err.name,
-        },
+    elapsed = Date.now() - started;
+
+    // Extract mongo-ish code/message safely
+    const errCode = err && (err.code || err.codeName);
+    const errMsg = err && (err.message || err.errmsg || String(err));
+
+    // Log structured error with context
+    try {
+      console.error('[llm-costs:list] aggregation-failed', {
+        ms: elapsed,
+        tenantId,
+        page,
+        limit,
+        sort,
+        error: { code: errCode, message: errMsg },
       });
+    } catch (_) {}
+
+    // Send diagnostics headers even on fallback
+    try {
+      res.set('X-Query-Duration-ms', String(elapsed));
+      res.set('X-Pagination-Page', String(page));
+      res.set('X-Pagination-Limit', String(limit));
+      res.set('X-Pagination-Total', '0');
+      if (tenantId) {
+        res.set('X-Applied-Tenant', String(tenantId));
+        res.set('x-applied-organization-id', String(tenantId));
+      }
+    } catch (_) {}
+
+    // Fallback minimal envelope with HTTP 200 so UI can render an empty table
+    return res.status(200).json({
+      success: true,
+      data: [],
+      meta: { page, limit, total: 0 },
+      meta_debug: {
+        fallback: true,
+        error: { code: errCode || null, message: errMsg || 'aggregation failed' },
+      },
+    });
   }
 }));
 
