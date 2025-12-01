@@ -164,7 +164,6 @@ function startServerStrict() {
   process.on('uncaughtException', (err) => {
     // eslint-disable-next-line no-console
     console.error('[uncaughtException]', err);
-    // Do not exit; allow process to continue in dev/preview
   });
 
   return server;

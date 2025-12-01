@@ -159,10 +159,9 @@ safeUse('/api/analytics', require('./routes/analytics'));
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
-safeUse('/api/llm-costs', require('./routes/llmCosts.public.routes')); // lightweight
-// Fast list route with lean() lives in llmCosts.routes and is mounted once below
+safeUse('/api/llm-costs', require('./routes/llmCosts.public.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
-safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes')); // heavier agg
+safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
 safeUse('/api/session', require('./routes/session.routes'));
