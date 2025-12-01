@@ -118,9 +118,19 @@ async function listLLMCostsStd(req, res, next) {
     const skip = (page - 1) * limit;
 
     // Filter on organization_id unless bypassed
+    // Support tenant field variants found in historical datasets: organization_id, tenant_id, organizationId, tenantId, orgId
     const filter = {};
     if (organizationId && !isBypass) {
-      filter.organization_id = String(organizationId);
+      const org = String(organizationId);
+      // Use $or to match across common variants to improve data coverage
+      filter.$or = [
+        { organization_id: org },
+        { tenant_id: org },
+        { organizationId: org },
+        { tenantId: org },
+        { orgId: org },
+        { 'tenant.tenant_id': org },
+      ];
     }
 
     // 2) Ensure compound indexes exist (background creation; non-blocking)
@@ -227,26 +237,38 @@ async function listLLMCostsStd(req, res, next) {
         return doc;
       });
 
-      // Total with bounded time
+      // Total with bounded time (use higher cap and degrade gracefully)
       try {
-        total = await collection.countDocuments(filter, { maxTimeMS: Math.min(QUERY_TIMEOUT_MS, 3000) });
+        total = await collection.countDocuments(filter, { maxTimeMS: Math.min(QUERY_TIMEOUT_MS * 2, 10000) });
       } catch {
+        // If count timed out, infer total conservatively from current page
         total = data.length + skip;
       }
     } catch (e) {
       const msg = String(e?.message || '');
       const timedOut = e && (e.code === 50 || /exceeded time limit|network timeout|timed out/i.test(msg));
       if (timedOut) {
-        // Less aggressive fallback: try a minimal fetch without maxTimeMS to retrieve at least some docs
+        // Less aggressive fallback: first try a minimal fetch with a small maxTimeMS to ensure quick return
         try {
           const fallback = await collection
             .find(filter, { projection })
             .sort({ _id: -1 })
             .skip(0)
             .limit(Math.min(limit, 10))
+            .maxTimeMS(Math.max(1500, Math.min(QUERY_TIMEOUT_MS, 3000)))
             .toArray();
+          // If even that fails to return results, try once more without maxTimeMS as last resort
+          let minimal = fallback;
+          if (!Array.isArray(minimal) || minimal.length === 0) {
+            minimal = await collection
+              .find(filter, { projection })
+              .sort({ _id: -1 })
+              .skip(0)
+              .limit(Math.min(limit, 10))
+              .toArray();
+          }
 
-          const normalized = (fallback || []).map((d) => {
+          const normalized = (minimal || []).map((d) => {
             const doc = { ...d };
             if (!Array.isArray(doc.users)) doc.users = Array.isArray(doc.users) ? doc.users : (doc.users ? doc.users : []);
             if (!Array.isArray(doc.projects)) {
