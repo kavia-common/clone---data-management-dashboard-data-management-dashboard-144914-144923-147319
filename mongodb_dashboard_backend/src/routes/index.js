@@ -22,6 +22,9 @@ const { analyticsOverviewRouter } = require('./analytics.overview.routes');
 
 const router = express.Router();
 
+// Note: No backend-level proxy middleware is registered here.
+// Any dev proxy should be configured on the frontend to point to the backend (http://localhost:3001).
+
 /**
  * PUBLIC_INTERFACE
  * GET /

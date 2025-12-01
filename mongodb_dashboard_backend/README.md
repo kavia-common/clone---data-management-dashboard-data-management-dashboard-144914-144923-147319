@@ -28,18 +28,21 @@ Preview runner compatibility
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT
   - Server ready: http://HOST:PORT (env=...)
-- If your frontend dev server uses a proxy (http-proxy-middleware) to reach this backend, ensure the proxy target points to the actual backend URL (e.g., http://localhost:3001 or the container hostname) and not to an interface that is not routable from the frontend container. Binding to 0.0.0.0 here avoids EADDRNOTAVAIL, but the proxy target must also be reachable.
+- If your frontend dev server uses a proxy (http-proxy-middleware) to reach this backend, ensure the proxy target points to the actual backend URL (e.g., http://localhost:3001) and not to the backend itself or a non-routable interface. Binding to 0.0.0.0 here avoids EADDRNOTAVAIL, but the proxy target must also be reachable.
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
   - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
   - GET /api/health   -> 200 with db state (same as /health)
   - GET /healthz      -> alias to /health
 
-Important
-- Always run preview/start commands from this backend directory:
-  - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
-  - npm run dev  (or npm start)
-- dotenv is loaded inside src/server.js; no need to use -r dotenv/config flags.
+Frontend dev proxy configuration (important)
+- Frontend typically runs on http://localhost:3000
+- Configure the frontend dev proxy to target http://localhost:3001 for API routes (e.g., setupProxy.js or package.json "proxy")
+- Do not configure the backend to proxy to itself; there is no backend proxy middleware here by design to avoid loops
+
+Health and readiness
+- /health, /healthz, /ready return basic status for uptime checks
+- /api/db-ready returns 200 only when MongoDB is connected (useful for gating tests)
 
 Environment Variables
 Create a `.env` file in this directory with values appropriate for your environment (do not commit secrets).
@@ -50,49 +53,39 @@ Common variables:
 - MONGODB_URI=mongodb+srv://...
 - MONGODB_DB=test
 
-Note: The app will start even if MONGODB_URI is not set; health/docs endpoints remain available. Mongo connects when properly configured (non-fatal on startup when missing). For endpoints that require DB, the server now responds 503 with status=db-not-connected until Mongo is connected. You can check DB readiness via GET /api/db-ready.
+Note: The app will start even if MONGODB_URI is not set; health/docs endpoints remain available. Mongo connects when properly configured (non-fatal on startup when missing). For endpoints that require DB, the server responds 503 with status=db-not-connected until Mongo is connected. You can check DB readiness via GET /api/db-ready.
 
 CORS
-- Defaults allow localhost:3000 and the current host:3001 (Swagger UI served by backend).
-- You can set FRONTEND_ORIGIN or CORS_ORIGINS to customize.
-- To allow credentials, set CORS_CREDENTIALS=true (enable only if needed).
-- Emergency development: set CORS_OPEN=true to allow all origins (not for production).
-- Allowed headers include x-organization-id and x-tenant-id used by tenant-scoped endpoints.
+- Defaults allow localhost:3000 and the current host:3001 (Swagger UI served by backend)
+- You can set FRONTEND_ORIGIN or CORS_ORIGINS to customize
+- To allow credentials, set CORS_CREDENTIALS=true (enable only if needed)
+- Emergency development: set CORS_OPEN=true to allow all origins (not for production)
+- Allowed headers include x-organization-id and x-tenant-id used by tenant-scoped endpoints
 
 Swagger/OpenAPI servers
-- The OpenAPI spec is served dynamically and uses same-origin so Swagger UI calls this backend instance.
+- The OpenAPI spec is served dynamically and uses same-origin so Swagger UI calls this backend instance
 - Endpoints:
   - UI: /api/docs (aliases: /api-docs, /docs)
   - Spec JSON: /api/docs.json (aliases: /openapi.json, /api-docs.json)
-- Additional helper:
-  - GET /api/docs/headers — explains tenant header usage for Try It Out.
 
 Tenant-scoped requests
-- When Authorization (Bearer JWT) is not provided, send x-organization-id header on tenant-scoped endpoints (e.g., /api/llm-costs).
+- When Authorization (Bearer JWT) is not provided, send x-organization-id header on tenant-scoped endpoints (e.g., /api/llm-costs)
 - Example:
   - curl -H "x-organization-id: org_demo" http://localhost:3001/api/llm-costs
 
-Health/readiness
-- GET /health → Fast readiness with { status: "ok", db: connected|connecting|disconnected, timestamp }
-- GET /api/health → Same payload; safe for monitoring
-- Health responses include no-store Cache-Control headers.
-
-Notes on authentication and hashing
-- Uses per-organization orgSalt (v2) with optional environment pepper. Legacy v1 hashes are migrated on login.
-- Public auth endpoints:
-  - POST /api/auth/signup
-  - POST /api/auth/login
-  - POST /api/auth/reset-password
-
-Troubleshooting
-- Port already in use (EADDRINUSE):
-  - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
-- Mongo not connected:
-  - /api/health will reflect db: disconnected; verify MONGODB_URI and MONGODB_DB in .env.
+Troubleshooting (ports and proxies)
+- EADDRINUSE: Another process is using port 3001. Stop the other process or change PORT.
+- EADDRNOTAVAIL: HOST is not available. Use HOST=0.0.0.0 (default) or remove HOST.
+- ECONNRESET during startup can be caused by a misconfigured external proxy hitting the backend before it is ready. Verify frontend dev proxy points to http://localhost:3001 and that only one backend instance is running.
+- Ensure only the backend uses port 3001 and the frontend uses 3000 to avoid collisions.
 
 Resource-constrained environments
-- If the dev process exits early under low memory, the scripts already set NODE_OPTIONS=--max_old_space_size=256. You can lower PORT conflicts and memory further as:
+- To reduce memory usage, scripts set NODE_OPTIONS=--max_old_space_size=256 by default
+- You can lower further or change the port:
   - PORT=3011 npm run dev
   - NODE_OPTIONS=--max_old_space_size=192 npm run dev
-- Nodemon is configured to use legacyWatch and a 2s delay to reduce filesystem pressure. You can disable watch hot-reload completely:
+- Nodemon uses legacyWatch and a 2s delay to reduce filesystem pressure. To disable watch hot-reload:
   - npm run dev:express
+
+LLM costs user enrichment
+- The GET /api/llm-costs endpoint enriches each users[] entry by joining users[].user_id to users._id (stored as string UUID) and attaches the matched document as users[].user (null when not found)
