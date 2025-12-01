@@ -10,3 +10,12 @@ Example: retrieving recent LLM cost records (tenant-scoped)
 GET /api/llm-costs?limit=50&sort=-timestamp
 Header: x-organization-id: <tenantId> (when JWT is not used)
 ```
+
+Additional diagnostics for LLM Costs
+- /api/llm-costs/_diagnostics (admin-only): Returns counts and a small sample by organization_id, plus current indexes. Useful to verify data and scoping issues (e.g., tenant T0015).
+- Bypass toggles:
+  - env LLM_COSTS_BYPASS_READINESS=true (attempt query even if quick ping fails)
+  - header x-admin-bypass-llm-costs: true (superadmin only; per-request)
+- Response headers:
+  - X-LLM-Costs-Scan: INDEX | COLLSCAN (from internal explain() sampling)
+  - X-Applied-Tenant: chosen tenant or all-tenants

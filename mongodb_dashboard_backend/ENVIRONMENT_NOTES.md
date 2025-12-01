@@ -23,3 +23,12 @@ Environment variables commonly used:
 - ALLOW_DEMO_AUTH=true (for tokenless local/dev)
 - AUTH_DEFAULT_TENANT=DEMO
 - MONGODB_URI=mongodb+srv://...
+
+LLM Costs tuning (optional)
+- LLM_COSTS_QUERY_TIMEOUT_MS=12000   # main list query timeout (ms). Count uses a smaller cap.
+- LLM_COSTS_BYPASS_READINESS=true    # attempt query when quick readiness ping fails (temporary bypass)
+- LLM_EVENTS_COLLECTION=llm-costs    # analytics by-agent service preferred collection(s), comma-separated allowed
+
+Operational tips
+- Ensure the `llm-costs` collection exists (hyphenated). If your data uses `llm_costs` (underscored), the backend will auto-fallback.
+- Ensure tenant values (e.g., T0015) are stored under `organization_id` for scoping.
