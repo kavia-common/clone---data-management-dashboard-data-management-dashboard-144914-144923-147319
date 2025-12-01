@@ -1,0 +1,28 @@
+{
+  "watch": ["src"],
+  "ignore": [
+    "node_modules",
+    "package.json",
+    "package-lock.json",
+    "*.lock",
+    "*.log",
+    "*.md",
+    ".git",
+    "dist",
+    "build",
+    "coverage",
+    ".tmp"
+  ],
+  "ext": "js json",
+  "delay": "2000",
+  "verbose": false,
+  "legacyWatch": true,
+  "env": {
+    "HOST": "0.0.0.0",
+    "PORT": "3001",
+    "NODE_ENV": "development"
+  },
+  "events": {
+    "restart": "echo '[nodemon] Restarting server due to changes...'"
+  }
+}

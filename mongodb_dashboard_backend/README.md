@@ -89,3 +89,10 @@ Troubleshooting
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
 - Mongo not connected:
   - /api/health will reflect db: disconnected; verify MONGODB_URI and MONGODB_DB in .env.
+
+Resource-constrained environments
+- If the dev process exits early under low memory, the scripts already set NODE_OPTIONS=--max_old_space_size=256. You can lower PORT conflicts and memory further as:
+  - PORT=3011 npm run dev
+  - NODE_OPTIONS=--max_old_space_size=192 npm run dev
+- Nodemon is configured to use legacyWatch and a 2s delay to reduce filesystem pressure. You can disable watch hot-reload completely:
+  - npm run dev:express
