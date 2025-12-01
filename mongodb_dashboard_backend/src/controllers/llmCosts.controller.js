@@ -15,6 +15,7 @@ const { isDBReadyFast, isDbConnected, getDb } = require('../config/db');
  *  - Projection includes: _id, organization_id, organization_name, organization_cost, users, projects, agents
  *  - Adds diagnostic headers: X-DB-Connected, X-Org-Filter, X-Query-Duration
  *  - Pagination: ?page, ?limit; returns { success, data, meta } when paginating; raw array otherwise
+ *  - Enhancement: For each document, embed full user document for each users[i] based on users[i].user_id into users[i].user (null when not found).
  */
 async function listLLMCosts(req, res, next) {
   const t0 = Date.now();
@@ -123,6 +124,98 @@ async function listLLMCosts(req, res, next) {
       res.set('X-Org-Filter', resolvedTenant ? String(resolvedTenant) : '');
       res.set('X-Query-Duration', String(Date.now() - t0));
       return res.status(timedOut ? 504 : 500).json({ success: false, error: timedOut ? 'Query timed out' : 'Query failed' });
+    }
+
+    // Batched enrichment: fetch full user docs for all users[].user_id across returned docs
+    try {
+      const allIdsSet = new Set();
+      for (const d of docs) {
+        if (Array.isArray(d.users)) {
+          for (const u of d.users) {
+            // accept multiple variants just in case
+            const uid = u?.user_id || u?.userId || u?.id || u?.uid;
+            if (uid != null && String(uid).trim() !== '') {
+              allIdsSet.add(String(uid));
+            }
+          }
+        }
+      }
+
+      if (allIdsSet.size > 0) {
+        const userIds = Array.from(allIdsSet);
+        const usersColl = db.collection('users');
+
+        // Build query to also respect tenant when present to avoid cross-tenant leakage
+        const userQuery = { user_id: { $in: userIds } };
+        if (resolvedTenant) {
+          // Try to prefer tenant scoped users; support variants for safety
+          userQuery.$or = [
+            { organization_id: String(resolvedTenant) },
+            { tenant_id: String(resolvedTenant) },
+            { tenantId: String(resolvedTenant) },
+            { organizationId: String(resolvedTenant) },
+          ];
+        }
+
+        // Keep a compact projection; include common visible fields and allow others via strict: false anyway
+        const userProjection = {
+          _id: 1,
+          user_id: 1,
+          email: 1,
+          username: 1,
+          name: 1,
+          displayName: 1,
+          display_name: 1,
+          full_name: 1,
+          organization_id: 1,
+          tenant_id: 1,
+          status: 1,
+          profile: 1,
+          created_at: 1,
+          updated_at: 1,
+        };
+
+        const foundUsers = await usersColl
+          .find(userQuery, { projection: userProjection })
+          .maxTimeMS(3000)
+          .toArray();
+
+        // Map by user_id string
+        const byId = new Map();
+        for (const u of foundUsers) {
+          if (u && (u.user_id != null)) {
+            byId.set(String(u.user_id), u);
+          }
+        }
+
+        // Attach to each users[i] as 'user'
+        for (const d of docs) {
+          if (Array.isArray(d.users)) {
+            d.users = d.users.map((entry) => {
+              const uid = entry?.user_id || entry?.userId || entry?.id || entry?.uid;
+              const key = uid != null ? String(uid) : null;
+              const enriched = { ...entry };
+              enriched.user = key ? (byId.get(key) || null) : null;
+              return enriched;
+            });
+          }
+        }
+
+        // Small diagnostic header with enrichment stats
+        try {
+          res.set('X-Users-Enriched', `${byId.size}/${allIdsSet.size}`);
+        } catch {}
+      } else {
+        try {
+          res.set('X-Users-Enriched', '0/0');
+        } catch {}
+      }
+    } catch (enrichErr) {
+      // Do not fail the request on enrichment errors; log and proceed with original docs.
+      try {
+        console.warn('[llm-costs] user enrichment failed:', enrichErr?.message || enrichErr);
+        res.set('X-Users-Enriched', 'error');
+      } catch {}
     }
 
     // Diagnostics
