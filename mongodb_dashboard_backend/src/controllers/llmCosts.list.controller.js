@@ -30,6 +30,10 @@ async function listLLMCostsStd(req, res, next) {
   const QUERY_TIMEOUT_MS = Number.isFinite(QUERY_TIMEOUT_MS_INPUT) && QUERY_TIMEOUT_MS_INPUT > 0 ? QUERY_TIMEOUT_MS_INPUT : 8000;
 
   try {
+    // Attach correlation and tenant headers at start
+    try {
+      if (req.traceId) res.set('X-Request-Id', req.traceId);
+    } catch {}
     // Ensure DB configured and briefly ready to avoid hanging
     if (!process.env.MONGODB_URI) {
       return res.status(503).json({ success: false, message: 'Database not configured' });
@@ -37,8 +41,9 @@ async function listLLMCostsStd(req, res, next) {
 
     const readiness = await isDBReadyFast(Math.min(1000, QUERY_TIMEOUT_MS));
     if (!readiness.ok) {
+      try { res.set('X-Applied-Tenant', organizationId ? String(organizationId) : ''); } catch {}
       // Graceful degrade with 200 + empty envelope if DB read fails quickly
-      return res.status(200).json({ data: [], page: DEFAULT_PAGE, limit: DEFAULT_LIMIT, total: 0, hasMore: false });
+      return res.status(200).json({ data: [], page: DEFAULT_PAGE, limit: DEFAULT_LIMIT, total: 0, hasMore: false, note: 'DB not ready' });
     }
 
     // Resolve tenant (organization) from context first
@@ -49,6 +54,7 @@ async function listLLMCostsStd(req, res, next) {
 
     // Defensive: missing organization_id is a 400 (when not in super-admin all-tenants mode)
     if (!organizationId && !(req.tenantScopeDisabled || req.allTenants)) {
+      try { res.set('X-Applied-Tenant', ''); } catch {}
       return res.status(400).json({ success: false, message: 'Missing organization_id. Provide via auth tenant, x-organization-id header, or ?organization_id' });
     }
 
@@ -146,6 +152,9 @@ async function listLLMCostsStd(req, res, next) {
     }
 
     const hasMore = skip + data.length < total;
+    try {
+      if (organizationId) res.set('X-Applied-Tenant', String(organizationId));
+    } catch {}
 
     // Standard list envelope
     return res.status(200).json({
@@ -159,7 +168,9 @@ async function listLLMCostsStd(req, res, next) {
     return next(err);
   } finally {
     try {
-      res.set('X-Query-Duration', String(Date.now() - t0));
+      const dur = Date.now() - t0;
+      res.set('X-Query-Duration', String(dur));
+      res.set('X-Route-Timing', String(dur));
     } catch {}
   }
 }

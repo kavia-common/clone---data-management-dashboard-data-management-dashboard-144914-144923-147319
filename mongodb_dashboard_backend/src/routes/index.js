@@ -52,22 +52,48 @@ router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
  * Returns 200 JSON and logs a one-line debug entry.
  */
 router.get('/llm-costs/health', verifyAuth, requireTenant, (req, res) => {
+  const started = Date.now();
   try {
-    // one-line, low-noise debug
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-      console.debug('[llm-costs][health] ok tenant=', req.tenantId || req.auth?.tenantId || '(none)');
+      console.debug('[llm-costs][health]', {
+        tenant: req.tenantId || req.auth?.tenantId || '(none)',
+        path: req.originalUrl,
+      });
     }
   } catch (_) {}
+  try {
+    res.set('X-Request-Id', req.traceId || '');
+    res.set('X-Route-Timing', String(Date.now() - started));
+    if (req.tenantId) res.set('X-Applied-Tenant', String(req.tenantId));
+  } catch {}
   return res.status(200).json({ ok: true, route: '/api/llm-costs', ts: new Date().toISOString() });
 });
 
 router.use('/llm-costs', verifyAuth, requireTenant, (req, res, next) => {
+  const t0 = Date.now();
   try {
     if (req.tenantScopeDisabled || req.allTenants) {
       res.set('X-Applied-Tenant', 'all-tenants');
     } else if (req.tenantId) {
       res.set('X-Applied-Tenant', String(req.tenantId));
     }
+    // attach request-id and capture finish timing
+    const reqId = req.traceId || '';
+    if (reqId) res.set('X-Request-Id', reqId);
+    res.on('finish', () => {
+      try {
+        res.setHeader('X-Route-Timing', String(Date.now() - t0));
+      } catch {}
+      if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+        console.debug('[llm-costs][finish]', {
+          status: res.statusCode,
+          durationMs: Date.now() - t0,
+          tenant: req.tenantId || (req.allTenants ? 'all-tenants' : ''),
+          path: req.originalUrl,
+          reqId,
+        });
+      }
+    });
   } catch {}
   next();
 }, llmCostsRoutes);

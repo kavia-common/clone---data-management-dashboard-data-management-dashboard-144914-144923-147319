@@ -26,7 +26,14 @@ router.get('/', listLLMCostsStd);
  * Returns 200 OK with a timestamp.
  */
 router.get('/ping', (req, res) => {
-  return res.status(200).json({ ok: true, route: '/api/llm-costs/ping', ts: new Date().toISOString() });
+  const started = Date.now();
+  try {
+    res.set('X-Request-Id', req.traceId || '');
+    if (req.tenantId) res.set('X-Applied-Tenant', String(req.tenantId));
+  } catch {}
+  const body = { ok: true, route: '/api/llm-costs/ping', ts: new Date().toISOString() };
+  try { res.set('X-Route-Timing', String(Date.now() - started)); } catch {}
+  return res.status(200).json(body);
 });
 
 module.exports = router;

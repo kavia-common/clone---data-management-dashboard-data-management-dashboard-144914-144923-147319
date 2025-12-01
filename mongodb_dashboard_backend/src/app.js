@@ -6,6 +6,7 @@ const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
+const { auditLoggerMiddleware } = require('./middleware/standardHandlers');
 const cors = require('cors');
 
 const app = express();
@@ -21,6 +22,8 @@ app.options('/api/*', cors());
 app.use(rateLimiter());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+// attach audit logger (adds req.traceId and logs timing at finish)
+app.use(auditLoggerMiddleware());
 
 // ---------------------------------------------
 // Swagger setup
