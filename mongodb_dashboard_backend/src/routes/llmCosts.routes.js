@@ -14,6 +14,23 @@ const LLMCost = require('../models/llmCosts.model');
  * Exposes CRUD endpoints with tenant enforcement.
  */
 const router = express.Router();
+
+// Simple route-level timeout to prevent long hangs (10s)
+router.use((req, res, next) => {
+  const TIMEOUT_MS = 10000;
+  // Skip for health endpoint
+  if (req.path === '/health') return next();
+  const timer = setTimeout(() => {
+    if (!res.headersSent) {
+      try {
+        res.status(504).json({ success: false, message: 'Gateway timeout' });
+      } catch {}
+    }
+  }, TIMEOUT_MS);
+  res.on('finish', () => clearTimeout(timer));
+  res.on('close', () => clearTimeout(timer));
+  next();
+});
 /**
  * Use safe default sort on indexed field 'timestamp' in descending order.
  * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } on the model.
@@ -222,7 +239,23 @@ router.get('/health', (req, res) => {
   return res.status(200).json({ ok: true, module: 'llm-costs' });
 });
 
-router.get('/', asyncHandler(controller.list));
+// Quick small-sample endpoint to verify responsiveness without heavy payloads
+router.get('/quick-sample', asyncHandler(async (req, res) => {
+  const t =
+    req.tenantId ||
+    (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+    (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+    (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+    '';
+  const filter = t
+    ? { $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }] }
+    : {};
+  const items = await LLMCost.find(filter).sort({ timestamp: -1 }).limit(5).lean().maxTimeMS(4000).exec();
+  return res.status(200).json({ success: true, data: items, meta: { limit: 5, tenant: t || (req.allTenants ? 'all-tenants' : null) } });
+}));
+
+const { listLlmCosts } = require('../controllers/llmCosts.list.controller');
+router.get('/', asyncHandler(listLlmCosts));
 
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));

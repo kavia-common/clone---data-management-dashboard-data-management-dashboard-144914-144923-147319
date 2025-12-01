@@ -44,6 +44,7 @@ const LLMCostsSchema = new mongoose.Schema(
 // Useful indexes for common filter/sort combos
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
+LLMCostsSchema.index({ organization_id: 1, timestamp: -1 }); // support alias field
 LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ session_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ llm_model: 1, timestamp: -1 });
@@ -86,6 +87,11 @@ async function ensureLLMCostsIndexes() {
     await Model.collection.createIndex({ tenant_id: 1, created_at: -1 }, { background: true });
   } catch (e) {
     console.warn('[LLMCost.ensureIndexes] createIndex tenant_id+created_at failed:', e?.message || e);
+  }
+  try {
+    await Model.collection.createIndex({ organization_id: 1, timestamp: -1 }, { background: true });
+  } catch (e) {
+    console.warn('[LLMCost.ensureIndexes] createIndex organization_id+timestamp failed:', e?.message || e);
   }
 }
 
