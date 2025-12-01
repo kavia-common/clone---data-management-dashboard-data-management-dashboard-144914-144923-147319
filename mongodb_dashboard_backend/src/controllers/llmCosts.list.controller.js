@@ -7,18 +7,13 @@ const { isDBReadyFast, isDbConnected, getDb } = require('../config/db');
 // PUBLIC_INTERFACE
  * listLLMCostsStd
  * GET /api/llm-costs
- * 
- * This is the primary listing controller for the LLM costs collection.
- * Parameters (query):
- * - organization_id (string) Tenant ID; alias tenant_id. When JWT is provided, token tenant overrides.
- * - page (integer) Page number, default 1
- * - limit (integer) Page size, default 20, max 100
- * 
- * Returns:
- * - 200 JSON: { data: [], page, limit, total, hasMore }
- * - 400 when tenant is missing (unless super admin all-tenants mode)
- * - 429 in case of rate limit
- * - 200 with empty payload if query timed out (graceful degradation)
+ *
+ * Hardened list endpoint for LLM costs:
+ * - Confirms DB connectivity quickly; returns graceful 503 JSON when DB not configured.
+ * - Enforces tenant scoping via middleware-provided req.tenantId unless Super Admin all-tenant mode is active.
+ * - Applies lean projection, stable sort, and maxTimeMS to avoid gateway timeouts (502/504).
+ * - Ensures compound indexes exist with an optional background creation step.
+ * - Responds with standard envelope: { data, page, limit, total, hasMore }.
  */
 async function listLLMCostsStd(req, res, next) {
   const t0 = Date.now();
@@ -30,27 +25,27 @@ async function listLLMCostsStd(req, res, next) {
   const QUERY_TIMEOUT_MS = Number.isFinite(timeoutCfg) && timeoutCfg > 0 ? timeoutCfg : 8000;
 
   try {
-    // Attach correlation and required headers up-front
+    // Request-id header for correlation
     try {
       if (req.traceId) res.set('X-Request-Id', req.traceId);
     } catch {}
 
-    // Validate DB configuration
+    // 1) DB config present?
     if (!process.env.MONGODB_URI) {
-      // Return fast with standard envelope to avoid 502 bubbles
       return res.status(503).json({
+        success: false,
+        error: 'Database not configured',
         data: [],
         page: DEFAULT_PAGE,
         limit: DEFAULT_LIMIT,
         total: 0,
         hasMore: false,
-        error: 'Database not configured',
       });
     }
 
-    // Fast readiness probe with bounded time
+    // 2) Quick readiness within 1s to avoid gateway timeout
     const readiness = await isDBReadyFast(Math.min(1000, QUERY_TIMEOUT_MS));
-    // Compute tenant as early as possible for headers even on readiness failure
+    // Resolve tenant context for diagnostics regardless of readiness
     const ctxTenant = req.tenantId || req.organizationId || req.auth?.tenantId;
     const headerTenant = req.headers['x-organization-id'] || req.headers['organization_id'];
     const queryTenant = req.query.organization_id || req.query.tenant_id;
@@ -58,27 +53,34 @@ async function listLLMCostsStd(req, res, next) {
 
     if (!readiness.ok) {
       try { res.set('X-Applied-Tenant', organizationId ? String(organizationId) : ''); } catch {}
-      // Graceful degrade to 200 + empty envelope to keep gateway happy
-      return res
-        .status(200)
-        .json({ data: [], page: DEFAULT_PAGE, limit: DEFAULT_LIMIT, total: 0, hasMore: false, note: 'DB not ready' });
-    }
-
-    // Tenant scoping decision (respect SA/all-tenants bypass)
-    const isBypass = !!(req.tenantScopeDisabled || req.allTenants);
-    if (!organizationId && !isBypass) {
-      try { res.set('X-Applied-Tenant', ''); } catch {}
-      return res.status(400).json({
+      // 6) If DB is not reachable, return graceful 503 (explicit per requirements)
+      return res.status(503).json({
+        success: false,
+        error: 'Database not ready',
         data: [],
         page: DEFAULT_PAGE,
         limit: DEFAULT_LIMIT,
         total: 0,
         hasMore: false,
-        error: 'Missing organization_id. Provide via auth tenant, x-organization-id header, or ?organization_id',
       });
     }
 
-    // Pagination setup
+    // 3) Middleware chain: requireTenant should have set req.tenantId unless super admin bypass
+    const isBypass = !!(req.tenantScopeDisabled || req.allTenants);
+    if (!organizationId && !isBypass) {
+      try { res.set('X-Applied-Tenant', ''); } catch {}
+      return res.status(400).json({
+        success: false,
+        error: 'Missing organization_id. Provide via auth tenant, x-organization-id header, or ?organization_id',
+        data: [],
+        page: DEFAULT_PAGE,
+        limit: DEFAULT_LIMIT,
+        total: 0,
+        hasMore: false,
+      });
+    }
+
+    // 4) Pagination
     let limit = DEFAULT_LIMIT;
     if (req.query.limit) {
       const l = parseInt(req.query.limit, 10);
@@ -93,13 +95,26 @@ async function listLLMCostsStd(req, res, next) {
     }
     const skip = (page - 1) * limit;
 
-    // Filter on organization_id when available; allow all tenants in SA bypass
+    // Filter on organization_id unless bypassed
     const filter = {};
     if (organizationId && !isBypass) {
       filter.organization_id = String(organizationId);
     }
 
-    // Projection small, arrays included for FE expectations
+    // 2) Ensure compound indexes exist (background creation; non-blocking)
+    try {
+      const dbForIndex = await getDb();
+      const colForIndex = dbForIndex.collection('llm-costs');
+      // Primary index as requested
+      await colForIndex.createIndex({ organization_id: 1, createdAt: -1, _id: -1 }, { background: true, name: 'org_createdAt__id' });
+      // Fallback minimal index if createdAt missing in datasets
+      await colForIndex.createIndex({ organization_id: 1, _id: -1 }, { background: true, name: 'org___id' });
+    } catch (e) {
+      // non-fatal
+      try { console.warn('[llm-costs] index ensure warning:', e?.message || e); } catch {}
+    }
+
+    // 4) Performance-friendly projection and sort
     const projection = {
       _id: 1,
       organization_id: 1,
@@ -115,12 +130,12 @@ async function listLLMCostsStd(req, res, next) {
       agents: 1,
     };
 
-    // Stable sort: createdAt desc, then _id desc to leverage compound indexes
+    // Prefer createdAt desc then _id desc. If createdAt absent for some docs, _id desc still stabilizes order.
     const sort = { createdAt: -1, _id: -1 };
 
-    // Ensure a connection, but don't block long
+    // Make sure we are connected (short, non-blocking options are applied in connect)
     if (!isDbConnected()) {
-      try { await mongoose.connect(process.env.MONGODB_URI); } catch { /* ignore */ }
+      try { await mongoose.connect(process.env.MONGODB_URI); } catch { /* ignore connect race */ }
     }
     const db = await getDb();
     const collection = db.collection('llm-costs');
@@ -150,7 +165,7 @@ async function listLLMCostsStd(req, res, next) {
         return doc;
       });
 
-      // Count with bounded time; fall back to estimate
+      // Total with bounded time
       try {
         total = await collection.countDocuments(filter, { maxTimeMS: Math.min(QUERY_TIMEOUT_MS, 3000) });
       } catch {
@@ -160,7 +175,6 @@ async function listLLMCostsStd(req, res, next) {
       const msg = String(e?.message || '');
       const timedOut = e && (e.code === 50 || /exceeded time limit|network timeout|timed out/i.test(msg));
       if (timedOut) {
-        // Graceful 200 to avoid gateway 504 with a clear note
         try { if (organizationId) res.set('X-Applied-Tenant', String(organizationId)); } catch {}
         return res.status(200).json({ data: [], page, limit, total: 0, hasMore: false, note: 'Query timed out' });
       }
@@ -177,7 +191,7 @@ async function listLLMCostsStd(req, res, next) {
       else if (organizationId) res.set('X-Applied-Tenant', String(organizationId));
     } catch {}
 
-    // Standard envelope
+    // 5) Standard envelope with 200 OK
     return res.status(200).json({
       data,
       page,
@@ -188,6 +202,7 @@ async function listLLMCostsStd(req, res, next) {
   } catch (err) {
     return next(err);
   } finally {
+    // 5) timing headers
     try {
       const dur = Date.now() - t0;
       res.set('X-Query-Duration', String(dur));
@@ -199,8 +214,7 @@ async function listLLMCostsStd(req, res, next) {
 /**
  * PUBLIC_INTERFACE
  * ensureLlmCostsIndexes
- * One-time index creation helper if indexes are missing.
- * Not called automatically in production; can be triggered from dev utility.
+ * Utility to ensure required indexes exist.
  */
 async function ensureLlmCostsIndexes() {
   const db = await getDb();
