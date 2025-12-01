@@ -85,3 +85,8 @@ Resource-constrained environments
 
 LLM costs user enrichment
 - The GET /api/llm-costs endpoint enriches each users[] entry by joining users[].user_id to users._id (stored as string UUID) and attaches the matched document as users[].user (null when not found)
+
+LLM costs performance flags and index guidance
+- Set LLM_COSTS_PROFILE=true to enable profiling logs and a compact explain('executionStats') summary for the /api/llm-costs query.
+- Set LLM_COSTS_QUERY_TIMEOUT_MS=8000 (default) to bound the main query and enrichment batch with maxTimeMS. On timeout, the endpoint returns 504 with a hint.
+- See README_llm_costs_optimization.md for recommended indexes (e.g., { organization_id: 1, _id: -1 } or { organization_id: 1, createdAt: -1 }) to ensure index-backed pagination and avoid collection scans.
