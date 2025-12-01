@@ -43,10 +43,14 @@ const LLMCostsSchema = new mongoose.Schema(
 
 // Useful indexes for common filter/sort combos
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
-LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
+LLMCostsSchema.index({ tenant_id: 1, timestamp: -1, _id: 1 }); // covered index for pagination on _id
+LLMCostsSchema.index({ tenant_id: 1, created_at: -1 });
+LLMCostsSchema.index({ tenant_id: 1, created_at: -1, _id: 1 });
 // Also support organization_id-only datasets for legacy/b2c tenants
 LLMCostsSchema.index({ organization_id: 1, timestamp: -1 });
+LLMCostsSchema.index({ organization_id: 1, timestamp: -1, _id: 1 });
 LLMCostsSchema.index({ organization_id: 1, created_at: -1 });
+LLMCostsSchema.index({ organization_id: 1, created_at: -1, _id: 1 });
 
 LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ session_id: 1, timestamp: -1 });

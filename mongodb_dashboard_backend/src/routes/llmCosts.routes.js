@@ -65,15 +65,26 @@ router.use((req, res, next) => {
       }
     }
 
-    // Apply safe default pagination for list endpoint if not explicitly set to avoid huge payloads
+    // Enforce mandatory pagination for the list endpoint to prevent 504s
     if (isList) {
       const pageProvided = typeof req.query.page !== 'undefined';
       const limitProvided = typeof req.query.limit !== 'undefined' || typeof req.query.pageSize !== 'undefined';
-      if (!pageProvided && !limitProvided) {
-        // default to first page fixed limit to reduce risk of timeouts
-        req.query.page = '1';
-        req.query.limit = process.env.DEFAULT_LIST_LIMIT || '50';
-        try { res.set('X-Default-Pagination', 'applied'); } catch(_) {}
+      if (!pageProvided || !limitProvided) {
+        try { res.set('X-Default-Pagination', 'rejected'); } catch(_) {}
+        return res.status(400).json({ success: false, message: 'Pagination required: provide ?page and ?limit (<=100)' });
+      }
+      // Normalize alias pageSize to limit
+      if (!req.query.limit && req.query.pageSize) {
+        req.query.limit = req.query.pageSize;
+      }
+      // Enforce max limit of 100
+      const n = parseInt(req.query.limit, 10);
+      if (!Number.isFinite(n) || n < 1) {
+        return res.status(400).json({ success: false, message: 'Invalid limit; must be >=1 and <=100' });
+      }
+      if (n > 100) {
+        req.query.limit = '100';
+        try { res.set('X-Limit-Clamped', '100'); } catch(_) {}
       }
     }
 
@@ -173,9 +184,8 @@ router.use((req, res, next) => {
  *   get:
  *     summary: List LLM cost records
  *     description: |
- *       Returns a list of LLM cost documents. Supports optional JSON filter, sorting and pagination.
- *       If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }.
- *       Otherwise a raw array is returned.
+ *       Returns a list of LLM cost documents.
+ *       Pagination is REQUIRED: provide ?page>=1 and ?limit<=100. Results are returned as { success, data, meta }.
  *       Tenant scoping: When Authorization is present, JWT tenant is enforced and overrides header/query. If a different organization_id/tenant_id is provided than the JWT tenant, the request is rejected with 403.
  *       In demo mode without JWT, x-organization-id header or query aliases (?tenant_id/organization_id) can be used to set scope.
  *       The server ignores any tenant fields in the filter and injects the resolved tenant internally.
@@ -210,6 +220,14 @@ router.use((req, res, next) => {
  *         name: filter
  *         schema: { type: string }
  *         description: Optional JSON filter; tenant fields are ignored server-side.
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO lower bound for timestamp filter. Defaults to now-30d when omitted.
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ *         description: Optional ISO upper bound for timestamp filter. Defaults to now when omitted.
  *     responses:
  *       200:
  *         description: OK

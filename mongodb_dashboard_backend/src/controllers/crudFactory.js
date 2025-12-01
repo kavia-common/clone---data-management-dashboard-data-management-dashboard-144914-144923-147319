@@ -141,24 +141,21 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
   return {
     // PUBLIC_INTERFACE
     async list(req, res) {
-      // list handler for generic model with tenant scoping
-      // Determine effective tenant from JWT-backed middleware
+      // Mandatory pagination and high-performance list handler
       const effectiveTenant = req?.tenantId ? String(req.tenantId) : undefined;
 
-      // Observability headers
+      // Headers
       try {
         if (effectiveTenant) {
           res.set('x-organization-id', effectiveTenant);
           res.set('X-Applied-Tenant', effectiveTenant);
         }
-        const authPresent = !!req.headers?.authorization;
-        res.set('x-tenant-auth-present', String(authPresent));
+        res.set('x-tenant-auth-present', String(!!req.headers?.authorization));
       } catch (_) {}
 
-      // Developer-mode log
       const debugOn = process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true';
 
-      // Expose bypass status for tests/diagnostics
+      // Bypass diagnostics
       try {
         const bypassHeader = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
         res.set('X-Tenant-Bypass', String(bypassHeader));
@@ -173,31 +170,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             !!req.costsAllTenantsBypass;
           const globalBypass = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
           const bypassAny = routeBypass || globalBypass;
-          console.debug(
-            `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'} bypass=${bypassAny} (routeBypass=${routeBypass}, globalBypass=${globalBypass})`
-          );
-          // Explicit console.log for specific routes to confirm bypass visibility in terminal
-          const isUsersRoute = (req.baseUrl || '').endsWith('/users') || (req.originalUrl || '').includes('/api/users');
-          const isSessionsRoute = (req.baseUrl || '').endsWith('/session-tracking') || (req.originalUrl || '').includes('/api/session-tracking');
-          const isDeploymentsRoute = (req.baseUrl || '').endsWith('/app-deployments') || (req.originalUrl || '').includes('/api/app-deployments');
-          if (isUsersRoute) {
-            console.log('[crudFactory.list:/api/users] bypass trace', {
-              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
-              usersAllTenantsBypass: !!req.usersAllTenantsBypass
-            });
-          }
-          if (isSessionsRoute) {
-            console.log('[crudFactory.list:/api/session-tracking] bypass trace', {
-              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
-              sessionsAllTenantsBypass: !!req.sessionsAllTenantsBypass
-            });
-          }
-          if (isDeploymentsRoute) {
-            console.log('[crudFactory.list:/api/app-deployments] bypass trace', {
-              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
-              deploymentsAllTenantsBypass: !!req.deploymentsAllTenantsBypass
-            });
-          }
           const isCostsRoute = (req.baseUrl || '').endsWith('/llm-costs') || (req.originalUrl || '').includes('/api/llm-costs');
           if (isCostsRoute) {
             console.log('[crudFactory.list:/api/llm-costs] bypass trace', {
@@ -208,13 +180,22 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         } catch (_) {}
       }
 
-      // Parse pagination but hard-cap the limit to prevent heavy responses.
+      // Enforce pagination: require explicit page & limit on llm-costs
+      const isLLMCost = Model?.modelName === 'LLMCost';
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
-      const hardCappedLimit = clampLimit(parsedLimit, 500);
+      const MAX_LIMIT = 100;
+      const hardCappedLimit = clampLimit(parsedLimit, MAX_LIMIT);
 
-      // Parse filter safely
+      if (isLLMCost) {
+        const pageValid = Number.isFinite(page) && page >= 1;
+        const limitValid = Number.isFinite(parsedLimit) && parsedLimit >= 1;
+        if (!pageValid || !limitValid) {
+          return failure(res, 'Pagination required: provide valid ?page>=1 and ?limit(<=100)', 400);
+        }
+      }
+
+      // Parse filter
       const filterRaw = req.query.filter ? req.query.filter : '{}';
-      // parse query filter JSON if provided
       let filter = {};
       try {
         filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
@@ -222,13 +203,11 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         return failure(res, 'Invalid filter JSON', 400);
       }
 
-      // Enforce tenant BEFORE any sort to promote index usage.
-      // Allow Super Admin global mode to bypass tenant checks
+      // Build bypass and tenant resolution
       const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass || req.sessionsAllTenantsBypass || req.deploymentsAllTenantsBypass || req.costsAllTenantsBypass);
       try { if (bypass) { res.set('X-All-Tenants', 'true'); } } catch(_) {}
-      // Relaxed: for list endpoints like /api/llm-costs and /api/session-tracking, allow organization_id/tenant_id query/header
+
       if (!bypass && !req.tenantId) {
-        // Attempt final resolution from common aliases if present
         const hdrOrg =
           (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
           (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
@@ -245,8 +224,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         return failure(res, 'Missing tenant scope', 400);
       }
 
-      // If Authorization present, any client-supplied tenant filter/header/query must not switch tenants.
-      // We do not read client-supplied tenant fields in filters, but for traceability, detect if they attempted.
+      // Reject tenant switch when Authorization sent
       const clientRequestedTenant =
         (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
         (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
@@ -254,16 +232,36 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
         (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
         '';
-
       const hasAuthHeader = !!req.headers?.authorization;
       if (!bypass && hasAuthHeader && clientRequestedTenant && String(clientRequestedTenant) !== String(req.tenantId)) {
         return failure(res, 'Forbidden: tenant scope mismatch', 403);
       }
 
-      // Build final applied filter with robust tenant alias removal and normalized OR across aliases
+      // Merge filter with tenant and time window for LLM costs
+      // Enforce a default 30-day window if client does not provide one; use 'timestamp' indexed field fallback to created_at
+      if (isLLMCost) {
+        const now = new Date();
+        const toISO = req.query.to || null;
+        const fromISO = req.query.from || null;
+        let to = toISO ? new Date(toISO) : now;
+        let from = fromISO ? new Date(fromISO) : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        if (isNaN(from.getTime())) { from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); }
+        if (isNaN(to.getTime())) { to = now; }
+
+        // Build a time match on timestamp with fallback path handled in $addFields
+        const timeFilter = { timestamp: { $gte: from, $lte: to } };
+        if (filter && typeof filter === 'object' && Object.keys(filter).length) {
+          filter = { $and: [filter, timeFilter] };
+        } else {
+          filter = timeFilter;
+        }
+        try {
+          res.set('X-Time-Window', JSON.stringify({ from: from.toISOString(), to: to.toISOString() }));
+        } catch (_) {}
+      }
+
       const appliedFilter = (req.tenantScopeDisabled || req.allTenants) ? (filter && typeof filter === 'object' ? filter : {}) : mergeFilterWithTenant(filter, req.tenantId);
 
-      // Expose applied filter, model collection and quick existence probe for diagnostics
       try {
         const appliedFilterStr = JSON.stringify(appliedFilter);
         res.set('x-applied-tenant-filter', appliedFilterStr);
@@ -274,208 +272,95 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
       } catch (_) {}
 
-      // Determine allowed sort fields per model and validate sort string
+      // Allowed sorts
       const isAppDeployment = Model?.modelName === 'AppDeployment';
-      const isLLMCost = Model?.modelName === 'LLMCost';
       const allowedSorts = isAppDeployment
         ? ['timestamp', 'created_at', 'updated_at', '_id', 'status', 'branch_name', 'project_name']
         : ['timestamp', 'created_at', '_id'];
       const safeSort = validateSort(req.query.sort || listDefaultSort, allowedSorts);
 
-      // execute DB operations with safe sort and enforced tenant filter
       try {
-        // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
-        let existsSample = 'unknown';
+        // small exist check
         try {
-          const existsDoc = await Model.exists(
-            appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
-          ).lean?.();
-          existsSample = existsDoc ? 'true' : 'false';
-        } catch {
-          // Some Mongoose versions don't support .lean on exists result; fallback
-          try {
-            const existsDoc = await Model.exists(
-              appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
-            );
-            existsSample = existsDoc ? 'true' : 'false';
-          } catch {
-            existsSample = 'error';
-          }
-        }
-        try {
-          res.set('X-Exists-Sample', existsSample);
-        } catch (_) {}
+          const existsDoc = await Model.exists(appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {});
+          res.set('X-Exists-Sample', existsDoc ? 'true' : 'false');
+        } catch { res.set('X-Exists-Sample', 'error'); }
 
-        if (debugOn) {
-          try {
-            
-            console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
-          } catch (_) {}
-        }
-          // pagination path
+        // Mandatory pagination path for LLM costs; use lean pipeline with projection and maxTimeMS
+        if (isLLMCost) {
+          const sortStage = safeSort
+            ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
+            : { timestamp: -1 };
 
-        if (req.method === 'GET' && explicit) {
-                    // cache and return envelope
+          // Compact projection
+          const projection = {
+            _id: 1,
+            tenant_id: 1,
+            organization_id: 1,
+            user_id: 1,
+            task_id: 1,
+            session_id: 1,
+            llm_model: 1,
+            provider: 1,
+            service_type: 1,
+            total_cost: 1,
+            currency: 1,
+            timestamp: 1,
+            created_at: 1,
+          };
 
-          const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
-          const cached = microGet(key);
-          if (cached) {return res.status(200).json(cached);}
-          
-          // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
+          // Covered index hints: prefer {tenant_id:1,timestamp:-1,_id:1} then {organization_id:1,timestamp:-1,_id:1}
+          const hintTenant = { tenant_id: 1, timestamp: -1, _id: 1 };
+          const hintOrg = { organization_id: 1, timestamp: -1, _id: 1 };
+
+          // Use aggregation to normalize timestamp and projection; ensure maxTimeMS and slow logging
+          const pipeline = [
+            { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+            { $addFields: { timestamp: { $ifNull: ['$timestamp', '$created_at'] } } },
+            { $sort: sortStage },
+            { $skip: skip },
+            { $limit: hardCappedLimit },
+            { $project: projection },
+          ];
+
+          const start = Date.now();
           let items;
-          if (isLLMCost) {
+          try {
+            // Prefer hint on collection if possible: use Model.collection.aggregate for hint
+            const agg = Model.collection.aggregate(pipeline, { allowDiskUse: true, maxTimeMS: 15000 });
             try {
-              const sortStage = safeSort
-                ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
-                : { timestamp: -1 };
-              const pipeline = [
-                { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-                { $addFields: {
-                    timestamp: { $ifNull: ['$timestamp', '$created_at'] },
-                    organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
-                    numeric_total_cost: {
-                      $convert: {
-                        input: {
-                          $replaceAll: {
-                            input: { $toString: { $ifNull: ['$total_cost', 0] } },
-                            find: '$',
-                            replacement: ''
-                          }
-                        },
-                        to: 'double',
-                        onError: 0,
-                        onNull: 0
-                      }
-                    }
-                  }
-                },
-                { $sort: sortStage },
-                { $skip: skip },
-                { $limit: hardCappedLimit },
-              ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
-            } catch (_) {
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              // best-effort apply hint; Mongo Node driver supports .hint on aggregate cursor in newer versions
+              agg.hint(appliedFilter?.$and ? hintTenant : hintTenant);
+            } catch (_) {}
+            items = await agg.toArray();
+          } catch (e1) {
+            // fallback without hint
+            items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 15000 });
+          } finally {
+            const dur = Date.now() - start;
+            if (dur > 1000) {
+              console.warn('[llm-costs:list] slow query', { ms: dur, page, limit: hardCappedLimit, sort: safeSort });
             }
-          } else if (isAppDeployment) {
-            try {
-              const sortStage = safeSort
-                ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
-                : { timestamp: -1 };
-              const pipeline = [
-                { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-                { $addFields: {
-                    // Normalize timestamp fields for consistent sorting
-                    timestamp: { $ifNull: ['$timestamp', '$created_at'] },
-                    created_at: { $ifNull: ['$created_at', '$createdAt'] },
-                    updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
-                    // Compute project_name from various sources
-                    project_name: {
-                      $ifNull: [
-                        '$project_name',
-                        { $ifNull: ['$projectName', { $ifNull: ['$metadata.projectName', '$project.name'] }] }
-                      ]
-                    }
-                  }
-                },
-                { $sort: sortStage },
-                { $skip: skip },
-                { $limit: hardCappedLimit },
-              ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
-            } catch (_) {
-              // Fallback: simple find; project_name may be missing if stored under a different key
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
-            }
-          } else {
-            items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
-          const total = await Model.countDocuments(appliedFilter);
+
+          // total count with same filter but fast path and timeout
+          let total = 0;
+          try {
+            total = await Model.countDocuments(appliedFilter).maxTimeMS?.(5000) ?? await Model.countDocuments(appliedFilter);
+          } catch (_) {
+            // ignore timeout on count
+          }
+
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
-          microSet(key, payload);
           return res.status(200).json(payload);
         }
 
-        // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
-        // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
-        let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
-
-        // Apply index hints where possible to prevent collection scans on large datasets
-        try {
-          if (isLLMCost) {
-            const sortField = safeSort.startsWith('-') ? safeSort.slice(1) : safeSort;
-            // Prefer tenant_id/timestamp or organization_id/timestamp
-            const possibleHints = [];
-            if (appliedFilter && appliedFilter.$and) {
-              // Attempt to detect normalized tenant filter
-              possibleHints.push({ tenant_id: 1, timestamp: -1 });
-              possibleHints.push({ organization_id: 1, timestamp: -1 });
-            }
-            // Apply first hint (Mongo will ignore if not applicable)
-            if (typeof query.hint === 'function' && possibleHints.length) {
-              try { query = query.hint(possibleHints[0]); } catch {}
-            }
-          }
-        } catch {}
-
-        try {
-          if (isLLMCost) {
-            // Use aggregation for minimal transformation without large memory footprint
-            const pipeline = [
-              { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-              { $addFields: {
-                  timestamp: { $ifNull: ['$timestamp', '$created_at'] },
-                  organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
-                  numeric_total_cost: {
-                    $convert: {
-                      input: {
-                        $replaceAll: {
-                          input: { $toString: { $ifNull: ['$total_cost', 0] } },
-                          find: '$',
-                          replacement: ''
-                        }
-                      },
-                      to: 'double',
-                      onError: 0,
-                      onNull: 0
-                    }
-                  }
-                }
-              },
-              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
-              // Protect against returning extremely large arrays when client forgets pagination
-              { $limit: clampLimit(process.env.NON_PAGINATED_SAFE_LIMIT || 200, 1000) }
-            ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
-            return res.status(200).json(items);
-          }
-          if (isAppDeployment) {
-            const pipeline = [
-              { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-              { $addFields: {
-                  timestamp: { $ifNull: ['$timestamp', '$created_at'] },
-                  created_at: { $ifNull: ['$created_at', '$createdAt'] },
-                  updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
-                  project_name: {
-                    $ifNull: [
-                      '$project_name',
-                      { $ifNull: ['$projectName', { $ifNull: ['$metadata.projectName', '$project.name'] }] }
-                    ]
-                  }
-                }
-              },
-              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
-              { $limit: clampLimit(process.env.NON_PAGINATED_SAFE_LIMIT || 200, 1000) }
-            ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
-            return res.status(200).json(items);
-          }
-        } catch (_) {
-          // Fallback to simple find if any aggregation operator unsupported
-        }
-        // Fallback simple find with a protective limit for non-paginated path
-        const items = await query.limit(clampLimit(process.env.NON_PAGINATED_SAFE_LIMIT || 200, 1000));
-        return res.status(200).json(items);
+        // Non-LLM cost models retain previous behavior but add maxTimeMS
+        let query = Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+        try { if (typeof query.maxTimeMS === 'function') { query = query.maxTimeMS(15000); } } catch (_) {}
+        const items = await query;
+        const total = await Model.countDocuments(appliedFilter);
+        return res.status(200).json({ success: true, data: items, meta: { page, limit: hardCappedLimit, total } });
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
       }

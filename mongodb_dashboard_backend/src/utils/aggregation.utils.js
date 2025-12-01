@@ -1,20 +1,23 @@
- /**
-  * PUBLIC_INTERFACE
-  * buildDateRange
-  * Utility to create a Mongo $match range object for a given field between start and end dates.
-  *
-  * @param {string} field - The field name (e.g. 'session_start')
-  * @param {Date} start - Start date (Date object)
-  * @param {Date} end - End date (Date object)
-  * @returns {Object} MongoDB $match filter for range
-  */
- function buildDateRange(field, start, end) {
-   const range = {};
-   if (start instanceof Date && !Number.isNaN(start.getTime())) {range.$gte = start;}
-   if (end instanceof Date && !Number.isNaN(end.getTime())) {range.$lte = end;}
-   return { [field]: range };
- }
+'use strict';
 
- module.exports = {
-   buildDateRange,
- };
+/**
+ * PUBLIC_INTERFACE
+ * logSlowQuery
+ * Logs a warning when a DB operation exceeds the given threshold.
+ * @param {number} startedAtMs epoch ms when the operation started
+ * @param {number} thresholdMs threshold to consider slow (default 1000ms)
+ * @param {object} meta arbitrary metadata to include in the log
+ */
+function logSlowQuery(startedAtMs, thresholdMs = 1000, meta = {}) {
+  try {
+    const dur = Date.now() - Number(startedAtMs || 0);
+    if (dur >= thresholdMs) {
+      // eslint-disable-next-line no-console
+      console.warn('[slow-query]', { ms: dur, ...meta });
+    }
+  } catch (_) {
+    // ignore
+  }
+}
+
+module.exports = { logSlowQuery };
