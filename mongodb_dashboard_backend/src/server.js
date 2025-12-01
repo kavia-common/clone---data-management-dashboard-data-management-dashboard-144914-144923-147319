@@ -3,8 +3,6 @@
  * This guarantees preview/CI can boot without special node flags.
  */
 try { require('dotenv').config(); } catch {}
-// Emit early boot marker for diagnostics
-try { console.log('[startup] loading environment and initializing server'); } catch {}
 
 const fs = require('fs');
 const path = require('path');
@@ -136,9 +134,6 @@ function startServerStrict() {
 
   const shutdown = (signal) => {
     try {
-      console.log(`[startup] graceful shutdown initiated (signal=${signal})`);
-    } catch {}
-    try {
       // eslint-disable-next-line no-console
       console.log(`${signal} received; shutting down`);
       server.close(async () => {
@@ -169,15 +164,6 @@ function startServerStrict() {
   process.on('uncaughtException', (err) => {
     // eslint-disable-next-line no-console
     console.error('[uncaughtException]', err);
-    try { console.error('[startup] exiting due to uncaughtException'); } catch {}
-    // Do not force exit here; allow shutdown handlers when possible
-  });
-
-  process.on('beforeExit', (code) => {
-    try { console.log(`[startup] beforeExit code=${code}`); } catch {}
-  });
-  process.on('exit', (code) => {
-    try { console.log(`[startup] exit code=${code}`); } catch {}
   });
 
   return server;

@@ -9,11 +9,10 @@ Quick start (development)
 - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
 - cp .env.example .env    # then edit as needed
 - npm ci                  # or: npm install
-- npm run dev             # uses node to run src/server.js on 0.0.0.0:3001; backend only (no React/webpack dev server)
-- npm run dev:watch       # uses nodemon for hot reload (no webpack-dev-server or react-scripts involved)
+- npm run dev             # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server)
+- npm run dev:watch       # same as dev, but with nodemon hot reload for local changes
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state
-- curl -H "x-organization-id: T0000" http://localhost:3001/api/llm-costs  # verifies route wiring (bypass all tenants demo)
 
 Scripts
 - dev: runs the server with PORT/HOST defaults applied in-process (CI-compatible)
@@ -78,20 +77,12 @@ Health/readiness
 - GET /api/health → Same payload; safe for monitoring
 - Health responses include no-store Cache-Control headers.
 
-Notes on backend runtime (no React tooling)
-- This backend is a pure Express server. It does not use react-scripts, webpack-dev-server, or any React dev tooling.
-- npm scripts run node/nodemon only and honor HOST and PORT variables. If HOST is unset or set to 'localhost', the process binds 0.0.0.0 automatically.
-
 Notes on authentication and hashing
 - Uses per-organization orgSalt (v2) with optional environment pepper. Legacy v1 hashes are migrated on login.
 - Public auth endpoints:
   - POST /api/auth/signup
   - POST /api/auth/login
   - POST /api/auth/reset-password
-
-LLM Costs API quick checks
-- List (no auth demo): curl -sS -H "x-organization-id: org_demo" "http://localhost:3001/api/llm-costs?limit=5&page=1"
-- Health for module:    curl -sS "http://localhost:3001/api/llm-costs/health" -i
 
 Troubleshooting
 - Port already in use (EADDRINUSE):
