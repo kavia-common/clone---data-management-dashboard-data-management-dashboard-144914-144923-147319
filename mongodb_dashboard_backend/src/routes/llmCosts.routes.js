@@ -20,6 +20,18 @@ const router = express.Router();
  */
 const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
 
+// Proactively ensure indexes for fast tenant+timestamp queries (non-blocking)
+try {
+  if (typeof LLMCost.ensureLLMCostsIndexes === 'function') {
+    LLMCost.ensureLLMCostsIndexes().catch((e) => {
+      // Log only once; do not crash route init
+      console.warn('[llmCosts.routes] ensureLLMCostsIndexes failed:', e?.message || e);
+    });
+  }
+} catch (_) {
+  // ignore
+}
+
 /**
  * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls
  * where Authorization may be missing and organization_id is provided as query/header.

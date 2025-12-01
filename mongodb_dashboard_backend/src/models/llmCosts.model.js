@@ -57,4 +57,39 @@ LLMCostsSchema.pre('findOneAndUpdate', function (next) {
   next();
 });
 
-module.exports = mongoose.model('LLMCost', LLMCostsSchema);
+/**
+ * PUBLIC_INTERFACE
+ * ensureLLMCostsIndexes
+ * Ensures critical indexes are present for performant list and pagination queries:
+ * - { tenant_id: 1, timestamp: -1 } for default sort and tenant scoping
+ * - { tenant_id: 1, created_at: -1 } as alternative
+ * - Single-field indexes are already declared on schema
+ * Safe to call at startup or lazily; logs errors but does not throw.
+ */
+async function ensureLLMCostsIndexes() {
+  try {
+    // Compile model if not yet compiled
+    if (!mongoose.models.LLMCost) {
+      mongoose.model('LLMCost', LLMCostsSchema);
+    }
+  } catch (_) {
+    // ignore recompile errors
+  }
+  const Model = mongoose.models.LLMCost || mongoose.model('LLMCost', LLMCostsSchema);
+  try {
+    // Create/ensure key compound indexes explicitly (in case autoIndex is disabled)
+    await Model.collection.createIndex({ tenant_id: 1, timestamp: -1 }, { background: true });
+  } catch (e) {
+    console.warn('[LLMCost.ensureIndexes] createIndex tenant_id+timestamp failed:', e?.message || e);
+  }
+  try {
+    await Model.collection.createIndex({ tenant_id: 1, created_at: -1 }, { background: true });
+  } catch (e) {
+    console.warn('[LLMCost.ensureIndexes] createIndex tenant_id+created_at failed:', e?.message || e);
+  }
+}
+
+const LLMCost = mongoose.model('LLMCost', LLMCostsSchema);
+LLMCost.ensureLLMCostsIndexes = ensureLLMCostsIndexes;
+
+module.exports = LLMCost;
