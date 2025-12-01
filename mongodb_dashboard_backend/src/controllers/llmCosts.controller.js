@@ -128,28 +128,75 @@ async function listLLMCosts(req, res, next) {
 
     // Batched enrichment: fetch full user docs for all users[].user_id across returned docs
     try {
+      // 1) Collect distinct user ids as strings (defensive trim + String)
       const allIdsSet = new Set();
       for (const d of docs) {
         if (Array.isArray(d.users)) {
           for (const u of d.users) {
-            // accept multiple variants just in case
-            const uid = u?.user_id || u?.userId || u?.id || u?.uid;
-            if (uid != null && String(uid).trim() !== '') {
-              allIdsSet.add(String(uid));
+            const raw =
+              u?.user_id ?? u?.userId ?? u?.id ?? u?.uid ?? u?.email ?? null;
+            if (raw !== null && raw !== undefined) {
+              const s = String(raw).trim();
+              if (s) allIdsSet.add(s);
             }
           }
         }
       }
 
+      // Minimal diagnostics on first few ids
+      const firstFew = Array.from(allIdsSet).slice(0, 5);
+      try {
+        if (firstFew.length > 0) {
+          console.debug(
+            `[llm-costs] enrichment sample user_ids (first up to 5):`,
+            firstFew
+          );
+        }
+      } catch {}
+
       if (allIdsSet.size > 0) {
-        const userIds = Array.from(allIdsSet);
         const usersColl = db.collection('users');
 
-        // Build query to also respect tenant when present to avoid cross-tenant leakage.
-        // IMPORTANT: Match by string user_id directly (no ObjectId conversion). Normalize both sides to strings.
-        const userQuery = { user_id: { $in: userIds.map((v) => String(v)) } };
+        // 2) Determine which field in users collection corresponds to the string we receive.
+        // We try in priority order based on our model and common patterns.
+        const candidateFields = ['user_id', 'authId', 'id', 'email', 'uid', 'username'];
+        const ids = Array.from(allIdsSet);
+
+        // We'll probe with a small sample set for each candidate field to see which yields results.
+        let chosenField = null;
+        let sampleMatchCount = 0;
+        for (const f of candidateFields) {
+          try {
+            const probe = await usersColl
+              .find(
+                { [f]: { $in: ids.slice(0, 50).map((v) => String(v)) } },
+                { projection: { _id: 1 } }
+              )
+              .limit(3)
+              .maxTimeMS(1500)
+              .toArray();
+            if (probe && probe.length > 0) {
+              chosenField = f;
+              sampleMatchCount = probe.length;
+              break;
+            }
+          } catch {
+            // ignore probe errors and continue
+          }
+        }
+        // Fallback to 'user_id' if nothing matched during probe
+        if (!chosenField) chosenField = 'user_id';
+
+        // Minimal logging of field choice
+        try {
+          console.debug(
+            `[llm-costs] enrichment matching via field="${chosenField}" (sample matches=${sampleMatchCount})`
+          );
+        } catch {}
+
+        // 3) Fetch all matching user documents in a single query with $in against the chosen field
+        const userQuery = { [chosenField]: { $in: ids.map((v) => String(v)) } };
         if (resolvedTenant) {
-          // Try to prefer tenant scoped users; support variants for safety
           userQuery.$or = [
             { organization_id: String(resolvedTenant) },
             { tenant_id: String(resolvedTenant) },
@@ -158,7 +205,6 @@ async function listLLMCosts(req, res, next) {
           ];
         }
 
-        // Keep a compact projection; include common visible fields and allow others via strict: false anyway
         const userProjection = {
           _id: 1,
           user_id: 1,
@@ -174,37 +220,51 @@ async function listLLMCosts(req, res, next) {
           profile: 1,
           created_at: 1,
           updated_at: 1,
+          [chosenField]: 1,
         };
 
         const foundUsers = await usersColl
           .find(userQuery, { projection: userProjection })
-          .maxTimeMS(3000)
+          .maxTimeMS(4000)
           .toArray();
 
-        // Map by user_id string (defensively normalize to String to avoid mixed type mismatches)
-        const byId = new Map();
+        // 4) Build a map using String(...) for keys based on the chosen field
+        const userMap = {};
         for (const u of foundUsers) {
-          if (u && (u.user_id != null)) {
-            byId.set(String(u.user_id), u);
+          if (u && u[chosenField] != null) {
+            const key = String(u[chosenField]).trim();
+            if (key) {
+              userMap[String(key)] = u;
+            }
+          } else if (u && u.user_id != null && chosenField !== 'user_id') {
+            // secondary safety net
+            const key = String(u.user_id).trim();
+            if (key) userMap[String(key)] = u;
           }
         }
 
-        // Attach to each users[i] as 'user' using string-based matching
+        // 5) Attach normalized matches: users[i].user = userMap[String(users[i].user_id)] || null
         for (const d of docs) {
           if (Array.isArray(d.users)) {
             d.users = d.users.map((entry) => {
-              const uid = entry?.user_id || entry?.userId || entry?.id || entry?.uid;
-              const key = uid != null ? String(uid) : null; // normalize to string for matching
+              const raw =
+                entry?.user_id ?? entry?.userId ?? entry?.id ?? entry?.uid ?? entry?.email ?? null;
+              const key = raw !== null && raw !== undefined ? String(raw).trim() : '';
               const enriched = { ...entry };
-              enriched.user = key ? (byId.get(key) || null) : null;
+              enriched.user = key ? userMap[String(key)] || null : null;
               return enriched;
             });
           }
         }
 
-        // Small diagnostic header with enrichment stats
+        // Diagnostics header
         try {
-          res.set('X-Users-Enriched', `${byId.size}/${allIdsSet.size}`);
+          const enrichedCount = Object.keys(userMap).length;
+          res.set('X-Users-Enriched', `${enrichedCount}/${allIdsSet.size}`);
+          res.set('X-Users-Match-Field', chosenField);
+          if (firstFew.length > 0) {
+            res.set('X-Users-Sample-Ids', firstFew.join(',').slice(0, 128));
+          }
         } catch {}
       } else {
         try {
