@@ -118,12 +118,19 @@ function numericCostExpr() {
 async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from, to, filter = {} } = {}) {
   const db = await getDb();
   // Prefer primary collection name 'llm-costs' and fallback to 'llm_costs' if needed
-  let col = db.collection('llm-costs');
+  let col;
   try {
-    // Check collection exists lazily; if not, fallback
-    if (!col) col = db.collection('llm_costs');
+    col = db.collection('llm-costs');
   } catch (_) {
-    try { col = db.collection('llm_costs'); } catch (__) {}
+    col = undefined;
+  }
+  if (!col) {
+    try {
+      col = db.collection('llm_costs');
+    } catch (_) {
+      // final fallback to tolerate environments using a different name
+      try { col = db.collection('llm_events'); } catch {} // read-only analytics shape
+    }
   }
 
   const match = buildTenantAndTimeFilter({ tenantId, filter, from, to });

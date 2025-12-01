@@ -152,6 +152,8 @@ safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes')); // route path confirmed: /api/llm-costs
+// Note: Do not mount multiple dev servers/watchers; keep a single instance.
+// Hierarchy sub-routes should share the same base without starting new app instances.
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));

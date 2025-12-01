@@ -342,21 +342,32 @@ router.get('/', asyncHandler(async (req, res) => {
 
     // Expected by frontend: flat rows per user with these fields
     // { _id, organization_cost, user_id, user_cost, projects_count }
-    const users = Array.isArray(result?.users) ? result.users : [];
-    const flatRows = users.map(u => ({
-      _id: `${result.organization_id || tenantId || 'all'}::${u.user_id}`,
-      organization_cost: Number(result.organization_cost || 0),
-      user_id: u.user_id,
-      user_cost: Number(u.user_cost || 0),
-      projects_count: Number(u.project_count || (Array.isArray(u.projects) ? u.projects.length : 0)),
-    }));
+    const users = Array.isArray(result && result.users) ? result.users : [];
+    const orgCost = Number((result && result.organization_cost) || 0);
+    const orgId = (result && (result.organization_id || result._id)) || (tenantId || 'all');
 
-    const total = Number(result?.totalUsers || users.length || 0);
+    const flatRows = users.map((u) => {
+      const uid = u && (u.user_id != null ? String(u.user_id) : '');
+      const projects = Array.isArray(u && u.projects) ? u.projects : [];
+      const projCount = Number(
+        (u && typeof u.project_count === 'number' ? u.project_count : projects.length) || 0
+      );
+      return {
+        _id: `${orgId}::${uid}`,
+        organization_cost: orgCost,
+        user_id: uid,
+        user_cost: Number((u && u.user_cost) || 0),
+        projects_count: projCount,
+      };
+    });
+
+    const total = Number((result && result.totalUsers) || users.length || 0);
     const meta = { page, limit, total };
 
     // Diagnostics headers
     try {
       res.set('X-Aggregation', 'organization->users->projects(flat-users)');
+      res.set('X-Collection-llm-costs', (LLMCost && LLMCost.collection && LLMCost.collection.name) || 'llm-costs');
       if (tenantId) {
         res.set('X-Applied-Tenant', String(tenantId));
         res.set('x-applied-organization-id', String(tenantId));
@@ -367,15 +378,35 @@ router.get('/', asyncHandler(async (req, res) => {
 
     const elapsed = Date.now() - started;
     if (elapsed > 1000) {
-      console.warn('[llm-costs:org-aggregate] slow', { ms: elapsed, page, limit });
+      console.warn('[llm-costs:org-aggregate] slow', { ms: elapsed, page, limit, tenantId, total });
     }
-    try { res.set('X-Elapsed-MS', String(elapsed)); } catch (_) {}
+    try {
+      res.set('X-Elapsed-MS', String(elapsed));
+    } catch (_) {}
 
+    // Envelope response
     return res.status(200).json({ success: true, data: flatRows, meta });
   } catch (err) {
-    const message = err?.message || 'Aggregation failed';
-    console.error('[llm-costs:org-aggregate] failed', message);
-    return res.status(500).json({ success: false, message, details: { hint: 'Check llm-costs schema fields, pipeline, and tenant filter' } });
+    const message = (err && err.message) || 'Aggregation failed';
+    // Log detailed error including stack when available
+    console.error('[llm-costs:org-aggregate] failed', {
+      message,
+      stack: err && err.stack,
+      tenantId,
+      page,
+      limit,
+    });
+    return res
+      .status(500)
+      .json({
+        success: false,
+        message,
+        details: {
+          hint: 'Check llm-costs schema fields, pipeline, and tenant filter',
+          code: err && err.code,
+          name: err && err.name,
+        },
+      });
   }
 }));
 
