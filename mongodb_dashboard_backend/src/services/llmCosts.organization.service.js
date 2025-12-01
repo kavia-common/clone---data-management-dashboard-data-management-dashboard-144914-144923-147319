@@ -1,27 +1,81 @@
 'use strict';
 
 /**
- * Service: Organization-level LLM costs aggregation
- * Aggregates per organization (tenant) total cost and nests users with per-user and per-project totals.
- * Pagination applies to the flattened user rows (top-level array in response).
+ * Service: Organization-level LLM costs aggregation (safe/minimal)
+ * Provides a robust per-tenant aggregation with strict numeric coercion and simple stages to avoid Mongo 16872.
+ * Returns flat, paginated user rows and organization total.
  *
  * Performance:
- * - Uses covered indexes: { tenant_id:1, timestamp:-1, _id:1 } or { organization_id:1, timestamp:-1, _id:1 }
+ * - Hints: { organization_id:1, timestamp:-1, _id:1 } or { tenant_id:1, timestamp:-1, _id:1 }
  * - allowDiskUse(true), maxTimeMS(4000)
- * - Projections and numeric coercion for cost fields
+ * - limit clamped to <= 100
  */
 
 const { getDb } = require('../config/db');
 
 /**
- * Normalize a potentially currency-formatted value to a number (double).
- * Ensures we never use a bare '$' in any expression to prevent Mongo 16872.
+ * INTERNAL: Build match for tenant (organization_id or tenant_id) plus optional timestamp window.
+ * Strips any client-provided tenant keys from filter.
  */
-function normalizeCurrencyToDoubleExpr(pathExpr) {
+function buildTenantAndTimeFilter({ tenantId, filter = {}, from, to }) {
+  const f = filter && typeof filter === 'object' ? { ...filter } : {};
+
+  delete f.tenant_id;
+  delete f.tenantId;
+  delete f.organization_id;
+  delete f.organizationId;
+  delete f.orgId;
+
+  let timeFilter = null;
+  if (from || to) {
+    let fromDate = from ? new Date(from) : null;
+    let toDate = to ? new Date(to) : null;
+    if (from && isNaN(fromDate?.getTime?.())) fromDate = null;
+    if (to && isNaN(toDate?.getTime?.())) toDate = null;
+
+    const range = {};
+    if (fromDate) range.$gte = fromDate;
+    if (toDate) range.$lte = toDate;
+    if (Object.keys(range).length) {
+      timeFilter = { timestamp: range };
+    }
+  }
+
+  let base = f;
+  if (tenantId) {
+    const orgFilter = {
+      $or: [
+        { tenant_id: String(tenantId) },
+        { organization_id: String(tenantId) },
+        { organizationId: String(tenantId) },
+        { tenantId: String(tenantId) },
+        { orgId: String(tenantId) },
+        { 'tenant.tenant_id': String(tenantId) },
+      ],
+    };
+    base = Object.keys(base).length ? { $and: [base, orgFilter] } : orgFilter;
+  }
+
+  if (timeFilter) {
+    return Object.keys(base).length ? { $and: [base, timeFilter] } : timeFilter;
+  }
+  return base || {};
+}
+
+/**
+ * INTERNAL: Robust numeric cost expression without any bare '$'.
+ * Tries total_cost, then cost, then usage.cost; strips leading '$' from strings and converts to double.
+ */
+function numericCostExpr() {
   return {
     $let: {
       vars: {
-        raw: { $ifNull: [pathExpr, 0] },
+        raw: {
+          $ifNull: [
+            '$total_cost',
+            { $ifNull: ['$cost', { $ifNull: ['$usage.cost', 0] }] },
+          ],
+        },
       },
       in: {
         $convert: {
@@ -53,145 +107,27 @@ function normalizeCurrencyToDoubleExpr(pathExpr) {
 }
 
 /**
- * INTERNAL: Build a normalized $match filter for tenant/organization scope plus optional time window.
- */
-function buildTenantAndTimeFilter({ tenantId, filter = {}, from, to }) {
-  const f = filter && typeof filter === 'object' ? { ...filter } : {};
-
-  // strip tenant fields from client-provided filter
-  delete f.tenant_id;
-  delete f.tenantId;
-  delete f.organization_id;
-  delete f.organizationId;
-  delete f.orgId;
-
-  // optional time window on timestamp; do not require from/to
-  let timeFilter = null;
-  if (from || to) {
-    let fromDate = from ? new Date(from) : null;
-    let toDate = to ? new Date(to) : null;
-    if (from && isNaN(fromDate.getTime())) fromDate = null;
-    if (to && isNaN(toDate.getTime())) toDate = null;
-
-    const range = {};
-    if (fromDate) range.$gte = fromDate;
-    if (toDate) range.$lte = toDate;
-
-    if (Object.keys(range).length) {
-      timeFilter = { timestamp: range };
-    }
-  }
-
-  let base = f;
-  if (tenantId) {
-    const orgFilter = {
-      $or: [
-        { tenant_id: String(tenantId) },
-        { organization_id: String(tenantId) },
-        { organizationId: String(tenantId) },
-        { tenantId: String(tenantId) },
-        { orgId: String(tenantId) },
-        { 'tenant.tenant_id': String(tenantId) },
-      ],
-    };
-    base = Object.keys(base).length ? { $and: [base, orgFilter] } : orgFilter;
-  }
-
-  if (timeFilter) {
-    return Object.keys(base).length ? { $and: [base, timeFilter] } : timeFilter;
-  }
-  return base;
-}
-
-/**
- * INTERNAL: Numeric coercion for cost fields as robust as possible.
- * Converts known shapes to a numeric double.
- */
-function numericCostExpr() {
-  return {
-    $let: {
-      vars: {
-        raw: {
-          $ifNull: [
-            '$total_cost',
-            {
-              $ifNull: [
-                '$cost',
-                { $ifNull: ['$usage.cost', 0] },
-              ],
-            },
-          ],
-        },
-      },
-      in: {
-        $convert: {
-          input: {
-            $cond: [
-              { $isNumber: '$$raw' }, '$$raw',
-              {
-                $cond: [
-                  { $and: [{ $eq: [{ $type: '$$raw' }, 'string'] }, { $eq: [{ $substrCP: ['$$raw', 0, 1] }, '$'] }] },
-                  { $substrCP: ['$$raw', 1, { $strLenCP: '$$raw' }] },
-                  { $toString: '$$raw' },
-                ],
-              },
-            ],
-          },
-          to: 'double',
-          onError: 0,
-          onNull: 0,
-        },
-      },
-    },
-  };
-}
-
-/**
  * PUBLIC_INTERFACE
  * aggregateOrganizationCosts
  * Computes:
- *  - organization_cost (sum of numeric cost) for the scoped organization (or all-tenants if bypassed at controller)
- *  - users: [{ user_id, type, user_cost, projects: [{ project_id, project_cost }], project_count }]
- * Applies pagination on the users array based on page/limit. Also returns total user rows for meta.total.
+ *  - organization_cost (sum of numeric costs)
+ *  - per-user totals with project counts
+ * Returns: { organization_id, organization_cost, users:[{ user_id, user_cost, projects_count }], totalUsers, meta_debug }
  */
 async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from, to, filter = {} } = {}) {
   const db = await getDb();
-  const stageLog = []; // capture stage-by-stage context for debugging
+  const stageLog = [];
+  const log = (name, extra) => { try { stageLog.push({ name, at: new Date().toISOString(), ...(extra || {}) }); } catch (_) {} };
 
-  // Helper to push stage info safely
-  const pushStage = (name, details) => {
-    try { stageLog.push({ name, at: new Date().toISOString(), ...details }); } catch (_) {}
-  };
-
-  // Prefer primary collection name 'llm-costs' and fallback to 'llm_costs' if needed
-  let col;
-  try {
-    col = db.collection('llm-costs');
-    pushStage('collection', { name: 'llm-costs' });
-  } catch (e1) {
-    pushStage('collection_error_llm-costs', { error: e1?.message || String(e1) });
-    col = undefined;
-  }
-  if (!col) {
-    try {
-      col = db.collection('llm_costs');
-      pushStage('collection', { name: 'llm_costs' });
-    } catch (e2) {
-      pushStage('collection_error_llm_costs', { error: e2?.message || String(e2) });
-      try {
-        col = db.collection('llm_events'); // read-only analytics shape
-        pushStage('collection', { name: 'llm_events' });
-      } catch (e3) {
-        pushStage('collection_error_llm_events', { error: e3?.message || String(e3) });
-      }
-    }
-  }
+  // Select collection with fallbacks
+  let col = null;
+  try { col = db.collection('llm-costs'); log('collection', { name: 'llm-costs' }); } catch (e) { log('collection_error', { e: e?.message }); }
+  if (!col) { try { col = db.collection('llm_costs'); log('collection', { name: 'llm_costs' }); } catch (e) { log('collection_error', { e: e?.message }); } }
+  if (!col) { try { col = db.collection('llm_events'); log('collection', { name: 'llm_events' }); } catch (e) { log('collection_error', { e: e?.message }); } }
 
   if (!col) {
-    pushStage('fatal_no_collection', {});
-    // PUBLIC_INTERFACE
+    log('fatal_no_collection', {});
     return {
-      // minimal empty envelope-like object for callers
       _id: tenantId ? String(tenantId) : 'all-tenants',
       organization_id: tenantId ? String(tenantId) : 'all-tenants',
       organization_cost: 0,
@@ -202,90 +138,24 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
   }
 
   const match = buildTenantAndTimeFilter({ tenantId, filter, from, to });
-  pushStage('match_built', { match });
-
-  // Pipeline to compute:
-  // - per project totals -> per user totals including projects array
-  // - organization-level total cost
-  const pipeline = [
-    { $match: match || {} },
-    { $addFields: { timestamp: { $ifNull: ['$timestamp', '$created_at'] } } },
-    {
-      $project: {
-        _id: 0,
-        user_id: { $toString: { $ifNull: ['$user_id', { $ifNull: ['$userId', '$user'] }] } },
-        project_id: {
-          $toString: {
-            $ifNull: ['$project_id', { $ifNull: ['$projectId', { $ifNull: ['$project', '$project_code'] }] }],
-          },
-        },
-        organization_id: {
-          $toString: {
-            $ifNull: [
-              '$tenant_id',
-              { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
-            ],
-          },
-        },
-        type: { $literal: 'llm_interaction' },
-        numeric_cost: numericCostExpr(),
-      },
-    },
-    {
-      $match: {
-        user_id: { $ne: null },
-        project_id: { $ne: null },
-      },
-    },
-    {
-      $group: {
-        _id: { user_id: '$user_id', project_id: '$project_id' },
-        project_cost: { $sum: '$numeric_cost' },
-        any_org: { $first: '$organization_id' },
-      },
-    },
-    {
-      $project: {
-        _id: 0,
-        user_id: '$_id.user_id',
-        project_id: '$_id.project_id',
-        project_cost: { $round: ['$project_cost', 6] },
-        organization_id: '$any_org',
-      },
-    },
-    {
-      $group: {
-        _id: { user_id: '$user_id', organization_id: '$organization_id' },
-        user_cost: { $sum: '$project_cost' },
-        projects: { $push: { project_id: '$project_id', project_cost: '$project_cost' } },
-      },
-    },
-    {
-      $project: {
-        _id: 0,
-        user_id: '$_id.user_id',
-        organization_id: '$_id.organization_id',
-        type: { $literal: 'llm_interaction' },
-        user_cost: { $round: ['$user_cost', 6] },
-        project_count: { $size: '$projects' },
-        projects: 1,
-      },
-    },
-  ];
-  pushStage('user_pipeline_ready', { length: pipeline.length });
+  log('match_built', { match });
 
   const safePage = Math.max(parseInt(page, 10) || 1, 1);
   const safeLimit = Math.max(parseInt(limit, 10) || 20, 1);
   const clampedLimit = safeLimit > 100 ? 100 : safeLimit;
   const skipCount = (safePage - 1) * clampedLimit;
 
-  // Use $facet; NOTE: $sortArray requires MongoDB 5.2+. If server < 5.2, it will throw.
-  const facetPipeline = [
+  // Minimal, safe pipeline:
+  // 1) $match (tenant/time)
+  // 2) $group org total
+  // 3) $group user totals and collect projects set
+  // 4) $project users with projects_count
+  // 5) $facet { data:[ $sort, $skip, $limit ], count:[ $count ] }
+  const pipeline = [
     { $match: match || {} },
-    { $addFields: { timestamp: { $ifNull: ['$timestamp', '$created_at'] } } },
     {
       $facet: {
-        orgTotal: [
+        org: [
           {
             $group: {
               _id: null,
@@ -302,64 +172,104 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
               },
             },
           },
+          { $project: { _id: 0, organization_cost: { $round: ['$organization_cost', 6] }, organization_id: 1 } },
+        ],
+        users: [
+          {
+            $group: {
+              _id: {
+                user_id: { $toString: { $ifNull: ['$user_id', { $ifNull: ['$userId', '$user'] }] } },
+                project_id: { $toString: { $ifNull: ['$project_id', { $ifNull: ['$projectId', { $ifNull: ['$project', '$project_code'] }] }] } },
+                org: {
+                  $toString: {
+                    $ifNull: [
+                      '$tenant_id',
+                      { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
+                    ],
+                  },
+                },
+              },
+              user_project_cost: { $sum: numericCostExpr() },
+            },
+          },
+          {
+            $group: {
+              _id: { user_id: '$_id.user_id', organization_id: '$_id.org' },
+              user_cost: { $sum: '$user_project_cost' },
+              projects: { $addToSet: '$_id.project_id' },
+            },
+          },
           {
             $project: {
               _id: 0,
-              organization_cost: { $round: ['$organization_cost', 6] },
-              organization_id: 1,
+              user_id: '$_id.user_id',
+              organization_id: '$_id.organization_id',
+              user_cost: { $round: ['$user_cost', 6] },
+              projects_count: { $size: { $ifNull: ['$projects', []] } },
             },
           },
+          { $sort: { user_cost: -1, user_id: 1 } },
+          { $skip: skipCount },
+          { $limit: clampedLimit },
         ],
-        userProjects: pipeline,
-      },
-    },
-    {
-      $project: {
-        orgTotal: { $arrayElemAt: ['$orgTotal', 0] },
-        usersSorted: {
-          $sortArray: {
-            input: { $ifNull: ['$userProjects', []] },
-            sortBy: { user_cost: -1, user_id: 1 },
+        totalUsers: [
+          {
+            $group: {
+              _id: {
+                user_id: { $toString: { $ifNull: ['$user_id', { $ifNull: ['$userId', '$user'] }] } },
+                org: {
+                  $toString: {
+                    $ifNull: [
+                      '$tenant_id',
+                      { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', { $ifNull: ['$tenantId', '$orgId'] }] }] },
+                    ],
+                  },
+                },
+              },
+              c: { $sum: 1 },
+            },
           },
-        },
+          { $group: { _id: '$_id.user_id' } },
+          { $count: 'total' },
+        ],
       },
     },
     {
       $project: {
-        orgTotal: 1,
-        totalUsers: { $size: { $ifNull: ['$usersSorted', []] } },
-        users: { $slice: [{ $ifNull: ['$usersSorted', []] }, skipCount, clampedLimit] },
+        org: { $arrayElemAt: ['$org', 0] },
+        users: 1,
+        total: { $ifNull: [{ $arrayElemAt: ['$totalUsers.total', 0] }, 0] },
       },
     },
   ];
-  pushStage('facet_pipeline_ready', { length: facetPipeline.length, page: safePage, limit: clampedLimit, skip: skipCount });
+  log('pipeline_ready', { stages: pipeline.length, page: safePage, limit: clampedLimit, skip: skipCount });
 
-  let docs = [];
+  let out = null;
   try {
-    const agg = col.aggregate(facetPipeline, { allowDiskUse: true, maxTimeMS: 4000 });
-    // Apply covered index hint when possible
+    const agg = col.aggregate(pipeline, { allowDiskUse: true, maxTimeMS: 4000 });
+
+    // Apply index hints if possible
     try {
-      const mstr = JSON.stringify(match || {});
-      const usesOrgInMatch = mstr.includes('"organization_id"') || mstr.includes('"organizationId"');
-      const usesTenantInMatch = mstr.includes('"tenant_id"') || mstr.includes('"tenantId"');
-      if (usesOrgInMatch) {
+      const m = JSON.stringify(match || {});
+      if (m.includes('"organization_id"') || m.includes('"organizationId"')) {
         agg.hint({ organization_id: 1, timestamp: -1, _id: 1 });
-        pushStage('hint_applied', { hint: { organization_id: 1, timestamp: -1, _id: 1 } });
-      } else if (usesTenantInMatch) {
+        log('hint_applied', { hint: { organization_id: 1, timestamp: -1, _id: 1 } });
+      } else if (m.includes('"tenant_id"') || m.includes('"tenantId"')) {
         agg.hint({ tenant_id: 1, timestamp: -1, _id: 1 });
-        pushStage('hint_applied', { hint: { tenant_id: 1, timestamp: -1, _id: 1 } });
+        log('hint_applied', { hint: { tenant_id: 1, timestamp: -1, _id: 1 } });
       } else {
         agg.hint({ timestamp: -1, _id: 1 });
-        pushStage('hint_applied', { hint: { timestamp: -1, _id: 1 } });
+        log('hint_applied', { hint: { timestamp: -1, _id: 1 } });
       }
     } catch (eHint) {
-      pushStage('hint_error', { error: eHint?.message || String(eHint) });
+      log('hint_error', { error: eHint?.message || String(eHint) });
     }
-    docs = await agg.toArray();
-    pushStage('aggregation_completed', { docs: docs?.length || 0 });
+
+    const docs = await agg.toArray();
+    out = docs && docs[0] ? docs[0] : { org: null, users: [], total: 0 };
+    log('aggregation_completed', { users: out.users?.length || 0, total: out.total || 0 });
   } catch (e) {
-    pushStage('aggregation_failed', { error: e?.message || String(e) });
-    // PUBLIC_INTERFACE
+    log('aggregation_failed', { error: e?.message || String(e) });
     return {
       _id: tenantId ? String(tenantId) : 'all-tenants',
       organization_id: tenantId ? String(tenantId) : 'all-tenants',
@@ -370,28 +280,26 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
     };
   }
 
-  const first = docs && docs[0] ? docs[0] : { orgTotal: null, users: [], totalUsers: 0 };
-  const orgTotal = first.orgTotal || { organization_cost: 0, organization_id: tenantId ? String(tenantId) : null };
-  const shaped = {
-    _id: orgTotal.organization_id || (tenantId ? String(tenantId) : 'all-tenants'),
-    organization_id: orgTotal.organization_id || (tenantId ? String(tenantId) : 'all-tenants'),
-    organization_cost: Number(orgTotal.organization_cost || 0),
-    users: Array.isArray(first.users)
-      ? first.users.map((u) => ({
-          user_id: u.user_id,
+  const org = out.org || { organization_cost: 0, organization_id: tenantId ? String(tenantId) : null };
+  const result = {
+    _id: org.organization_id || (tenantId ? String(tenantId) : 'all-tenants'),
+    organization_id: org.organization_id || (tenantId ? String(tenantId) : 'all-tenants'),
+    organization_cost: Number(org.organization_cost || 0),
+    users: Array.isArray(out.users)
+      ? out.users.map((u) => ({
+          user_id: String(u.user_id || ''),
           type: 'llm_interaction',
           user_cost: Number(u.user_cost || 0),
-          project_count: Number(u.project_count || (Array.isArray(u.projects) ? u.projects.length : 0)),
-          projects: Array.isArray(u.projects)
-            ? u.projects.map((p) => ({ project_id: p.project_id, project_cost: Number(p.project_cost || 0) }))
-            : [],
+          project_count: Number(u.projects_count || 0),
+          projects: [], // not needed for flat response
         }))
       : [],
-    totalUsers: Number(first.totalUsers || 0),
+    totalUsers: Number(out.total || 0),
+    meta_debug: { stageLog },
   };
-  pushStage('shape_done', { totalUsers: shaped.totalUsers, organization_cost: shaped.organization_cost });
+  log('shape_done', { totalUsers: result.totalUsers, organization_cost: result.organization_cost });
 
-  return { ...shaped, meta_debug: { stageLog } };
+  return result;
 }
 
 module.exports = {
