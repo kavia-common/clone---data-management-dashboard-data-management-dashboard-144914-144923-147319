@@ -71,10 +71,12 @@ Tenant-scoped requests and /api/llm-costs in development
 
 Troubleshooting (ports and proxies)
 - EADDRINUSE: Another process is using port 3001. Stop the other process or change PORT.
-- EADDRNOTAVAIL: HOST is not available. Use HOST=0.0.0.0 (default) or remove HOST. Ensure any dev proxy targets http://localhost:3001 and not the backend itself through another proxy path to avoid loops.
+- EADDRNOTAVAIL: HOST is not available. Use HOST=0.0.0.0 (default) or remove HOST. The server will attempt a one-time fallback bind to 0.0.0.0 automatically.
+- Ensure any frontend dev proxy targets http://localhost:3001 and not the backend itself (no backend proxy here). Avoid relative targets that could create a self-proxy loop.
 - Costs tab backend call (example): GET /api/llm-costs/users?organization_id=T0015&page=1&limit=10
-- ECONNRESET during startup can be caused by a misconfigured external proxy hitting the backend before it is ready. Verify frontend dev proxy points to http://localhost:3001 and that only one backend instance is running.
+- ECONNRESET: Can happen if a proxy/client disconnects early; the backend ignores this non-fatally. Confirm only the frontend proxies to the backend; backend must not proxy to itself.
 - Ensure only the backend uses port 3001 and the frontend uses 3000 to avoid collisions.
+- Prefer `npm run dev` (plain node). Use `npm run dev:nodemon` only if you need hot reload.
 
 Resource-constrained environments
 - Default dev script is plain Node to minimize memory usage and prevent premature exits.
