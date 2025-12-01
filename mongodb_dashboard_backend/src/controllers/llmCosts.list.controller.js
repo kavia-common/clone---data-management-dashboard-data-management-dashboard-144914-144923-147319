@@ -82,7 +82,7 @@ async function listLLMCostsStd(req, res, next) {
   const countTimeout = Math.min(2000, Number.parseInt(process.env.LLM_COSTS_COUNT_TIMEOUT_MS || '1200', 10) || 1200);
 
   const ctxTenant = req.tenantId || req.organizationId || req.auth?.tenantId;
-  const headerTenant = req.headers['x-organization-id'] || req.headers['organization_id'];
+  const headerTenant = req.headers['x-organization-id'] || req.headers['organization_id'] || req.headers['x-tenant-id'] || req.headers['x-tenant'];
   const queryTenant = req.query.organization_id || req.query.tenant_id;
   const organizationId = ctxTenant || headerTenant || queryTenant;
 
@@ -110,8 +110,10 @@ async function listLLMCostsStd(req, res, next) {
       });
     }
     if (!process.env.MONGODB_DB || String(process.env.MONGODB_DB).trim() === '') {
-      // Do not block if driver DBName exists in URI; return 503 with clear note to set MONGODB_DB for consistency
-      try { console.warn('[llm-costs] MONGODB_DB not set; relying on URI db'); } catch {}
+      // Accept relying on DB from URI but expose header note for ops
+      try { res.set('X-DB-Name-Source', 'uri'); } catch {}
+    } else {
+      try { res.set('X-DB-Name', String(process.env.MONGODB_DB)); } catch {}
     }
 
     // Readiness short-circuit to avoid 5xx/504
@@ -165,6 +167,7 @@ async function listLLMCostsStd(req, res, next) {
     let usingFallbackOr = false;
     if (organizationId && !isBypass) {
       const org = String(organizationId);
+      // Prefer organization_id when available by using $or but with organization_id first which aligns with index
       filter.$or = [
         { organization_id: org },
         { tenant_id: org },
