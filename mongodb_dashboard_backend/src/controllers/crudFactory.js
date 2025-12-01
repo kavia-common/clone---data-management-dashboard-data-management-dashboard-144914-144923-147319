@@ -1,5 +1,19 @@
 const { parsePagination, success, failure } = require('../utils/http');
 
+// Safety: cap Mongo operations to avoid long-running queries that can lead to 504s.
+// Allow override via env MAX_TIME_MS; default 9000ms to complete within typical proxy timeouts.
+const SAFE_MAX_TIME_MS = parseInt(process.env.MAX_TIME_MS || '9000', 10);
+
+// Helper to apply maxTimeMS to Mongoose Query or Aggregation
+function withMaxTime(queryOrAgg) {
+  try {
+    if (queryOrAgg && typeof queryOrAgg.maxTimeMS === 'function') {
+      return queryOrAgg.maxTimeMS(SAFE_MAX_TIME_MS);
+    }
+  } catch (_) {}
+  return queryOrAgg;
+}
+
 /**
  * Validate sort string against a whitelist to prevent unindexed/in-memory heavy sorts.
  * Supports formats: "field" or "-field". Returns a safe sort string.
@@ -353,9 +367,16 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
+              items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true));
             } catch (_) {
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              items = await withMaxTime(
+                Model.find(appliedFilter)
+                  .sort(safeSort)
+                  .skip(skip)
+                  .limit(hardCappedLimit)
+                  .allowDiskUse(true)
+                  .lean()
+              );
             }
           } else if (isAppDeployment) {
             try {
@@ -382,15 +403,35 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
+              items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true));
             } catch (_) {
               // Fallback: simple find; project_name may be missing if stored under a different key
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              items = await withMaxTime(
+                Model.find(appliedFilter)
+                  .sort(safeSort)
+                  .skip(skip)
+                  .limit(hardCappedLimit)
+                  .allowDiskUse(true)
+                  .lean()
+              );
             }
           } else {
-            items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+            items = await withMaxTime(
+              Model.find(appliedFilter)
+                .sort(safeSort)
+                .skip(skip)
+                .limit(hardCappedLimit)
+                .allowDiskUse(true)
+                .lean()
+            );
           }
-          const total = await Model.countDocuments(appliedFilter);
+          // Compute total with timeout; if it times out, degrade gracefully
+          let total = items.length;
+          try {
+            total = await withMaxTime(Model.countDocuments(appliedFilter));
+          } catch (e) {
+            try { res.set('X-Total-Approximate', 'true'); } catch {}
+          }
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
@@ -398,7 +439,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
         // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
-        let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        let query = withMaxTime(Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean());
         try {
           if (isLLMCost) {
             // Use aggregation for minimal transformation without large memory footprint
@@ -425,7 +466,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            const items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true));
             return res.status(200).json(items);
           }
           if (isAppDeployment) {
@@ -445,7 +486,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            const items = await withMaxTime(Model.aggregate(pipeline).allowDiskUse(true));
             return res.status(200).json(items);
           }
         } catch (_) {
