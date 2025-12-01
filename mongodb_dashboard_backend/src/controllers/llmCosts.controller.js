@@ -8,61 +8,43 @@ const { isDBReadyFast, isDbConnected, getDb } = require('../config/db');
  * listLLMCosts
  * GET /api/llm-costs
  *
- * Hardened handler to prevent 500s and ERR_HTTP_HEADERS_SENT:
- * - Single-response guarantee via early returns and a responded guard.
- * - Removed racey hard timeout sender; only internal timeouts on queries/enrichment with headers set.
- * - Preserves users[] array shape and users[].user_cost during enrichment.
- * - Null-safe checks for users/projects arrays.
+ * Deterministic and bounded behavior for listing documents from 'llm-costs':
+ *  - Fast readiness short-circuit: if DB isn't ready or MONGODB_URI missing, return 503 JSON (no gateway timeout)
+ *  - Direct find() on 'llm-costs' with exact organization_id filter when provided; otherwise return all
+ *  - Bounded: maxTimeMS(5000), limit capped at 50, stable sort by _id desc
+ *  - Projection includes: _id, organization_id, organization_name, organization_cost, users, projects, agents
+ *  - Adds diagnostic headers: X-DB-Connected, X-Org-Filter, X-Query-Duration
+ *  - Pagination: ?page, ?limit; returns { success, data, meta } when paginating; raw array otherwise
+ *  - Enhancement: For each document, embed full user document for each users[i] based on users[i].user_id into users[i].user (null when not found).
  */
 async function listLLMCosts(req, res, next) {
   const t0 = Date.now();
 
-  // One-time debug diagnostics
-  let debugOnce = String(process.env.BACKEND_DEBUG_ONCE || '').toLowerCase() === 'true';
-  const debugInfo = (label, data) => {
-    try {
-      if (debugOnce) console.debug(`[llm-costs DEBUG] ${label}:`, data);
-    } catch {}
-  };
-
-  // Single-response guard
-  let responded = false;
-  const safeSend = (status, body) => {
-    if (responded || res.headersSent) return;
-    try { res.set('X-Query-Duration', String(Date.now() - t0)); } catch {}
-    res.status(status).json(body);
-    responded = true;
-  };
-
   try {
     // Fail fast if DB is not configured
     if (!process.env.MONGODB_URI) {
-      try {
-        res.set('X-DB-Connected', 'false');
-        res.set('X-Org-Filter', String(req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id || ''));
-      } catch {}
-      return safeSend(503, {
+      res.set('X-DB-Connected', 'false');
+      res.set('X-Org-Filter', String(req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id || ''));
+      return res.status(503).json({
         success: false,
         error: 'Database not configured',
         detail: 'MONGODB_URI is missing',
       });
     }
 
-    // Quick readiness probe
-    const readiness = await isDBReadyFast(800);
+    // Quick readiness probe (~1s)
+    const readiness = await isDBReadyFast(1000);
     if (!readiness.ok) {
-      try {
-        res.set('X-DB-Connected', 'false');
-        res.set('X-Org-Filter', String(req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id || ''));
-      } catch {}
-      return safeSend(503, {
+      res.set('X-DB-Connected', 'false');
+      res.set('X-Org-Filter', String(req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id || ''));
+      return res.status(503).json({
         success: false,
         error: 'Database not ready',
         detail: readiness.reason || 'unknown',
       });
     }
 
-    // Opportunistic connect if not connected (non-blocking)
+    // Attempt opportunistic connect if not connected (non-blocking)
     if (!isDbConnected()) {
       try { await mongoose.connect(process.env.MONGODB_URI); } catch (_) {}
     }
@@ -70,7 +52,10 @@ async function listLLMCosts(req, res, next) {
     const db = await getDb();
     const collection = db.collection('llm-costs');
 
-    // Resolve organization filter (scoped unless super admin bypass)
+    // Resolve organization filter:
+    // - Prefer middleware scoping (req.tenantId) when present and not bypassed
+    // - Else use header or query value if provided
+    // - If none provided and bypass is active, or no scoping determined, return all
     const superAdminBypass = !!(req.tenantScopeDisabled || req.allTenants);
     const scopedTenant = !superAdminBypass ? (req.tenantId || req.organizationId) : undefined;
     const headerTenant = req.headers['x-organization-id'] || req.headers['organization_id'];
@@ -79,7 +64,9 @@ async function listLLMCosts(req, res, next) {
 
     // Build filter
     const filter = {};
-    if (resolvedTenant) filter.organization_id = String(resolvedTenant);
+    if (resolvedTenant) {
+      filter.organization_id = String(resolvedTenant);
+    }
 
     // Sorting and pagination
     const sort = { _id: -1 };
@@ -103,19 +90,11 @@ async function listLLMCosts(req, res, next) {
       organization_name: 1,
       organization_cost: 1,
       users: 1,
+      // Some data uses 'project' vs 'projects'; include both, clients expect arrays present
       project: 1,
       projects: 1,
       agents: 1,
     };
-
-    debugInfo('Incoming query', {
-      org_header: req.headers['x-organization-id'],
-      org_query: req.query.organization_id || req.query.tenant_id,
-      resolvedTenant,
-      page: safePage,
-      limit,
-      skip,
-    });
 
     let docs = [];
     try {
@@ -124,48 +103,37 @@ async function listLLMCosts(req, res, next) {
         .sort(sort)
         .skip(skip)
         .limit(limit)
-        .maxTimeMS(4000);
+        .maxTimeMS(5000);
 
       docs = await cursor.toArray();
 
-      // Ensure arrays present even if absent in source document
-      docs = (Array.isArray(docs) ? docs : []).map((d) => {
-        const out = d && typeof d === 'object' ? { ...d } : {};
-        try {
-          if (!Array.isArray(out.users)) {
-            // if truthy but not array, keep as-is; else set []
-            out.users = Array.isArray(out.users) ? out.users : (out.users ? out.users : []);
-          }
-          if (!Array.isArray(out.projects)) {
-            if (Array.isArray(out.project)) out.projects = out.project;
-            else out.projects = [];
-          }
-          if (!Array.isArray(out.agents)) {
-            out.agents = Array.isArray(out.agents) ? out.agents : (out.agents ? out.agents : []);
-          }
-        } catch {}
-        return out;
+      // Ensure arrays present even if absent in source document for UI expectations
+      docs = docs.map((d) => {
+        if (!Array.isArray(d.users)) d.users = Array.isArray(d.users) ? d.users : (d.users ? d.users : []);
+        // prefer 'projects' field; if missing but 'project' exists and is array, copy over
+        if (!Array.isArray(d.projects)) {
+          if (Array.isArray(d.project)) d.projects = d.project;
+          else d.projects = [];
+        }
+        if (!Array.isArray(d.agents)) d.agents = Array.isArray(d.agents) ? d.agents : (d.agents ? d.agents : []);
+        return d;
       });
     } catch (e) {
       const timedOut = e && (e.code === 50 || /exceeded time limit|network timeout|timed out/i.test(String(e.message)));
-      try {
-        res.set('X-DB-Connected', String(isDbConnected()));
-        res.set('X-Org-Filter', resolvedTenant ? String(resolvedTenant) : '');
-      } catch {}
-      if (debugOnce) {
-        console.error('[llm-costs] find failed:', { message: e?.message, code: e?.code, stack: e?.stack });
-        process.env.BACKEND_DEBUG_ONCE = 'false';
-      }
-      return safeSend(timedOut ? 504 : 500, { success: false, error: timedOut ? 'Query timed out' : 'Query failed' });
+      res.set('X-DB-Connected', String(isDbConnected()));
+      res.set('X-Org-Filter', resolvedTenant ? String(resolvedTenant) : '');
+      res.set('X-Query-Duration', String(Date.now() - t0));
+      return res.status(timedOut ? 504 : 500).json({ success: false, error: timedOut ? 'Query timed out' : 'Query failed' });
     }
 
     // Batched enrichment: fetch full user docs for all users[].user_id across returned docs
     try {
-      // Collect distinct user ids as strings
+      // 1) Collect distinct user ids as strings (defensive trim + String)
       const allIdsSet = new Set();
       for (const d of docs) {
         if (Array.isArray(d.users)) {
           for (const u of d.users) {
+            // Only consider users[].user_id; _id in users collection is a string/UUID
             const raw = u?.user_id ?? null;
             if (raw !== null && raw !== undefined) {
               const s = String(raw).trim();
@@ -175,15 +143,17 @@ async function listLLMCosts(req, res, next) {
         }
       }
 
+      // Minimal diagnostics on first few ids
       const firstFew = Array.from(allIdsSet).slice(0, 5);
+
       if (allIdsSet.size > 0) {
         const usersColl = db.collection('users');
 
+        // 2) Directly query users by _id using $in with string UUIDs (no ObjectId conversion)
         const ids = Array.from(allIdsSet);
-        // Ensure string-based join: user collection uses string UUIDs in _id
-        const userQuery = { _id: { $in: ids } };
+        const userQuery = { _id: { $in: ids } }; // _id is stored as string UUID
         const userProjection = {
-          _id: 1,
+          _id: 1, // string UUID
           email: 1,
           username: 1,
           name: 1,
@@ -198,52 +168,48 @@ async function listLLMCosts(req, res, next) {
           updated_at: 1,
         };
 
-        let foundUsers = [];
-        try {
-          // Soft deadline for enrichment to avoid impacting main response
-          const ENRICH_MAX_MS = 3000;
-          const tEnrich0 = Date.now();
-          foundUsers = await usersColl.find(userQuery, { projection: userProjection }).maxTimeMS(ENRICH_MAX_MS).toArray();
-          const enrichMs = Date.now() - tEnrich0;
-          try { res.set('X-Users-Enrich-MS', String(enrichMs)); } catch {}
-        } catch (e) {
-          // Skip enrichment on timeout or failure
-          try { res.set('X-Users-Enriched', 'skipped'); } catch {}
-          foundUsers = [];
-          if (debugOnce) console.warn('[llm-costs] user enrichment query failed:', e?.message || e);
-        }
+        const foundUsers = await usersColl
+          .find(userQuery, { projection: userProjection })
+          .maxTimeMS(4000)
+          .toArray();
 
+        // 3) Build user map keyed by String(doc._id)
         const userMap = {};
         for (const u of foundUsers) {
-          if (u && u._id != null) userMap[String(u._id)] = u;
-        }
-
-        // Null-safe mapping; preserve user_cost and original shape
-        for (const d of docs) {
-          if (Array.isArray(d.users)) {
-            d.users = d.users.map((entry) => {
-              try {
-                const key = entry && entry.user_id != null ? String(entry.user_id).trim() : '';
-                const enriched = { ...entry };
-                enriched.user = key ? (userMap[key] || null) : null;
-                return enriched;
-              } catch {
-                return entry;
-              }
-            });
-          } else if (!d.users) {
-            d.users = [];
+          if (u && u._id != null) {
+            userMap[String(u._id)] = u;
           }
         }
 
+        // 4) Attach matches: users[i].user = userMap[String(users[i].user_id)] || null
+        for (const d of docs) {
+          if (Array.isArray(d.users)) {
+            // Preserve original per-user fields (including user_cost) and only add 'user'
+            d.users = d.users.map((entry) => {
+              const key = entry && entry.user_id != null ? String(entry.user_id).trim() : '';
+              // Shallow copy preserves user_cost and any other fields from source
+              const enriched = { ...entry };
+              // Attach full user doc without mutating original properties
+              enriched.user = key ? (userMap[key] || null) : null;
+              return enriched;
+            });
+          }
+        }
+
+        // Diagnostics headers (optional): indicate match field used
         try {
           const enrichedCount = Object.keys(userMap).length;
           res.set('X-Users-Enriched', `${enrichedCount}/${allIdsSet.size}`);
-          res.set('X-Users-Match-Field', '_id');
-          if (firstFew.length > 0) res.set('X-Users-Sample-Ids', firstFew.join(',').slice(0, 128));
+          // One-time debug header to record which field was used for matching
+          res.set('X-Users-Match-Field', '_id'); // _id is a string UUID
+          if (firstFew.length > 0) {
+            res.set('X-Users-Sample-Ids', firstFew.join(',').slice(0, 128));
+          }
         } catch {}
       } else {
-        try { res.set('X-Users-Enriched', '0/0'); } catch {}
+        try {
+          res.set('X-Users-Enriched', '0/0');
+        } catch {}
       }
     } catch (enrichErr) {
       // Do not fail the request on enrichment errors; log and proceed with original docs.
@@ -253,28 +219,19 @@ async function listLLMCosts(req, res, next) {
       } catch {}
     }
 
-    // Diagnostics and headers
-    try {
-      res.set('X-DB-Connected', String(isDbConnected()));
-      res.set('X-Org-Filter', resolvedTenant ? String(resolvedTenant) : (superAdminBypass ? 'all-tenants' : ''));
-      res.set('X-Query-Duration', String(Date.now() - t0));
-    } catch {}
+    // Diagnostics
+    res.set('X-DB-Connected', String(isDbConnected()));
+    res.set('X-Org-Filter', resolvedTenant ? String(resolvedTenant) : (superAdminBypass ? 'all-tenants' : ''));
+    res.set('X-Query-Duration', String(Date.now() - t0));
 
     if (hasPagination) {
       let total = 0;
       try {
-        total = await collection.countDocuments(filter, { maxTimeMS: 1500 });
-      } catch (e) {
-        // fallback if count times out/fails
+        total = await collection.countDocuments(filter, { maxTimeMS: 2000 });
+      } catch (_) {
         total = docs.length + skip;
-        if (debugOnce) console.warn('[llm-costs] countDocuments failed, using fallback:', e?.message || e);
       }
-      if (debugOnce) {
-        console.debug('[llm-costs DEBUG] returning envelope page', { page: safePage, limit, total, items: docs.length });
-        process.env.BACKEND_DEBUG_ONCE = 'false';
-        debugOnce = false;
-      }
-      return safeSend(200, {
+      return res.status(200).json({
         success: true,
         data: docs,
         meta: { page: safePage, limit, total },
@@ -282,20 +239,10 @@ async function listLLMCosts(req, res, next) {
     }
 
     // Raw array when no pagination requested
-    if (debugOnce) {
-      console.debug('[llm-costs DEBUG] returning raw array', { count: Array.isArray(docs) ? docs.length : 0 });
-      process.env.BACKEND_DEBUG_ONCE = 'false';
-      debugOnce = false;
-    }
-    return safeSend(200, Array.isArray(docs) ? docs : []);
+    return res.status(200).json(docs);
   } catch (err) {
-    // Safe error response instead of unhandled exception
-    const status = err.status || err.statusCode || 500;
-    if (debugOnce) {
-      console.error('[llm-costs] handler failed:', err?.message || err, err?.stack);
-      process.env.BACKEND_DEBUG_ONCE = 'false';
-    }
-    return safeSend(status, { success: false, error: err?.message || 'Internal Server Error' });
+    try { res.set('X-Query-Duration', String(Date.now() - t0)); } catch {}
+    return next(err);
   }
 }
 
