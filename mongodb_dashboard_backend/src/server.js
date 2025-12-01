@@ -4,12 +4,6 @@
  */
 try { require('dotenv').config(); } catch {}
 
-// Apply low-memory Node options by default if not provided
-if (!process.env.NODE_OPTIONS) {
-  // Limit old space size and disable source maps to reduce memory overhead in previews
-  process.env.NODE_OPTIONS = '--max-old-space-size=256 --no-expose-wasm';
-}
-
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
