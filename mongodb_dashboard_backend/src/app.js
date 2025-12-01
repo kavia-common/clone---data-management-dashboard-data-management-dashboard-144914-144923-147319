@@ -105,6 +105,19 @@ const baseRouter = require('./routes');
 // Mount all core routes under /api to ensure paths like /api/llm-costs resolve correctly
 safeUse('/api', baseRouter);
 
+(async () => {
+  // Attempt to ensure important indexes at startup (non-blocking)
+  try {
+    const { ensureLlmCostsIndexes } = require('./controllers/llmCosts.list.controller');
+    if (typeof ensureLlmCostsIndexes === 'function') {
+      await ensureLlmCostsIndexes();
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[startup] ensureLlmCostsIndexes skipped:', e?.message || e);
+  }
+})().catch(() => {});
+
 safeUse('/api/dev', require('./routes/dev.routes'));
 safeUse('/api/users', require('./routes/users.routes'));
 safeUse('/api/users', require('./routes/users.analytics.summary.routes'));

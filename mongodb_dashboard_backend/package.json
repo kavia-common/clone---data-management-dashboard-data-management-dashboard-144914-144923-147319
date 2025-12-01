@@ -6,7 +6,7 @@
   "scripts": {
     "start": "cross-env NODE_ENV=production HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=\"--max-old-space-size=256\" node --no-warnings src/server.js",
     "start:plain": "cross-env NODE_ENV=production HOST=0.0.0.0 PORT=3001 node --no-warnings src/server.js",
-    "dev": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 BROWSERSLIST_DISABLE_CACHE=1 DISABLE_OPENCOLLECTIVE=true npm_config_loglevel=warn node --no-warnings src/server.js",
+    "dev": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=\"--max-old-space-size=2048\" BROWSERSLIST_DISABLE_CACHE=1 DISABLE_OPENCOLLECTIVE=true npm_config_loglevel=warn node --no-warnings src/server.js",
     "dev:nodemon": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 BROWSERSLIST_DISABLE_CACHE=1 DISABLE_OPENCOLLECTIVE=true npm_config_loglevel=warn nodemon src/server.js",
     "dev:plain": "cross-env NODE_ENV=development HOST=0.0.0.0 PORT=3001 node --no-warnings src/server.js",
     "preview": "cross-env NODE_ENV=production HOST=0.0.0.0 PORT=3001 NODE_OPTIONS=\"--max-old-space-size=256\" node --no-warnings src/server.js",
