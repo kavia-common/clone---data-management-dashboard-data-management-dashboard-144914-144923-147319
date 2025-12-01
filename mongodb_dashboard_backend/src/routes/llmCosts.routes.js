@@ -71,7 +71,7 @@ router.use((req, res, next) => {
       const limitProvided = typeof req.query.limit !== 'undefined' || typeof req.query.pageSize !== 'undefined';
       if (!pageProvided || !limitProvided) {
         try { res.set('X-Default-Pagination', 'rejected'); } catch(_) {}
-        return res.status(400).json({ success: false, message: 'Pagination required: provide ?page and ?limit (<=100)' });
+        return res.status(400).json({ success: false, message: 'Pagination required: provide ?page and ?limit (<=100). from/to are optional.' });
       }
       // Normalize alias pageSize to limit
       if (!req.query.limit && req.query.pageSize) {

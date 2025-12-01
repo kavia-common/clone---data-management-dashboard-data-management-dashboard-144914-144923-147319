@@ -238,26 +238,28 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       }
 
       // Merge filter with tenant and time window for LLM costs
-      // Enforce a default 30-day window if client does not provide one; use 'timestamp' indexed field fallback to created_at
+      // IMPORTANT: Do not require from/to; only apply if provided. Sort by timestamp regardless.
       if (isLLMCost) {
-        const now = new Date();
         const toISO = req.query.to || null;
         const fromISO = req.query.from || null;
-        let to = toISO ? new Date(toISO) : now;
-        let from = fromISO ? new Date(fromISO) : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        if (isNaN(from.getTime())) { from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); }
-        if (isNaN(to.getTime())) { to = now; }
-
-        // Build a time match on timestamp with fallback path handled in $addFields
-        const timeFilter = { timestamp: { $gte: from, $lte: to } };
-        if (filter && typeof filter === 'object' && Object.keys(filter).length) {
-          filter = { $and: [filter, timeFilter] };
-        } else {
-          filter = timeFilter;
+        let timeFilter = null;
+        if (fromISO || toISO) {
+          let to = toISO ? new Date(toISO) : new Date();
+          let from = fromISO ? new Date(fromISO) : new Date(0);
+          if (isNaN(from.getTime())) { from = new Date(0); }
+          if (isNaN(to.getTime())) { to = new Date(); }
+          timeFilter = { timestamp: { $gte: from, $lte: to } };
+          try {
+            res.set('X-Time-Window', JSON.stringify({ from: from.toISOString(), to: to.toISOString() }));
+          } catch (_) {}
         }
-        try {
-          res.set('X-Time-Window', JSON.stringify({ from: from.toISOString(), to: to.toISOString() }));
-        } catch (_) {}
+        if (timeFilter) {
+          if (filter && typeof filter === 'object' && Object.keys(filter).length) {
+            filter = { $and: [filter, timeFilter] };
+          } else {
+            filter = timeFilter;
+          }
+        }
       }
 
       const appliedFilter = (req.tenantScopeDisabled || req.allTenants) ? (filter && typeof filter === 'object' ? filter : {}) : mergeFilterWithTenant(filter, req.tenantId);
@@ -326,27 +328,35 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           const start = Date.now();
           let items;
           try {
-            // Prefer hint on collection if possible: use Model.collection.aggregate for hint
-            const agg = Model.collection.aggregate(pipeline, { allowDiskUse: true, maxTimeMS: 15000 });
+            // Prefer hint and lower maxTimeMS for responsiveness (3-5s)
+            const agg = Model.collection.aggregate(pipeline, { allowDiskUse: true, maxTimeMS: 4000 });
             try {
-              // best-effort apply hint; Mongo Node driver supports .hint on aggregate cursor in newer versions
-              agg.hint(appliedFilter?.$and ? hintTenant : hintTenant);
+              // Apply covered index hint: prefer organization_id if present in filter, else tenant_id
+              const usesOrg = JSON.stringify(appliedFilter).includes('"organization_id"');
+              agg.hint(usesOrg ? hintOrg : hintTenant);
             } catch (_) {}
             items = await agg.toArray();
           } catch (e1) {
-            // fallback without hint
-            items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 15000 });
+            // fallback without hint but keep tight timeouts
+            items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 4000 });
           } finally {
             const dur = Date.now() - start;
-            if (dur > 1000) {
+            if (dur > 800) {
               console.warn('[llm-costs:list] slow query', { ms: dur, page, limit: hardCappedLimit, sort: safeSort });
             }
           }
 
-          // total count with same filter but fast path and timeout
+          // total count with same filter but tight timeout; if it times out, return 0 and still 200
           let total = 0;
           try {
-            total = await Model.countDocuments(appliedFilter).maxTimeMS?.(5000) ?? await Model.countDocuments(appliedFilter);
+            if (typeof Model.countDocuments === 'function') {
+              const countQuery = Model.countDocuments(appliedFilter);
+              if (typeof countQuery.maxTimeMS === 'function') {
+                total = await countQuery.maxTimeMS(3000);
+              } else {
+                total = await Model.countDocuments(appliedFilter);
+              }
+            }
           } catch (_) {
             // ignore timeout on count
           }
@@ -356,8 +366,14 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
 
         // Non-LLM cost models retain previous behavior but add maxTimeMS
-        let query = Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
-        try { if (typeof query.maxTimeMS === 'function') { query = query.maxTimeMS(15000); } } catch (_) {}
+        let query = Model.find(appliedFilter)
+          .sort(safeSort)
+          .skip(skip)
+          .limit(hardCappedLimit)
+          .allowDiskUse(true)
+          .select({ _id: 1, created_at: 1, updated_at: 1 })
+          .lean();
+        try { if (typeof query.maxTimeMS === 'function') { query = query.maxTimeMS(4000); } } catch (_) {}
         const items = await query;
         const total = await Model.countDocuments(appliedFilter);
         return res.status(200).json({ success: true, data: items, meta: { page, limit: hardCappedLimit, total } });
