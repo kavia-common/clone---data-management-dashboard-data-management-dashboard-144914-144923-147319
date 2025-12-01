@@ -23,6 +23,65 @@ const controller = buildCrudController(LLMCost, '-timestamp'); // default indexe
 // Kick off index ensure in background (non-blocking) to reduce first-hit latency
 try { if (LLMCost.ensureIndexes) { LLMCost.ensureIndexes().catch(() => {}); } } catch (_) {}
 
+// Local list handler to enforce performance constraints (maxTimeMS, projection, hint, clamped limit) and log slow queries
+async function listWithPerf(req, res, next) {
+  const started = Date.now();
+  try {
+    // Enforce limit clamp (<=100) already normalized earlier, but double-check
+    let limit = parseInt(req.query.limit, 10);
+    if (!Number.isFinite(limit) || limit < 1) limit = 20;
+    if (limit > 100) limit = 100;
+    req.query.limit = String(limit);
+
+    // Default sort aligned with index
+    if (!req.query.sort) {
+      req.query.sort = '-timestamp';
+    }
+
+    // Attach queryOptions consumed by crudFactory.list if supported; else use model directly via override on req
+    req.query._projection = JSON.stringify({
+      // Only commonly used fields
+      _id: 1,
+      tenant_id: 1,
+      organization_id: 1,
+      user_id: 1,
+      llm_model: 1,
+      total_cost: 1,
+      currency: 1,
+      timestamp: 1,
+      created_at: 1,
+      updated_at: 1,
+      project_id: 1,
+      session_id: 1,
+    });
+
+    // Attach performance hints for downstream list
+    req.query._maxTimeMS = '4000'; // 4s
+    req.query._hint = JSON.stringify([
+      // Prefer tenant scoped indexes if tenant is present; crud list merges appropriately
+      { tenant_id: 1, timestamp: -1 },
+      { organization_id: 1, timestamp: -1 },
+      { timestamp: -1, _id: 1 },
+    ]);
+
+    // Delegate to standard list
+    await controller.list(req, res);
+
+    const dur = Date.now() - started;
+    if (dur > 1000) {
+      try {
+        console.warn(`[llm-costs] Slow list query: ${dur}ms page=${req.query.page} limit=${req.query.limit} tenant=${req.tenantId || req.headers['x-organization-id'] || ''}`);
+      } catch (_) {}
+    }
+  } catch (err) {
+    const dur = Date.now() - started;
+    try {
+      console.error(`[llm-costs] List failed after ${dur}ms:`, err?.message || err);
+    } catch (_) {}
+    return next(err);
+  }
+}
+
 /**
  * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls
  * where Authorization may be missing and organization_id is provided as query/header.
@@ -236,7 +295,7 @@ router.use((req, res, next) => {
  *       403:
  *         description: Forbidden on tenant mismatch with Authorization
  */
-router.get('/', asyncHandler(controller.list));
+router.get('/', asyncHandler(listWithPerf));
 
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));
