@@ -61,7 +61,16 @@ router.get('/llm-costs/health', verifyAuth, requireTenant, (req, res) => {
   return res.status(200).json({ ok: true, route: '/api/llm-costs', ts: new Date().toISOString() });
 });
 
-router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);
+router.use('/llm-costs', verifyAuth, requireTenant, (req, res, next) => {
+  try {
+    if (req.tenantScopeDisabled || req.allTenants) {
+      res.set('X-Applied-Tenant', 'all-tenants');
+    } else if (req.tenantId) {
+      res.set('X-Applied-Tenant', String(req.tenantId));
+    }
+  } catch {}
+  next();
+}, llmCostsRoutes);
 router.use('/llm-costs', verifyAuth, requireTenant, llmCostsUsersRoutes);
 router.use('/llm-costs-aggregate', verifyAuth, requireTenant, llmCostsAggregateRoutes);
 router.use('/costs', verifyAuth, requireTenant, costsByAgentRoutes);

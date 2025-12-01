@@ -1,20 +1,23 @@
 /**
  * PUBLIC_INTERFACE
- * LLM Costs routes root
- * Provides CRUD list endpoints and ensures GET / returns 200 OK for base mount.
+ * LLM Costs routes
+ * GET / -> tenant-scoped listing with pagination and projections
  */
 const express = require('express');
 const router = express.Router();
 
+const { listLLMCostsStd } = require('../controllers/llmCosts.list.controller');
+
 // PUBLIC_INTERFACE
 /**
  * GET /api/llm-costs
- * Basic mount check that returns 200 OK to confirm the route is registered.
+ * List LLM cost documents (tenant-scoped) with pagination.
+ * Query params:
+ *  - organization_id (alias tenant_id)
+ *  - page (default 1)
+ *  - limit (default 20, max 100)
  */
-router.get('/', async (req, res) => {
-  // Return a lightweight OK to signal mount health; actual list may be implemented in subordinate routers.
-  return res.status(200).json({ ok: true, route: '/api/llm-costs', message: 'LLM costs routes mounted' });
-});
+router.get('/', listLLMCostsStd);
 
 // PUBLIC_INTERFACE
 /**
