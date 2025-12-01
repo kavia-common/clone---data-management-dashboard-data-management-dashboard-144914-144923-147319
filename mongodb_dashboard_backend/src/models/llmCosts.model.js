@@ -41,6 +41,8 @@ LLMCostsSchema.post('init', function ensureArrays() {
  */
 LLMCostsSchema.index({ organization_id: 1, _id: -1 }); // required by task
 LLMCostsSchema.index({ tenant_id: 1, _id: -1 });
+
+// Ensure presence of sort+time variants to avoid blocking sorts for early pagination
 LLMCostsSchema.index({ organization_id: 1, createdAt: -1, _id: -1 });
 LLMCostsSchema.index({ tenant_id: 1, createdAt: -1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, timestamp: -1, _id: -1 });
@@ -49,7 +51,7 @@ LLMCostsSchema.index({ tenant_id: 1, timestamp: -1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, created_at: -1, _id: -1 });
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1, _id: -1 });
 
-/** Optional: index for variant field names used in some datasets (legacy fields) */
+// Legacy field name compatibility (sparse to avoid bloat)
 LLMCostsSchema.index({ organizationId: 1, createdAt: -1, _id: -1 }, { sparse: true });
 LLMCostsSchema.index({ tenantId: 1, createdAt: -1, _id: -1 }, { sparse: true });
 

@@ -112,7 +112,11 @@ async function listLLMCosts(req, res, next) {
 
     let docs = [];
     try {
-      const mongoTimeout = 4500; // find stage should be fast due to indexes; keep tight
+      // Tighten timeout using env if provided; fallback to 4500ms
+      const mongoTimeout = Number.isFinite(parseInt(process.env.LLM_COSTS_QUERY_TIMEOUT_MS || '', 10))
+        ? Math.max(1000, Math.min(parseInt(process.env.LLM_COSTS_QUERY_TIMEOUT_MS, 10), 15000))
+        : 4500;
+
       const qStart = Date.now();
       const cursor = collection
         .find(filter, { projection })
@@ -135,8 +139,9 @@ async function listLLMCosts(req, res, next) {
           const nReturned = plan?.executionStats?.nReturned ?? null;
           const totalDocsExamined = plan?.executionStats?.totalDocsExamined ?? null;
           const totalKeysExamined = plan?.executionStats?.totalKeysExamined ?? null;
+          const stageSummary = plan?.queryPlanner?.winningPlan?.stage || plan?.queryPlanner?.winningPlan?.inputStage?.stage || 'n/a';
           console.info(
-            `[llm-costs] explain page=1 limit=${limit} filterKeys=${Object.keys(filter)} returned=${nReturned} keysExamined=${totalKeysExamined} docsExamined=${totalDocsExamined}`
+            `[llm-costs] explain page=1 limit=${limit} filterKeys=${Object.keys(filter)} returned=${nReturned} keysExamined=${totalKeysExamined} docsExamined=${totalDocsExamined} winningStage=${stageSummary}`
           );
         } catch (explainErr) {
           console.warn('[llm-costs] explain failed:', explainErr?.message || explainErr);
@@ -230,7 +235,7 @@ async function listLLMCosts(req, res, next) {
         const enrichStart = Date.now();
         const foundUsers = await usersColl
           .find(userQuery, { projection: userProjection })
-          .maxTimeMS(3500)
+          .maxTimeMS(Math.min(3500, serverTimeoutMs - (Date.now() - t0)))
           .toArray();
 
         if (profileEnabled) {
@@ -302,7 +307,7 @@ async function listLLMCosts(req, res, next) {
       let total = 0;
       try {
         const ctStart = Date.now();
-        total = await collection.countDocuments(filter, { maxTimeMS: 2000 });
+        total = await collection.countDocuments(filter, { maxTimeMS: Math.min(2000, Math.max(750, serverTimeoutMs - (Date.now() - t0))) });
         if (profileEnabled) {
           console.info(`[llm-costs] countDocuments took=${Date.now() - ctStart}ms total=${total}`);
         }
