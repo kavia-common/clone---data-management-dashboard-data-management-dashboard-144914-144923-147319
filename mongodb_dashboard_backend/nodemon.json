@@ -1,5 +1,5 @@
 {
-  "watch": ["src/server.js", "src/app.js", "src/routes/index.js"],
+  "watch": ["src/server.js", "src/app.js"],
   "ignore": [
     "node_modules",
     "package.json",
