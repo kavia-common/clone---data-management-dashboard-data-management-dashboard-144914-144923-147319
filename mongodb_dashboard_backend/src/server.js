@@ -10,10 +10,15 @@ const net = require('net');
 const app = require('./app');
 const mongoose = require('mongoose');
 
-const PORT = Number(process.env.PORT || process.env.REACT_APP_PORT) || 3001;
+let PORT = Number(process.env.PORT || process.env.REACT_APP_PORT) || 3001;
 // Always bind 0.0.0.0 to avoid EADDRNOTAVAIL in container/preview envs when frontend proxy targets localhost
 const HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// To prevent duplicate dev servers and hard crashes, allow a single retry on EADDRINUSE to the next port.
+// Frontend is expected on 3000; backend prefers 3001. We will try 3001 then 3002.
+const PREFERRED_PORT = 3001;
+const FALLBACK_PORT = 3002;
 
 // PUBLIC_INTERFACE
 function logListening(host, port) {
@@ -99,37 +104,78 @@ function removePidFile() {
 ensurePidFileGuard();
 
 function startServerStrict() {
-  const server = app
-    .listen(PORT, HOST, () => {
+  let attemptedFallback = false;
+
+  const bind = () => {
+    const server = app
+      .listen(PORT, HOST, () => {
+        try {
+          const dbName =
+            mongoose?.connection?.db?.databaseName ||
+            process.env.MONGODB_DB ||
+            '(not connected)';
+          console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
+          logListening(HOST, PORT);
+          console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
+          console.log(`READY: http://${HOST}:${PORT}`);
+          console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
+          console.log(`Listening on http://${HOST}:${PORT}`);
+        } catch {}
+        writePidFile();
+      })
+      .on('error', (err) => {
+        if (err && err.code === 'EADDRINUSE') {
+          console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
+          // If currently using preferred port and we haven't tried fallback, retry once on 3002
+          if (!attemptedFallback && PORT === PREFERRED_PORT) {
+            attemptedFallback = true;
+            PORT = FALLBACK_PORT;
+            // Update PID file path to reflect new port
+            try { fs.mkdirSync(path.dirname(PID_FILE), { recursive: true }); } catch {}
+            console.warn(`[startup] Retrying on fallback port ${PORT}...`);
+            return setTimeout(bind, 150); // short debounce to avoid tight loop
+          }
+        } else {
+          console.error('[startup] Server failed to start:', err?.message || err);
+        }
+        process.exit(1);
+      });
+
+    const shutdown = (signal) => {
       try {
-        const dbName =
-          mongoose?.connection?.db?.databaseName ||
-          process.env.MONGODB_DB ||
-          '(not connected)';
-        // eslint-disable-next-line no-console
-        console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
-        logListening(HOST, PORT);
-        // concise pointers
-        console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
-        // Single unambiguous readiness marker required by orchestrator:
-        // EXACT STRING: READY: http://HOST:PORT
-        console.log(`READY: http://${HOST}:${PORT}`);
-        // Additional compatibility markers for various preview systems
-        console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
-        console.log(`Listening on http://${HOST}:${PORT}`);
-      } catch {}
-      writePidFile();
-    })
-    .on('error', (err) => {
-      if (err && err.code === 'EADDRINUSE') {
-        // eslint-disable-next-line no-console
-        console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
-      } else {
-        // eslint-disable-next-line no-console
-        console.error('[startup] Server failed to start:', err?.message || err);
+        console.log(`${signal} received; shutting down`);
+        server.close(async () => {
+          try {
+            await mongoose.connection.close();
+          } catch (e) {
+            console.error('Error closing MongoDB connection', e?.message || e);
+          } finally {
+            removePidFile();
+          }
+          process.exit(0);
+        });
+      } catch {
+        removePidFile();
+        process.exit(0);
       }
-      process.exit(1);
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('exit', removePidFile);
+
+    process.on('unhandledRejection', (reason) => {
+      console.error('[unhandledRejection]', reason);
     });
+    process.on('uncaughtException', (err) => {
+      console.error('[uncaughtException]', err);
+    });
+
+    return server;
+  };
+
+  return bind();
+}
 
   const shutdown = (signal) => {
     try {

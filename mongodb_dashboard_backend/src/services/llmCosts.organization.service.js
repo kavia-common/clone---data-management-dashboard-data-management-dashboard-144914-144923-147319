@@ -268,7 +268,7 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
     },
   ];
 
-  const agg = col.aggregate(facetPipeline, { allowDiskUse: true, maxTimeMS: 4000 });
+  const agg = col.aggregate(facetPipeline, { allowDiskUse: true, maxTimeMS: 3500 });
   // Apply covered index hint when possible
   try {
     const usesOrgInMatch = JSON.stringify(match || {}).includes('"organization_id"');

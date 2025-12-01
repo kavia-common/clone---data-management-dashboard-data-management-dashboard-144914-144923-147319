@@ -349,9 +349,11 @@ router.get('/', asyncHandler(async (req, res) => {
       }
     } catch (_) {}
 
-    if (Date.now() - started > 1000) {
-      console.warn('[llm-costs:org-aggregate] slow', { ms: Date.now() - started, page, limit });
+    const elapsed = Date.now() - started;
+    if (elapsed > 1000) {
+      console.warn('[llm-costs:org-aggregate] slow', { ms: elapsed, page, limit });
     }
+    try { res.set('X-Elapsed-MS', String(elapsed)); } catch (_) {}
 
     return res.status(200).json({ success: true, data, meta });
   } catch (err) {
