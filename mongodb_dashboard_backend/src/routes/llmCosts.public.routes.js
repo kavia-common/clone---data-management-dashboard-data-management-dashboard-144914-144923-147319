@@ -25,39 +25,78 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Per requirement: Ignore/remove any 'filter' param entirely for GET /api/llm-costs
-    // Preserve tenant scoping via middleware/controller and keep sort/limit behavior.
-    if (typeof req.query.filter !== 'undefined') {
-      try { res.set('X-Filter-Ignored', 'true'); } catch {}
-      delete req.query.filter;
-    }
-
-    // Also explicitly drop legacy date range params if present (server no longer applies date compounds here)
-    if (typeof req.query.start !== 'undefined') delete req.query.start;
-    if (typeof req.query.end !== 'undefined') delete req.query.end;
-    if (typeof req.query.from !== 'undefined') delete req.query.from;
-    if (typeof req.query.to !== 'undefined') delete req.query.to;
-
-    // Mark possible super-admin bypass headers similarly to other routes (diagnostic only)
+    // Implement raw collection query to return ALL fields and required tenant filter
     try {
-      const hdr = (req.headers?.['x-organization-id'] || '').toString();
-      const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
+      // Resolve tenant from query/header; organization_id is required unless superadmin T0000 bypass
+      const qOrg = (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) || '';
+      const qTenant = (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) || '';
+      const hOrg =
+        (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) || '';
+      const requested = hOrg || qOrg || qTenant || '';
+      const isBypass = requested.toUpperCase() === 'T0000';
+
+      // parse page/limit with defaults
+      const page = Math.max(parseInt(req.query?.page, 10) || 1, 1);
+      const limit = Math.max(Math.min(parseInt(req.query?.limit, 10) || 10, 200), 1);
+      const skip = (page - 1) * limit;
+
+      // Organization id required when not bypassing
+      if (!isBypass && !requested) {
+        return res.status(400).json({ success: false, message: 'organization_id is required' });
+      }
+
+      // Enforce Authorization tenant match if token present
+      const hasAuth = !!req.headers?.authorization;
       const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
-      const requestedTenant = hdr || qOrg || authTenant || '';
-      const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
-      if (isT0000) {
-        req.tenantScopeDisabled = true;
-        req.allTenants = true;
-        req.costsAllTenantsBypass = true;
+      if (hasAuth && requested && authTenant && requested !== authTenant) {
+        return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+      }
+
+      // Build filter
+      let filter = {};
+      if (!isBypass) {
+        const t = requested || authTenant;
+        filter = {
+          $or: [
+            { tenant_id: String(t) },
+            { organization_id: String(t) },
+            { tenantId: String(t) },
+            { organizationId: String(t) },
+            { orgId: String(t) },
+            { 'tenant.tenant_id': String(t) },
+          ],
+        };
+        try {
+          res.set('X-Applied-Tenant', String(t));
+        } catch (_) {}
+      } else {
         try {
           res.set('X-All-Tenants', 'true');
-          res.set('X-Tenant-Bypass', 'true');
-          res.set('X-Requested-Tenant', 'T0000');
-        } catch {}
+          res.set('X-Applied-Tenant', 'all-tenants');
+        } catch (_) {}
       }
-    } catch {}
 
-    return controller.list(req, res);
+      // Use native collection to avoid projections so we return all fields
+      const { getCollection } = require('../config/db');
+      const col = await getCollection(['llm-costs', 'llm_costs', 'llmCosts']);
+
+      // Count and fetch
+      const total = await col.countDocuments(filter);
+      const cursor = col.find(filter).sort({ timestamp: -1, _id: -1 }).skip(skip).limit(limit);
+      const data = await cursor.toArray();
+
+      const totalPages = Math.max(Math.ceil(total / limit), 1);
+      return res.status(200).json({
+        data,
+        page,
+        limit,
+        total,
+        totalPages,
+      });
+    } catch (err) {
+      console.error('[GET /api/llm-costs] error:', err?.message || err);
+      return res.status(500).json({ success: false, message: 'Internal Server Error' });
+    }
   })
 );
 
