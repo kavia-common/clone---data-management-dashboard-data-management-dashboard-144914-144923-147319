@@ -285,7 +285,8 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
         }))
       : [],
     totalUsers: Number(out.total || 0),
-    meta_debug: { stageLog },
+    // Only include meta_debug when diagnostics are necessary; omit on success to keep payload lean
+    // meta_debug: { stageLog },
   };
   log('shape_done', { totalUsers: result.totalUsers, organization_cost: result.organization_cost });
 
