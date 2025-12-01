@@ -39,10 +39,10 @@ LLMCostsSchema.post('init', function ensureArrays() {
  *  - Sort by _id desc (native ObjectId monotonic order)
  *  These indexes ensure a bounded, non-scanning query path.
  */
-LLMCostsSchema.index({ organization_id: 1, _id: -1 }); // required by task
-LLMCostsSchema.index({ tenant_id: 1, _id: -1 });
+LLMCostsSchema.index({ organization_id: 1, _id: -1 }); // Critical index to serve GET /api/llm-costs with tenant filter and sort by _id desc
+LLMCostsSchema.index({ tenant_id: 1, _id: -1 });       // Alternate tenant field index
 
-// Ensure presence of sort+time variants to avoid blocking sorts for early pagination
+// Time-based variants to allow future sorts while preserving index scan order for pagination
 LLMCostsSchema.index({ organization_id: 1, createdAt: -1, _id: -1 });
 LLMCostsSchema.index({ tenant_id: 1, createdAt: -1, _id: -1 });
 LLMCostsSchema.index({ organization_id: 1, timestamp: -1, _id: -1 });
