@@ -20,6 +20,9 @@ const router = express.Router();
  */
 const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
 
+// Kick off index ensure in background (non-blocking) to reduce first-hit latency
+try { if (LLMCost.ensureIndexes) { LLMCost.ensureIndexes().catch(() => {}); } } catch (_) {}
+
 /**
  * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls
  * where Authorization may be missing and organization_id is provided as query/header.
@@ -48,10 +51,29 @@ router.use((req, res, next) => {
           (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
           (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
           undefined;
-        const resolved = hdrOrg || qOrg || undefined;
+        let resolved = hdrOrg || qOrg || undefined;
+
+        // Normalize b2c tenant alias if used
+        if (resolved && String(resolved).toLowerCase() === 'b2c') {
+          resolved = 'b2c';
+          try { res.set('X-B2C-Tenant', 'true'); } catch(_) {}
+        }
+
         if (resolved) {
           req.tenantId = String(resolved);
         }
+      }
+    }
+
+    // Apply safe default pagination for list endpoint if not explicitly set to avoid huge payloads
+    if (isList) {
+      const pageProvided = typeof req.query.page !== 'undefined';
+      const limitProvided = typeof req.query.limit !== 'undefined' || typeof req.query.pageSize !== 'undefined';
+      if (!pageProvided && !limitProvided) {
+        // default to first page fixed limit to reduce risk of timeouts
+        req.query.page = '1';
+        req.query.limit = process.env.DEFAULT_LIST_LIMIT || '50';
+        try { res.set('X-Default-Pagination', 'applied'); } catch(_) {}
       }
     }
 

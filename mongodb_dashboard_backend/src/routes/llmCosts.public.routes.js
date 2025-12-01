@@ -10,8 +10,33 @@ const router = express.Router();
 // Default sort retained; list is still tenant-scoped via middleware/controller
 const controller = buildCrudController(LLMCost, '-timestamp');
 
-// Enforce tenant isolation for all requests on this router
+ // Enforce tenant isolation for all requests on this router
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
+
+// Normalize b2c and apply default pagination on list to avoid heavy scans
+router.use((req, res, next) => {
+  try {
+    const isList = req.method === 'GET' && (req.path === '/' || req.path === '');
+    if (isList) {
+      const hdrOrg = (req.headers?.['x-organization-id'] || '').toString().trim();
+      const qOrg = ((req.query?.organization_id || req.query?.tenant_id || '') + '').trim();
+      let resolved = hdrOrg || qOrg || '';
+      if (resolved && resolved.toLowerCase() === 'b2c') {
+        resolved = 'b2c';
+        req.tenantId = 'b2c';
+        try { res.set('X-B2C-Tenant', 'true'); } catch(_) {}
+      }
+      const pageProvided = typeof req.query.page !== 'undefined';
+      const limitProvided = typeof req.query.limit !== 'undefined' || typeof req.query.pageSize !== 'undefined';
+      if (!pageProvided && !limitProvided) {
+        req.query.page = '1';
+        req.query.limit = process.env.DEFAULT_LIST_LIMIT || '50';
+        try { res.set('X-Default-Pagination', 'applied'); } catch(_) {}
+      }
+    }
+  } catch(_) {}
+  next();
+});
 
 /**
  * PUBLIC_INTERFACE

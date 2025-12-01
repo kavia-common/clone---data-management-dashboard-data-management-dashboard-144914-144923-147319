@@ -399,6 +399,25 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
         // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
         let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+
+        // Apply index hints where possible to prevent collection scans on large datasets
+        try {
+          if (isLLMCost) {
+            const sortField = safeSort.startsWith('-') ? safeSort.slice(1) : safeSort;
+            // Prefer tenant_id/timestamp or organization_id/timestamp
+            const possibleHints = [];
+            if (appliedFilter && appliedFilter.$and) {
+              // Attempt to detect normalized tenant filter
+              possibleHints.push({ tenant_id: 1, timestamp: -1 });
+              possibleHints.push({ organization_id: 1, timestamp: -1 });
+            }
+            // Apply first hint (Mongo will ignore if not applicable)
+            if (typeof query.hint === 'function' && possibleHints.length) {
+              try { query = query.hint(possibleHints[0]); } catch {}
+            }
+          }
+        } catch {}
+
         try {
           if (isLLMCost) {
             // Use aggregation for minimal transformation without large memory footprint
@@ -424,6 +443,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 }
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
+              // Protect against returning extremely large arrays when client forgets pagination
+              { $limit: clampLimit(process.env.NON_PAGINATED_SAFE_LIMIT || 200, 1000) }
             ];
             const items = await Model.aggregate(pipeline).allowDiskUse(true);
             return res.status(200).json(items);
@@ -444,6 +465,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 }
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
+              { $limit: clampLimit(process.env.NON_PAGINATED_SAFE_LIMIT || 200, 1000) }
             ];
             const items = await Model.aggregate(pipeline).allowDiskUse(true);
             return res.status(200).json(items);
@@ -451,7 +473,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         } catch (_) {
           // Fallback to simple find if any aggregation operator unsupported
         }
-        const items = await query;
+        // Fallback simple find with a protective limit for non-paginated path
+        const items = await query.limit(clampLimit(process.env.NON_PAGINATED_SAFE_LIMIT || 200, 1000));
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');

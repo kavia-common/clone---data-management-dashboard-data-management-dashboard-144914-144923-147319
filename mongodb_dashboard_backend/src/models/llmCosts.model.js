@@ -44,6 +44,10 @@ const LLMCostsSchema = new mongoose.Schema(
 // Useful indexes for common filter/sort combos
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
+// Also support organization_id-only datasets for legacy/b2c tenants
+LLMCostsSchema.index({ organization_id: 1, timestamp: -1 });
+LLMCostsSchema.index({ organization_id: 1, created_at: -1 });
+
 LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ session_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ llm_model: 1, timestamp: -1 });
@@ -56,5 +60,22 @@ LLMCostsSchema.pre('findOneAndUpdate', function (next) {
   this.set({ updated_at: new Date() });
   next();
 });
+
+/**
+ * PUBLIC_INTERFACE
+ * ensureIndexes
+ * Ensures important indexes exist for performant list/sort queries (including organization_id composites).
+ * Safe to call at startup or lazily. Mongo will no-op if already created.
+ */
+async function ensureIndexes() {
+  try {
+    await this.model('LLMCost').createIndexes();
+  } catch (e) {
+    // non-fatal
+    // console.warn('[LLMCost] ensureIndexes failed:', e?.message || e);
+  }
+}
+
+LLMCostsSchema.statics.ensureIndexes = ensureIndexes;
 
 module.exports = mongoose.model('LLMCost', LLMCostsSchema);
