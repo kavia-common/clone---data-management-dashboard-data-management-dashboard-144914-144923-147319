@@ -36,8 +36,11 @@ Preview runner compatibility
 
 Frontend dev proxy configuration (important)
 - Frontend typically runs on http://localhost:3000
-- Configure the frontend dev proxy to target http://localhost:3001 for API routes (e.g., setupProxy.js or package.json "proxy")
-- Do not configure the backend to proxy to itself; there is no backend proxy middleware here by design to avoid loops
+- Configure the frontend dev proxy to target http://localhost:3001 for API routes (e.g., setupProxy.js or package.json "proxy").
+  - Example (CRA setupProxy.js): proxy '/api' to 'http://localhost:3001'
+  - Ensure the proxy target is the backend (port 3001), not the frontend (port 3000), to avoid proxy loops or ECONNRESET.
+  - In container/preview environments, 'localhost:3001' generally resolves to this backend; if using different hosts or networks, update the proxy target accordingly.
+- Do not configure the backend to proxy to itself; there is no backend proxy middleware here by design to avoid loops.
 
 Health, readiness, keepalive
 - /health, /healthz, /ready return basic status for uptime checks

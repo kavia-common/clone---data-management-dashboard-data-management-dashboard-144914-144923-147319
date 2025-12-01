@@ -34,6 +34,10 @@ if (process.env.NODE_OPTIONS) {
  */
 const server = http.createServer(app);
 
+// Internal state flags to avoid duplicate listen calls during recovery
+let hasStartedListening = false;
+let attemptedFallback = false;
+
 // Simple keepalive: periodic no-op to keep event loop active in low-traffic previews
 const KEEPALIVE_INTERVAL_MS = Number(process.env.KEEPALIVE_INTERVAL_MS || 30000);
 let keepaliveTimer = null;
@@ -91,23 +95,41 @@ server.on('error', (err) => {
   // Provide targeted guidance for common network errors without crashing the process immediately
   if (code === 'EADDRINUSE') {
     console.error(`[startup] Port ${PORT} is already in use. Ensure only one backend process is running on this port.`);
-  } else if (code === 'EADDRNOTAVAIL') {
-    console.error(`[startup] Address ${HOST} is not available on this host. Falling back to 0.0.0.0`);
-    try {
-      // Attempt a one-time fallback bind to 0.0.0.0
-      server.listen(PORT, '0.0.0.0', () => {
-        console.log(`Express API server recovered and is listening on http://0.0.0.0:${PORT} (${NODE_ENV})`);
-      });
-      return;
-    } catch (fallbackErr) {
-      console.error('[startup] Fallback listen failed:', fallbackErr?.message || fallbackErr);
-    }
-  } else if (code === 'ECONNRESET') {
-    console.warn('[startup] ECONNRESET detected during startup. This can happen due to proxy misconfiguration. Verify that any frontend proxy points to http://localhost:3001 and the backend does not proxy to itself.');
+    // This is not recoverable without freeing the port; let orchestrator restart
+    process.exitCode = 1;
+    return;
   }
 
-  // As a last resort, exit non-zero to let the supervisor restart
-  process.exit(1);
+  if (code === 'EADDRNOTAVAIL') {
+    console.error(`[startup] Address ${HOST} is not available on this host. Attempting fallback to 0.0.0.0...`);
+    // Attempt a one-time fallback bind to 0.0.0.0 if we haven't already tried
+    if (!attemptedFallback && !hasStartedListening) {
+      attemptedFallback = true;
+      try {
+        server.listen(PORT, '0.0.0.0', () => {
+          hasStartedListening = true;
+          console.log(`Express API server recovered and is listening on http://0.0.0.0:${PORT} (${NODE_ENV})`);
+        });
+        return; // do not exit while attempting recovery
+      } catch (fallbackErr) {
+        console.error('[startup] Fallback listen failed:', fallbackErr?.message || fallbackErr);
+      }
+    } else {
+      console.warn('[startup] Fallback already attempted or server already started; ignoring.');
+    }
+    // Do not crash; allow orchestrator/health checks to retry
+    process.exitCode = 1;
+    return;
+  }
+
+  if (code === 'ECONNRESET') {
+    console.warn('[startup] ECONNRESET detected during startup. This can happen due to proxy misconfiguration or clients disconnecting early. Backend will continue running. Verify frontend dev proxy points to http://localhost:3001 and backend does not proxy to itself.');
+    // Non-fatal; do not exit
+    return;
+  }
+
+  // Unknown fatal during bind: set exit code but do not hard exit immediately to allow logs to flush
+  process.exitCode = 1;
 });
 
 // Extra safety: catch unhandled errors to avoid abrupt termination without logs
@@ -119,6 +141,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 server.listen(PORT, HOST, () => {
+  hasStartedListening = true;
   // eslint-disable-next-line no-console
   console.log(`Express API server listening on http://${HOST}:${PORT} (${NODE_ENV})`);
   console.log(`READY: http://${HOST}:${PORT}`);
