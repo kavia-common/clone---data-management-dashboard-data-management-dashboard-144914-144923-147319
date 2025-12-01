@@ -156,32 +156,60 @@ function numericCostExpr() {
  */
 async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from, to, filter = {} } = {}) {
   const db = await getDb();
+  const stageLog = []; // capture stage-by-stage context for debugging
+
+  // Helper to push stage info safely
+  const pushStage = (name, details) => {
+    try { stageLog.push({ name, at: new Date().toISOString(), ...details }); } catch (_) {}
+  };
+
   // Prefer primary collection name 'llm-costs' and fallback to 'llm_costs' if needed
   let col;
   try {
     col = db.collection('llm-costs');
-  } catch (_) {
+    pushStage('collection', { name: 'llm-costs' });
+  } catch (e1) {
+    pushStage('collection_error_llm-costs', { error: e1?.message || String(e1) });
     col = undefined;
   }
   if (!col) {
     try {
       col = db.collection('llm_costs');
-    } catch (_) {
-      // final fallback to tolerate environments using a different name
-      try { col = db.collection('llm_events'); } catch {} // read-only analytics shape
+      pushStage('collection', { name: 'llm_costs' });
+    } catch (e2) {
+      pushStage('collection_error_llm_costs', { error: e2?.message || String(e2) });
+      try {
+        col = db.collection('llm_events'); // read-only analytics shape
+        pushStage('collection', { name: 'llm_events' });
+      } catch (e3) {
+        pushStage('collection_error_llm_events', { error: e3?.message || String(e3) });
+      }
     }
   }
 
+  if (!col) {
+    pushStage('fatal_no_collection', {});
+    // PUBLIC_INTERFACE
+    return {
+      // minimal empty envelope-like object for callers
+      _id: tenantId ? String(tenantId) : 'all-tenants',
+      organization_id: tenantId ? String(tenantId) : 'all-tenants',
+      organization_cost: 0,
+      users: [],
+      totalUsers: 0,
+      meta_debug: { stageLog },
+    };
+  }
+
   const match = buildTenantAndTimeFilter({ tenantId, filter, from, to });
+  pushStage('match_built', { match });
 
   // Pipeline to compute:
   // - per project totals -> per user totals including projects array
   // - organization-level total cost
   const pipeline = [
     { $match: match || {} },
-    // Ensure timestamp exists for index usage and sorts (not strictly needed here but harmless)
     { $addFields: { timestamp: { $ifNull: ['$timestamp', '$created_at'] } } },
-    // Normalize keys and numeric cost early
     {
       $project: {
         _id: 0,
@@ -203,14 +231,12 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
         numeric_cost: numericCostExpr(),
       },
     },
-    // Filter out empties to avoid noise
     {
       $match: {
         user_id: { $ne: null },
         project_id: { $ne: null },
       },
     },
-    // project totals per user
     {
       $group: {
         _id: { user_id: '$user_id', project_id: '$project_id' },
@@ -227,7 +253,6 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
         organization_id: '$any_org',
       },
     },
-    // user totals with projects
     {
       $group: {
         _id: { user_id: '$user_id', organization_id: '$organization_id' },
@@ -246,22 +271,15 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
         projects: 1,
       },
     },
-    // organization total cost computed separately and merged via $group and $setWindowFields alternative;
-    // easier approach: compute org total via $group in a sibling pipeline; we will run a facet.
   ];
+  pushStage('user_pipeline_ready', { length: pipeline.length });
 
-  // Use $facet to compute:
-  // - users (with pagination)
-  // - totalUsers (count)
-  // - orgTotal (organization_cost)
-  // Build a safe facet that avoids unsupported expressions like $sortArray in server versions < 5.2
-  // We will compute org total in one facet branch and the per-user rows in another,
-  // then perform pagination using $skip/$limit on the array via $slice with precomputed bounds.
   const safePage = Math.max(parseInt(page, 10) || 1, 1);
   const safeLimit = Math.max(parseInt(limit, 10) || 20, 1);
   const clampedLimit = safeLimit > 100 ? 100 : safeLimit;
   const skipCount = (safePage - 1) * clampedLimit;
 
+  // Use $facet; NOTE: $sortArray requires MongoDB 5.2+. If server < 5.2, it will throw.
   const facetPipeline = [
     { $match: match || {} },
     { $addFields: { timestamp: { $ifNull: ['$timestamp', '$created_at'] } } },
@@ -295,7 +313,6 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
         userProjects: pipeline,
       },
     },
-    // Post-process facet: sort user rows, count, then slice for pagination using computed bounds
     {
       $project: {
         orgTotal: { $arrayElemAt: ['$orgTotal', 0] },
@@ -315,42 +332,66 @@ async function aggregateOrganizationCosts({ tenantId, page = 1, limit = 20, from
       },
     },
   ];
+  pushStage('facet_pipeline_ready', { length: facetPipeline.length, page: safePage, limit: clampedLimit, skip: skipCount });
 
-  const agg = col.aggregate(facetPipeline, { allowDiskUse: true, maxTimeMS: 4000 });
-  // Apply covered index hint when possible
+  let docs = [];
   try {
-    const mstr = JSON.stringify(match || {});
-    const usesOrgInMatch = mstr.includes('"organization_id"') || mstr.includes('"organizationId"');
-    const usesTenantInMatch = mstr.includes('"tenant_id"') || mstr.includes('"tenantId"');
-    if (usesOrgInMatch) {
-      agg.hint({ organization_id: 1, timestamp: -1, _id: 1 });
-    } else if (usesTenantInMatch) {
-      agg.hint({ tenant_id: 1, timestamp: -1, _id: 1 });
-    } else {
-      agg.hint({ timestamp: -1, _id: 1 });
+    const agg = col.aggregate(facetPipeline, { allowDiskUse: true, maxTimeMS: 4000 });
+    // Apply covered index hint when possible
+    try {
+      const mstr = JSON.stringify(match || {});
+      const usesOrgInMatch = mstr.includes('"organization_id"') || mstr.includes('"organizationId"');
+      const usesTenantInMatch = mstr.includes('"tenant_id"') || mstr.includes('"tenantId"');
+      if (usesOrgInMatch) {
+        agg.hint({ organization_id: 1, timestamp: -1, _id: 1 });
+        pushStage('hint_applied', { hint: { organization_id: 1, timestamp: -1, _id: 1 } });
+      } else if (usesTenantInMatch) {
+        agg.hint({ tenant_id: 1, timestamp: -1, _id: 1 });
+        pushStage('hint_applied', { hint: { tenant_id: 1, timestamp: -1, _id: 1 } });
+      } else {
+        agg.hint({ timestamp: -1, _id: 1 });
+        pushStage('hint_applied', { hint: { timestamp: -1, _id: 1 } });
+      }
+    } catch (eHint) {
+      pushStage('hint_error', { error: eHint?.message || String(eHint) });
     }
-  } catch (_) {}
+    docs = await agg.toArray();
+    pushStage('aggregation_completed', { docs: docs?.length || 0 });
+  } catch (e) {
+    pushStage('aggregation_failed', { error: e?.message || String(e) });
+    // PUBLIC_INTERFACE
+    return {
+      _id: tenantId ? String(tenantId) : 'all-tenants',
+      organization_id: tenantId ? String(tenantId) : 'all-tenants',
+      organization_cost: 0,
+      users: [],
+      totalUsers: 0,
+      meta_debug: { stageLog },
+    };
+  }
 
-  const docs = await agg.toArray();
-  const first = docs && docs[0] ? docs[0] : { orgTotal: null, usersAll: [], users: [], totalUsers: 0 };
+  const first = docs && docs[0] ? docs[0] : { orgTotal: null, users: [], totalUsers: 0 };
   const orgTotal = first.orgTotal || { organization_cost: 0, organization_id: tenantId ? String(tenantId) : null };
-
-  // Shape final response
-  return {
+  const shaped = {
     _id: orgTotal.organization_id || (tenantId ? String(tenantId) : 'all-tenants'),
     organization_id: orgTotal.organization_id || (tenantId ? String(tenantId) : 'all-tenants'),
     organization_cost: Number(orgTotal.organization_cost || 0),
-    users: Array.isArray(first.users) ? first.users.map((u) => ({
-      user_id: u.user_id,
-      type: 'llm_interaction',
-      user_cost: Number(u.user_cost || 0),
-      project_count: Number(u.project_count || (Array.isArray(u.projects) ? u.projects.length : 0)),
-      projects: Array.isArray(u.projects)
-        ? u.projects.map((p) => ({ project_id: p.project_id, project_cost: Number(p.project_cost || 0) }))
-        : [],
-    })) : [],
+    users: Array.isArray(first.users)
+      ? first.users.map((u) => ({
+          user_id: u.user_id,
+          type: 'llm_interaction',
+          user_cost: Number(u.user_cost || 0),
+          project_count: Number(u.project_count || (Array.isArray(u.projects) ? u.projects.length : 0)),
+          projects: Array.isArray(u.projects)
+            ? u.projects.map((p) => ({ project_id: p.project_id, project_cost: Number(p.project_cost || 0) }))
+            : [],
+        }))
+      : [],
     totalUsers: Number(first.totalUsers || 0),
   };
+  pushStage('shape_done', { totalUsers: shaped.totalUsers, organization_cost: shaped.organization_cost });
+
+  return { ...shaped, meta_debug: { stageLog } };
 }
 
 module.exports = {

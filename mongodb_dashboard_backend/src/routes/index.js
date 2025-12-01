@@ -18,6 +18,7 @@ const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
 const countsRoutes = require('./counts.routes');
 const { analyticsOverviewRouter } = require('./analytics.overview.routes');
+const devRoutes = require('./dev.routes');
 
 const router = express.Router();
 
@@ -59,6 +60,7 @@ router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardModulesRou
  * This guarantees verifyAuth + requireTenant are always enforced.
  */
 router.use('/analytics', verifyAuth, requireTenant, analyticsOverviewRouter);
+router.use('/dev', devRoutes);
 
 /**
  * Counts endpoints (these are lightweight; keep public if they are used for landing)
