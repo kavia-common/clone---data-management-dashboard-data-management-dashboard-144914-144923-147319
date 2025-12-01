@@ -179,9 +179,20 @@ if (process.env.NODE_ENV !== 'test') {
   if (!process.env.MONGODB_URI) {
     console.warn('[startup] MONGODB_URI not set. Starting without DB connection.');
   } else {
-    connectDB().catch((err) =>
-      console.error('Failed to connect to MongoDB on startup:', err.message)
-    );
+    connectDB()
+      .then(() => {
+        // Kick off non-blocking index warmup (no await)
+        try {
+          const { warmupIndexes } = require('./utils/startup');
+          // Fire-and-forget; do not block server readiness
+          setTimeout(() => {
+            warmupIndexes().catch(() => {});
+          }, 0);
+        } catch (_) {}
+      })
+      .catch((err) => {
+        console.error('Failed to connect to MongoDB on startup:', err.message);
+      });
   }
 } else {
   try { mongoose.set('bufferCommands', false); } catch { }
