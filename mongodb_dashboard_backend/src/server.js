@@ -4,7 +4,14 @@
 try { require('dotenv').config(); } catch {}
 
 const http = require('http');
-const app = require('./app');
+let app;
+try {
+  app = require('./app');
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.error('[startup] Failed to load app module:', e?.message || e);
+  app = (req, res) => res.status(503).json({ success: false, message: 'Service initializing' });
+}
 
 // Resolve port and host with safe defaults
 const PORT = Number(process.env.PORT || 3001);

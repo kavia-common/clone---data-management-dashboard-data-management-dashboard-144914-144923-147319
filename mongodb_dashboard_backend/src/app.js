@@ -125,9 +125,9 @@ if (process.env.NODE_ENV !== 'test') {
   if (!process.env.MONGODB_URI) {
     console.warn('[startup] MONGODB_URI not set. Starting without DB connection.');
   } else {
-    connectDB().catch((err) =>
-      console.error('Failed to connect to MongoDB on startup:', err?.message || err)
-    );
+    connectDB().catch((err) => {
+      console.error('Failed to connect to MongoDB on startup:', err?.message || err);
+    });
   }
 } else {
   try { mongoose.set('bufferCommands', false); } catch { }

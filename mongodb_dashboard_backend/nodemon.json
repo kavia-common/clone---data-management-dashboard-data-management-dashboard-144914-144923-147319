@@ -1,5 +1,5 @@
 {
-  "watch": ["src/app.js", "src/server.js", "src/routes", "src/controllers", "src/middleware"],
+  "watch": ["src/server.js", "src/app.js", "src/routes/index.js"],
   "ignore": [
     "node_modules",
     "package.json",
@@ -18,7 +18,9 @@
     "**/*.test.js",
     "src/utils/**",
     "src/services/**",
-    "src/models/**"
+    "src/models/**",
+    "src/controllers/**",
+    "src/middleware/**"
   ],
   "ext": "js json",
   "delay": "2000",
@@ -30,7 +32,10 @@
     "PORT": "3001",
     "NODE_ENV": "development",
     "BACKEND_DEBUG_ONCE": "false",
-    "KEEPALIVE_INTERVAL_MS": "30000"
+    "KEEPALIVE_INTERVAL_MS": "30000",
+    "BROWSERSLIST_DISABLE_CACHE": "1",
+    "DISABLE_OPENCOLLECTIVE": "true",
+    "npm_config_loglevel": "warn"
   },
   "events": {
     "restart": "echo '[nodemon] Restarting server due to changes...'"
