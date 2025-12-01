@@ -78,8 +78,13 @@ router.use('/llm-costs', verifyAuth, requireTenant, (req, res, next) => {
       res.set('X-Applied-Tenant', String(req.tenantId));
     }
     // attach request-id and capture finish timing
-    const reqId = req.traceId || '';
+    const reqId =
+      (typeof req.traceId === 'string' && req.traceId) ||
+      (req.headers['x-request-id'] ? String(req.headers['x-request-id']) : null) ||
+      `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     if (reqId) res.set('X-Request-Id', reqId);
+    // Also set early timing hint header (will be updated on finish)
+    try { res.set('X-Route-Timing', '0'); } catch {}
     res.on('finish', () => {
       try {
         res.setHeader('X-Route-Timing', String(Date.now() - t0));

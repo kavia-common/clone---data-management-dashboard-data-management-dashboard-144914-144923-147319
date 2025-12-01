@@ -25,9 +25,13 @@ async function listLLMCostsStd(req, res, next) {
   const QUERY_TIMEOUT_MS = Number.isFinite(timeoutCfg) && timeoutCfg > 0 ? timeoutCfg : 8000;
 
   try {
-    // Request-id header for correlation
+    // Request-id header for correlation (generate fallback if missing)
     try {
-      if (req.traceId) res.set('X-Request-Id', req.traceId);
+      const rid =
+        (typeof req.traceId === 'string' && req.traceId) ||
+        (req.headers['x-request-id'] ? String(req.headers['x-request-id']) : null) ||
+        `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      if (rid) res.set('X-Request-Id', rid);
     } catch {}
 
     // 1) DB config present?
