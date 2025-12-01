@@ -93,6 +93,11 @@ async function ensureLLMCostsIndexes() {
   } catch (e) {
     console.warn('[LLMCost.ensureIndexes] createIndex organization_id+timestamp failed:', e?.message || e);
   }
+  try {
+    await Model.collection.createIndex({ organization_id: 1, created_at: -1 }, { background: true });
+  } catch (e) {
+    console.warn('[LLMCost.ensureIndexes] createIndex organization_id+created_at failed:', e?.message || e);
+  }
 }
 
 const LLMCost = mongoose.model('LLMCost', LLMCostsSchema);

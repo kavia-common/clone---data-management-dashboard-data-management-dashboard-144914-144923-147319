@@ -43,6 +43,7 @@ async function listLlmCosts(req, res) {
 
     // Pagination & limits
     const DEFAULT_LIMIT = 20;
+    // Cap to prevent memory pressure; aligned with OpenAPI (max 200)
     const MAX_LIMIT = 200;
     const MAX_SERVER_TIMEOUT_MS = 8000; // defensive cap
 
@@ -105,7 +106,12 @@ async function listLlmCosts(req, res) {
     // Query with safe timeouts and lean for speed
     const skip = (page - 1) * limit;
 
-    const baseQuery = LLMCost.find(filter).sort(sort).skip(skip).limit(limit).lean();
+    // Use lean for performance but preserve all fields (no projection is applied)
+    const baseQuery = LLMCost.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .lean(); // lean returns plain objects; still includes all fields unless projection is provided
 
     // Apply mongoose-level maxTimeMS via options on underlying cursor
     // use .maxTimeMS if available; also set comment for observability
