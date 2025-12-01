@@ -19,20 +19,44 @@ try {
   app = (req, res) => res.status(503).json({ success: false, message: 'Service initializing' });
 }
 
-// Resolve port and host with safe defaults.
-// Prefer binding to 0.0.0.0 unless a non-localhost HOST is provided to avoid EADDRNOTAVAIL.
+/**
+ * Resolve port and host with safe defaults.
+ * - Prefer binding to 0.0.0.0 unless an explicit and valid non-localhost HOST is provided.
+ * - Normalize common loopback/IPv6 variants to 0.0.0.0 for preview/dev environments to avoid EADDRNOTAVAIL.
+ */
 const PORT = Number(process.env.PORT || 3001);
-const HOST_ENV = process.env.HOST;
-const HOST = (HOST_ENV && HOST_ENV !== 'localhost') ? HOST_ENV : '0.0.0.0';
+const HOST_ENV = (process.env.HOST || '').trim();
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// Minimal diagnostics to detect misconfiguration
+function normalizeHostForDev(host) {
+  const h = (host || '').trim().toLowerCase();
+  if (!h) return '0.0.0.0';
+  const loopbacks = new Set(['localhost', '127.0.0.1', '::1', '0:0:0:0:0:0:0:1']);
+  if (loopbacks.has(h)) return '0.0.0.0';
+  // In some preview environments, IPv6 unspecified may be presented
+  if (h === '::' || h === '[::]') return '0.0.0.0';
+  // Avoid obviously invalid or placeholder values
+  if (/^\s*$/.test(h) || /undefined|null/i.test(h)) return '0.0.0.0';
+  return host;
+}
+
+const HOST = normalizeHostForDev(HOST_ENV);
+
+/* Minimal diagnostics to detect misconfiguration */
 // eslint-disable-next-line no-console
 console.log(`[startup] NODE_ENV=${NODE_ENV} HOST=${HOST} PORT=${PORT} PID=${process.pid}`);
 if (process.env.NODE_OPTIONS) {
   // eslint-disable-next-line no-console
   console.log(`[startup] NODE_OPTIONS=${process.env.NODE_OPTIONS}`);
 }
+// Warn if suspicious proxy-related env vars are set which could indicate a self-proxy loop in dev tools
+try {
+  const proxyVars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'NO_PROXY', 'no_proxy', 'PROXY'];
+  const foundProxyVars = proxyVars.filter((k) => process.env[k]);
+  if (foundProxyVars.length) {
+    console.warn(`[startup] Detected proxy environment variables (${foundProxyVars.join(', ')}). Ensure your frontend dev proxy targets http://localhost:${PORT} and backend does NOT proxy to itself.`);
+  }
+} catch {}
 
 const server = http.createServer(app);
 
@@ -97,8 +121,7 @@ server.on('error', (err) => {
     console.error(
       `[startup] Port ${PORT} is already in use. Ensure only one backend process is running on this port.`
     );
-    // Not recoverable without freeing the port; let orchestrator/runner handle restart
-    process.exitCode = 1;
+    // Not recoverable without freeing the port; avoid crashing here to allow operator to free the port.
     return;
   }
 
@@ -125,20 +148,19 @@ server.on('error', (err) => {
     } else {
       console.warn('[startup] Fallback already attempted or server already started; ignoring.');
     }
-    // Set exit code for orchestrator, but don't hard-exit immediately to allow logs to flush
-    process.exitCode = 1;
+    // Do not set exit code; keep process alive for orchestrator hot-reload.
     return;
   }
 
   if (code === 'ECONNRESET') {
     console.warn(
-      '[startup] ECONNRESET detected during startup. This can happen if a client/proxy disconnects early. Backend will continue running. Ensure frontend dev proxy targets http://localhost:3001 and backend does not proxy to itself.'
+      `[startup] ECONNRESET detected during startup. This can happen if a client/proxy disconnects early. Backend will continue running on http://${HOST}:${PORT}.`
     );
     return; // Non-fatal; ignore
   }
 
-  // Unknown fatal during bind: set exit code but do not hard exit immediately to allow logs to flush
-  process.exitCode = 1;
+  // Unknown error: log but do not crash; allow orchestrator to decide on restarts
+  return;
 });
 
 // Extra safety: catch unhandled errors to avoid abrupt termination without logs
@@ -162,6 +184,13 @@ function safeListen(host) {
     console.log(`Express API server listening on http://${host}:${PORT} (${NODE_ENV})`);
     console.log(`READY: http://${host}:${PORT}`);
     startKeepalive();
+  });
+  // Attach a one-time runtime error handler after listen in case of late errors
+  server.on('clientError', (err, socket) => {
+    try {
+      console.warn('[server] clientError:', err?.message || err);
+      if (socket && !socket.destroyed) socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    } catch {}
   });
 }
 
