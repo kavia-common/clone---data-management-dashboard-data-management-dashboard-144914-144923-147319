@@ -333,7 +333,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       }
 
       // For LLMCost lists: apply default 30-day window if not explicitly paginated AND no date constraints are present.
-      const isLLMCost = Model?.modelName === 'LLMCost';
       if (isLLMCost) {
         const hasExplicitPagination = explicit;
         const filterKeys = filter && typeof filter === 'object' ? Object.keys(filter) : [];
@@ -403,7 +402,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Determine allowed sort fields per model and validate sort string
       const isAppDeployment = Model?.modelName === 'AppDeployment';
-      const isLLMCost = Model?.modelName === 'LLMCost';
       const allowedSorts = isAppDeployment
         ? ['timestamp', 'created_at', 'updated_at', '_id', 'status', 'branch_name', 'project_name']
         : ['timestamp', 'created_at', '_id'];
