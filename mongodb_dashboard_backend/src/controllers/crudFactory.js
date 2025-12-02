@@ -284,6 +284,36 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // execute DB operations with safe sort and enforced tenant filter
       try {
+        // When listing LLMCosts and only page/limit/tenant plus default sort (-timestamp),
+        // use a fast-path: lean find() with projection + index hint for {organization_id:1,timestamp:-1} or {tenant_id:1,timestamp:-1}
+        if (isLLMCost && explicit) {
+          const sortIsDefault = !req.query.sort || String(req.query.sort).trim() === '' || String(req.query.sort).trim() === '-timestamp';
+          const onlyBasicParams = (() => {
+            const keys = Object.keys(req.query || {}).filter(k => !['page','limit','tenant_id','organization_id','sort'].includes(k));
+            return keys.length === 0;
+          })();
+          if (sortIsDefault && onlyBasicParams) {
+            try { res.set('X-Query-Path', 'fast-find'); } catch (_) {}
+            const tFast = Date.now();
+            const sortObj = { timestamp: -1 };
+            const hintTenant = { tenant_id: 1, timestamp: -1 };
+            const hintOrg = { organization_id: 1, timestamp: -1 };
+            const projection = { _id: 1, tenant_id: 1, organization_id: 1, timestamp: 1, created_at: 1, total_cost: 1, currency: 1, user_id: 1, llm_model: 1, provider: 1, project_id: 1 };
+            const hint = appliedFilter?.$or?.some(x => Object.prototype.hasOwnProperty.call(x, 'tenant_id')) ? hintTenant : hintOrg;
+            try { res.set('X-Query-IndexHint', JSON.stringify(hint)); } catch (_) {}
+            const items = await Model.find(appliedFilter, projection)
+              .sort(sortObj)
+              .skip(skip)
+              .limit(hardCappedLimit)
+              .hint(hint)
+              .maxTimeMS?.(90000)
+              .lean();
+            const total = await Model.countDocuments(appliedFilter).maxTimeMS?.(90000);
+            try { res.set('X-Query-Duration', String(Date.now() - tFast)); } catch (_) {}
+            const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
+            return res.status(200).json(payload);
+          }
+        }
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
         let existsSample = 'unknown';
         try {
@@ -339,6 +369,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
           if (isLLMCost) {
             try {
+              try { res.set('X-Query-Path', 'agg-paginated'); } catch (_) {}
               const sortStage = safeSort
                 ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
                 : { timestamp: -1 };
@@ -368,15 +399,20 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { $limit: hardCappedLimit },
               ];
               // Fail-fast query-level timeout; ensure disk use allowed
-              items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 30000 });
+              items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 90000 });
             } catch (_) {
               // Fallback to find() path with maxTimeMS
+              try { res.set('X-Query-Path', 'find-paginated'); } catch (_) {}
+              const hintCandidate = appliedFilter?.$or?.some(x => Object.prototype.hasOwnProperty.call(x, 'tenant_id'))
+                ? { tenant_id: 1, timestamp: -1 }
+                : { organization_id: 1, timestamp: -1 };
+              try { res.set('X-Query-IndexHint', JSON.stringify(hintCandidate)); } catch (_) {}
               items = await Model.find(appliedFilter)
                 .sort(safeSort)
                 .skip(skip)
                 .limit(hardCappedLimit)
-                .allowDiskUse(true)
-                .maxTimeMS?.(30000)
+                .hint(hintCandidate)
+                .maxTimeMS?.(90000)
                 .lean();
             } finally {
               clearTimeout(abortTimer);
@@ -420,7 +456,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           const total = await Model.countDocuments(appliedFilter);
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
-          try { res.set('X-Query-Duration', String(Date.now() - t0)); } catch (_) {}
+          try {
+            if (!res.getHeader('X-Query-Path')) res.set('X-Query-Path', 'generic-paginated');
+            res.set('X-Query-Duration', String(Date.now() - t0));
+          } catch (_) {}
           return res.status(200).json(payload);
         }
 
@@ -455,7 +494,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            try { res.set('X-Query-Path', 'agg-nonpaginated'); } catch (_) {}
+            const items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 90000 });
             try { res.set('X-Query-Duration', String(Date.now() - t0_np)); } catch (_) {}
             return res.status(200).json(items);
           }
@@ -509,7 +549,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
               { $limit: 200 },
             ];
-            const itemsAgg = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 30000 });
+            try { res.set('X-Query-Path', 'agg-nonpaginated-guarded'); } catch (_) {}
+            const itemsAgg = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 90000 });
             try { res.set('X-Query-Duration', String(Date.now() - t0_np)); } catch (_) {}
             return res.status(200).json(itemsAgg);
           } catch (_) {
@@ -517,7 +558,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           }
         }
         const items = await query;
-        try { res.set('X-Query-Duration', String(Date.now() - t0_np)); } catch (_) {}
+        try {
+          if (!res.getHeader('X-Query-Path')) res.set('X-Query-Path', 'generic-nonpaginated');
+          res.set('X-Query-Duration', String(Date.now() - t0_np));
+        } catch (_) {}
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');

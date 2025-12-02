@@ -172,8 +172,9 @@ function startServerStrict() {
 
   // Apply safe Node server timeouts
   try {
-    server.keepAliveTimeout = 65000; // keep connections open slightly longer than common proxy timeouts
-    server.headersTimeout = 70000;   // must be greater than keepAliveTimeout
+    // Align with upstream gateway: keepAlive 120s, headers 125s
+    server.keepAliveTimeout = 120000;
+    server.headersTimeout = 125000;   // must be greater than keepAliveTimeout
     console.log(`[startup] Server timeouts set: keepAliveTimeout=${server.keepAliveTimeout}ms headersTimeout=${server.headersTimeout}ms`);
   } catch (e) {
     console.warn('[startup] Failed to set server timeouts', e?.message || e);
@@ -181,19 +182,28 @@ function startServerStrict() {
 
   // Add a per-request timeout for the LLM costs route to gracefully abort long requests
   try {
-    const llmCostsTimeoutMs = 60000;
+    const llmCostsTimeoutMs = 120000; // 120s to exceed common 504 thresholds
     app.use('/api/llm-costs', (req, res, next) => {
+      const start = Date.now();
       let timedOut = false;
       const timer = setTimeout(() => {
         timedOut = true;
         try {
-          res.set('X-Request-Timeout', String(llmCostsTimeoutMs));
+          res.set('X-Timeout-Applied', 'true');
+          res.set('X-Route-Timeout', String(llmCostsTimeoutMs));
+          res.set('X-Query-Duration', String(Date.now() - start));
+          res.set('X-Query-Path', '/api/llm-costs');
         } catch (_) {}
         if (!res.headersSent) {
           return res.status(504).json({ success: false, message: 'Gateway Timeout: LLM costs query exceeded time limit' });
         }
       }, llmCostsTimeoutMs);
-      res.on('finish', () => clearTimeout(timer));
+      res.on('finish', () => {
+        try {
+          res.set('X-Query-Duration', String(Date.now() - start));
+        } catch (_) {}
+        clearTimeout(timer);
+      });
       res.on('close', () => clearTimeout(timer));
       if (!timedOut) next();
     });

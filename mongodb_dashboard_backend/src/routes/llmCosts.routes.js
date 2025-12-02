@@ -197,6 +197,7 @@ router.use((req, res, next) => {
  *         description: Forbidden on tenant mismatch with Authorization
  */
 router.get('/', (req, res, next) => {
+  try { res.set('X-Route', '/api/llm-costs'); } catch (_) {}
   // Guardrails: if no explicit pagination, set a soft default to avoid huge payloads
   const hasPage = Object.prototype.hasOwnProperty.call(req.query || {}, 'page');
   const hasLimit = Object.prototype.hasOwnProperty.call(req.query || {}, 'limit');
@@ -204,7 +205,7 @@ router.get('/', (req, res, next) => {
     // Keep raw array response but limit server-side items to reduce timeout risk
     // We pass through via query modifications; crudFactory caps non-explicit to 200 already
     req.query = Object.assign({}, req.query);
-    // no-op: rely on crudFactory's non-explicit cap; we still allow clients to request pagination explicitly
+    // no-op
   }
   next();
 }, asyncHandler(controller.list));

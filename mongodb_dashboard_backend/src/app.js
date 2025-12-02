@@ -103,6 +103,13 @@ const safeUse = (path, router) => {
 
 const baseRouter = require('./routes');
 safeUse('/', baseRouter);
+try {
+  // Mark a header on all API requests to help detect multiple proxying/double route handling
+  app.use('/api', (req, res, next) => {
+    try { res.set('X-Router-Pass', String((Number(res.getHeader('X-Router-Pass')) || 0) + 1)); } catch (_) {}
+    next();
+  });
+} catch (_) {}
 
 // Proactively ensure critical indexes for LLMCosts to avoid collection scans on list/sort
 try {

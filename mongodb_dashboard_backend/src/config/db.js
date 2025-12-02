@@ -49,10 +49,11 @@ async function connectDB() {
 
   const options = {
     autoIndex,
-    maxPoolSize: 10,
+    maxPoolSize: 20,
+    retryWrites: true,
     // Increase timeouts to tolerate slow cluster selection and sockets under load
     serverSelectionTimeoutMS: isTest ? 250 : 60000,
-    socketTimeoutMS: isTest ? 500 : 60000,
+    socketTimeoutMS: isTest ? 500 : 120000,
     family: 4,
     dbName,
   };
