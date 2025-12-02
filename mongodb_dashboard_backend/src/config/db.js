@@ -3,19 +3,22 @@
  * Exposes a minimal DB connection status interface to allow fast-fail behavior.
  * This file wraps the existing db.connectionManager to provide isConnected().
  */
-import connectionManager from './db.connectionManager.js';
+const { mongoConnectionManager } = require('./db.connectionManager');
 
 const db = {
   // PUBLIC_INTERFACE
   isConnected() {
     try {
-      if (connectionManager && typeof connectionManager.isConnected === 'function') {
-        return !!connectionManager.isConnected();
+      // Prefer manager readiness when available
+      if (
+        mongoConnectionManager &&
+        typeof mongoConnectionManager.isDbReady === 'function'
+      ) {
+        return !!mongoConnectionManager.isDbReady();
       }
-      // Try common mongoose connection presence
-      if (connectionManager?.mongoose?.connection?.readyState != null) {
-        // 1 = connected, 2 = connecting; treat 1 as connected
-        return connectionManager.mongoose.connection.readyState === 1;
+      // Fallback to mongoose connection flag if exposed via manager
+      if (mongoConnectionManager?.mongoose?.connection?.readyState != null) {
+        return mongoConnectionManager.mongoose.connection.readyState === 1;
       }
       return false;
     } catch {
@@ -24,4 +27,4 @@ const db = {
   },
 };
 
-export default db;
+module.exports = db;
