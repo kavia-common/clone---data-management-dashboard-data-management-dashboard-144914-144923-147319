@@ -1,230 +1,112 @@
 'use strict';
 
-const mongoose = require('mongoose');
+const { getDb } = require('../config/db');
 const LlmCost = require('../models/llmCosts.model');
-const { ensureLlmCostsIndexes } = require('../models/llmCosts.indexes');
+const { getDiagnosticsStore } = require('../utils/llmCostsDiagnostics');
+const { handleError } = require('../utils/http');
 
-// In-memory last diagnostics snapshot for lightweight retrieval
-let lastDiagnostics = null;
-
-/**
- * PUBLIC_INTERFACE
- * listLlmCosts
- * List LLM cost records with tenant scoping, pagination, projection, and optional diagnostics.
- * - Always returns an envelope: { success, data, meta }
- * - Enforces tenant from JWT when Authorization is provided; otherwise from x-organization-id header (or aliases).
- * - filter whitelist: status, provider, llm_model, user_id, session_id, project_id, request_id
- * Diagnostics:
- * - If DEBUG_LLMCOSTS_EXPLAIN=1, capture explain() for find and count via driver and log to console.
- * - Adds response headers: x-effective-tenant, x-llm-filter, x-llm-projection, x-llm-sort, x-llm-page, x-llm-limit, x-llm-used-or-on-time
- * - Adds timing headers: x-llm-timing-parsed-ms, x-llm-timing-built-ms, x-llm-timing-exec-ms, x-llm-timing-explain-ms (when enabled).
- * - meta.debug contains summarized explain when enabled (compact stats).
- * - On error/timeout, partial headers are set and a diagnostics snapshot is persisted for later retrieval.
- */
-/**
- * PUBLIC_INTERFACE
- * listLlmCosts
- * List LLM cost records for a tenant with enforced date window and limit guards.
- * Returns an envelope: { success, data, meta } and sets diagnostic headers.
- * Query params:
- * - organization_id|tenant_id or x-organization-id header to set tenant when no JWT.
- * - page, limit (max 200), sort (default -timestamp)
- * - from, to (ISO dates) with MAX_DAYS_WINDOW enforcement (default 90d window when omitted)
- * - filter (JSON): whitelist keys [status, provider, llm_model, user_id, session_id, project_id, request_id]
- */
+// PUBLIC_INTERFACE
 async function listLlmCosts(req, res) {
-  const t0 = process.hrtime.bigint();
-  const timings = {};
-  const mark = (label) => {
-    timings[label] = Number(process.hrtime.bigint() - t0) / 1e6; // ms since start
+  /** List LLM cost records (tabular) with enforced guards, timing headers, and diagnostics capture. */
+  const startedAt = Date.now();
+  const diag = {
+    route: 'GET /api/llm-costs',
+    tenant: null,
+    filter: null,
+    projection: null,
+    sort: null,
+    page: null,
+    limit: null,
+    timings: {},
+    error: null,
   };
 
-  // Wrap entire handler to still set diagnostic headers on error
   try {
-    // Best-effort ensure critical indexes exist (non-blocking on failure)
-    try {
-      await ensureLlmCostsIndexes();
-    } catch (e) {
-      // Ignore failures; queries will still run and explains will capture any missing index issues
-    }
+    const db = await getDb();
 
-    // Resolve tenant
-    const headerTenant =
-      (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-      (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
-      '';
-    const queryTenant =
-      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-      (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
-      '';
-    const jwtTenant = req?.tenantId || req?.organizationId || (req?.auth?.tenantId ? String(req.auth.tenantId) : undefined);
+    // Tenant resolution: JWT precedence handled upstream; expect req.tenantId/organizationId or header/query
+    const jwtTenant = req?.auth?.tenantId ? String(req.auth.tenantId) : null;
+    const headerTenant = req.headers?.['x-organization-id'] ? String(req.headers['x-organization-id']) : null;
+    const queryTenant = (req.query?.tenant_id || req.query?.organization_id) ? String(req.query.tenant_id || req.query.organization_id) : null;
 
-    let effectiveTenant;
-    if (req.headers?.authorization) {
-      // Authorization present: enforce JWT tenant
-      if (headerTenant && jwtTenant && String(headerTenant) !== String(jwtTenant)) {
-        setPartialHeaders(res, { effectiveTenant: jwtTenant ?? headerTenant, timings });
+    // If Authorization present and conflicting tenant hints provided, reject
+    if (req.headers?.authorization && (headerTenant || queryTenant)) {
+      const hinted = headerTenant || queryTenant;
+      if (jwtTenant && String(hinted) !== String(jwtTenant)) {
+        diag.error = 'tenant_scope_mismatch';
+        getDiagnosticsStore().set(diag);
         return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
       }
-      if (queryTenant && jwtTenant && String(queryTenant) !== String(jwtTenant)) {
-        setPartialHeaders(res, { effectiveTenant: jwtTenant ?? queryTenant, timings });
-        return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
-      }
-      effectiveTenant = jwtTenant;
-    } else {
-      effectiveTenant = headerTenant || queryTenant;
     }
 
-    if (!effectiveTenant) {
-      setPartialHeaders(res, { effectiveTenant: '', timings });
-      return res.status(400).json({ success: false, message: 'Missing tenant: provide Authorization with tenant or x-organization-id header' });
+    const tenant = jwtTenant || headerTenant || queryTenant || req?.tenantId || req?.organizationId || null;
+    diag.tenant = tenant;
+
+    if (!tenant) {
+      diag.error = 'missing_tenant';
+      getDiagnosticsStore().set(diag);
+      return res.status(400).json({ success: false, error: 'missing_tenant' });
     }
 
-    // Pagination and sort (enforce limit <= 200; allow DEFAULT_PAGE_LIMIT from env)
-    const page = Math.max(parseInt(req.query.page || '1', 10) || 1, 1);
-    const maxLimit = 200;
-    const envDefault = Number(process.env.DEFAULT_PAGE_LIMIT || '50');
-    const defaultLimit = Number.isFinite(envDefault) && envDefault >= 1 ? Math.min(envDefault, maxLimit) : 50;
-    const requestedLimit = parseInt(req.query.limit || String(defaultLimit), 10);
-    if (!Number.isFinite(requestedLimit) || requestedLimit < 1) {
-      // Apply default when not provided or invalid
-      req.query.limit = String(defaultLimit);
-    }
-    if (Number.isFinite(requestedLimit) && requestedLimit > maxLimit) {
-      // Return 400 for violations with helpful headers
-      try {
-        res.set('x-llm-limit-max', String(maxLimit));
-      } catch {}
-      setPartialHeaders(res, { effectiveTenant, timings, page, limit: maxLimit, sort: '-timestamp', filter: {} });
-      return res.status(400).json({ success: false, message: `limit must be <= ${maxLimit}` });
-    }
-    const limit = Math.min(Math.max(requestedLimit || defaultLimit, 1), maxLimit);
-    // Default sort by canonical time field
-    const sortStr = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : '-timestamp';
+    // Pagination guards
+    const DEFAULT_PAGE_LIMIT = 20;
+    const MAX_PAGE_LIMIT = 200;
+    const MAX_DAYS_WINDOW = 90;
 
+    const page = Math.max(parseInt(req.query.page || '1', 10), 1);
+    let limit = parseInt(req.query.limit || DEFAULT_PAGE_LIMIT, 10);
+    if (isNaN(limit) || limit < 1) limit = DEFAULT_PAGE_LIMIT;
+    if (limit > MAX_PAGE_LIMIT) {
+      diag.error = 'limit_exceeds_max';
+      getDiagnosticsStore().set(diag);
+      return res.status(400).json({ success: false, error: 'limit_exceeds_max', max: MAX_PAGE_LIMIT });
+    }
+
+    // Sort guard: only allow index-friendly fields
     let sort = { timestamp: -1 };
-    if (sortStr) {
-      if (sortStr.startsWith('-')) {
-        sort = { [sortStr.slice(1)]: -1 };
-      } else {
-        sort = { [sortStr]: 1 };
+    if (req.query.sort) {
+      const allowed = new Set(['timestamp', 'cost_usd', 'tokens_in', 'tokens_out', 'duration_ms', 'status']);
+      const fields = req.query.sort.split(',').map(s => s.trim()).filter(Boolean);
+      const s = {};
+      for (const f of fields) {
+        const dir = f.startsWith('-') ? -1 : 1;
+        const name = f.startsWith('-') ? f.slice(1) : f;
+        if (allowed.has(name)) s[name] = dir;
+      }
+      sort = Object.keys(s).length ? s : { timestamp: -1 };
+    }
+
+    // Time window guards on canonical 'timestamp'
+    const now = new Date();
+    let from = req.query.from ? new Date(req.query.from) : null;
+    let to = req.query.to ? new Date(req.query.to) : null;
+
+    if (!from && !to) {
+      to = now;
+      from = new Date(now.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
+    } else if (from && !to) {
+      const maxTo = new Date(from.getTime() + MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
+      to = (maxTo < now ? maxTo : now);
+    } else if (!from && to) {
+      const minFrom = new Date(to.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
+      from = minFrom;
+    } else {
+      if ((to - from) > MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000) {
+        diag.error = 'date_window_exceeds_max';
+        getDiagnosticsStore().set(diag);
+        return res.status(400).json({ success: false, error: 'date_window_exceeds_max', maxDays: MAX_DAYS_WINDOW });
       }
     }
 
-    // Filter parsing with whitelist
-    const allowed = ['status', 'provider', 'llm_model', 'user_id', 'session_id', 'project_id', 'request_id'];
-    let rawFilter = {};
-    if (typeof req.query.filter === 'string' && req.query.filter.trim()) {
-      try {
-        rawFilter = JSON.parse(req.query.filter);
-      } catch (e) {
-        setPartialHeaders(res, { effectiveTenant, timings, page, limit, sort, filter: {}, usedOrOnTime: false });
-        return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
-      }
-    }
-    const filter = Object.fromEntries(Object.entries(rawFilter).filter(([k]) => allowed.includes(k)));
-
-    // Time range filter applied only on canonical timestamp with enforced max window
-    const maxDaysWindowEnv = Number(process.env.MAX_DAYS_WINDOW || '90');
-    const MAX_DAYS_WINDOW = Number.isFinite(maxDaysWindowEnv) && maxDaysWindowEnv > 0 ? maxDaysWindowEnv : 90;
-    let fromDate = undefined;
-    let toDate = undefined;
-
-    if (req.query.from) {
-      const d = new Date(req.query.from);
-      if (!isNaN(d.getTime())) fromDate = d;
-    }
-    if (req.query.to) {
-      const d = new Date(req.query.to);
-      if (!isNaN(d.getTime())) toDate = d;
-    }
-
-    // If both missing, set default range to last MAX_DAYS_WINDOW days
-    if (!fromDate && !toDate) {
-      toDate = new Date();
-      fromDate = new Date(toDate.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
-      // Advertise default window applied
-      try {
-        res.set('x-llm-window-defaulted', '1');
-        res.set('x-llm-window-max-days', String(MAX_DAYS_WINDOW));
-        res.set('x-llm-window-from', fromDate.toISOString());
-        res.set('x-llm-window-to', toDate.toISOString());
-      } catch {}
-    }
-
-    // If only one bound provided, keep it but enforce max window by clamping the other when feasible.
-    if (fromDate && !toDate) {
-      // clamp toDate = from + MAX_DAYS_WINDOW
-      toDate = new Date(fromDate.getTime() + MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
-      try {
-        res.set('x-llm-window-clamped', 'to');
-        res.set('x-llm-window-max-days', String(MAX_DAYS_WINDOW));
-        res.set('x-llm-window-from', fromDate.toISOString());
-        res.set('x-llm-window-to', toDate.toISOString());
-      } catch {}
-    }
-    if (!fromDate && toDate) {
-      // clamp fromDate = to - MAX_DAYS_WINDOW
-      fromDate = new Date(toDate.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
-      try {
-        res.set('x-llm-window-clamped', 'from');
-        res.set('x-llm-window-max-days', String(MAX_DAYS_WINDOW));
-        res.set('x-llm-window-from', fromDate.toISOString());
-        res.set('x-llm-window-to', toDate.toISOString());
-      } catch {}
-    }
-
-    // Validate window length
-    let windowOk = true;
-    if (fromDate && toDate) {
-      const diffDays = Math.ceil((toDate.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000));
-      if (diffDays > MAX_DAYS_WINDOW) {
-        windowOk = false;
-      }
-    }
-    if (!windowOk) {
-      // respond 400 with helpful headers
-      try {
-        res.set('x-llm-window-max-days', String(MAX_DAYS_WINDOW));
-        if (fromDate) res.set('x-llm-window-from', fromDate.toISOString());
-        if (toDate) res.set('x-llm-window-to', toDate.toISOString());
-      } catch {}
-      setPartialHeaders(res, { effectiveTenant, timings, page, limit, sort: sortStr, filter: {} });
-      return res.status(400).json({ success: false, message: `Date window exceeds maximum of ${MAX_DAYS_WINDOW} days` });
-    }
-
-    const range = {};
-    if (fromDate) range.$gte = fromDate;
-    if (toDate) range.$lte = toDate;
-
-    const timeFilter = Object.keys(range).length ? { timestamp: range } : {};
-    const usedOrOnTime = Object.keys(range).length > 0;
-
-    // Tenant filter
-    const tenantFilter = {
-      $or: [
-        { tenant_id: String(effectiveTenant) },
-        { organization_id: String(effectiveTenant) },
-        { tenantId: String(effectiveTenant) },
-        { organizationId: String(effectiveTenant) },
-        { orgId: String(effectiveTenant) },
-        { 'tenant.tenant_id': String(effectiveTenant) },
-      ],
+    const filter = {
+      organization_id: tenant,
+      ...(from || to ? { timestamp: Object.assign({}, from ? { $gte: from } : {}, to ? { $lte: to } : {}) } : {}),
     };
 
-    const finalFilter =
-      Object.keys(filter).length || Object.keys(timeFilter).length
-        ? { $and: [tenantFilter, ...(Object.keys(filter).length ? [filter] : []), ...(Object.keys(timeFilter).length ? [timeFilter] : [])] }
-        : tenantFilter;
-
-    // Projection for tabular view
     const projection = {
-      _id: 1, // explicitly include _id for tabular UI safety
+      _id: 1,
       request_id: 1,
-      // Canonical time field for filtering/sorting; keep created_at only for display fallback mapping in UI
       timestamp: 1,
-      created_at: 1,
       model: 1,
       provider: 1,
       user_id: 1,
@@ -234,299 +116,64 @@ async function listLlmCosts(req, res) {
       cost_usd: 1,
       duration_ms: 1,
       status: 1,
-      llm_model: 1,
-      project_id: 1,
-      session_id: 1,
     };
 
-    // Initial diagnostics snapshot before heavy operations
-    const baseDiag = {
-      ts: new Date().toISOString(),
-      effectiveTenant: String(effectiveTenant),
-      page,
-      limit,
-      sort,
-      filter: finalFilter,
-      projection,
-      notes: [],
-    };
-    lastDiagnostics = { ...baseDiag, timings: { ...timings } };
-    console.log('[LLM-COSTS][DIAG][BEGIN]', safeJson(baseDiag));
+    diag.filter = filter;
+    diag.projection = projection;
+    diag.sort = sort;
+    diag.page = page;
+    diag.limit = limit;
 
-    mark('parsed');
+    const parseEnd = Date.now();
 
-    // Build queries
-    const cursor = LlmCost.find(finalFilter, projection).sort(sort).skip((page - 1) * limit).limit(limit).lean();
-    const countQuery = LlmCost.countDocuments(finalFilter);
+    const collection = (await db).collection(LlmCost.collectionName || 'llm_costs');
+    const skip = (page - 1) * limit;
 
-    // Diagnostics: explain plans with short timeout to avoid contributing to 504
-    const wantExplain = process.env.DEBUG_LLMCOSTS_EXPLAIN === '1';
-    let explainFind = null;
-    let explainCount = null;
-    let exampleExplains = null;
+    const cursor = collection.find(filter, { projection }).sort(sort).skip(skip).limit(limit);
+    const builtEnd = Date.now();
 
-    mark('built');
+    const [items, total] = await Promise.all([cursor.toArray(), collection.countDocuments(filter)]);
+    const execEnd = Date.now();
 
-    if (wantExplain && LlmCost.collection) {
-      try {
-        const explainAbortMs = Number(process.env.DEBUG_LLMCOSTS_EXPLAIN_TIMEOUT_MS || '600'); // keep small
-        const tExplainStart = process.hrtime.bigint();
-
-        const doExplain = async () => {
-          const pipelineForCount = [{ $match: finalFilter }, { $count: 'count' }];
-          const [ef, ec] = await Promise.all([
-            LlmCost.collection
-              .find(finalFilter, { projection })
-              .sort(sort)
-              .skip((page - 1) * limit)
-              .limit(limit)
-              .explain('executionStats'),
-            LlmCost.collection.aggregate(pipelineForCount).explain('executionStats'),
-          ]);
-          return { ef, ec };
-        };
-
-        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('explain-timeout')), explainAbortMs));
-        const { ef, ec } = await Promise.race([doExplain(), timeout]).catch((e) => {
-          baseDiag.notes.push(`explain_aborted:${e.message}`);
-          return { ef: null, ec: null };
-        });
-        explainFind = ef;
-        explainCount = ec;
-
-        // Example explains (tenant T0015) with minimal scope
-        const exampleTenant = 'T0015';
-        const exampleLimit = 10;
-        const examplePage = 1;
-        const exampleSort = { timestamp: -1 };
-        const exampleProjection = projection;
-
-        const exampleTenantFilter = {
-          $or: [
-            { tenant_id: exampleTenant },
-            { organization_id: exampleTenant },
-            { tenantId: exampleTenant },
-            { organizationId: exampleTenant },
-            { orgId: exampleTenant },
-            { 'tenant.tenant_id': exampleTenant },
-          ],
-        };
-        const exampleNoDateFilter = exampleTenantFilter;
-        const exampleWithDateFilter = {
-          $and: [
-            exampleTenantFilter,
-            {
-              timestamp: { $gte: new Date(Date.now() - 7 * 86400000) },
-            },
-          ],
-        };
-
-        const doExample = async () => {
-          const [exFindNoDate, exCountNoDate, exFindWithDate, exCountWithDate] = await Promise.all([
-            LlmCost.collection
-              .find(exampleNoDateFilter, { projection: exampleProjection })
-              .sort(exampleSort)
-              .skip((examplePage - 1) * exampleLimit)
-              .limit(exampleLimit)
-              .explain('executionStats'),
-            LlmCost.collection.aggregate([{ $match: exampleNoDateFilter }, { $count: 'count' }]).explain('executionStats'),
-            LlmCost.collection
-              .find(exampleWithDateFilter, { projection: exampleProjection })
-              .sort(exampleSort)
-              .skip((examplePage - 1) * exampleLimit)
-              .limit(exampleLimit)
-              .explain('executionStats'),
-            LlmCost.collection.aggregate([{ $match: exampleWithDateFilter }, { $count: 'count' }]).explain('executionStats'),
-          ]);
-          return {
-            noDate: { find: summarizeExplain(exFindNoDate), count: summarizeExplain(exCountNoDate) },
-            withDate: { find: summarizeExplain(exFindWithDate), count: summarizeExplain(exCountWithDate) },
-          };
-        };
-
-        const timeout2 = new Promise((_, rej) => setTimeout(() => rej(new Error('example-explain-timeout')), explainAbortMs));
-        exampleExplains = await Promise.race([doExample(), timeout2]).catch((e) => {
-          baseDiag.notes.push(`example_explain_aborted:${e.message}`);
-          return null;
-        });
-
-        const tExplainEnd = process.hrtime.bigint();
-        timings.explain_ms = Number(tExplainEnd - tExplainStart) / 1e6;
-
-        // Log truncated explain
-        if (explainFind) console.log('[LLM-COSTS][EXPLAIN][FIND]', safeJson(summarizeExplain(explainFind)));
-        if (explainCount) console.log('[LLM-COSTS][EXPLAIN][COUNT]', safeJson(summarizeExplain(explainCount)));
-        if (exampleExplains) console.log('[LLM-COSTS][EXPLAIN][EXAMPLE]', safeJson(exampleExplains));
-      } catch (e) {
-        console.warn('[LLM-COSTS][EXPLAIN] capture error:', e?.message || e);
-      }
-    }
-
-    // Execute queries
-    const tExecStart = process.hrtime.bigint();
-    const [items, total] = await Promise.all([cursor.exec(), countQuery.exec()]);
-    const tExecEnd = process.hrtime.bigint();
-    timings.exec_ms = Number(tExecEnd - tExecStart) / 1e6;
-    mark('executed');
-
-    // Set response headers
+    // headers
     try {
-      res.set('x-effective-tenant', String(effectiveTenant));
-      res.set('x-llm-filter', JSON.stringify(finalFilter));
+      res.set('x-effective-tenant', String(tenant));
+      res.set('x-llm-filter', JSON.stringify(filter));
       res.set('x-llm-projection', JSON.stringify(projection));
       res.set('x-llm-sort', JSON.stringify(sort));
       res.set('x-llm-page', String(page));
       res.set('x-llm-limit', String(limit));
-      // No $or usage on time fields; header removed
-      res.set('x-llm-timing-parsed-ms', String(Math.round(timings.parsed ?? 0)));
-      res.set('x-llm-timing-built-ms', String(Math.round(timings.built ?? 0)));
-      res.set('x-llm-timing-exec-ms', String(Math.round(timings.exec_ms ?? 0)));
-      if (timings.explain_ms != null) res.set('x-llm-timing-explain-ms', String(Math.round(timings.explain_ms)));
-      // Advertise final window used (if any)
-      try {
-        if (fromDate) res.set('x-llm-window-from', fromDate.toISOString());
-        if (toDate) res.set('x-llm-window-to', toDate.toISOString());
-        res.set('x-llm-window-max-days', String(MAX_DAYS_WINDOW));
-      } catch {}
-      if (process.env.DEBUG_LLMCOSTS_EXPLAIN === '1') {
-        if (explainFind) res.set('x-llm-explain-find', 'captured');
-        if (explainCount) res.set('x-llm-explain-count', 'captured');
-        // include summarized winning plan index names for quick verification
-        const findSummary = summarizeExplain(explainFind);
-        const countSummary = summarizeExplain(explainCount);
-        if (findSummary?.usedIndexes?.length) {
-          res.set('x-llm-explain-find-summary', JSON.stringify({ usedIndexes: findSummary.usedIndexes.slice(0, 5) }));
-        }
-        if (countSummary?.usedIndexes?.length) {
-          res.set('x-llm-explain-count-summary', JSON.stringify({ usedIndexes: countSummary.usedIndexes.slice(0, 5) }));
-        }
-      }
-    } catch {
-      // ignore header set failures
-    }
+      res.set('x-llm-timing-parsed-ms', String(parseEnd - startedAt));
+      res.set('x-llm-timing-built-ms', String(builtEnd - parseEnd));
+      res.set('x-llm-timing-exec-ms', String(execEnd - builtEnd));
+    } catch (_) { /* ignore header errors */ }
 
-    // Update lastDiagnostics and respond
-    lastDiagnostics = {
-      ...baseDiag,
-      timings: { ...timings },
-      explain: process.env.DEBUG_LLMCOSTS_EXPLAIN === '1'
-        ? { find: summarizeExplain(explainFind), count: summarizeExplain(explainCount), examples: exampleExplains || undefined }
-        : undefined,
+    // record diagnostics
+    diag.timings = {
+      parsed_ms: parseEnd - startedAt,
+      built_ms: builtEnd - parseEnd,
+      exec_ms: execEnd - builtEnd,
+      total_ms: Date.now() - startedAt,
     };
+    getDiagnosticsStore().set(diag);
 
-    const response = {
+    return res.status(200).json({
       success: true,
       data: items,
-      meta: { page, limit, total, sort: sortStr || '-timestamp' },
-    };
-
-    if (process.env.DEBUG_LLMCOSTS_EXPLAIN === '1') {
-      response.meta.debug = {
-        filter: finalFilter,
-        sort,
-        projection,
-
-        timings,
-        explain: lastDiagnostics.explain,
-      };
-    }
-
-    console.log('[LLM-COSTS][DIAG][END]', safeJson({ ...lastDiagnostics, dataCount: Array.isArray(items) ? items.length : 0 }));
-    return res.status(200).json(response);
+      meta: {
+        page,
+        limit,
+        total,
+        sort: req.query.sort || '-timestamp',
+      },
+    });
   } catch (err) {
-    // On errors, set partial headers and persist diagnostics
-    try {
-      if (lastDiagnostics) {
-        lastDiagnostics.timings = { ...lastDiagnostics.timings, error_ms: Number(process.hrtime.bigint() - t0) / 1e6 };
-        lastDiagnostics.error = err?.message || String(err);
-      }
-      setPartialHeaders(res, {
-        effectiveTenant: lastDiagnostics?.effectiveTenant || '',
-        timings,
-        page: lastDiagnostics?.page,
-        limit: lastDiagnostics?.limit,
-        sort: lastDiagnostics?.sort,
-        filter: lastDiagnostics?.filter,
-
-      });
-    } catch {}
-    console.error('[LLM-COSTS][LIST] error:', err?.message || err);
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    diag.error = err?.message || 'unknown_error';
+    getDiagnosticsStore().set(diag);
+    return handleError(res, err);
   }
 }
 
-/**
- * PUBLIC_INTERFACE
- * summarizeExplain
- * Returns a compact summary from a MongoDB explain output to highlight index usage and scanned docs.
- */
-function summarizeExplain(explain) {
-  try {
-    if (!explain) return null;
-    const stats =
-      explain.executionStats ||
-      explain?.stages?.find((s) => s.$cursor)?.$cursor?.executionStats ||
-      explain?.stages?.find((s) => s.$cursor)?.$cursor?.allPlansExecution;
-    const queryPlanner =
-      explain.queryPlanner || explain?.stages?.find((s) => s.$cursor)?.$cursor?.queryPlanner || explain?.queryPlannerExtended;
-
-    const summary = {
-      nReturned: stats?.nReturned,
-      totalDocsExamined: stats?.totalDocsExamined,
-      totalKeysExamined: stats?.totalKeysExamined,
-      executionTimeMillis: stats?.executionTimeMillis,
-      stage: stats?.executionStages?.stage,
-      inputStage: stats?.executionStages?.inputStage?.stage,
-      usedIndexes: [],
-      winningPlan: queryPlanner?.winningPlan?.stage || queryPlanner?.winningPlan?.inputStage?.stage,
-    };
-
-    const extractIndexes = (node, acc) => {
-      if (!node || typeof node !== 'object') return;
-      if (node.indexName) acc.add(node.indexName);
-      if (node.inputStage) extractIndexes(node.inputStage, acc);
-      if (Array.isArray(node.inputStages)) node.inputStages.forEach((s) => extractIndexes(s, acc));
-      if (Array.isArray(node.shards)) node.shards.forEach((sh) => extractIndexes(sh?.winningPlan, acc));
-      if (node.winningPlan) extractIndexes(node.winningPlan, acc);
-    };
-    const idx = new Set();
-    extractIndexes(queryPlanner?.winningPlan, idx);
-    return { ...summary, usedIndexes: Array.from(idx) };
-  } catch {
-    return null;
-  }
-}
-
-// Helper to set partial headers even when failing early
-function setPartialHeaders(res, { effectiveTenant, timings, page, limit, sort, filter }) {
-  try {
-    if (effectiveTenant != null) res.set('x-effective-tenant', String(effectiveTenant));
-    if (filter != null) res.set('x-llm-filter', safeJson(filter));
-    if (sort != null) res.set('x-llm-sort', safeJson(sort));
-    if (page != null) res.set('x-llm-page', String(page));
-    if (limit != null) res.set('x-llm-limit', String(limit));
-    if (timings) {
-      res.set('x-llm-timing-parsed-ms', String(Math.round(timings.parsed ?? 0)));
-      res.set('x-llm-timing-built-ms', String(Math.round(timings.built ?? 0)));
-      if (timings.exec_ms != null) res.set('x-llm-timing-exec-ms', String(Math.round(timings.exec_ms)));
-      if (timings.explain_ms != null) res.set('x-llm-timing-explain-ms', String(Math.round(timings.explain_ms)));
-    }
-  } catch {}
-}
-
-// safe JSON short
-function safeJson(obj) {
-  try {
-    return JSON.stringify(obj);
-  } catch {
-    return '{}';
-  }
-}
-
-// PUBLIC_INTERFACE
-function getLastLlmCostsDiagnostics() {
-  /** Returns the last captured diagnostics snapshot for llm-costs listing. */
-  return lastDiagnostics || null;
-}
-
-module.exports = { listLlmCosts, getLastLlmCostsDiagnostics };
+module.exports = {
+  listLlmCosts,
+};
