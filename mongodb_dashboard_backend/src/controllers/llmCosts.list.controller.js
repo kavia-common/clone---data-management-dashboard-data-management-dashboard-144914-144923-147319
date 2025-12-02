@@ -147,21 +147,34 @@ async function listLlmCosts(req, res) {
     // Execute count and data in parallel with Promise.allSettled to avoid hangs
     // Use a smaller timeout for count on small pages to avoid tying up the server
     const countTimeout = (page <= 2 && limit <= 50) ? Math.min(4000, MAX_SERVER_TIMEOUT_MS) : MAX_SERVER_TIMEOUT_MS;
+    // Wrap with request-level timeout using Promise.race to avoid hanging at proxy
+    const REQUEST_TIMEOUT_MS = 5000;
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('request-timeout')), REQUEST_TIMEOUT_MS)
+    );
+
     const [dataRes, countRes] = await Promise.allSettled([
-      baseQuery.exec(),
-      LLMCost.countDocuments(filter).maxTimeMS(countTimeout).exec(),
+      Promise.race([baseQuery.exec(), timeoutPromise]),
+      Promise.race([LLMCost.countDocuments(filter).maxTimeMS(countTimeout).exec(), timeoutPromise]),
     ]);
 
     if (dataRes.status !== 'fulfilled') {
       const msg = dataRes.reason?.message || 'Query failed';
       const durationMs = Date.now() - startedAt;
+      const organization_id =
+        req.tenantId ||
+        req?.auth?.tenantId ||
+        req.headers['x-organization-id'] ||
+        req.query?.organization_id ||
+        req.query?.tenant_id ||
+        null;
       try {
-        console.error('[llmCosts.list] data query failed', { ...logBase, durationMs, error: msg });
+        console.error('[llmCosts.list] data query failed', { ...logBase, durationMs, error: msg, organization_id: organization_id ? String(organization_id) : null });
       } catch {}
       // Timeout or server selection issues should return 504/503 respectively
-      if (/maxTimeMS|operation exceeded time limit/i.test(msg)) {
+      if (msg === 'request-timeout' || /maxTimeMS|operation exceeded time limit/i.test(msg)) {
         try { res.set('X-Error', 'timeout'); } catch {}
-        return res.status(504).json({ success: false, message: 'Query timeout' });
+        return res.status(504).json({ success: false, message: 'Request timed out. Try reducing page size or refine filters.' });
       }
       if (/server selection timed out/i.test(msg)) {
         return res.status(503).json({ success: false, message: 'Database unavailable' });
@@ -178,7 +191,8 @@ async function listLlmCosts(req, res) {
       res.set('X-Count-Partial', 'true');
       try {
         const durationMs = Date.now() - startedAt;
-        console.warn('[llmCosts.list] count partial', { ...logBase, durationMs });
+        const msg = countRes.reason?.message || 'count failed';
+        console.warn('[llmCosts.list] count partial', { ...logBase, durationMs, error: msg });
       } catch {}
     }
 
