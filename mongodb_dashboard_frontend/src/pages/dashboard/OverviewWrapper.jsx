@@ -3,16 +3,14 @@ import Card from '../../components/common/Card.jsx';
 import LoadingState from '../../components/common/LoadingState';
 import ErrorState from '../../components/common/ErrorState';
 import OverviewChartFilters from '../../components/overview/OverviewChartFilters';
-import { getOverviewTotals, getNewUsersOverTime } from '../../api/overviewAnalytics';
-import { getLlmCostsOverTime } from '../../api/llmCostsAnalytics'; // stable helper (client-side aggregation over /api/llm-costs)
-import { getActiveUsersTrend as getActiveUsersTrendStable } from '../../api/usersActiveTrend';
+import { getOverviewTotals } from '../../api/overviewAnalytics';
+import { getLlmCostsOverTime } from '../../api/llmCostsAnalytics';
 import { useAuth } from '../../context/AuthContext';
 
 /**
  * PUBLIC_INTERFACE
  * OverviewWrapper
- * Minimal overview page rendering totals and three charts with independent filters.
- * Adds day/week/month/custom granularity + custom date range per chart.
+ * Simplified overview wrapper showing totals and LLM costs only.
  */
 export default function OverviewWrapper() {
   const { organizationId } = useAuth();
@@ -20,15 +18,9 @@ export default function OverviewWrapper() {
   const [error, setError] = useState(null);
   const [totals, setTotals] = useState(null);
 
-  // Independent filters (per chart). Each preserves own state and uses organization scope.
   const baseTenant = organizationId ? { organization_id: organizationId } : {};
   const [costFilters, setCostFilters] = useState({ ...baseTenant, granularity: 'day' });
-  const [activeUsersFilters, setActiveUsersFilters] = useState({ ...baseTenant, granularity: 'day' });
-  const [newUsersFilters, setNewUsersFilters] = useState({ ...baseTenant, granularity: 'day' });
-
   const [costSeries, setCostSeries] = useState({ labels: [], datasets: [] });
-  const [activeUsersSeries, setActiveUsersSeries] = useState({ items: [], meta: {} });
-  const [newUsersSeries, setNewUsersSeries] = useState({ items: [], meta: {} });
 
   const tenantsList = useMemo(() => {
     if (!organizationId) return [];
@@ -59,8 +51,6 @@ export default function OverviewWrapper() {
   useEffect(() => {
     if (!organizationId) return;
     setCostFilters((f) => ({ ...f, organization_id: organizationId }));
-    setActiveUsersFilters((f) => ({ ...f, organization_id: organizationId }));
-    setNewUsersFilters((f) => ({ ...f, organization_id: organizationId }));
   }, [organizationId]);
 
   // Costs
@@ -103,48 +93,6 @@ export default function OverviewWrapper() {
     return () => { active = false; };
   }, [costFilters]);
 
-  // Active Users
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        // Map 'month' to 'week' for endpoints that don't support month
-        const gran = activeUsersFilters.granularity === 'month' ? 'week' : activeUsersFilters.granularity;
-        const res = await getActiveUsersTrendStable({ ...activeUsersFilters, granularity: gran });
-        if (!active) return;
-        setActiveUsersSeries({
-          items: Array.isArray(res?.items) ? res.items : [],
-          meta: res?.meta || {},
-        });
-      } catch (e) {
-        if (!active) return;
-        setActiveUsersSeries({ items: [], meta: {} });
-      }
-    })();
-    return () => { active = false; };
-  }, [activeUsersFilters]);
-
-  // New Users
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        // Endpoint expects start/end; helper handles mapping
-        const gran = newUsersFilters.granularity === 'month' ? 'month' : (newUsersFilters.granularity || 'day');
-        const res = await getNewUsersOverTime({ ...newUsersFilters, granularity: gran, start: newUsersFilters.from, end: newUsersFilters.to });
-        if (!active) return;
-        setNewUsersSeries({
-          items: Array.isArray(res?.items) ? res.items : [],
-          meta: res?.meta || {},
-        });
-      } catch (e) {
-        if (!active) return;
-        setNewUsersSeries({ items: [], meta: {} });
-      }
-    })();
-    return () => { active = false; };
-  }, [newUsersFilters]);
-
   if (loading) return <LoadingState message="Loading overview..." />;
   if (error) return <ErrorState error={error} />;
 
@@ -167,37 +115,6 @@ export default function OverviewWrapper() {
           }
         >
           <pre>{JSON.stringify(costSeries, null, 2)}</pre>
-        </Card>
-
-        <Card
-          title="Active Users Trend"
-          actions={
-            <OverviewChartFilters
-              value={activeUsersFilters}
-              onChange={setActiveUsersFilters}
-              tenants={tenantsList}
-              showGranularity={true}
-            />
-          }
-        >
-          <pre>{JSON.stringify(activeUsersSeries, null, 2)}</pre>
-        </Card>
-
-        <Card
-          title="New Users Over Time"
-          actions={
-            <OverviewChartFilters
-              value={newUsersFilters}
-              onChange={(next) => {
-                // For this endpoint, we support month/week/day; custom handled via from/to
-                setNewUsersFilters(next);
-              }}
-              tenants={tenantsList}
-              showGranularity={true}
-            />
-          }
-        >
-          <pre>{JSON.stringify(newUsersSeries, null, 2)}</pre>
         </Card>
       </div>
     </div>

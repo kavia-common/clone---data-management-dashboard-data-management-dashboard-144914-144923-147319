@@ -3,8 +3,8 @@
 // Keep this URL exactly as provided.
 //
 const apiBase = 
- `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
-// 'https://vscode-internal-31751-beta.beta01.cloud.kavia.ai:3001/api';
+//  `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
+'https://vscode-internal-23614-beta.beta01.cloud.kavia.ai:3001/api';
 
 /**
  * PUBLIC_INTERFACE
