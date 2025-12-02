@@ -208,73 +208,99 @@ router.use((req, res, next) => {
 router.get(
   '/',
   asyncHandler(async (req, res, next) => {
+    // Route-level timeout; prevents upstream 504s due to long processing
     const DEFAULT_TIMEOUT_MS = parseInt(process.env.LLM_COSTS_ROUTE_TIMEOUT_MS || '12000', 10);
+    const DEFAULT_PAGE_LIMIT = Math.min(
+      Math.max(parseInt(process.env.DEFAULT_PAGE_LIMIT || '20', 10), 1),
+      200
+    );
 
-    // Setup per-request timeout to avoid hanging end-to-end -> translate to 408
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       if (!res.headersSent) {
-        try {
-          res.set('X-Server-Timeout', String(DEFAULT_TIMEOUT_MS));
-        } catch (_) {}
+        try { res.set('X-Server-Timeout', String(DEFAULT_TIMEOUT_MS)); } catch (_) {}
         return res.status(408).json({
           success: false,
-          message: 'Request timed out while processing LLM costs. Try reducing the time window or applying pagination.',
+          message:
+            'Request timed out while processing LLM costs. Try reducing the time window or applying pagination.',
         });
       }
     }, DEFAULT_TIMEOUT_MS);
 
     try {
-      // If client did not explicitly paginate, ensure a sane default date window to prevent full collection scans.
-      // We only apply this for GET list root ('/'), when filter is empty or does not include date/timestamp keys.
-      const hasExplicitPagination =
-        typeof req.query.page !== 'undefined' || typeof req.query.limit !== 'undefined';
+      // Enforce sane pagination defaults if page/limit provided partially or limit missing
+      const hasPage = typeof req.query.page !== 'undefined';
+      const hasLimit = typeof req.query.limit !== 'undefined';
+      if (hasPage && !hasLimit) {
+        req.query.limit = String(DEFAULT_PAGE_LIMIT);
+        try { res.set('X-Default-Limit', String(DEFAULT_PAGE_LIMIT)); } catch (_) {}
+      }
 
-      // Parse filter if present
+      const hasExplicitPagination = hasPage || hasLimit;
+
+      // Parse filter if present; reject invalid JSON quickly with 400 to avoid expensive operations
       let clientFilter = {};
       if (typeof req.query.filter === 'string' && req.query.filter.trim() !== '') {
         try {
           clientFilter = JSON.parse(req.query.filter);
         } catch {
-          // keep empty; crudFactory will 400 on invalid JSON normally,
-          // but ensure we don't fail here and let controller handle consistently.
+          clearTimeout(timer);
+          return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
         }
       }
 
+      // Guard: remove any tenant hints; tenant injected by middleware/controller
+      if (clientFilter && typeof clientFilter === 'object') {
+        delete clientFilter.tenant_id;
+        delete clientFilter.tenantId;
+        delete clientFilter.organization_id;
+        delete clientFilter.organizationId;
+        delete clientFilter['tenant.tenant_id'];
+      }
+
+      // If no explicit pagination and no date filters, add a default 30-day window to avoid full collection scans
       const filterKeys = clientFilter && typeof clientFilter === 'object' ? Object.keys(clientFilter) : [];
       const hasAnyDateClause = filterKeys.some((k) =>
         ['timestamp', 'created_at', 'createdAt', 'date', 'updated_at', 'updatedAt'].includes(k)
       );
 
       if (!hasExplicitPagination && !hasAnyDateClause) {
-        // Apply last 30 days default window
         const now = new Date();
         const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        // We can't project in basic find filter, so use the indexed field(s) directly:
-        // Prefer 'timestamp' if present, else 'created_at'
-        // crudFactory merges tenant filter after parsing filter JSON;
-        // we enrich filter JSON here so the list path can honor it.
         const defaultDateFilter = {
-          $or: [
-            { timestamp: { $gte: from, $lte: now } },
-            { created_at: { $gte: from, $lte: now } },
-          ],
+          $or: [{ timestamp: { $gte: from, $lte: now } }, { created_at: { $gte: from, $lte: now } }],
         };
-        const merged =
-          clientFilter && typeof clientFilter === 'object' && Object.keys(clientFilter).length > 0
+        clientFilter =
+          clientFilter && Object.keys(clientFilter).length > 0
             ? { $and: [clientFilter, defaultDateFilter] }
             : defaultDateFilter;
 
-        req.query.filter = JSON.stringify(merged);
-        try {
-          res.set('X-Default-Date-Window', 'last-30-days');
-        } catch (_) {}
+        try { res.set('X-Default-Date-Window', 'last-30-days'); } catch (_) {}
       }
 
-      if (timedOut) return; // timer fired and response sent as 408
+      // Apply safe sort default if not provided; enforce only allow-listed fields
+      const allowedSorts = new Set(['timestamp', 'created_at', '_id', 'total_cost']);
+      const requestedSort = typeof req.query.sort === 'string' ? req.query.sort.trim() : '';
+      if (!requestedSort) {
+        req.query.sort = '-timestamp';
+      } else {
+        const sortField = requestedSort.replace(/^-/, '');
+        if (!allowedSorts.has(sortField)) {
+          req.query.sort = '-timestamp';
+          try { res.set('X-Forced-Sort', 'timestamp'); } catch (_) {}
+        }
+      }
 
-      // Delegate to generic controller with safe sort enforcement and micro-cache
+      // Write back merged filter for the generic controller
+      if (clientFilter && Object.keys(clientFilter).length > 0) {
+        req.query.filter = JSON.stringify(clientFilter);
+      } else {
+        delete req.query.filter;
+      }
+
+      if (timedOut) return;
+
       return controller.list(req, res);
     } catch (err) {
       if (!res.headersSent) {

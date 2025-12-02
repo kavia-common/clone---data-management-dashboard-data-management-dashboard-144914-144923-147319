@@ -44,6 +44,10 @@ Important
 Environment Variables
 Create a `.env` file in this directory with values appropriate for your environment (do not commit secrets).
 
+LLM Costs performance tuning:
+- LLM_COSTS_ROUTE_TIMEOUT_MS=12000   # route-level timeout for GET /api/llm-costs
+- DEFAULT_PAGE_LIMIT=20              # default limit when page is provided without limit
+
 Common variables:
 - HOST=0.0.0.0
 - PORT=3001
