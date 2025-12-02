@@ -7,7 +7,7 @@ import Modal from '../ui/Modal.jsx';
  // Views
  // Prefer batched retrieval hook to avoid N-per-user network calls. For single user view we still reuse
  // the batch hook to leverage shared cache/coalescing with list pages.
- import useUsersProjectsBatch from '../../hooks/useUsersProjectsBatch';
+import useUsersProjectsBatch from '../../hooks/useUsersProjectsBatch';
 
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
@@ -248,7 +248,7 @@ function UserProjectsView({ userId, tenantId, from, to }) {
 
   const ProjectCard = ({ project }) => {
     const id = project?.project_id || project?.projectId || project?._id || project?.id || '—';
-    const name = project?.name || project?.project_name || project?.projectName || '—';
+    // const name = project?.name || project?.project_name || project?.projectName || '—'; // not used in render
     const status = project?.status || project?.state || '';
     const desc = project?.description || project?.project_description || '';
     const created = project?.createdAt || project?.created_at || '';
