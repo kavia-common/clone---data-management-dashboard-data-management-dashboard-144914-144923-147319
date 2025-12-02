@@ -50,8 +50,8 @@ async function connectDB() {
   const options = {
     autoIndex,
     maxPoolSize: 10,
-    serverSelectionTimeoutMS: isTest ? 250 : 5000,
-    socketTimeoutMS: isTest ? 500 : 45000,
+    serverSelectionTimeoutMS: isTest ? 500 : 8000,
+    socketTimeoutMS: isTest ? 1500 : 45000,
     family: 4,
     dbName,
   };

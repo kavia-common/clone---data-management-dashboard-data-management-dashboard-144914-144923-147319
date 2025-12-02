@@ -116,11 +116,43 @@ const safeUse = (path, router) => {
 const baseRouter = require('./routes');
 safeUse('/', baseRouter);
 
-// Kick off index creation for llm-costs collection in background (non-blocking)
+/**
+ * Kick off index creation for llm-costs collection in background (non-blocking).
+ * Only run after mongoose connection is established to avoid
+ * "Cannot call collection.createIndex() before initial connection is complete"
+ * errors that occur when bufferCommands=false in tests.
+ */
 try {
   const LLMCost = require('./models/llmCosts.model');
   if (LLMCost && typeof LLMCost.ensureKeyIndexes === 'function') {
-    LLMCost.ensureKeyIndexes().catch(() => {});
+    const waitUntilConnected = async () => {
+      const isReady = () => (mongoose.connection && mongoose.connection.readyState === 1);
+      if (isReady()) {
+        try {
+          await LLMCost.ensureKeyIndexes();
+        } catch {
+          // swallow background index errors
+        }
+        return;
+      }
+      // poll minimal times in background to avoid blocking startup
+      let attempts = 0;
+      const maxAttempts = 10;
+      const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+      while (!isReady() && attempts < maxAttempts) {
+        attempts += 1;
+        await delay(200);
+      }
+      try {
+        if (isReady()) {
+          await LLMCost.ensureKeyIndexes();
+        }
+      } catch {
+        // ignore
+      }
+    };
+    // fire and forget
+    waitUntilConnected();
   }
 } catch {}
 
