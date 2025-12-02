@@ -243,6 +243,7 @@ router.get('/health', (req, res) => {
 
 // Quick small-sample endpoint to verify responsiveness without heavy payloads
 router.get('/quick-sample', asyncHandler(async (req, res) => {
+  const startedAt = Date.now();
   const t =
     req.tenantId ||
     (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
@@ -252,8 +253,12 @@ router.get('/quick-sample', asyncHandler(async (req, res) => {
   const filter = t
     ? { $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }] }
     : {};
-  const items = await LLMCost.find(filter).sort({ timestamp: -1 }).limit(5).lean().maxTimeMS(4000).exec();
-  return res.status(200).json({ success: true, data: items, meta: { limit: 5, tenant: t || (req.allTenants ? 'all-tenants' : null) } });
+  const q = LLMCost.find(filter).sort({ created_at: -1 }).limit(5).lean();
+  if (typeof q.maxTimeMS === 'function') q.maxTimeMS(2000);
+  const items = await q.exec();
+  const durationMs = Date.now() - startedAt;
+  try { console.log('[llmCosts.quick-sample] durationMs', durationMs); } catch {}
+  return res.status(200).json({ success: true, data: items, meta: { limit: 5, tenant: t || (req.allTenants ? 'all-tenants' : null), durationMs } });
 }));
 
 const { listLlmCosts } = require('../controllers/llmCosts.list.controller');

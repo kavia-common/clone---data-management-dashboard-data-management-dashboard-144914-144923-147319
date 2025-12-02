@@ -96,6 +96,7 @@ async function ensureLLMCostsIndexes() {
     console.warn('[LLMCost.ensureIndexes] createIndex organization_id+timestamp failed:', e?.message || e);
   }
   try {
+    // Required: { organization_id: 1, created_at: -1 }
     await Model.collection.createIndex({ organization_id: 1, created_at: -1 }, { background: true });
   } catch (e) {
     console.warn('[LLMCost.ensureIndexes] createIndex organization_id+created_at failed:', e?.message || e);
@@ -104,6 +105,12 @@ async function ensureLLMCostsIndexes() {
     await Model.collection.createIndex({ tenant_id: 1, total_cost: -1 }, { background: true });
   } catch (e) {
     console.warn('[LLMCost.ensureIndexes] createIndex tenant_id+total_cost failed:', e?.message || e);
+  }
+  try {
+    // Required: { organization_id: 1, total_cost: -1 }
+    await Model.collection.createIndex({ organization_id: 1, total_cost: -1 }, { background: true });
+  } catch (e) {
+    console.warn('[LLMCost.ensureIndexes] createIndex organization_id+total_cost failed:', e?.message || e);
   }
 }
 
