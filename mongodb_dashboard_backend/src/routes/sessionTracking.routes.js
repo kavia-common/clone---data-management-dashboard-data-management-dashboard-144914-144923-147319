@@ -242,6 +242,10 @@ router.get(
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
 
+    // Keep connections alive for longer lists
+    res.set('Connection', 'keep-alive');
+    res.set('Keep-Alive', 'timeout=5');
+
     // --------------------------------------------------
     // FIXED: Single bypass variable, declared once
     // --------------------------------------------------
@@ -284,7 +288,9 @@ router.get(
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
 
-    const { page, limit, skip, explicit } = parsePagination(rawQuery);
+    const { page, limit: rawLimit, skip, explicit } = parsePagination(rawQuery);
+    // Enforce a hard cap on limit even if parsePagination changes
+    const limit = Math.min(rawLimit || 20, 200);
     const sort = req.query.sort || '-session_start';
 
     // --------------------------------------------------
@@ -325,7 +331,6 @@ router.get(
     if (typeof req.query.filter !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch {}
     }
-    const filter = {}; // no additional filter from client
 
     // Tenant enforced scope (unchanged)
     const enforcedScope = (!bypass && enforcedTenant)
@@ -338,9 +343,6 @@ router.get(
         }
       : {};
 
-    // Do not apply server-side date filters for this listing endpoint now
-    const timeFilter = {};
-
     // Combine qFilter and enforcedScope only
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
@@ -351,30 +353,109 @@ router.get(
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
     // --------------------------------------------------
-    // Execute
+    // Query options: projection and lean for lower payload and faster response
     // --------------------------------------------------
+    const projection = {
+      tenant_id: 1,
+      user_id: 1,
+      status: 1,
+      session_start: 1,
+      last_updated: 1,
+      timestamp: 1,
+      project_id: 1,
+      'session_data.session_name': 1,
+      // Keep _id by default
+    };
+
+    // --------------------------------------------------
+    // Server-side timeout with AbortController
+    // --------------------------------------------------
+    const timeBudgetMs = 6000; // keep under gateway 504 budget
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeBudgetMs);
+
+    // Helper to run a Mongoose query with abort signal if supported
+    const findPaged = () => {
+      return SessionTracking.find(finalFilter)
+        .select(projection)
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .exec();
+    };
+    const findAll = () => {
+      return SessionTracking.find(finalFilter)
+        .select(projection)
+        .sort(sort)
+        .lean()
+        .exec();
+    };
+    const count = () => SessionTracking.countDocuments(finalFilter).exec();
+
     try {
+      // Execute with concurrency for paged, otherwise single query
       if (explicit) {
-        const [docs, total] = await Promise.all([
-          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
-          SessionTracking.countDocuments(finalFilter),
+        const result = await Promise.race([
+          (async () => {
+            const [docs, total] = await Promise.all([findPaged(), count()]);
+            return { docs, total };
+          })(),
+          new Promise((_, reject) =>
+            controller.signal.addEventListener('abort', () =>
+              reject(Object.assign(new Error('Query timeout'), { code: 'ABORT_ERR' }))
+            )
+          ),
         ]);
 
+        clearTimeout(timeout);
         return res.json({
           success: true,
-          data: docs,
-          meta: { page, limit, total }
+          data: result.docs,
+          meta: { page, limit, total: result.total }
         });
       }
 
-      const docs = await SessionTracking.find(finalFilter).sort(sort);
+      // No pagination explicitly requested: still enforce projection/lean, but guard with timeout
+      const docs = await Promise.race([
+        findAll(),
+        new Promise((_, reject) =>
+          controller.signal.addEventListener('abort', () =>
+            reject(Object.assign(new Error('Query timeout'), { code: 'ABORT_ERR' }))
+          )
+        ),
+      ]);
+
+      clearTimeout(timeout);
       return res.json(docs);
 
     } catch (err) {
+      clearTimeout(timeout);
+
+      // Graceful 504 for timeouts
+      if (err && (err.code === 'ABORT_ERR' || /timeout/i.test(err.message))) {
+        return res.status(504).json({
+          success: false,
+          message: 'Gateway Timeout',
+          details: 'The request exceeded the server time budget.',
+          meta: { timeBudgetMs }
+        });
+      }
+
+      // Validation errors
+      const message = err?.message || '';
+      if (err?.name === 'CastError' || /Cast to/.test(message)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid value provided (list)',
+          details: message
+        });
+      }
+
       return res.status(400).json({
         success: false,
         message: 'Request failed',
-        details: err?.message || ''
+        details: message
       });
     }
   })
