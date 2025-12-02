@@ -5,75 +5,45 @@ const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const { getLlmCostsLastDiagnostics } = require('../controllers/llmCosts.diagnostics.controller');
+const { listLlmCosts } = require('../controllers/llmCosts.list.controller');
 const LLMCost = require('../models/llmCosts.model');
 
 const router = express.Router();
-// Default sort retained; list is still tenant-scoped via middleware/controller
+// Default sort retained for deprecated alias only
 const controller = buildCrudController(LLMCost, '-timestamp');
 
-// Enforce tenant isolation for all requests on this router
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/llm-costs/diagnostics/last
+ * Diagnostics should be accessible even if tenant middleware blocks list; it does not touch DB.
+ */
+router.get('/diagnostics/last', asyncHandler(getLlmCostsLastDiagnostics));
+
+// Enforce tenant isolation for primary routes on this router
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 
 /**
  * PUBLIC_INTERFACE
- * Note: All /api/llm-costs endpoints require the x-organization-id header. Query aliases (?tenant_id, ?organization_id) are optional and ignored when the header is present. Any tenant fields in payload are overridden by the resolved tenant.
  * GET /api/llm-costs
- * Returns all tenant-scoped documents from the llm_costs collection.
- * - Ignores any tenant_id/organization_id in client filter and enforces the resolved tenant.
- * - If page/limit are provided, an envelope { success, data, meta } is returned as per generic controller.
- * - Otherwise a raw array of documents is returned with all fields intact (no projection).
+ * Specialized handler with strict guards (date window, limit, projections, diagnostics and timing headers).
  */
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Per requirement: Ignore/remove any 'filter' param entirely for GET /api/llm-costs
-    // Preserve tenant scoping via middleware/controller and keep sort/limit behavior.
+    // Drop client-provided generic filter to avoid unindexed queries
     if (typeof req.query.filter !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch {}
       delete req.query.filter;
     }
-
-    // Also explicitly drop legacy date range params if present (server no longer applies date compounds here)
-    if (typeof req.query.start !== 'undefined') delete req.query.start;
-    if (typeof req.query.end !== 'undefined') delete req.query.end;
-    if (typeof req.query.from !== 'undefined') delete req.query.from;
-    if (typeof req.query.to !== 'undefined') delete req.query.to;
-
-    // Mark possible super-admin bypass headers similarly to other routes (diagnostic only)
-    try {
-      const hdr = (req.headers?.['x-organization-id'] || '').toString();
-      const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
-      const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
-      const requestedTenant = hdr || qOrg || authTenant || '';
-      const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
-      if (isT0000) {
-        req.tenantScopeDisabled = true;
-        req.allTenants = true;
-        req.costsAllTenantsBypass = true;
-        try {
-          res.set('X-All-Tenants', 'true');
-          res.set('X-Tenant-Bypass', 'true');
-          res.set('X-Requested-Tenant', 'T0000');
-        } catch {}
-      }
-    } catch {}
-
-    return controller.list(req, res);
+    // Allow from/to if provided; the specialized controller will clamp/validate the window
+    return listLlmCosts(req, res);
   })
 );
 
 /**
  * PUBLIC_INTERFACE
- * GET /api/llm-costs/diagnostics/last
- * Returns the last captured diagnostics snapshot for llm-costs listing.
- * This route is intentionally lightweight and does not run DB queries.
- */
-router.get('/diagnostics/last', asyncHandler(getLlmCostsLastDiagnostics));
-
-/**
- * PUBLIC_INTERFACE
  * GET /api/projects/:projectId/llm-costs
- * Deprecated alias: forwards to list endpoint (tenant-scoped); no project-based filter implied.
+ * Deprecated alias: forwards to generic list for backward compatibility (tenant-scoped).
  */
 router.get(
   '/projects/:projectId/llm-costs',

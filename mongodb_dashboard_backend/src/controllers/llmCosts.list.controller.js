@@ -5,6 +5,40 @@ const LlmCost = require('../models/llmCosts.model');
 const { getDiagnosticsStore } = require('../utils/llmCostsDiagnostics');
 const { handleError } = require('../utils/http');
 
+// Map and normalize a raw item to required tabular fields with sensible fallbacks
+function normalizeItem(doc) {
+  const breakdown = doc?.breakdown || {};
+  const inputTokens = doc?.tokens_in ?? breakdown?.prompt_tokens ?? breakdown?.input_tokens ?? null;
+  const outputTokens = doc?.tokens_out ?? breakdown?.completion_tokens ?? breakdown?.output_tokens ?? null;
+  const model = doc?.model || doc?.llm_model || null;
+
+  let costUsd = null;
+  if (doc && Object.prototype.hasOwnProperty.call(doc, 'cost_usd')) {
+    costUsd = doc.cost_usd;
+  } else if (Object.prototype.hasOwnProperty.call(doc || {}, 'total_cost')) {
+    costUsd = doc.total_cost;
+  } else if (typeof breakdown?.input_cost === 'number' || typeof breakdown?.output_cost === 'number') {
+    const a = typeof breakdown?.input_cost === 'number' ? breakdown.input_cost : 0;
+    const b = typeof breakdown?.output_cost === 'number' ? breakdown.output_cost : 0;
+    costUsd = a + b;
+  }
+
+  return {
+    _id: String(doc?._id || ''),
+    request_id: doc?.request_id ?? doc?.task_id ?? null,
+    timestamp: doc?.timestamp || doc?.created_at || null,
+    model,
+    provider: doc?.provider ?? null,
+    user_id: doc?.user_id ?? null,
+    organization_id: doc?.organization_id || doc?.tenant_id || null,
+    tokens_in: Number.isFinite(inputTokens) ? inputTokens : null,
+    tokens_out: Number.isFinite(outputTokens) ? outputTokens : null,
+    cost_usd: typeof costUsd === 'number' ? costUsd : (typeof costUsd === 'string' ? parseFloat(String(costUsd).replace('$','')) : null),
+    duration_ms: doc?.duration_ms ?? null,
+    status: doc?.status ?? null,
+  };
+}
+
 // PUBLIC_INTERFACE
 async function listLlmCosts(req, res) {
   /** List LLM cost records (tabular) with enforced guards, timing headers, and diagnostics capture. */
@@ -65,7 +99,7 @@ async function listLlmCosts(req, res) {
     // Sort guard: only allow index-friendly fields
     let sort = { timestamp: -1 };
     if (req.query.sort) {
-      const allowed = new Set(['timestamp', 'cost_usd', 'tokens_in', 'tokens_out', 'duration_ms', 'status']);
+      const allowed = new Set(['timestamp', 'cost_usd', 'tokens_in', 'tokens_out', 'duration_ms', 'status', '_id', 'created_at']);
       const fields = req.query.sort.split(',').map(s => s.trim()).filter(Boolean);
       const s = {};
       for (const f of fields) {
@@ -99,21 +133,35 @@ async function listLlmCosts(req, res) {
     }
 
     const filter = {
-      organization_id: tenant,
+      $or: [
+        { organization_id: tenant },
+        { tenant_id: tenant },
+      ],
       ...(from || to ? { timestamp: Object.assign({}, from ? { $gte: from } : {}, to ? { $lte: to } : {}) } : {}),
     };
 
     const projection = {
       _id: 1,
       request_id: 1,
+      task_id: 1,
       timestamp: 1,
+      created_at: 1,
       model: 1,
+      llm_model: 1,
       provider: 1,
       user_id: 1,
       organization_id: 1,
+      tenant_id: 1,
       tokens_in: 1,
       tokens_out: 1,
+      'breakdown.prompt_tokens': 1,
+      'breakdown.completion_tokens': 1,
+      'breakdown.input_tokens': 1,
+      'breakdown.output_tokens': 1,
       cost_usd: 1,
+      total_cost: 1,
+      'breakdown.input_cost': 1,
+      'breakdown.output_cost': 1,
       duration_ms: 1,
       status: 1,
     };
@@ -126,23 +174,31 @@ async function listLlmCosts(req, res) {
 
     const parseEnd = Date.now();
 
-    const collection = (await db).collection(LlmCost.collectionName || 'llm_costs');
+    const collection = (await db).collection(LlmCost.collection?.name || LlmCost.collectionName || 'llm-costs');
     const skip = (page - 1) * limit;
 
-    const cursor = collection.find(filter, { projection }).sort(sort).skip(skip).limit(limit);
+    // Build a Mongo sort spec from object
+    const sortSpec = sort;
+
+    const cursor = collection.find(filter, { projection }).sort(sortSpec).skip(skip).limit(limit);
     const builtEnd = Date.now();
 
-    const [items, total] = await Promise.all([cursor.toArray(), collection.countDocuments(filter)]);
+    const [rawItems, total] = await Promise.all([cursor.toArray(), collection.countDocuments(filter)]);
     const execEnd = Date.now();
+
+    // normalize items to tabular fields
+    const items = Array.isArray(rawItems) ? rawItems.map(normalizeItem) : [];
 
     // headers
     try {
       res.set('x-effective-tenant', String(tenant));
       res.set('x-llm-filter', JSON.stringify(filter));
       res.set('x-llm-projection', JSON.stringify(projection));
-      res.set('x-llm-sort', JSON.stringify(sort));
+      res.set('x-llm-sort', JSON.stringify(sortSpec));
       res.set('x-llm-page', String(page));
       res.set('x-llm-limit', String(limit));
+      res.set('x-llm-window-from', from ? from.toISOString() : '');
+      res.set('x-llm-window-to', to ? to.toISOString() : '');
       res.set('x-llm-timing-parsed-ms', String(parseEnd - startedAt));
       res.set('x-llm-timing-built-ms', String(builtEnd - parseEnd));
       res.set('x-llm-timing-exec-ms', String(execEnd - builtEnd));
