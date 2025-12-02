@@ -76,7 +76,15 @@ async function listLlmCosts(req, res) {
     const envDefault = Number(process.env.DEFAULT_PAGE_LIMIT || '50');
     const defaultLimit = Number.isFinite(envDefault) && envDefault >= 1 ? Math.min(envDefault, maxLimit) : 50;
     const requestedLimit = parseInt(req.query.limit || String(defaultLimit), 10);
+    if (!Number.isFinite(requestedLimit) || requestedLimit < 1) {
+      // Apply default when not provided or invalid
+      req.query.limit = String(defaultLimit);
+    }
     if (Number.isFinite(requestedLimit) && requestedLimit > maxLimit) {
+      // Return 400 for violations with helpful headers
+      try {
+        res.set('x-llm-limit-max', String(maxLimit));
+      } catch {}
       setPartialHeaders(res, { effectiveTenant, timings, page, limit: maxLimit, sort: '-timestamp', filter: {} });
       return res.status(400).json({ success: false, message: `limit must be <= ${maxLimit}` });
     }
@@ -125,16 +133,35 @@ async function listLlmCosts(req, res) {
     if (!fromDate && !toDate) {
       toDate = new Date();
       fromDate = new Date(toDate.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
+      // Advertise default window applied
+      try {
+        res.set('x-llm-window-defaulted', '1');
+        res.set('x-llm-window-max-days', String(MAX_DAYS_WINDOW));
+        res.set('x-llm-window-from', fromDate.toISOString());
+        res.set('x-llm-window-to', toDate.toISOString());
+      } catch {}
     }
 
     // If only one bound provided, keep it but enforce max window by clamping the other when feasible.
     if (fromDate && !toDate) {
       // clamp toDate = from + MAX_DAYS_WINDOW
       toDate = new Date(fromDate.getTime() + MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
+      try {
+        res.set('x-llm-window-clamped', 'to');
+        res.set('x-llm-window-max-days', String(MAX_DAYS_WINDOW));
+        res.set('x-llm-window-from', fromDate.toISOString());
+        res.set('x-llm-window-to', toDate.toISOString());
+      } catch {}
     }
     if (!fromDate && toDate) {
       // clamp fromDate = to - MAX_DAYS_WINDOW
       fromDate = new Date(toDate.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
+      try {
+        res.set('x-llm-window-clamped', 'from');
+        res.set('x-llm-window-max-days', String(MAX_DAYS_WINDOW));
+        res.set('x-llm-window-from', fromDate.toISOString());
+        res.set('x-llm-window-to', toDate.toISOString());
+      } catch {}
     }
 
     // Validate window length
@@ -343,6 +370,12 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-timing-built-ms', String(Math.round(timings.built ?? 0)));
       res.set('x-llm-timing-exec-ms', String(Math.round(timings.exec_ms ?? 0)));
       if (timings.explain_ms != null) res.set('x-llm-timing-explain-ms', String(Math.round(timings.explain_ms)));
+      // Advertise final window used (if any)
+      try {
+        if (fromDate) res.set('x-llm-window-from', fromDate.toISOString());
+        if (toDate) res.set('x-llm-window-to', toDate.toISOString());
+        res.set('x-llm-window-max-days', String(MAX_DAYS_WINDOW));
+      } catch {}
       if (process.env.DEBUG_LLMCOSTS_EXPLAIN === '1') {
         if (explainFind) res.set('x-llm-explain-find', 'captured');
         if (explainCount) res.set('x-llm-explain-count', 'captured');

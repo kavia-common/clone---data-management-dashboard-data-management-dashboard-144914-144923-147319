@@ -774,10 +774,10 @@
           { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query. If conflicting with JWT tenant, 403 is returned." },
           { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query. If conflicting with JWT tenant, 403 is returned." },
           { "in": "query", "name": "page", "schema": { "type": "integer", "minimum": 1 }, "description": "Page number (default 1)" },
-          { "in": "query", "name": "limit", "schema": { "type": "integer", "minimum": 1, "maximum": 200 }, "description": "Page size (default 50, max 200)" },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "minimum": 1, "maximum": 200 }, "description": "Page size (default DEFAULT_PAGE_LIMIT, max 200). If omitted or invalid, DEFAULT_PAGE_LIMIT is applied. Requests with limit > 200 return 400." },
           { "in": "query", "name": "sort", "schema": { "type": "string" }, "description": "Sort string (e.g., -timestamp or total_cost)" },
-          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date-time" }, "description": "ISO date-time lower bound (applied to timestamp only). When omitted with 'to', a default window of MAX_DAYS_WINDOW (default 90) ending at now is applied." },
-          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date-time" }, "description": "ISO date-time upper bound (applied to timestamp only). When omitted with 'from', a default window of MAX_DAYS_WINDOW (default 90) ending at now is applied." },
+          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date-time" }, "description": "ISO date-time lower bound (applied to timestamp only). If from and to are both omitted, the server applies a default window of MAX_DAYS_WINDOW (default 90 days) ending at now. If only one bound is provided, the other bound is clamped such that the window does not exceed MAX_DAYS_WINDOW. If both provided and the window exceeds MAX_DAYS_WINDOW, the server returns 400." },
+          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date-time" }, "description": "ISO date-time upper bound (applied to timestamp only). If from and to are both omitted, the server applies a default window of MAX_DAYS_WINDOW (default 90 days) ending at now. If only one bound is provided, the other bound is clamped such that the window does not exceed MAX_DAYS_WINDOW. If both provided and the window exceeds MAX_DAYS_WINDOW, the server returns 400." },
           { "in": "query", "name": "filter", "schema": { "type": "string" }, "description": "JSON filter (tenant fields ignored by server; scoping enforced). Whitelist: status, provider, llm_model, user_id, session_id, project_id, request_id" }
         ],
         "responses": {
@@ -851,7 +851,7 @@
               }
             }
           },
-          "400": { "description": "Bad request: Missing tenant, invalid filter JSON, limit > 200, or date window exceeds MAX_DAYS_WINDOW." },
+          "400": { "description": "Bad request: Missing tenant, invalid filter JSON, limit > 200 (max enforced), or date window exceeds MAX_DAYS_WINDOW. When default/clamped windows are applied, headers x-llm-window-*: inform the effective window." },
           "403": { "description": "Forbidden: tenant scope mismatch when Authorization is provided" },
           "500": { "description": "Internal server error" }
         }
