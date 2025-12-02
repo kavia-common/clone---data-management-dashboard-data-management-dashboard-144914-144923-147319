@@ -15,7 +15,9 @@ const LLMCost = require('../models/llmCosts.model');
  */
 const router = express.Router();
 
-// Simple route-level timeout to prevent long hangs (10s)
+/**
+ * Lightweight per-request timer for diagnostics.
+ */
 router.use((req, res, next) => {
   const TIMEOUT_MS = 10000;
   // Skip for health endpoint

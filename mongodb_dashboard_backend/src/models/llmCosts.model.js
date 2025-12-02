@@ -52,6 +52,8 @@ LLMCostsSchema.index({ timestamp: 1, llm_model: 1 }); // composite index to supp
 LLMCostsSchema.index({ task_id: 1 });
 // Optimize direct project_id lookups for usage endpoint
 LLMCostsSchema.index({ project_id: 1 });
+// Support allowed sorting on total_cost while scoped by tenant (use partial compound)
+LLMCostsSchema.index({ tenant_id: 1, total_cost: -1 }, { background: true });
 
 LLMCostsSchema.pre('findOneAndUpdate', function (next) {
   this.set({ updated_at: new Date() });
@@ -97,6 +99,11 @@ async function ensureLLMCostsIndexes() {
     await Model.collection.createIndex({ organization_id: 1, created_at: -1 }, { background: true });
   } catch (e) {
     console.warn('[LLMCost.ensureIndexes] createIndex organization_id+created_at failed:', e?.message || e);
+  }
+  try {
+    await Model.collection.createIndex({ tenant_id: 1, total_cost: -1 }, { background: true });
+  } catch (e) {
+    console.warn('[LLMCost.ensureIndexes] createIndex tenant_id+total_cost failed:', e?.message || e);
   }
 }
 

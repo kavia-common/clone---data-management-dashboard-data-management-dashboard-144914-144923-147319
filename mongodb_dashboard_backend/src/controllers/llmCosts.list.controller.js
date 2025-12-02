@@ -9,7 +9,19 @@ const LLMCost = require('../models/llmCosts.model');
  * Fast-fails when tenant cannot be resolved (unless bypass mode).
  */
 async function listLlmCosts(req, res) {
+  const startedAt = Date.now();
+  const reqId = `${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
+  const logBase = {
+    reqId,
+    path: req.originalUrl,
+    method: req.method,
+    ip: req.ip,
+  };
   try {
+    // mark start
+    try {
+      console.log('[llmCosts.list] start', { ...logBase });
+    } catch {}
     // Bypass mode (Super Admin/T0000)
     const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
 
@@ -58,15 +70,19 @@ async function listLlmCosts(req, res) {
     if (!Number.isFinite(limit) || limit <= 0) limit = DEFAULT_LIMIT;
     limit = Math.min(limit, MAX_LIMIT);
 
-    const sortStr = (req.query?.sort && String(req.query.sort)) || '-timestamp';
+    const sortWhitelist = new Set(['timestamp', 'created_at', '_id', 'total_cost']);
+    const requestedSort = (req.query?.sort && String(req.query.sort)) || '-timestamp';
     const sort = {};
-    // Convert sort string to mongoose sort object; allow leading '-' for desc
-    for (const token of sortStr.split(',').map((s) => s.trim()).filter(Boolean)) {
-      if (token.startsWith('-')) {
-        sort[token.slice(1)] = -1;
-      } else {
-        sort[token] = 1;
-      }
+    for (const token of requestedSort.split(',').map((s) => s.trim()).filter(Boolean)) {
+      const desc = token.startsWith('-');
+      const key = desc ? token.slice(1) : token;
+      // Enforce whitelist to avoid slow collection scans on unindexed fields
+      if (!sortWhitelist.has(key)) continue;
+      sort[key] = desc ? -1 : 1;
+    }
+    // Fallback to -timestamp if nothing valid provided
+    if (Object.keys(sort).length === 0) {
+      sort.timestamp = -1;
     }
 
     // Build filter from query.filter (tenant fields ignored) + enforced tenant filter
@@ -129,17 +145,26 @@ async function listLlmCosts(req, res) {
     }
 
     // Execute count and data in parallel with Promise.allSettled to avoid hangs
+    // Use a smaller timeout for count on small pages to avoid tying up the server
+    const countTimeout = (page <= 2 && limit <= 50) ? Math.min(4000, MAX_SERVER_TIMEOUT_MS) : MAX_SERVER_TIMEOUT_MS;
     const [dataRes, countRes] = await Promise.allSettled([
       baseQuery.exec(),
-      LLMCost.countDocuments(filter).maxTimeMS(MAX_SERVER_TIMEOUT_MS).exec(),
+      LLMCost.countDocuments(filter).maxTimeMS(countTimeout).exec(),
     ]);
 
     if (dataRes.status !== 'fulfilled') {
       const msg = dataRes.reason?.message || 'Query failed';
+      const durationMs = Date.now() - startedAt;
+      try {
+        console.error('[llmCosts.list] data query failed', { ...logBase, durationMs, error: msg });
+      } catch {}
       // Timeout or server selection issues should return 504/503 respectively
       if (/maxTimeMS|operation exceeded time limit/i.test(msg)) {
         try { res.set('X-Error', 'timeout'); } catch {}
         return res.status(504).json({ success: false, message: 'Query timeout' });
+      }
+      if (/server selection timed out/i.test(msg)) {
+        return res.status(503).json({ success: false, message: 'Database unavailable' });
       }
       return res.status(500).json({ success: false, message: msg });
     }
@@ -151,9 +176,13 @@ async function listLlmCosts(req, res) {
     } else {
       // If count fails (e.g., timeout), still return items but flag meta.partial=true
       res.set('X-Count-Partial', 'true');
+      try {
+        const durationMs = Date.now() - startedAt;
+        console.warn('[llmCosts.list] count partial', { ...logBase, durationMs });
+      } catch {}
     }
 
-    return res.status(200).json({
+    const response = {
       success: true,
       data: items,
       meta: {
@@ -161,12 +190,24 @@ async function listLlmCosts(req, res) {
         limit,
         total,
       },
-    });
+    };
+    try {
+      const durationMs = Date.now() - startedAt;
+      console.log('[llmCosts.list] success', { ...logBase, durationMs, count: items.length, total });
+    } catch {}
+    return res.status(200).json(response);
   } catch (err) {
     const msg = err?.message || 'Internal server error';
+    try {
+      const durationMs = Date.now() - startedAt;
+      console.error('[llmCosts.list] error', { ...logBase, durationMs, error: msg });
+    } catch {}
     if (/maxTimeMS|operation exceeded time limit/i.test(msg)) {
       try { res.set('X-Error', 'timeout'); } catch {}
       return res.status(504).json({ success: false, message: 'Query timeout' });
+    }
+    if (/server selection timed out/i.test(msg)) {
+      return res.status(503).json({ success: false, message: 'Database unavailable' });
     }
     return res.status(500).json({ success: false, message: msg });
   }
