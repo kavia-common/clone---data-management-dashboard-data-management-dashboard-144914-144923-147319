@@ -1,6 +1,6 @@
 # Backend (Express) - Dashboard API
 
-- Default port: 3001 (configurable via PORT in .env)
+- Default port: 3001 (configurable via PORT)
 - Host bind: 0.0.0.0 by default (configurable via HOST; if HOST is unset or set to 'localhost', the server will bind to 0.0.0.0 to avoid EADDRNOTAVAIL in preview/container environments)
 - Docs (Swagger UI): http://localhost:3001/api/docs (aliases: http://localhost:3001/api-docs and http://localhost:3001/docs)
 - OpenAPI JSON: http://localhost:3001/api/docs.json (aliases: http://localhost:3001/openapi.json and http://localhost:3001/api-docs.json)
@@ -20,26 +20,18 @@ Scripts
 - start: production-style boot; same host/port defaults
 - preview: same as start
 - test: jest
+- lint: non-fatal warnings; use lint:strict locally to enforce --max-warnings=0
 
 Preview runner compatibility
-- The server binds to 0.0.0.0:PORT and logs readiness pointers: /health | /ready | /api/health | /api/docs | /api-docs
+- The server binds to 0.0.0.0:PORT and logs readiness pointers: /health | /readiness | /api/health | /api/docs | /api-docs
 - Readiness log markers (either is sufficient for detectors):
   - READY: http://HOST:PORT
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT
-  - Server ready: http://HOST:PORT (env=...)
-- If your frontend dev server uses a proxy (http-proxy-middleware) to reach this backend, ensure the proxy target points to the actual backend URL (e.g., http://localhost:3001 or the container hostname) and not to an interface that is not routable from the frontend container. Binding to 0.0.0.0 here avoids EADDRNOTAVAIL, but the proxy target must also be reachable.
-- Health endpoints for readiness checks:
-  - GET /health       -> always 200 with db state
-  - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
-  - GET /api/health   -> 200 with db state (same as /health)
-  - GET /healthz      -> alias to /health
 
-Important
-- Always run preview/start commands from this backend directory:
-  - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
-  - npm run dev  (or npm start)
-- dotenv is loaded inside src/server.js; no need to use -r dotenv/config flags.
+OOM protection and memory usage
+- All scripts run with NODE_OPTIONS=--max-old-space-size=2048 to reduce memory footprint and avoid OOM during build/test in CI.
+- Jest runs in-band.
 
 Environment Variables
 Create a `.env` file in this directory with values appropriate for your environment (do not commit secrets).
@@ -49,8 +41,10 @@ Common variables:
 - PORT=3001
 - MONGODB_URI=mongodb+srv://...
 - MONGODB_DB=test
-
-Note: The app will start even if MONGODB_URI is not set; health/docs endpoints remain available. Mongo connects when properly configured (non-fatal on startup when missing).
+- BACKEND_PROTOCOL=http
+- BACKEND_HOST=localhost
+- BACKEND_PORT=3001
+- BACKEND_BASE_URL=http://localhost:3001
 
 CORS
 - Defaults allow localhost:3000 and the current host:3001 (Swagger UI served by backend).
@@ -64,8 +58,6 @@ Swagger/OpenAPI servers
 - Endpoints:
   - UI: /api/docs (aliases: /api-docs, /docs)
   - Spec JSON: /api/docs.json (aliases: /openapi.json, /api-docs.json)
-- Additional helper:
-  - GET /api/docs/headers — explains tenant header usage for Try It Out.
 
 Tenant-scoped requests
 - When Authorization (Bearer JWT) is not provided, send x-organization-id header on tenant-scoped endpoints (e.g., /api/llm-costs).
@@ -76,13 +68,6 @@ Health/readiness
 - GET /health → Fast readiness with { status: "ok", db: connected|connecting|disconnected, timestamp }
 - GET /api/health → Same payload; safe for monitoring
 - Health responses include no-store Cache-Control headers.
-
-Notes on authentication and hashing
-- Uses per-organization orgSalt (v2) with optional environment pepper. Legacy v1 hashes are migrated on login.
-- Public auth endpoints:
-  - POST /api/auth/signup
-  - POST /api/auth/login
-  - POST /api/auth/reset-password
 
 Troubleshooting
 - Port already in use (EADDRINUSE):

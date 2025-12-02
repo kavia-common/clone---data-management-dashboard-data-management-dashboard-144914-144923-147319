@@ -24,10 +24,10 @@ function buildCommonComponents() {
       xOrganizationId: {
         name: 'x-organization-id',
         in: 'header',
-        required: true,
+        required: false,
         schema: { type: 'string' },
         description:
-          'Required tenant identifier for tenant-scoped endpoints. Header takes precedence over query aliases (?tenant_id or ?organization_id). 400 is returned when tenant is missing.',
+          'Tenant identifier for tenant-scoped endpoints. Header takes precedence over query aliases (?tenant_id or ?organization_id).',
       },
     },
     schemas: {
@@ -126,14 +126,14 @@ function sanitizeOpenApiDoc(doc) {
   doc.components.parameters = {
     ...(doc.components.parameters || {}),
     xOrganizationId:
-      doc.components.parameters?.xOrganizationId || commons.parameters.xOrganizationId,
+      (doc.components.parameters && doc.components.parameters.xOrganizationId) || commons.parameters.xOrganizationId,
   };
   doc.components.schemas = {
     ...(doc.components.schemas || {}),
     GenericDocument:
-      doc.components.schemas?.GenericDocument || commons.schemas.GenericDocument,
+      (doc.components.schemas && doc.components.schemas.GenericDocument) || commons.schemas.GenericDocument,
     ListEnvelope:
-      doc.components.schemas?.ListEnvelope || commons.schemas.ListEnvelope,
+      (doc.components.schemas && doc.components.schemas.ListEnvelope) || commons.schemas.ListEnvelope,
   };
 
   try {
@@ -165,7 +165,6 @@ function getBaseOpenApiSpec() {
       return cachedSpec;
     }
   } catch (err) {
-     
     console.warn('[swagger] Could not load interfaces/openapi.json, falling back to JSDoc.', err?.message);
   }
 
@@ -173,7 +172,6 @@ function getBaseOpenApiSpec() {
     cachedSpec = buildJsDocSpec();
     return cachedSpec;
   } catch (err) {
-     
     console.error('[swagger] Failed to build JSDoc spec:', err);
     cachedSpec = {
       openapi: '3.0.0',

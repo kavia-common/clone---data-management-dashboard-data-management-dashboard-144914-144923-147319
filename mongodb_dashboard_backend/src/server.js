@@ -15,6 +15,15 @@ const PORT = Number(process.env.PORT || process.env.REACT_APP_PORT) || 3001;
 const HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+// Normalize BACKEND_BASE_URL so Swagger and clients can resolve server
+const protocol = process.env.BACKEND_PROTOCOL || 'http';
+const hostname = process.env.BACKEND_HOST || 'localhost';
+const basePort = process.env.BACKEND_PORT || PORT;
+const BACKEND_BASE_URL =
+  process.env.BACKEND_BASE_URL || `${protocol}://${hostname}:${basePort}`;
+process.env.BACKEND_BASE_URL = BACKEND_BASE_URL;
+app.set('backendBaseUrl', BACKEND_BASE_URL);
+
 // PUBLIC_INTERFACE
 function logListening(host, port) {
   // eslint-disable-next-line no-console
@@ -33,6 +42,7 @@ try {
 try {
   // eslint-disable-next-line no-console
   console.log(`[startup] ${NODE_ENV} | ${HOST}:${PORT}`);
+  console.log(`[startup] BACKEND_BASE_URL=${process.env.BACKEND_BASE_URL}`);
 } catch {}
 
 /**
@@ -110,7 +120,7 @@ function startServerStrict() {
         console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
         logListening(HOST, PORT);
         // concise pointers
-        console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
+        console.log(`[startup] /health | /readiness | /api/health | /api/docs | /api-docs`);
         // Single unambiguous readiness marker required by orchestrator:
         // EXACT STRING: READY: http://HOST:PORT
         if (!process.env.__READY_LOGGED) {

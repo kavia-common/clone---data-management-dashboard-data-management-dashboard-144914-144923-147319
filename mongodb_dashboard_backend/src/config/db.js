@@ -1,63 +1,27 @@
-const mongoose = require('mongoose');
-const { mongoConnectionManager } = require('./db.connectionManager');
-
 /**
  * PUBLIC_INTERFACE
- * Establishes a connection to MongoDB using Mongoose with fail-fast options.
- * Delegates to MongoConnectionManager for consistent behavior across the app.
+ * Exposes a minimal DB connection status interface to allow fast-fail behavior.
+ * This file wraps the existing db.connectionManager to provide isConnected().
  */
-async function connectDB() {
-  await mongoConnectionManager.connect();
-  return mongoose.connection;
-}
+import connectionManager from './db.connectionManager.js';
 
-/**
- * PUBLIC_INTERFACE
- * getDb
- * Returns an active MongoDB Db instance from the current Mongoose connection.
- * Ensures a connection is established; if not connected, attempts to connect first.
- */
-async function getDb() {
-  if (mongoose.connection.readyState !== 1) {
-    await connectDB();
-  }
-  if (!mongoose.connection.db) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  return mongoose.connection.db;
-}
+const db = {
+  // PUBLIC_INTERFACE
+  isConnected() {
+    try {
+      if (connectionManager && typeof connectionManager.isConnected === 'function') {
+        return !!connectionManager.isConnected();
+      }
+      // Try common mongoose connection presence
+      if (connectionManager?.mongoose?.connection?.readyState != null) {
+        // 1 = connected, 2 = connecting; treat 1 as connected
+        return connectionManager.mongoose.connection.readyState === 1;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  },
+};
 
-/**
- * PUBLIC_INTERFACE
- * getCollection
- * Helper to obtain a native MongoDB collection by name. Accepts a string name
- * or an array of candidate names and returns the first existing collection;
- * if none exist, returns the first candidate name as a collection handle.
- */
-async function getCollection(nameOrNames) {
-  const db = await getDb();
-  const candidates = Array.isArray(nameOrNames) ? nameOrNames : [nameOrNames];
-
-  try {
-    const existing = await db
-      .listCollections({ name: { $in: candidates } }, { nameOnly: true })
-      .toArray();
-
-    const existingNames = new Set(existing.map((c) => c.name));
-    const chosen = candidates.find((n) => existingNames.has(n)) || candidates[0];
-    return db.collection(chosen);
-  } catch (_err) {
-    return db.collection(candidates[0]);
-  }
-}
-
-/**
- * PUBLIC_INTERFACE
- * isDbConnected
- * Returns boolean indicating if Mongoose is currently connected to MongoDB.
- */
-function isDbConnected() {
-  return mongoose.connection && mongoose.connection.readyState === 1;
-}
-
-module.exports = { connectDB, getDb, getCollection, isDbConnected };
+export default db;
