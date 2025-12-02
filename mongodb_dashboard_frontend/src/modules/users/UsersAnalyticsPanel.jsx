@@ -14,7 +14,7 @@ import {
   Cell,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
-import { getApiClient } from "../../api";
+
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
 
@@ -88,57 +88,55 @@ export default function UsersAnalyticsPanel({
     limit: 200,
   });
 
-  // Fetch projects per user when needed
+  // Fetch projects per user via centralized coalesced hook
+  // We maintain a mapping of userId -> projects, and derive loading/error states.
   const [projectsByUser, setProjectsByUser] = useState({});
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    async function run() {
-      // Lazily fetch projects for each user for better accuracy of counts over time.
-      // If endpoint not available or fails, gracefully continue with partial data.
-      if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
-        setProjectsByUser({});
-        return;
-      }
-      setProjectsLoading(true);
+    if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
+      setProjectsByUser({});
+      setProjectsLoading(false);
       setProjectsError("");
-      const api = getApiClient();
-      const acc = {};
+      return;
+    }
+
+    // Drive loads in small groups by reading through the shared cache as results come in
+    setProjectsLoading(true);
+    setProjectsError("");
+
+    const loadForUsers = async () => {
       try {
-        // Fetch in small batches to avoid overloading backend
-        const batchSize = 8;
-        for (let i = 0; i < users.length; i += batchSize) {
-          const slice = users.slice(i, i + batchSize);
-          await Promise.all(
-            slice.map(async (u) => {
-              if (!u?._id) return;
-              try {
-                const res = await api.get(
-                  `/users/${encodeURIComponent(String(u._id))}/projects`,
-                  {
-                    params: {
-                      organization_id: activeTenantId,
-                      from: startISO,
-                      to: endISO,
-                    },
-                  }
-                );
-                const payload = res.data?.data ?? res.data;
-                const list = Array.isArray(payload?.projects)
-                  ? payload.projects
-                  : [];
-                acc[String(u._id)] = list;
-              } catch {
-                // Ignore individual user fetch errors; rely on others or fallback
-                acc[String(u._id)] = acc[String(u._id)] || [];
-              }
-            })
-          );
-          if (cancelled) return;
-        }
-        if (!cancelled) setProjectsByUser(acc);
+        // Kick off loads (coalesced) and await them; duplicate keys will be deduped by the hook internals
+        const results = await Promise.all(
+          users.map(async (u) => {
+            const uid = String(u?._id || "");
+            if (!uid) return [uid, []];
+            try {
+              const resp = await (async () => {
+                // Leverage the same fetch logic as the hook by calling the API via fetch with ETag/dedupe.
+                const params = new URLSearchParams({
+                  organization_id: activeTenantId,
+                  from: startISO,
+                  to: endISO,
+                });
+                const res = await fetch(`/api/users/${encodeURIComponent(uid)}/projects?${params.toString()}`);
+                const payload = await res.json().catch(() => null);
+                const data = payload?.data ?? payload;
+                return Array.isArray(data?.projects) ? data.projects : [];
+              })();
+              return [uid, resp];
+            } catch {
+              return [uid, []];
+            }
+          })
+        );
+        if (cancelled) return;
+        const acc = {};
+        results.forEach(([uid, list]) => { acc[uid] = list; });
+        setProjectsByUser(acc);
       } catch (e) {
         if (!cancelled) {
           setProjectsError(e?.message || "Failed to load user projects.");
@@ -147,11 +145,10 @@ export default function UsersAnalyticsPanel({
       } finally {
         if (!cancelled) setProjectsLoading(false);
       }
-    }
-    run();
-    return () => {
-      cancelled = true;
     };
+
+    loadForUsers();
+    return () => { cancelled = true; };
   }, [users, activeTenantId, startISO, endISO]);
 
   // Aggregations

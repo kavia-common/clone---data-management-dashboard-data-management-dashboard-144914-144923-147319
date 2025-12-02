@@ -5,7 +5,7 @@ import PropTypes from 'prop-types';
 import Modal from '../ui/Modal.jsx';
 
 // Views
-import { useUserProjects } from '../../hooks/useUserProjects';
+import useUsersProjects from '../../hooks/useUsersProjects';
 
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
@@ -184,7 +184,15 @@ UserDetailsView.propTypes = {
  */
 function UserProjectsView({ userId, tenantId, from, to }) {
   const enabled = Boolean(userId && tenantId);
-  const { projects, loading, error, refetch } = useUserProjects({ userId, tenantId, from, to, enabled });
+  const { data, loading, error, refetch } = useUsersProjects({
+    userId,
+    organization_id: tenantId,
+    from,
+    to,
+    enabled,
+    debounceMs: 400,
+  });
+  const projects = Array.isArray(data?.projects) ? data.projects : [];
 
   if (!enabled) {
     return <div className="text-gray-500">Select a user with a valid tenant to view projects.</div>;
