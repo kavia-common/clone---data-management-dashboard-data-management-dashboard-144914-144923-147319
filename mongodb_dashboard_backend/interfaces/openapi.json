@@ -776,8 +776,8 @@
           { "in": "query", "name": "page", "schema": { "type": "integer", "minimum": 1 }, "description": "Page number (default 1)" },
           { "in": "query", "name": "limit", "schema": { "type": "integer", "minimum": 1, "maximum": 200 }, "description": "Page size (default 50, max 200)" },
           { "in": "query", "name": "sort", "schema": { "type": "string" }, "description": "Sort string (e.g., -timestamp or total_cost)" },
-          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date-time" }, "description": "ISO date-time lower bound (applied to timestamp only)" },
-          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date-time" }, "description": "ISO date-time upper bound (applied to timestamp only)" },
+          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date-time" }, "description": "ISO date-time lower bound (applied to timestamp only). When omitted with 'to', a default window of MAX_DAYS_WINDOW (default 90) ending at now is applied." },
+          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date-time" }, "description": "ISO date-time upper bound (applied to timestamp only). When omitted with 'from', a default window of MAX_DAYS_WINDOW (default 90) ending at now is applied." },
           { "in": "query", "name": "filter", "schema": { "type": "string" }, "description": "JSON filter (tenant fields ignored by server; scoping enforced). Whitelist: status, provider, llm_model, user_id, session_id, project_id, request_id" }
         ],
         "responses": {
@@ -851,7 +851,7 @@
               }
             }
           },
-          "400": { "description": "Missing tenant or invalid filter" },
+          "400": { "description": "Bad request: Missing tenant, invalid filter JSON, limit > 200, or date window exceeds MAX_DAYS_WINDOW." },
           "403": { "description": "Forbidden: tenant scope mismatch when Authorization is provided" },
           "500": { "description": "Internal server error" }
         }

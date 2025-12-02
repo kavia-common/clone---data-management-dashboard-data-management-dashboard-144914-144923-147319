@@ -70,11 +70,17 @@ async function listLlmCosts(req, res) {
       return res.status(400).json({ success: false, message: 'Missing tenant: provide Authorization with tenant or x-organization-id header' });
     }
 
-    // Pagination and sort
+    // Pagination and sort (enforce limit <= 200; allow DEFAULT_PAGE_LIMIT from env)
     const page = Math.max(parseInt(req.query.page || '1', 10) || 1, 1);
     const maxLimit = 200;
-    const defaultLimit = 50;
-    const limit = Math.min(Math.max(parseInt(req.query.limit || String(defaultLimit), 10) || defaultLimit, 1), maxLimit);
+    const envDefault = Number(process.env.DEFAULT_PAGE_LIMIT || '50');
+    const defaultLimit = Number.isFinite(envDefault) && envDefault >= 1 ? Math.min(envDefault, maxLimit) : 50;
+    const requestedLimit = parseInt(req.query.limit || String(defaultLimit), 10);
+    if (Number.isFinite(requestedLimit) && requestedLimit > maxLimit) {
+      setPartialHeaders(res, { effectiveTenant, timings, page, limit: maxLimit, sort: '-timestamp', filter: {} });
+      return res.status(400).json({ success: false, message: `limit must be <= ${maxLimit}` });
+    }
+    const limit = Math.min(Math.max(requestedLimit || defaultLimit, 1), maxLimit);
     // Default sort by canonical time field
     const sortStr = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : '-timestamp';
 
@@ -100,16 +106,60 @@ async function listLlmCosts(req, res) {
     }
     const filter = Object.fromEntries(Object.entries(rawFilter).filter(([k]) => allowed.includes(k)));
 
-    // Time range filter applied only on canonical timestamp (no $or across created_at)
-    const range = {};
+    // Time range filter applied only on canonical timestamp with enforced max window
+    const maxDaysWindowEnv = Number(process.env.MAX_DAYS_WINDOW || '90');
+    const MAX_DAYS_WINDOW = Number.isFinite(maxDaysWindowEnv) && maxDaysWindowEnv > 0 ? maxDaysWindowEnv : 90;
+    let fromDate = undefined;
+    let toDate = undefined;
+
     if (req.query.from) {
       const d = new Date(req.query.from);
-      if (!isNaN(d.getTime())) range.$gte = d;
+      if (!isNaN(d.getTime())) fromDate = d;
     }
     if (req.query.to) {
       const d = new Date(req.query.to);
-      if (!isNaN(d.getTime())) range.$lte = d;
+      if (!isNaN(d.getTime())) toDate = d;
     }
+
+    // If both missing, set default range to last MAX_DAYS_WINDOW days
+    if (!fromDate && !toDate) {
+      toDate = new Date();
+      fromDate = new Date(toDate.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
+    }
+
+    // If only one bound provided, keep it but enforce max window by clamping the other when feasible.
+    if (fromDate && !toDate) {
+      // clamp toDate = from + MAX_DAYS_WINDOW
+      toDate = new Date(fromDate.getTime() + MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
+    }
+    if (!fromDate && toDate) {
+      // clamp fromDate = to - MAX_DAYS_WINDOW
+      fromDate = new Date(toDate.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
+    }
+
+    // Validate window length
+    let windowOk = true;
+    if (fromDate && toDate) {
+      const diffDays = Math.ceil((toDate.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000));
+      if (diffDays > MAX_DAYS_WINDOW) {
+        windowOk = false;
+      }
+    }
+    if (!windowOk) {
+      // respond 400 with helpful headers
+      try {
+        res.set('x-llm-window-max-days', String(MAX_DAYS_WINDOW));
+        if (fromDate) res.set('x-llm-window-from', fromDate.toISOString());
+        if (toDate) res.set('x-llm-window-to', toDate.toISOString());
+      } catch {}
+      setPartialHeaders(res, { effectiveTenant, timings, page, limit, sort: sortStr, filter: {} });
+      return res.status(400).json({ success: false, message: `Date window exceeds maximum of ${MAX_DAYS_WINDOW} days` });
+    }
+
+    const range = {};
+    if (fromDate) range.$gte = fromDate;
+    if (toDate) range.$lte = toDate;
+
     const timeFilter = Object.keys(range).length ? { timestamp: range } : {};
     const usedOrOnTime = Object.keys(range).length > 0;
 
