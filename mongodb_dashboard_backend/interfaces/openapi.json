@@ -1790,6 +1790,70 @@
         }
       }
     },
+    "/api/users/projects": {
+      "post": {
+        "summary": "Batch: Get projects for multiple users",
+        "description": "Accepts a list of userIds and returns a map keyed by userId where each value is an array of distinct projects with last_activity, scoped by tenant and optional date range.",
+        "tags": ["Users"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userIds": { "type": "array", "items": { "type": "string" }, "description": "List of user identifiers" },
+                  "organization_id": { "type": "string", "description": "Tenant (organization) id. Alias: tenant_id" },
+                  "tenant_id": { "type": "string", "description": "Alias for tenant id" },
+                  "from": { "type": "string", "format": "date-time", "nullable": true },
+                  "to": { "type": "string", "format": "date-time", "nullable": true }
+                },
+                "required": ["userIds"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Map of userId to projects array",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "tenant_id": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "project_id": { "type": "string" },
+                            "project_name": { "type": "string", "nullable": true },
+                            "last_activity": { "type": "string", "format": "date-time", "nullable": true }
+                          }
+                        }
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "requestedUserIds": { "type": "integer" },
+                        "from": { "type": "string", "format": "date-time", "nullable": true },
+                        "to": { "type": "string", "format": "date-time", "nullable": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid input" }
+        }
+      }
+    },
     "/api/users/{userId}/projects": {
       "get": {
         "summary": "Get projects associated with a user (from session tracking)",

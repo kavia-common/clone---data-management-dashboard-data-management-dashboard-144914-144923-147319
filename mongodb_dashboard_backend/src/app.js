@@ -106,6 +106,7 @@ safeUse('/', baseRouter);
 
 safeUse('/api/dev', require('./routes/dev.routes'));
 safeUse('/api/users', require('./routes/users.routes'));
+safeUse('/api/users', require('./routes/users.projects.batch.routes'));
 safeUse('/api/users', require('./routes/users.analytics.summary.routes'));
 
 const { getUsersTenantSummary } = require('./controllers/users.analytics.summary.controller');
