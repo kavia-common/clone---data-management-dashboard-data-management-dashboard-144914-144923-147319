@@ -32,7 +32,7 @@ try {
 // Concise startup banner
 try {
   // eslint-disable-next-line no-console
-  console.log(`[startup] ${NODE_ENV} | ${HOST}:${PORT}`);
+  console.log(`[startup] express-backend | env=${NODE_ENV} | bind=${HOST}:${PORT}`);
 } catch {}
 
 /**

@@ -79,9 +79,11 @@ app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-// ---------------------------------------------
-// Health endpoints
-// ---------------------------------------------
+/**
+ * PUBLIC_INTERFACE
+ * Health endpoints (no-auth)
+ * Responds with { status, db, timestamp } where db reflects mongoose connection state.
+ */
 const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
@@ -103,6 +105,14 @@ const safeUse = (path, router) => {
 
 const baseRouter = require('./routes');
 safeUse('/', baseRouter);
+
+// Lightweight dev helper (no-auth) for quick instructions
+try {
+  const { usage } = require('./controllers/_docs.usage');
+  app.get('/api/usage', usage);
+} catch (_) {
+  // ignore if controller not found
+}
 
 safeUse('/api/dev', require('./routes/dev.routes'));
 safeUse('/api/users', require('./routes/users.routes'));
