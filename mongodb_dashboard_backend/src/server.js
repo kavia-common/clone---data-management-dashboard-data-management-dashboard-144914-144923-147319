@@ -7,7 +7,12 @@ const app = require('./app');
 const mongoose = require('mongoose');
 
 const PORT = Number(process.env.PORT || process.env.REACT_APP_PORT) || 3001;
-const HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';
+const HOST = (() => {
+  // Avoid binding to non-routable hosts which can trigger EADDRNOTAVAIL in container/preview envs.
+  const envHost = process.env.HOST || '';
+  if (!envHost || envHost === 'localhost' || envHost === '127.0.0.1') return '0.0.0.0';
+  return envHost;
+})();
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const NODE_OPTIONS = process.env.NODE_OPTIONS || '';
 const GENERATE_SOURCEMAP = process.env.GENERATE_SOURCEMAP;

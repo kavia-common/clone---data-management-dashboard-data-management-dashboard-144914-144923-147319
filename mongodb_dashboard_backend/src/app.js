@@ -146,7 +146,9 @@ app.use((req, res, next) => {
     res.once('finish', () => {
       const end = process.hrtime.bigint();
       const ms = Number(end - start) / 1e6;
-      console.log(`[LLM-COSTS][TIMING] ${ms.toFixed(1)}ms status=${res.statusCode}`);
+      // Include resolved tenant for easier verification in logs
+      const tenant = req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id || req?.auth?.tenantId || '';
+      console.log(`[LLM-COSTS][TIMING] ${ms.toFixed(1)}ms status=${res.statusCode} tenant=${tenant || 'n/a'}`);
     });
   }
   next();

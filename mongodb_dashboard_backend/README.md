@@ -20,7 +20,21 @@ DEBUG_LLMCOSTS_EXPLAIN=1 npm run dev
 - Default port: 3001 (configurable via PORT in .env)
 - Host bind: 0.0.0.0 by default (configurable via HOST; if HOST is unset or set to 'localhost', the server will bind to 0.0.0.0 to avoid EADDRNOTAVAIL in preview/container environments)
 - Docs (Swagger UI): http://localhost:3001/api/docs (aliases: http://localhost:3001/api-docs and http://localhost:3001/docs)
-- OpenAPI JSON: http://localhost:3001/api/docs.json (aliases: http://localhost:3001/openapi.json and http://localhost:3001/api-docs.json)
+- OpenAPI JSON: http://localhost:3001/api/docs.json (aliases: http://localhost:3001/openapi.json and http://localhost:1/api-docs.json)
+
+No dev proxy/self-proxy
+- This backend is standalone; it does not proxy to itself or to a React dev server. Ensure any frontend proxy is configured to point to this backend URL directly, not vice-versa.
+- Do not add http-proxy-middleware inside this server to target http://localhost:3001, as that can cause EADDRNOTAVAIL in certain environments.
+- Start commands use: node src/server.js (no watch in CI by default).
+- In CI, prefer: npm run start:lean
+
+Quick verification for llm-costs
+- List costs (requires tenant via header when no JWT):
+  curl -i -H "x-organization-id: T0015" "http://localhost:3001/api/llm-costs?page=1&limit=10"
+- Diagnostics (last captured by the above call):
+  curl -i "http://localhost:3001/api/llm-costs/diagnostics/last"
+- Expect 200 in < 2s with headers:
+  x-effective-tenant, x-llm-filter, x-llm-projection, x-llm-sort, x-llm-page, x-llm-limit, x-llm-timing-*
 
 Quick start (development)
 - cd data-management-dashboard-144914-144923/mongodb_dashboard_backend
