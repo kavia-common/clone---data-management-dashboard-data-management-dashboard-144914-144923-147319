@@ -1,6 +1,5 @@
 'use strict';
 
-// Note: computeDuration helper was intentionally omitted (unused) to satisfy linter/build.
 const SessionTracking = require('../models/sessionTracking.model');
 const { success, failure } = require('../utils/http');
 const { isValidISODate, parseISODateSafe, startOfDayUTC } = require('../utils/date');

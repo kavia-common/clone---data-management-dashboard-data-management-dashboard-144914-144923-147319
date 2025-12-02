@@ -21,7 +21,7 @@
 // ============================================================================
 
 const { getCollection } = require('../config/db');
-const { roundTo } = require('../utils/currency');
+const { parseCurrencyToNumber, roundTo } = require('../utils/currency');
 
 /**
  * Utility: determine collection candidates from env and defaults.

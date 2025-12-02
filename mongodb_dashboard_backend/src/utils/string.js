@@ -27,17 +27,7 @@ function toTitleCase(str) {
     .join(' ');
 }
 
-/**
- * Escape special regex characters in a string for safe usage in new RegExp.
- * Avoids unnecessary escaping of forward slashes.
- */
-function escapeRegex(str = '') {
-  if (typeof str !== 'string') return '';
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 module.exports = {
   normalizeWhitespace,
   toTitleCase,
-  escapeRegex,
 };
