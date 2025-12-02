@@ -169,7 +169,8 @@ async function fetchUserProjects(key, url, { query, signal }) {
 /**
  * PUBLIC_INTERFACE
  * useUsersProjects
- * Centralized hook to fetch user's projects with aggressive coalescing and caching.
+ * Centralized hook to fetch a single user's projects with aggressive coalescing and caching.
+ * NOTE: Prefer useUsersProjectsBatch when rendering lists/tables to avoid N calls.
  *
  * Features:
  * - Debouncing (default 400ms) to absorb rapid filter changes.

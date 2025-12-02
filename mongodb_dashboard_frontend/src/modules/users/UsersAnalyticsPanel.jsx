@@ -14,6 +14,7 @@ import {
   Cell,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
+import useUsersProjectsBatch from "../../hooks/useUsersProjectsBatch";
 
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
@@ -25,10 +26,12 @@ import Skeleton from "../../components/ui/Skeleton";
  * - Projects by User (bar)
  * - Projects by Department (pie/donut)
  *
- * Data source:
- * - Reuses /api/users to get users, then uses /api/users/:userId/projects
- *   to fetch per-user projects when available. Falls back to client-side
- *   aggregation from data already loaded if needed.
+ * Data flow (batched):
+ * - Fetch users once via useUsers().
+ * - Build a single userIds array and call useUsersProjectsBatch({ userIds, organization_id, from, to }).
+ * - Read per-user projects from the returned map keyed by userId.
+ * This replaces previous per-item fetch loops and eliminates N calls. The batch hook dedupes,
+ * debounces, and cancels in-flight requests to avoid re-fetch loops.
  *
  * Filters:
  * - Date range (start, end with explicit ISO)
@@ -88,68 +91,26 @@ export default function UsersAnalyticsPanel({
     limit: 200,
   });
 
-  // Fetch projects per user via centralized coalesced hook
-  // We maintain a mapping of userId -> projects, and derive loading/error states.
-  const [projectsByUser, setProjectsByUser] = useState({});
-  const [projectsLoading, setProjectsLoading] = useState(false);
-  const [projectsError, setProjectsError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
-      setProjectsByUser({});
-      setProjectsLoading(false);
-      setProjectsError("");
-      return;
-    }
-
-    // Drive loads in small groups by reading through the shared cache as results come in
-    setProjectsLoading(true);
-    setProjectsError("");
-
-    const loadForUsers = async () => {
-      try {
-        // Kick off loads (coalesced) and await them; duplicate keys will be deduped by the hook internals
-        const results = await Promise.all(
-          users.map(async (u) => {
-            const uid = String(u?._id || "");
-            if (!uid) return [uid, []];
-            try {
-              const resp = await (async () => {
-                // Leverage the same fetch logic as the hook by calling the API via fetch with ETag/dedupe.
-                const params = new URLSearchParams({
-                  organization_id: activeTenantId,
-                  from: startISO,
-                  to: endISO,
-                });
-                const res = await fetch(`/api/users/${encodeURIComponent(uid)}/projects?${params.toString()}`);
-                const payload = await res.json().catch(() => null);
-                const data = payload?.data ?? payload;
-                return Array.isArray(data?.projects) ? data.projects : [];
-              })();
-              return [uid, resp];
-            } catch {
-              return [uid, []];
-            }
-          })
-        );
-        if (cancelled) return;
-        const acc = {};
-        results.forEach(([uid, list]) => { acc[uid] = list; });
-        setProjectsByUser(acc);
-      } catch (e) {
-        if (!cancelled) {
-          setProjectsError(e?.message || "Failed to load user projects.");
-          setProjectsByUser({});
-        }
-      } finally {
-        if (!cancelled) setProjectsLoading(false);
-      }
-    };
-
-    loadForUsers();
-    return () => { cancelled = true; };
-  }, [users, activeTenantId, startISO, endISO]);
+  // Fetch projects for all users in one batched request.
+  // PUBLIC_INTERFACE: Centralized data flow
+  // - We gather userIds from the users list and send one request via the batch hook.
+  // - The hook ensures dedupe/debounce/cancellation and returns a map keyed by userId.
+  const userIds = useMemo(
+    () => (Array.isArray(users) ? users.map((u) => String(u?._id || u?.id || "")).filter(Boolean) : []),
+    [users]
+  );
+  const {
+    data: projectsByUser = {},
+    loading: projectsLoading,
+    error: projectsError,
+  } = useUsersProjectsBatch({
+    userIds,
+    organization_id: activeTenantId,
+    from: startISO,
+    to: endISO,
+    enabled: Boolean(activeTenantId && userIds.length > 0),
+    debounceMs: 300,
+  });
 
   // Aggregations
   const aggregates = useMemo(() => {
