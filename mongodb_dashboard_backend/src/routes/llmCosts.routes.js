@@ -19,6 +19,10 @@ const router = express.Router();
  * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } on the model.
  */
 const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
+/**
+ * Note: list handler applies capped limit (<=100) for /api/llm-costs and enforces early tenant $match with
+ * projection and operation maxTimeMS to prevent timeouts under heavy load.
+ */
 
 /**
  * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls

@@ -25,6 +25,28 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 router.get(
   '/',
   asyncHandler(async (req, res) => {
+    // Validate required tenant input: organization_id (alias tenant_id/header) required for public access
+    const suppliedOrg =
+      (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+      (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+      '';
+    const isBypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass);
+    if (!isBypass && !suppliedOrg && !req.tenantId) {
+      return res.status(400).json({ success: false, message: 'organization_id is required' });
+    }
+    // Enforce limit hard max=100
+    if (typeof req.query.limit !== 'undefined') {
+      const n = parseInt(req.query.limit, 10);
+      if (!Number.isFinite(n) || n < 1) {
+        return res.status(400).json({ success: false, message: 'Invalid limit: must be >=1' });
+      }
+      if (n > 100) {
+        req.query.limit = '100';
+      }
+    }
+
     // Per requirement: Ignore/remove any 'filter' param entirely for GET /api/llm-costs
     // Preserve tenant scoping via middleware/controller and keep sort/limit behavior.
     if (typeof req.query.filter !== 'undefined') {

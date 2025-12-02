@@ -210,7 +210,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Parse pagination but hard-cap the limit to prevent heavy responses.
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
-      const hardCappedLimit = clampLimit(parsedLimit, 500);
+      // Enforce stricter max for llm-costs to avoid large payloads causing timeouts
+      const isCostsRoute = (req.baseUrl || '').endsWith('/llm-costs') || (req.originalUrl || '').includes('/api/llm-costs');
+      const hardCappedLimit = clampLimit(parsedLimit, isCostsRoute ? 100 : 500);
 
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
@@ -242,6 +244,11 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
       }
       if (!bypass && !req.tenantId) {
+        // Special-case GET /api/llm-costs to provide clearer message
+        const isCostsRoute = (req.baseUrl || '').endsWith('/llm-costs') || (req.originalUrl || '').includes('/api/llm-costs');
+        if (isCostsRoute) {
+          return failure(res, 'Missing tenant scope: provide organization_id (alias: tenant_id or x-organization-id header)', 400);
+        }
         return failure(res, 'Missing tenant scope', 400);
       }
 
@@ -258,6 +265,26 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const hasAuthHeader = !!req.headers?.authorization;
       if (!bypass && hasAuthHeader && clientRequestedTenant && String(clientRequestedTenant) !== String(req.tenantId)) {
         return failure(res, 'Forbidden: tenant scope mismatch', 403);
+      }
+
+      // Validate page/limit/organization_id for /api/llm-costs route to ensure fast failures and predictable pagination
+      if ((req.baseUrl || '').endsWith('/llm-costs') || (req.originalUrl || '').includes('/api/llm-costs')) {
+        // Require organization_id/tenant_id when not bypassing
+        if (!bypass) {
+          const suppliedOrg = (req.query?.organization_id || req.query?.tenant_id || req.headers?.['x-organization-id'] || req.headers?.['x-tenant-id'] || '').toString().trim();
+          if (!suppliedOrg && !req.tenantId) {
+            return failure(res, 'organization_id (or tenant_id) is required for this endpoint', 400);
+          }
+        }
+        // Validate page and limit boundaries
+        const qPage = parseInt(req.query?.page, 10);
+        const qLimit = parseInt(req.query?.limit, 10);
+        if (Number.isFinite(qPage) && qPage < 1) {
+          return failure(res, 'Invalid page: must be >= 1', 400);
+        }
+        if (Number.isFinite(qLimit) && (qLimit < 1 || qLimit > 100)) {
+          return failure(res, 'Invalid limit: must be between 1 and 100', 400);
+        }
       }
 
       // Build final applied filter with robust tenant alias removal and normalized OR across aliases
@@ -330,32 +357,33 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 : { timestamp: -1 };
               const pipeline = [
                 { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-                { $addFields: {
-                    timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                // Project only fields commonly needed by UI to reduce document size
+                { $project: {
+                    task_id: 1,
+                    session_id: 1,
+                    tenant_id: 1,
                     organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
-                    numeric_total_cost: {
-                      $convert: {
-                        input: {
-                          $replaceAll: {
-                            input: { $toString: { $ifNull: ['$total_cost', 0] } },
-                            find: '$',
-                            replacement: ''
-                          }
-                        },
-                        to: 'double',
-                        onError: 0,
-                        onNull: 0
-                      }
-                    }
+                    user_id: 1,
+                    llm_model: 1,
+                    provider: 1,
+                    service_type: 1,
+                    total_cost: 1,
+                    currency: 1,
+                    // Normalize timestamp for sort
+                    timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                    created_at: 1,
+                    updated_at: 1
                   }
                 },
                 { $sort: sortStage },
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
+              items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 1500 });
             } catch (_) {
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              // Fallback to find with projection and maxTimeMS
+              const projection = { breakdown: 0, metadata: 0 }; // drop heavy fields by default
+              items = await Model.find(appliedFilter, projection).sort(safeSort).skip(skip).limit(hardCappedLimit).maxTimeMS(1500).allowDiskUse(true).lean();
             }
           } else if (isAppDeployment) {
             try {
@@ -382,15 +410,22 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
+              items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 1500 });
             } catch (_) {
               // Fallback: simple find; project_name may be missing if stored under a different key
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).maxTimeMS(1500).allowDiskUse(true).lean();
             }
           } else {
-            items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+            items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).maxTimeMS(1500).allowDiskUse(true).lean();
           }
-          const total = await Model.countDocuments(appliedFilter);
+          // Protect count with a short maxTimeMS when supported
+          let total = 0;
+          try {
+            const countQuery = Model.countDocuments(appliedFilter);
+            total = typeof countQuery.maxTimeMS === 'function' ? await countQuery.maxTimeMS(1000) : await countQuery;
+          } catch {
+            total = 0;
+          }
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
@@ -398,7 +433,17 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
         // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
-        let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        let query;
+        if (isLLMCost) {
+          // Drop heavy fields and set maxTime to prevent timeouts
+          query = Model.find(appliedFilter, { breakdown: 0, metadata: 0 })
+            .sort(safeSort)
+            .maxTimeMS(1500)
+            .allowDiskUse(true)
+            .lean();
+        } else {
+          query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        }
         try {
           if (isLLMCost) {
             // Use aggregation for minimal transformation without large memory footprint
@@ -425,7 +470,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            const items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 1500 });
             return res.status(200).json(items);
           }
           if (isAppDeployment) {
