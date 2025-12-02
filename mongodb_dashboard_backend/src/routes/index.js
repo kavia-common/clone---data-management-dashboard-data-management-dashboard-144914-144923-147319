@@ -21,6 +21,11 @@ const { analyticsOverviewRouter } = require('./analytics.overview.routes');
 
 const router = express.Router();
 
+// Mount development verification routes only when not in production
+if (process.env.NODE_ENV !== 'production') {
+  router.use('/dev', require('./dev.verify.routes'));
+}
+
 /**
  * PUBLIC_INTERFACE
  * GET /
