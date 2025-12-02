@@ -237,8 +237,30 @@ router.use((req, res, next) => {
   next();
 });
 
+const { getSessionTrackingAggregates, getSessionTrackingRaw } = require('../controllers/sessionTracking.analytics.controller');
+
+// Aggregation endpoint must be defined before the generic list endpoint to avoid shadowing query param handling
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/session-tracking
+ * Summary: Aggregated sessions count over time
+ * Query: interval=(daily|weekly|monthly|custom), start, end
+ * Returns: { data: [{ date, count }], meta: { interval, start, end, total } }
+ */
+router.get('/', sessionsEarlyBypassDetector, asyncHandler(getSessionTrackingAggregates));
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/session-tracking/raw
+ * Summary: Raw matched documents (minimal fields) for verification
+ * Query: start, end (ISO)
+ */
+router.get('/raw', sessionsEarlyBypassDetector, asyncHandler(getSessionTrackingRaw));
+
+// Backwards compatible list endpoint retained at GET /api/session-tracking (when no interval param provided legacy code used this path).
+// Move legacy list to /api/session-tracking/list to avoid clash, and keep old handler mounted at /list.
 router.get(
-  '/',
+  '/list',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
 
