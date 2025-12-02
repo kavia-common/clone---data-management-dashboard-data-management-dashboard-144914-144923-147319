@@ -116,6 +116,14 @@ const safeUse = (path, router) => {
 const baseRouter = require('./routes');
 safeUse('/', baseRouter);
 
+// Kick off index creation for llm-costs collection in background (non-blocking)
+try {
+  const LLMCost = require('./models/llmCosts.model');
+  if (LLMCost && typeof LLMCost.ensureKeyIndexes === 'function') {
+    LLMCost.ensureKeyIndexes().catch(() => {});
+  }
+} catch {}
+
 safeUse('/api/dev', require('./routes/dev.routes'));
 safeUse('/api/users', require('./routes/users.routes'));
 safeUse('/api/users', require('./routes/users.analytics.summary.routes'));

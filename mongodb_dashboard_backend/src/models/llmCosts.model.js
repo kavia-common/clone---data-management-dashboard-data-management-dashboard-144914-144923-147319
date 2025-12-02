@@ -52,6 +52,19 @@ LLMCostsSchema.index({ task_id: 1 });
 // Optimize direct project_id lookups for usage endpoint
 LLMCostsSchema.index({ project_id: 1 });
 
+// PUBLIC_INTERFACE
+/**
+ * Ensures key indexes exist without blocking requests. Use in startup paths.
+ */
+LLMCostsSchema.statics.ensureKeyIndexes = async function ensureKeyIndexes() {
+  try {
+    await this.createIndexes();
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[LLMCost] ensureKeyIndexes warning:', e?.message || e);
+  }
+};
+
 LLMCostsSchema.pre('findOneAndUpdate', function (next) {
   this.set({ updated_at: new Date() });
   next();

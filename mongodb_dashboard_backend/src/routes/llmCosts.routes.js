@@ -2,11 +2,11 @@
 
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
-const { buildCrudController } = require('../controllers/crudFactory');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
+const mongoose = require('mongoose');
 
 /**
  * PUBLIC_INTERFACE
@@ -14,11 +14,49 @@ const LLMCost = require('../models/llmCosts.model');
  * Exposes CRUD endpoints with tenant enforcement.
  */
 const router = express.Router();
+
 /**
- * Use safe default sort on indexed field 'timestamp' in descending order.
- * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } on the model.
+ * Whitelist of allowed sortable fields to avoid unindexed or unsafe sorts.
  */
-const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
+const SORT_WHITELIST = new Set(['timestamp', 'created_at', '_id', 'total_cost']);
+
+/**
+ * Parse sort string like "-timestamp" or "created_at" into Mongoose sort object.
+ * Falls back to -timestamp when invalid or not allowed.
+ */
+function parseSort(sortStr) {
+  const raw = (sortStr || '').toString().trim();
+  if (!raw) return { timestamp: -1 };
+  let dir = 1;
+  let field = raw;
+  if (raw.startsWith('-')) {
+    dir = -1;
+    field = raw.substring(1);
+  }
+  if (!SORT_WHITELIST.has(field)) return { timestamp: -1 };
+  return { [field]: dir };
+}
+
+/**
+ * Parse JSON filter defensively. Returns {} on error.
+ * Tenant fields are stripped; caller injects tenant criterion separately.
+ */
+function parseFilter(filterStr) {
+  if (!filterStr || typeof filterStr !== 'string') return {};
+  try {
+    const f = JSON.parse(filterStr);
+    if (!f || typeof f !== 'object') return {};
+    delete f.tenant_id;
+    delete f.tenantId;
+    delete f.organization_id;
+    delete f.organizationId;
+    delete f.orgId;
+    delete f['tenant.tenant_id'];
+    return f;
+  } catch {
+    return { __invalidFilter: true };
+  }
+}
 
 /**
  * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls
@@ -196,11 +234,222 @@ router.use((req, res, next) => {
  *       403:
  *         description: Forbidden on tenant mismatch with Authorization
  */
-router.get('/', asyncHandler(controller.list));
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/llm-costs
+ * Fast list with tenant scoping, pagination defaults, safe sorting, and projection.
+ * - Returns 200 with envelope when page/limit provided, else raw array (up to safe cap).
+ * - Returns 204 when no data quickly.
+ */
+router.get('/', asyncHandler(async (req, res) => {
+  // Resolve tenant and T0000 bypass
+  const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
+  let tenant = req.tenantId || req?.auth?.tenantId || null;
 
-router.get('/:id', asyncHandler(controller.getById));
-router.post('/', asyncHandler(controller.create));
-router.put('/:id', asyncHandler(controller.update));
-router.delete('/:id', asyncHandler(controller.remove));
+  // If Authorization present and client provided tenant different from JWT tenant, reject (unless bypass)
+  if (!bypass && req.headers?.authorization) {
+    const clientRequestedTenant =
+      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+      (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+      (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      '';
+    if (clientRequestedTenant && tenant && String(clientRequestedTenant) !== String(tenant)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+    }
+  }
+
+  // Apply T0000 header/query bypass
+  try {
+    const hinted = (req.headers?.['x-organization-id'] || req.query?.organization_id || req.query?.tenant_id || '').toString();
+    if (hinted && /^T0+$/i.test(hinted)) {
+      tenant = null;
+    }
+  } catch {}
+
+  // Parse query params
+  const page = Math.max(1, parseInt(req.query?.page || '1', 10) || 1);
+  const limitRaw = parseInt(req.query?.limit || '10', 10);
+  const limit = Math.min(200, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 10));
+  const envelope = !!(req.query?.page || req.query?.limit);
+  const sort = parseSort(req.query?.sort);
+
+  // Filter
+  const filterParsed = parseFilter(req.query?.filter);
+  if (filterParsed.__invalidFilter) {
+    return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+  }
+
+  // Build Mongo filter with tenant
+  let mongoFilter = { ...filterParsed };
+  if (!bypass && tenant) {
+    const t = String(tenant);
+    mongoFilter = Object.keys(mongoFilter).length
+      ? { $and: [mongoFilter, { $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }] }] }
+      : { $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }] };
+  }
+
+  // Projection to reduce payload size for list; include common fields
+  const projection = {
+    tenant_id: 1,
+    organization_id: 1,
+    user_id: 1,
+    llm_model: 1,
+    provider: 1,
+    service_type: 1,
+    operation: 1,
+    total_cost: 1,
+    currency: 1,
+    timestamp: 1,
+    created_at: 1,
+  };
+
+  // Query with abort signal timeout to prevent long hangs
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000); // 15s safety
+  try {
+    const query = LLMCost.find(mongoFilter, projection, { signal: controller.signal })
+      .sort(sort)
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    // Hint index when sorting by timestamp with tenant filter to speed up
+    try {
+      if (sort.timestamp && sort.timestamp !== 0 && !bypass && tenant) {
+        query.hint({ tenant_id: 1, timestamp: -1 });
+      }
+    } catch {}
+
+    const docs = await query.lean().exec();
+
+    // Set diagnostics headers
+    try {
+      res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
+      if (bypass) {
+        res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
+      } else if (tenant) {
+        res.set('X-Applied-Tenant', String(tenant));
+      }
+    } catch {}
+
+    if (!docs || docs.length === 0) {
+      return res.status(204).send();
+    }
+
+    if (envelope) {
+      // Lightweight total: avoid full count with heavy filters by limiting to estimated count when possible
+      // Try fast count; if it errors or times out, fall back to docs.length as a conservative value
+      let total = docs.length;
+      try {
+        const countController = new AbortController();
+        const countTimeout = setTimeout(() => countController.abort(), 3000); // 3s cap
+        total = await LLMCost.countDocuments(mongoFilter, { signal: countController.signal }).exec();
+        clearTimeout(countTimeout);
+      } catch {
+        // keep fallback
+      }
+      return res.status(200).json({
+        success: true,
+        data: docs,
+        meta: { page, limit, total },
+      });
+    }
+
+    return res.status(200).json(docs);
+  } catch (err) {
+    if (err && (err.name === 'AbortError' || err.code === 'ABORT_ERR')) {
+      return res.status(503).json({ success: false, message: 'Query timeout' });
+    }
+    // Map common cast errors to 400
+    if (err && err.name === 'CastError') {
+      return res.status(400).json({ success: false, message: 'Invalid query parameter' });
+    }
+    // Generic failure
+    return res.status(500).json({ success: false, message: 'Internal Server Error' });
+  } finally {
+    clearTimeout(timeout);
+  }
+}));
+
+// Keep ID-based routes simple via Mongoose, with tenant check if applicable
+router.get('/:id', asyncHandler(async (req, res) => {
+  const id = req.params.id;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ success: false, message: 'Invalid id' });
+  }
+
+  const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
+  const tenant = req.tenantId || req?.auth?.tenantId || null;
+
+  const filter = { _id: id };
+  if (!bypass && tenant) {
+    const t = String(tenant);
+    filter.$or = [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }];
+  }
+
+  const doc = await LLMCost.findOne(filter).lean().exec();
+  if (!doc) return res.status(404).json({ success: false, message: 'Not found' });
+  return res.status(200).json(doc);
+}));
+
+router.post('/', asyncHandler(async (req, res) => {
+  const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
+  let payload = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+  if (!bypass) {
+    const tenant = req.tenantId || req?.auth?.tenantId || null;
+    if (!tenant) return res.status(400).json({ success: false, message: 'Missing tenant' });
+    if (!('tenant_id' in payload)) payload.tenant_id = String(tenant);
+  }
+  try {
+    const created = await LLMCost.create(payload);
+    return res.status(201).json(created);
+  } catch (e) {
+    if (e && e.name === 'ValidationError') {
+      return res.status(422).json({ success: false, message: 'Validation failed', details: e.errors });
+    }
+    return res.status(400).json({ success: false, message: e?.message || 'Bad request' });
+  }
+}));
+
+router.put('/:id', asyncHandler(async (req, res) => {
+  const id = req.params.id;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ success: false, message: 'Invalid id' });
+  }
+  const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
+  const tenant = req.tenantId || req?.auth?.tenantId || null;
+  const filter = { _id: id };
+  if (!bypass && tenant) {
+    const t = String(tenant);
+    filter.$or = [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }];
+  }
+  try {
+    const updated = await LLMCost.findOneAndUpdate(filter, req.body || {}, { new: true }).lean().exec();
+    if (!updated) return res.status(404).json({ success: false, message: 'Not found' });
+    return res.status(200).json(updated);
+  } catch (e) {
+    if (e && e.name === 'ValidationError') {
+      return res.status(422).json({ success: false, message: 'Validation failed', details: e.errors });
+    }
+    return res.status(400).json({ success: false, message: e?.message || 'Bad request' });
+  }
+}));
+
+router.delete('/:id', asyncHandler(async (req, res) => {
+  const id = req.params.id;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ success: false, message: 'Invalid id' });
+  }
+  const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
+  const tenant = req.tenantId || req?.auth?.tenantId || null;
+  const filter = { _id: id };
+  if (!bypass && tenant) {
+    const t = String(tenant);
+    filter.$or = [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }];
+  }
+  const result = await LLMCost.deleteOne(filter).exec();
+  if (result.deletedCount === 0) return res.status(404).json({ success: false, message: 'Not found' });
+  return res.status(200).json({ success: true, deleted: 1 });
+}));
 
 module.exports = router;
