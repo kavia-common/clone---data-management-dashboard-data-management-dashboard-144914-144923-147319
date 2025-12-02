@@ -41,7 +41,7 @@ export default [
       "no-console": "off",
       "prefer-const": "warn",
       "object-shorthand": ["warn", "always"],
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", ignoreRestSiblings: true }],
 
       // Not a React project in this container; ensure no react rules interfere even if auto-detected
       "react-hooks/rules-of-hooks": "off",

@@ -14,7 +14,8 @@
     "test": "cross-env CI=true NODE_ENV=test jest --runInBand --ci --reporters=default",
     "lint": "eslint . || true",
     "lint:fix": "eslint . --fix || true",
-    "postinstall": "echo 'Skipping browserslist update for backend' && npx --yes update-browserslist-db@latest --no-funding --no-update-notifier || true",
+    "postinstall": "echo 'Updating browserslist DB (backend)' && npx --yes update-browserslist-db@latest --no-funding --no-update-notifier || true",
+    "browserslist:update": "npx --yes update-browserslist-db@latest --no-funding --no-update-notifier",
     "gen:openapi": "node generate_openapi.js"
   },
   "dependencies": {
