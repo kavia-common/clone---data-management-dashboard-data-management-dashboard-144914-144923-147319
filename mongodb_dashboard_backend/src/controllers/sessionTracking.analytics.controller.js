@@ -95,7 +95,7 @@ async function getSessionTrackingAggregates(req, res) {
     const tenantId = req.tenantId;
 
     if (!bypass && !tenantId) {
-      return failure(res, 'tenant_id is required', 400);
+      return failure(res, 'tenant_id is required for this endpoint. Provide query ?tenant_id=... or header x-organization-id when not authenticated as superadmin.', 400);
     }
 
     // Compose $match
@@ -114,10 +114,13 @@ async function getSessionTrackingAggregates(req, res) {
     let unit = 'day';
     if (interval === 'weekly') unit = 'week';
     if (interval === 'monthly') unit = 'month';
-    // For custom, still bucket by day as requested
     if (interval === 'custom') unit = 'day';
 
-    // Aggregation pipeline
+    // Optional limit for number of buckets
+    let maxBuckets = parseInt(req.query.limit, 10);
+    if (!Number.isFinite(maxBuckets) || maxBuckets <= 0) maxBuckets = 200;
+    if (maxBuckets > 500) maxBuckets = 500;
+
     /** @type {import('mongoose').PipelineStage[]} */
     const pipeline = [
       { $match: match },
@@ -134,7 +137,13 @@ async function getSessionTrackingAggregates(req, res) {
         },
       },
       { $sort: { _id: 1 } },
+      { $limit: maxBuckets },
     ];
+
+    // Basic logging for diagnostics
+    try {
+      console.log('[sessionTracking.aggregate] unit=', unit, 'tenant=', bypass ? 'all' : tenantId, 'limitBuckets=', maxBuckets);
+    } catch (_) {}
 
     const rows = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
 
@@ -148,7 +157,12 @@ async function getSessionTrackingAggregates(req, res) {
     try {
       res.set('X-Session-Tracking-Interval', interval);
       res.set('X-Session-Tracking-Match', JSON.stringify({ ...match, session_start: '[omitted]' }));
+      res.set('X-Buckets', String(data.length));
     } catch {}
+
+    if (!data || data.length === 0) {
+      return res.status(204).send();
+    }
 
     return success(
       res,
@@ -162,6 +176,8 @@ async function getSessionTrackingAggregates(req, res) {
       200
     );
   } catch (err) {
+    // Descriptive error
+    try { console.error('[sessionTracking.aggregate] error:', err); } catch (_) {}
     return failure(res, err?.message || 'Aggregation failed', 500);
   }
 }
