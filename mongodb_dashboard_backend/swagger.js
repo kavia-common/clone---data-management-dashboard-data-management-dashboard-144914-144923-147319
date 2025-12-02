@@ -117,7 +117,12 @@ function sanitizeOpenApiDoc(doc) {
     };
   } else if (typeof doc.info.description === 'string') {
     // Keep description readable without unnecessary escape sequences
-    doc.info.description = doc.info.description.replace(/\s+/g, ' ').trim();
+    // 1) Collapse whitespace
+    // 2) Replace unnecessary backslash-escaped quotes inside plain text
+    doc.info.description = doc.info.description
+      .replace(/\s+/g, ' ')
+      .replace(/\\"/g, '"')
+      .trim();
   }
 
   // Inject common components if missing

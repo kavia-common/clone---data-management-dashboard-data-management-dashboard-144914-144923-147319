@@ -14,6 +14,17 @@ const app = express();
 // Middleware
 // ---------------------------------------------
 app.set('trust proxy', 1);
+
+// Lightweight request timeout header and socket timeout (observability + complement to server.js)
+app.use((req, res, next) => {
+  const timeoutMs = parseInt(process.env.API_REQUEST_TIMEOUT_MS || '60000', 10);
+  res.setHeader('X-Request-Timeout', `${timeoutMs}`);
+  if (typeof req.setTimeout === 'function') {
+    req.setTimeout(timeoutMs);
+  }
+  next();
+});
+
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
@@ -49,16 +60,8 @@ const buildDynamicSpec = (req) => {
     },
     // Use same-origin server so Swagger calls hit this backend instance
     url: `${protocol}://${fullHost}`,
-    // servers: [
-
-    //   {
-    //     url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-    //     description: 'Predefined dev server',
-    //   },
-    // ],
   };
 };
-
 
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
