@@ -196,7 +196,96 @@ router.use((req, res, next) => {
  *       403:
  *         description: Forbidden on tenant mismatch with Authorization
  */
-router.get('/', asyncHandler(controller.list));
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/llm-costs
+ * Adds:
+ * - Request-level timeout (default 12s, configurable via LLM_COSTS_ROUTE_TIMEOUT_MS)
+ * - Default date window if client does not request pagination and no explicit date filter is provided (last 30 days)
+ *   Applied on normalized timestamp: { $ifNull: ['$timestamp', '$created_at'] }
+ * - Defensive error handling to avoid upstream 504s by responding with 408 on handler timeout
+ */
+router.get(
+  '/',
+  asyncHandler(async (req, res, next) => {
+    const DEFAULT_TIMEOUT_MS = parseInt(process.env.LLM_COSTS_ROUTE_TIMEOUT_MS || '12000', 10);
+
+    // Setup per-request timeout to avoid hanging end-to-end -> translate to 408
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (!res.headersSent) {
+        try {
+          res.set('X-Server-Timeout', String(DEFAULT_TIMEOUT_MS));
+        } catch (_) {}
+        return res.status(408).json({
+          success: false,
+          message: 'Request timed out while processing LLM costs. Try reducing the time window or applying pagination.',
+        });
+      }
+    }, DEFAULT_TIMEOUT_MS);
+
+    try {
+      // If client did not explicitly paginate, ensure a sane default date window to prevent full collection scans.
+      // We only apply this for GET list root ('/'), when filter is empty or does not include date/timestamp keys.
+      const hasExplicitPagination =
+        typeof req.query.page !== 'undefined' || typeof req.query.limit !== 'undefined';
+
+      // Parse filter if present
+      let clientFilter = {};
+      if (typeof req.query.filter === 'string' && req.query.filter.trim() !== '') {
+        try {
+          clientFilter = JSON.parse(req.query.filter);
+        } catch {
+          // keep empty; crudFactory will 400 on invalid JSON normally,
+          // but ensure we don't fail here and let controller handle consistently.
+        }
+      }
+
+      const filterKeys = clientFilter && typeof clientFilter === 'object' ? Object.keys(clientFilter) : [];
+      const hasAnyDateClause = filterKeys.some((k) =>
+        ['timestamp', 'created_at', 'createdAt', 'date', 'updated_at', 'updatedAt'].includes(k)
+      );
+
+      if (!hasExplicitPagination && !hasAnyDateClause) {
+        // Apply last 30 days default window
+        const now = new Date();
+        const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        // We can't project in basic find filter, so use the indexed field(s) directly:
+        // Prefer 'timestamp' if present, else 'created_at'
+        // crudFactory merges tenant filter after parsing filter JSON;
+        // we enrich filter JSON here so the list path can honor it.
+        const defaultDateFilter = {
+          $or: [
+            { timestamp: { $gte: from, $lte: now } },
+            { created_at: { $gte: from, $lte: now } },
+          ],
+        };
+        const merged =
+          clientFilter && typeof clientFilter === 'object' && Object.keys(clientFilter).length > 0
+            ? { $and: [clientFilter, defaultDateFilter] }
+            : defaultDateFilter;
+
+        req.query.filter = JSON.stringify(merged);
+        try {
+          res.set('X-Default-Date-Window', 'last-30-days');
+        } catch (_) {}
+      }
+
+      if (timedOut) return; // timer fired and response sent as 408
+
+      // Delegate to generic controller with safe sort enforcement and micro-cache
+      return controller.list(req, res);
+    } catch (err) {
+      if (!res.headersSent) {
+        return res.status(500).json({ success: false, message: 'Internal server error', error: err?.message });
+      }
+      return;
+    } finally {
+      clearTimeout(timer);
+    }
+  })
+);
 
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));

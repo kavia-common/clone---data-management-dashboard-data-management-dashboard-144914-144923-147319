@@ -59,6 +59,7 @@ try {
 const Tenant = require('../models/tenant.model');
 const Project = require('../models/project.model');
 const LLMCost = require('../models/llmCosts.model');
+const { getDb } = require('../config/db');
 
 /**
  * Guard: Only enable dev routes when NODE_ENV !== 'production'
@@ -429,6 +430,31 @@ router.get('/seed', asyncHandler(async (req, res) => {
  * Quickly verify data availability and basic querying across all collections.
  * Returns counts and the first 3 documents for each collection.
  */
+router.get('/llm-costs/ensure-indexes', asyncHandler(async (req, res) => {
+  if (!allowDev) { return res.status(403).json({ success: false, message: 'Dev routes disabled' }); }
+  try {
+    const db = await getDb();
+    const col = db.collection('llm-costs');
+    const created = [];
+    const ensure = async (spec, opts = {}) => {
+      try {
+        const name = await col.createIndex(spec, opts);
+        created.push({ spec, name });
+      } catch (e) {
+        created.push({ spec, error: e?.message || 'createIndex failed' });
+      }
+    };
+    await ensure({ tenant_id: 1, timestamp: -1 });
+    await ensure({ tenant_id: 1, created_at: -1 });
+    await ensure({ timestamp: -1 });
+    await ensure({ created_at: -1 });
+    await ensure({ total_cost: -1 });
+    return res.status(200).json({ success: true, created });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to ensure indexes', error: err?.message });
+  }
+}));
+
 router.get('/verify', asyncHandler(async (req, res) => {
   const [users, sample, sessions, apps, tenants, projects] = await Promise.all([
     User.find({}).limit(3).lean(),

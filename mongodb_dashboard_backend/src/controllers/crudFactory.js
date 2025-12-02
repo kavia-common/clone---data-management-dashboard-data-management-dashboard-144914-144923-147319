@@ -32,7 +32,11 @@ function clampLimit(limit, max = 500) {
  * Default TTL: 2000ms. Intended to mitigate bursts from quick sort/page toggles.
  * Note: In-memory and per-process only.
  */
-const MICRO_CACHE_TTL_MS = parseInt(process.env.MICRO_CACHE_TTL_MS || '2000', 10);
+const MICRO_CACHE_TTL_MS = parseInt(
+  // Allow a specific shorter TTL for heavy endpoints like llm-costs
+  process.env.LLM_COSTS_MICRO_CACHE_TTL_MS || process.env.MICRO_CACHE_TTL_MS || '1500',
+  10
+);
 const listMicroCache = new Map(); // key -> { expiresAt:number, payload:any }
 
 /**

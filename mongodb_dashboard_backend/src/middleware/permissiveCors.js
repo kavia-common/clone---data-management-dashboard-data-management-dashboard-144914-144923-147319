@@ -46,11 +46,17 @@ function permissiveCorsMiddleware(req, res, next) {
   const debug =
     process.env.NODE_ENV !== 'production' ||
     String(process.env.DEBUG || '').toLowerCase() === 'true';
-  if (debug && req.path && (req.path === '/api/users' || req.path.startsWith('/api/users'))) {
-     
-    console.log(
-      `[CORS][users] origin=${req.headers.origin || 'n/a'} ACRH=${requested || 'n/a'} method=${req.method}`
-    );
+  if (debug && req.path) {
+    if (req.path === '/api/users' || req.path.startsWith('/api/users')) {
+      console.log(
+        `[CORS][users] origin=${req.headers.origin || 'n/a'} ACRH=${requested || 'n/a'} method=${req.method}`
+      );
+    }
+    if (req.path === '/api/llm-costs' || req.path.startsWith('/api/llm-costs')) {
+      console.log(
+        `[CORS][llm-costs] origin=${req.headers.origin || 'n/a'} ACRH=${requested || 'n/a'} method=${req.method}`
+      );
+    }
   }
 
   // Handle preflight OPTIONS early with 204
