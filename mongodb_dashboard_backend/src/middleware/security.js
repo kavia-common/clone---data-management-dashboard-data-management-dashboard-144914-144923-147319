@@ -90,6 +90,7 @@ function corsMiddleware() {
    
   console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
 
+  // Build dynamic CORS instance with robust error tolerance in dev preview environments.
   const corsInstance = cors({
     origin: (origin, callback) => {
       if (!origin) {return callback(null, true);} // SSR / curl / same-origin

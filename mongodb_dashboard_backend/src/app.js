@@ -13,7 +13,7 @@ const app = express();
 // ---------------------------------------------
 // Middleware
 // ---------------------------------------------
-app.set('trust proxy', 1);
+app.set('trust proxy', String(process.env.REACT_APP_TRUST_PROXY || '1') === '0' ? false : 1);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
