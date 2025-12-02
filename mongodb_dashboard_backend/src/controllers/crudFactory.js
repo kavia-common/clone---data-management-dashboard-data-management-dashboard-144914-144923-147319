@@ -214,6 +214,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Parse pagination but hard-cap the limit to prevent heavy responses.
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
+      try {
+        res.set('X-Pagination', JSON.stringify({ page, limit: parsedLimit, skip, explicit }));
+      } catch (_) {}
       const hardCappedLimit = clampLimit(parsedLimit, 500);
 
       // Parse filter safely
@@ -246,7 +249,12 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
       }
       if (!bypass && !req.tenantId) {
-        return failure(res, 'Missing tenant scope', 400);
+        // Provide actionable message for clients and CI integration tests
+        return failure(
+          res,
+          'Missing tenant scope: pass x-organization-id header or ?tenant_id / ?organization_id. For Super Admin all tenants, use T0000 or x-all-tenants=true.',
+          400
+        );
       }
 
       // If Authorization present, any client-supplied tenant filter/header/query must not switch tenants.

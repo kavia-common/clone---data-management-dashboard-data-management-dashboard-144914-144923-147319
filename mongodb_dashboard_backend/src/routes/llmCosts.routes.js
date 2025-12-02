@@ -24,6 +24,13 @@ const controller = buildCrudController(LLMCost, '-timestamp'); // default indexe
  * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls
  * where Authorization may be missing and organization_id is provided as query/header.
  */
+/**
+ * Important: Do not force early 400 on missing JWT/tenant for list endpoint.
+ * We allow verifyAuth to run (demo token in dev), and requireTenant to resolve tenant from header/query.
+ * If tenant is still not present, the controller will return a clear 400 with diagnostics.
+ * This mirrors /api/users behavior and aligns with OpenAPI docs which allow x-organization-id or aliases
+ * when Authorization is not present (demo/testing scenarios).
+ */
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 
 /**
@@ -51,6 +58,7 @@ router.use((req, res, next) => {
         const resolved = hdrOrg || qOrg || undefined;
         if (resolved) {
           req.tenantId = String(resolved);
+          try { res.set('X-Tenant-Resolved-From', hdrOrg ? 'header' : 'query'); } catch (_) {}
         }
       }
     }

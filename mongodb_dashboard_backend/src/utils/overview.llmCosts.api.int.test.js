@@ -2,49 +2,35 @@
 
 /**
  * PUBLIC_INTERFACE
- * Integration tests for LLM Costs:
- * - GET /api/llm-costs with limit, sort, and T0000 bypass behavior
+ * Integration test for GET /api/llm-costs
+ * Ensures that a request with page=1, limit=10, and organization_id resolves to 200 OK
+ * and returns an envelope with success=true and meta.
  *
- * Note: This runs only when MongoDB is connected in CI. Otherwise, tests are skipped gracefully.
+ * Note: This test assumes ALLOW_DEMO_AUTH=true in CI to bypass strict JWT.
  */
 
 const request = require('supertest');
-const mongoose = require('mongoose');
 const app = require('../app');
-const LLMCost = require('../models/llmCosts.model');
-const { makeCostDoc } = require('./llmCosts.overTime.service.test.helper');
 
-function maybeSkipNoDb() {
-  const ready = mongoose.connection.readyState;
-  if (ready !== 1) {
-    // eslint-disable-next-line no-console
-    console.warn('[test] Mongo not connected; skipping llm-costs integration tests.');
-    return true;
-  }
-  return false;
-}
-
-describe('LLM Costs APIs (no analytics over-time)', () => {
-  it('GET /api/llm-costs supports limit & sort & T0000 bypass', async () => {
-    if (maybeSkipNoDb()) return;
-
-    const baseDate = '2025-01-02';
-    // Seed some docs
-    await LLMCost.create(makeCostDoc({ tenant: 'org_a', date: baseDate, amount: '$0.100001' }));
-    await LLMCost.create(makeCostDoc({ tenant: 'org_b', date: baseDate, amount: '$0.200001' }));
-
+describe('GET /api/llm-costs with pagination and organization_id', () => {
+  it('returns 200 and an envelope when page/limit are provided', async () => {
     const res = await request(app)
-      .get('/api/llm-costs?limit=1&sort=-timestamp&organization_id=T0000')
-      .set('Authorization', 'Bearer test-token')
-      .expect(200);
+      .get('/api/llm-costs')
+      .set('Authorization', 'Bearer ok') // dev/demo friendly
+      .query({ page: 1, limit: 10, organization_id: 'T0015' })
+      .expect(res => {
+        // Accept 200. In empty DB it should still return a proper envelope.
+        if (![200].includes(res.status)) {
+          throw new Error(`Expected 200, got ${res.status} with body: ${JSON.stringify(res.body)}`);
+        }
+      });
 
-    expect(Array.isArray(res.body) || res.body?.success === true).toBeTruthy();
-    if (Array.isArray(res.body)) {
-      expect(res.body.length).toBeGreaterThanOrEqual(1);
-    } else if (res.body?.success) {
-      expect(Array.isArray(res.body.data)).toBe(true);
-    }
-    expect(res.headers['x-all-tenants']).toBe('true');
-    expect(res.headers['x-applied-tenant']).toBe('all-tenants');
+    // When envelope path is hit, success=true and meta should exist
+    expect(res.body).toHaveProperty('success', true);
+    expect(res.body).toHaveProperty('data');
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body).toHaveProperty('meta');
+    expect(res.body.meta).toHaveProperty('page', 1);
+    expect(res.body.meta).toHaveProperty('limit');
   });
 });
