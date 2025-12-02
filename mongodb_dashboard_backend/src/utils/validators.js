@@ -24,4 +24,8 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * Exports validator helpers used across middleware and controllers.
+ */
 module.exports = { isValidUrl, isValidEmail };

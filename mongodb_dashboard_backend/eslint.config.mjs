@@ -28,6 +28,8 @@ export default [
     },
     linterOptions: {
       // Do not treat warnings as errors; CI should not fail on warnings
+      // If a CI environment treats warnings as errors, ensure scripts use `eslint . || true`
+      // or keep this configuration file to warnings-only for ergonomics.
       reportUnusedDisableDirectives: false,
     },
     rules: {
