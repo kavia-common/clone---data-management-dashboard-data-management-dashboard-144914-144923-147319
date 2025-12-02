@@ -210,7 +210,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Parse pagination but hard-cap the limit to prevent heavy responses.
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
-      const hardCappedLimit = clampLimit(parsedLimit, 500);
+      const hardCappedLimit = clampLimit(parsedLimit, 200); // keep within OpenAPI max 200
 
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
@@ -319,9 +319,13 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
-          if (cached) {return res.status(200).json(cached);}
+          if (cached) {
+            try { res.set('X-Query-Cache', 'micro'); } catch (_) {}
+            return res.status(200).json(cached);
+          }
           
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
+          const t0 = Date.now();
           let items;
           if (isLLMCost) {
             try {
@@ -393,12 +397,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           const total = await Model.countDocuments(appliedFilter);
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
+          try { res.set('X-Query-Duration', String(Date.now() - t0)); } catch (_) {}
           return res.status(200).json(payload);
         }
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
         // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
-        let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        const t0_np = Date.now();
+        // To prevent unbounded responses causing timeouts/OOM, cap non-explicit responses to 200 docs.
+        let query = Model.find(appliedFilter).sort(safeSort).limit(200).allowDiskUse(true).lean();
         try {
           if (isLLMCost) {
             // Use aggregation for minimal transformation without large memory footprint
@@ -426,6 +433,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
             const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            try { res.set('X-Query-Duration', String(Date.now() - t0_np)); } catch (_) {}
             return res.status(200).json(items);
           }
           if (isAppDeployment) {
@@ -452,6 +460,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           // Fallback to simple find if any aggregation operator unsupported
         }
         const items = await query;
+        try { res.set('X-Query-Duration', String(Date.now() - t0_np)); } catch (_) {}
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');

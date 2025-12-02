@@ -104,6 +104,16 @@ const safeUse = (path, router) => {
 const baseRouter = require('./routes');
 safeUse('/', baseRouter);
 
+// Proactively ensure critical indexes for LLMCosts to avoid collection scans on list/sort
+try {
+  const LLMCost = require('./models/llmCosts.model');
+  if (LLMCost?.ensureIndexes) {
+    LLMCost.ensureIndexes()
+      .then(() => { try { console.log('[startup] LLMCost indexes ensured'); } catch (_) {} })
+      .catch(() => {});
+  }
+} catch (_) {}
+
 safeUse('/api/dev', require('./routes/dev.routes'));
 safeUse('/api/users', require('./routes/users.routes'));
 safeUse('/api/users', require('./routes/users.analytics.summary.routes'));

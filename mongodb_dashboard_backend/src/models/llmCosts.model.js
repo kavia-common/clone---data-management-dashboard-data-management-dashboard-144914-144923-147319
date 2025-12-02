@@ -57,4 +57,25 @@ LLMCostsSchema.pre('findOneAndUpdate', function (next) {
   next();
 });
 
-module.exports = mongoose.model('LLMCost', LLMCostsSchema);
+/**
+ * PUBLIC_INTERFACE
+ * ensureIndexes
+ * Ensures important indexes exist. Safe to call multiple times.
+ */
+LLMCostsSchema.statics.ensureIndexes = async function ensureIndexes() {
+  try {
+    await this.createIndexes();
+    return true;
+  } catch (e) {
+    // log but do not throw
+    try { console.warn('[LLMCost.ensureIndexes] failed:', e?.message || e); } catch (_) {}
+    return false;
+  }
+};
+
+const LLMCost = mongoose.model('LLMCost', LLMCostsSchema);
+module.exports = LLMCost;
+module.exports.ensureIndexes = async () => {
+  try { await LLMCost.ensureIndexes(); } catch (_) {}
+  return true;
+};

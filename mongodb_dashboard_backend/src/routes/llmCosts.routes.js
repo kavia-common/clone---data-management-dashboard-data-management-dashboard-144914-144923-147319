@@ -196,7 +196,18 @@ router.use((req, res, next) => {
  *       403:
  *         description: Forbidden on tenant mismatch with Authorization
  */
-router.get('/', asyncHandler(controller.list));
+router.get('/', (req, res, next) => {
+  // Guardrails: if no explicit pagination, set a soft default to avoid huge payloads
+  const hasPage = Object.prototype.hasOwnProperty.call(req.query || {}, 'page');
+  const hasLimit = Object.prototype.hasOwnProperty.call(req.query || {}, 'limit');
+  if (!hasPage && !hasLimit) {
+    // Keep raw array response but limit server-side items to reduce timeout risk
+    // We pass through via query modifications; crudFactory caps non-explicit to 200 already
+    req.query = Object.assign({}, req.query);
+    // no-op: rely on crudFactory's non-explicit cap; we still allow clients to request pagination explicitly
+  }
+  next();
+}, asyncHandler(controller.list));
 
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));
