@@ -1,186 +1,21 @@
-// const express = require('express');
-// const { asyncHandler } = require('../utils/http');
-// const { parsePagination } = require('../utils/http');
-// const SessionTracking = require('../models/sessionTracking.model');
-// const { buildCrudController } = require('../controllers/crudFactory');
-// const { isValidISODate, parseISODateSafe } = require('../utils/date');
-
-// const router = express.Router();
-// const controller = buildCrudController(SessionTracking, '-session_start');
-
-// /**
-//  * @swagger
-//  * tags:
-//  *   name: SessionTracking
-//  *   description: Session tracking collection endpoints
-//  */
-
-// /**
-//  * List session tracking records.
-//  * Accepts: page, limit, tenant_id, start, end, filter, sort, q
-//  * Filters results between session_start >= start and session_start <= end if provided.
-//  * Deprecated: from, to (NO LONGER SUPPORTED -- only start/end valid).
-//  */
-// router.get(
-//   '/',
-//   asyncHandler(async (req, res) => {
-//     // Resolve tenant from middleware if available; keep legacy fallbacks for safety
-//     const enforcedTenant = req.tenantId ||
-//       (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-//       (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
-//       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-//       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-//       null;
-
-//     if (!enforcedTenant) {
-//       return res.status(400).json({
-//         success: false,
-//         message:
-//           'tenant_id is required. Provide ?tenant_id=... (or header x-organization-id / x-tenant-id).',
-//       });
-//     }
-
-//     // Pagination and filter logic
-//     const rawQuery = { ...req.query };
-//     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
-//     const { page, limit, skip, explicit } = parsePagination(rawQuery);
-//     const sort = req.query.sort || '-session_start';
-
-//     // Text search
-//     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-//     let qFilter = {};
-//     if (q) {
-//       const regex = new RegExp(q, 'i');
-//       qFilter = {
-//         $or: [
-//           { task_id: regex },
-//           { tenant_id: regex },
-//           { organization_name: regex },
-//           { user_name: regex },
-//           { User_name: regex },
-//           { project_id: regex },
-//           { container_id: regex },
-//           { service_type: regex },
-//           { status: regex },
-//           { user_id: regex },
-//           { 'session_data.session_name': regex },
-//           { 'session_data.description': regex },
-//           { 'session_data.llm_model': regex },
-//         ],
-//       };
-//     }
-
-//     // Backwards compatible: filter (JSON or string) with tenant guard
-//     const filterRaw = req.query.filter ? req.query.filter : '{}';
-//     let filter = {};
-//     try {
-//       filter = typeof filterRaw === 'string' ? JSON.parse(filterRaw) : filterRaw;
-//     } catch {
-//       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
-//     }
-//     // Remove legacy tenant keys (always imposed server-side)
-//     if (filter && typeof filter === 'object') {
-//       delete filter.organization_id;
-//       delete filter.tenant_id;
-//       delete filter.organizationId;
-//       if (Array.isArray(filter.$or)) delete filter.$or;
-//     }
-
-//     // Tenant scoping (always $or match all possible schema fields for org/tenant)
-//     const enforcedScope = enforcedTenant
-//       ? {
-//           $or: [
-//             { tenant_id: enforcedTenant },
-//             { organization_id: enforcedTenant },
-//             { organizationId: enforcedTenant },
-//           ],
-//         }
-//       : {};
-
-//     // NEW: Accept only start/end for date filtering
-//     let start = null;
-//     let end = null;
-//     const now = new Date();
-//     const DEFAULT_WINDOW_DAYS = 30;
-//     if (req.query.start || req.query.end) {
-//       if (req.query.start && isValidISODate(req.query.start)) {
-//         start = parseISODateSafe(req.query.start);
-//       }
-//       if (req.query.end && isValidISODate(req.query.end)) {
-//         // The backend expects inclusive end-of-day as in previous implementation
-//         const parsedEnd = parseISODateSafe(req.query.end);
-//         parsedEnd.setUTCHours(23, 59, 59, 999);
-//         end = parsedEnd;
-//       }
-//     }
-//     // If either is missing, fallback to default 30d window
-//     if (!start && !end) {
-//       end = now;
-//       start = new Date(now.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-//     } else if (start && !end) {
-//       end = now; // until now
-//     } else if (!start && end) {
-//       start = new Date(end.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-//     }
-//     // Date filter applied to session_start only
-//     const timeFilter = {
-//       session_start: { $gte: start, $lte: end },
-//     };
-
-//     // Combine filters: base filter + search + tenant scope + time
-//     const parts = [];
-//     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
-//     if (!isEmpty(filter)) parts.push(filter);
-//     if (!isEmpty(qFilter)) parts.push(qFilter);
-//     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
-//     if (!isEmpty(timeFilter)) parts.push(timeFilter);
-
-//     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
-
-//     // Ready to query
-//     try {
-//       if (explicit) {
-//         const [docs, total] = await Promise.all([
-//           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
-//           SessionTracking.countDocuments(finalFilter)
-//         ]);
-//         return res.json({ success: true, data: docs, meta: { page, limit, total } });
-//       }
-
-//       const docs = await SessionTracking.find(finalFilter).sort(sort);
-//       return res.json(docs);
-//     } catch (err) {
-//       const message = err?.message || "Request failed";
-//       if (err?.name === "CastError" || /Cast to/.test(message)) {
-//         return res.status(400).json({ success: false, message: "Invalid value provided (list)", details: message });
-//       }
-//       return res.status(400).json({ success: false, message: "Request failed", details: message });
-//     }
-//   })
-// );
-
-// router.get('/:id', asyncHandler(controller.getById));
-// router.post('/', asyncHandler(controller.create));
-// router.put('/:id', asyncHandler(controller.update));
-// router.delete('/:id', asyncHandler(controller.remove));
-
-// module.exports = router;
+'use strict';
 
 const express = require('express');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
-const { isValidISODate, parseISODateSafe } = require('../utils/date');
 
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
 
 /**
  * Early bypass detector for GET /api/session-tracking
+ * Marks super-admin style bypass when tenant_id=T0000 is requested.
  */
 function sessionsEarlyBypassDetector(req, res, next) {
-  if (req.method !== 'GET' || req.path !== '/') return next();
+  // Only for GET base path usage; safe no-op for others
+  if (req.method !== 'GET') return next();
 
   const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
   const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
@@ -204,17 +39,19 @@ function sessionsEarlyBypassDetector(req, res, next) {
     req.allTenants = true;
     req.sessionsAllTenantsBypass = true;
 
-    res.set('X-Tenant-Bypass', 'true');
-    res.set('X-Requested-Tenant', 'T0000');
-    res.set('X-All-Tenants', 'true');
-    res.set('X-Applied-Tenant', 'all-tenants');
+    try {
+      res.set('X-Tenant-Bypass', 'true');
+      res.set('X-Requested-Tenant', 'T0000');
+      res.set('X-All-Tenants', 'true');
+      res.set('X-Applied-Tenant', 'all-tenants');
+    } catch {}
   }
 
   return next();
 }
 
 /**
- * Diagnostic headers middleware
+ * Diagnostic headers middleware for visibility in responses
  */
 router.use((req, res, next) => {
   try {
@@ -224,30 +61,31 @@ router.use((req, res, next) => {
     } else if (req.tenantId) {
       const t = String(req.tenantId);
       res.set('X-Applied-Tenant', t);
-      res.set('X-Applied-Filter', JSON.stringify({
-        $or: [
-          { tenant_id: t },
-          { organization_id: t },
-          { organizationId: t },
-        ]
-      }));
+      res.set(
+        'X-Applied-Filter',
+        JSON.stringify({
+          $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }],
+        })
+      );
     }
   } catch {}
 
   next();
 });
 
-const { getSessionTrackingAggregates, getSessionTrackingRaw } = require('../controllers/sessionTracking.analytics.controller');
+const {
+  getSessionTrackingAggregates,
+  getSessionTrackingRaw,
+} = require('../controllers/sessionTracking.analytics.controller');
 
-// Aggregation endpoint must be defined before the generic list endpoint to avoid shadowing query param handling
 /**
  * PUBLIC_INTERFACE
- * GET /api/session-tracking
+ * GET /api/session-tracking/aggregate
  * Summary: Aggregated sessions count over time
  * Query: interval=(daily|weekly|monthly|custom), start, end
  * Returns: { data: [{ date, count }], meta: { interval, start, end, total } }
  */
-router.get('/', sessionsEarlyBypassDetector, asyncHandler(getSessionTrackingAggregates));
+router.get('/aggregate', sessionsEarlyBypassDetector, asyncHandler(getSessionTrackingAggregates));
 
 /**
  * PUBLIC_INTERFACE
@@ -257,16 +95,18 @@ router.get('/', sessionsEarlyBypassDetector, asyncHandler(getSessionTrackingAggr
  */
 router.get('/raw', sessionsEarlyBypassDetector, asyncHandler(getSessionTrackingRaw));
 
-// Backwards compatible list endpoint retained at GET /api/session-tracking (when no interval param provided legacy code used this path).
-// Move legacy list to /api/session-tracking/list to avoid clash, and keep old handler mounted at /list.
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/session-tracking
+ * Summary: List session tracking records (raw list)
+ * Query: limit, page, skip, tenant_id|organization_id, sort, q
+ * Returns: 200 JSON; array (no pagination) or {success,data,meta} when page/limit provided
+ */
 router.get(
-  '/list',
+  '/',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
-
-    // --------------------------------------------------
-    // FIXED: Single bypass variable, declared once
-    // --------------------------------------------------
+    // Bypass detection
     const bypass = !!(
       req.tenantScopeDisabled ||
       req.allTenants ||
@@ -274,9 +114,7 @@ router.get(
       req?.user?.isSuperAdmin
     );
 
-    // --------------------------------------------------
-    // FIXED: Single enforcedTenant variable
-    // --------------------------------------------------
+    // Enforced tenant resolution (query/header fallbacks if not bypass)
     const enforcedTenant =
       req.tenantId ||
       (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
@@ -285,7 +123,6 @@ router.get(
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
       null;
 
-    // If not bypassing and no tenant provided → error
     if (!bypass && !enforcedTenant) {
       return res.status(400).json({
         success: false,
@@ -293,25 +130,27 @@ router.get(
       });
     }
 
-    // --------------------------------------------------
-    // Request logging
-    // --------------------------------------------------
+    // Minimal diagnostics
     try {
       res.set('X-Sessions-Bypass', String(bypass));
       const appliedTenant = bypass ? 'all-tenants' : enforcedTenant;
       res.set('X-Applied-Tenant', String(appliedTenant));
     } catch {}
 
-    // Pagination
+    // Pagination and limit/skip handling
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
 
-    const { page, limit, skip, explicit } = parsePagination(rawQuery);
+    // Allow explicit skip in addition to page
+    const skipParam = Number.isFinite(Number(rawQuery.skip)) ? Number(rawQuery.skip) : undefined;
+
+    const { page, limit, skip: computedSkip, explicit } = parsePagination(rawQuery);
+    const effectiveSkip = typeof skipParam === 'number' && skipParam >= 0 ? skipParam : computedSkip;
+
+    // Default sort newest first by session_start
     const sort = req.query.sort || '-session_start';
 
-    // --------------------------------------------------
-    // Search filter
-    // --------------------------------------------------
+    // Search filter (q)
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let qFilter = {};
 
@@ -336,72 +175,89 @@ router.get(
       };
     }
 
-    // --------------------------------------------------
-    // Filtering changes per requirement:
-    // - Ignore/remove any 'filter' query parameter entirely.
-    // - Do not construct or apply compound date filters from start/end.
-    // - Retain tenant/organization scoping and optional text search (q).
-    // --------------------------------------------------
-
-    // Explicitly ignore 'filter' param if present
+    // Optional JSON filter if provided (strip tenant fields)
+    let filter = {};
     if (typeof req.query.filter !== 'undefined') {
-      try { res.set('X-Filter-Ignored', 'true'); } catch {}
-    }
-    const filter = {}; // no additional filter from client
-
-    // Tenant enforced scope (unchanged)
-    const enforcedScope = (!bypass && enforcedTenant)
-      ? {
-          $or: [
-            { tenant_id: enforcedTenant },
-            { organization_id: enforcedTenant },
-            { organizationId: enforcedTenant },
-          ],
+      try {
+        const raw =
+          typeof req.query.filter === 'string' ? JSON.parse(req.query.filter) : req.query.filter;
+        if (raw && typeof raw === 'object') {
+          filter = { ...raw };
+          delete filter.organization_id;
+          delete filter.tenant_id;
+          delete filter.organizationId;
         }
-      : {};
+      } catch {
+        return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+      }
+    }
 
-    // Do not apply server-side date filters for this listing endpoint now
-    const timeFilter = {};
+    // Tenant enforced scope
+    const enforcedScope =
+      !bypass && enforcedTenant
+        ? {
+            $or: [
+              { tenant_id: enforcedTenant },
+              { organization_id: enforcedTenant },
+              { organizationId: enforcedTenant },
+            ],
+          }
+        : {};
 
-    // Combine qFilter and enforcedScope only
+    // Combine filters
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
 
+    if (!isEmpty(filter)) parts.push(filter);
     if (!isEmpty(qFilter)) parts.push(qFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
 
-    const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
+    const finalFilter = parts.length > 1 ? { $and: parts } : parts[0] || {};
 
-    // --------------------------------------------------
     // Execute
-    // --------------------------------------------------
     try {
-      if (explicit) {
+      // Minimal logging headers
+      try {
+        res.set('X-List-Limit', String(limit || ''));
+        res.set('X-List-Skip', String(effectiveSkip || 0));
+      } catch {}
+
+      // Envelope when explicit pagination is provided
+      if (explicit || typeof rawQuery.limit !== 'undefined' || typeof rawQuery.page !== 'undefined') {
         const [docs, total] = await Promise.all([
-          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
+          SessionTracking.find(finalFilter).sort(sort).skip(effectiveSkip).limit(limit),
           SessionTracking.countDocuments(finalFilter),
         ]);
 
-        return res.json({
+        return res.status(200).json({
           success: true,
           data: docs,
-          meta: { page, limit, total }
+          meta: { page, limit, total },
         });
       }
 
-      const docs = await SessionTracking.find(finalFilter).sort(sort);
-      return res.json(docs);
+      // Lightweight cap when only limit/skip present without page
+      if (typeof rawQuery.limit !== 'undefined' || typeof rawQuery.skip !== 'undefined') {
+        const docs = await SessionTracking.find(finalFilter)
+          .sort(sort)
+          .skip(effectiveSkip)
+          .limit(limit || 50);
+        return res.status(200).json(docs);
+      }
 
+      const docs = await SessionTracking.find(finalFilter).sort(sort);
+      return res.status(200).json(docs);
     } catch (err) {
       return res.status(400).json({
         success: false,
         message: 'Request failed',
-        details: err?.message || ''
+        details: err?.message || '',
       });
     }
   })
 );
 
+// CRUD passthroughs
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));
 router.put('/:id', asyncHandler(controller.update));

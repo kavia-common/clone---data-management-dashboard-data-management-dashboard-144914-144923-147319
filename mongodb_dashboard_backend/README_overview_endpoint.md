@@ -1,12 +1,12 @@
-# Overview Costs Endpoint Notes
+# Session Tracking Routes Notes
 
-The legacy analytics endpoint for LLM costs over-time has been removed:
-- Removed: GET /api/analytics/llm-costs/over-time
+- GET /api/session-tracking → List sessions (supports limit, page, skip, tenant_id/organization_id, sort, q)
+  - Returns 200 JSON
+  - When page/limit provided, returns { success, data, meta }
+  - Minimal headers: X-List-Limit, X-List-Skip, X-Applied-Tenant
+- GET /api/session-tracking/aggregate → Aggregated counts over time (moved from root)
+- GET /api/session-tracking/raw → Minimal raw document projection for verification
+- CORS: preserved via global permissive CORS middleware under /api/*
+- ETag: Express default behavior (unchanged)
 
-Overview charts should use stable helpers or alternative analytics endpoints that remain supported (e.g., dashboard overview metrics or users active trend). If a costs-over-time visualization is still desired, implement it on the frontend using available list endpoints (/api/llm-costs) or add a new backend aggregation in the future under a different, stable contract.
-
-Example: retrieving recent LLM cost records (tenant-scoped)
-```
-GET /api/llm-costs?limit=50&sort=-timestamp
-Header: x-organization-id: <tenantId> (when JWT is not used)
-```
+This preserves backward compatibility for consumers expecting /api/session-tracking as the list endpoint.
