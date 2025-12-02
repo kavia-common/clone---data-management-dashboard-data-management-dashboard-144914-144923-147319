@@ -37,13 +37,16 @@ router.use((req, res, next) => {
     const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
 
     if (isList && !bypass) {
-      // Resolve only organization_id from header or query; do not accept tenant_id aliases
+      // If verifyAuth/requireTenant didn't resolve tenantId, accept aliases
       if (!req.tenantId) {
         const hdrOrg =
           (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+          (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+          (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
           undefined;
         const qOrg =
           (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+          (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
           undefined;
         const resolved = hdrOrg || qOrg || undefined;
         if (resolved) {
@@ -52,7 +55,7 @@ router.use((req, res, next) => {
       }
     }
 
-    // Diagnostics headers (organization_id only)
+    // Diagnostics headers similar to users route
     try {
       if (req.tenantScopeDisabled || req.allTenants) {
         res.set('X-All-Tenants', 'true');
@@ -60,10 +63,20 @@ router.use((req, res, next) => {
       } else if (req.tenantId) {
         const t = String(req.tenantId);
         res.set('X-Applied-Tenant', t);
-        res.set('X-Applied-Filter', JSON.stringify({ organization_id: t }));
-        res.set('X-Applied-Tenant-Field', 'organization_id');
+        res.set(
+          'X-Applied-Filter',
+          JSON.stringify({
+            $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }],
+          })
+        );
       }
       try { res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs'); } catch (_) {}
+    try {
+      if (req.tenantId) {
+        const t = String(req.tenantId);
+        res.set('X-Applied-Tenant-Field', 'probe'); // will be overwritten by controller once probed
+      }
+    } catch (_) {}
     } catch (_) {}
   } catch (_) {
     // non-fatal
@@ -77,7 +90,7 @@ router.use((req, res, next) => {
 router.use((req, res, next) => {
   try {
     const hdr = (req.headers?.['x-organization-id'] || '').toString();
-    const qOrg = (req.query?.organization_id || '').toString();
+    const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
     const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
     const requestedTenant = hdr || qOrg || authTenant || '';
     const isT0000 = requestedTenant && /^T0+$/i.test(requestedTenant);
@@ -197,10 +210,8 @@ router.get('/', (req, res, next) => {
     const t = req.tenantId ? String(req.tenantId) : '';
     if (t) {
       res.set('X-Applied-Tenant', t);
-      res.set('X-Applied-Filter', JSON.stringify({ organization_id: t }));
-      res.set('X-Applied-Tenant-Field', 'organization_id'); // provisional; controller may refine timing/index
-      // Pre-announce index hint to be used for default sort (-timestamp)
-      res.set('X-Query-IndexHint', JSON.stringify({ organization_id: 1, timestamp: -1 }));
+      res.set('X-Applied-Filter', JSON.stringify({ $or: [{ tenant_id: t }, { organization_id: t }] }));
+      res.set('X-Applied-Tenant-Field', 'probe'); // provisional; controller will refine
     }
   } catch (_) {}
 
