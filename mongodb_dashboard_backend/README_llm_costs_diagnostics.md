@@ -1,6 +1,6 @@
 # LLM Costs Diagnostics (GET /api/llm-costs)
 
-This document explains the new diagnostics available for investigating slow queries and 504s on the LLM costs list endpoint.
+This document explains the diagnostics available for investigating slow queries and 504s on the LLM costs list endpoint.
 
 What was added
 - Effective filter, sort, projection, page, limit are emitted as response headers:
@@ -15,13 +15,17 @@ What was added
   - Example explain summaries for tenant T0015 are also included in meta.debug.explain.examples for:
     - No date filter (page=1, limit=10)
     - With date filter (last 7 days; same pagination)
+- New: a lightweight retrieval endpoint that does not run heavy queries:
+  - GET /api/llm-costs/diagnostics/last returns the last captured diagnostics snapshot (including summarizeExplain when DEBUG_LLMCOSTS_EXPLAIN=1), even if the main list request timed out.
 
 How to use
 1) Enable explains
    - Start the backend with env: DEBUG_LLMCOSTS_EXPLAIN=1
+   - Optional: DEBUG_LLMCOSTS_EXPLAIN_TIMEOUT_MS=600 (default) to cap explain time
 2) Call the endpoint
    - Use header x-organization-id or JWT-based tenant context.
    - Inspect response headers and meta.debug in JSON body.
+   - If the main request times out or returns 500, call GET /api/llm-costs/diagnostics/last to fetch the last snapshot.
 3) Identify common causes of slowness
    - Or on time fields: x-llm-used-or-on-time=1 and usedOrOnTime=true. Wide $or can prevent index intersection.
    - Missing compound indexes: explain.summary.usedIndexes empty or uses COLLSCAN / FETCH -> add compound indexes.
@@ -51,10 +55,10 @@ Operational steps
 - Turn on DEBUG_LLMCOSTS_EXPLAIN=1 in staging.
 - Hit endpoints with and without from/to.
 - Collect headers, meta.debug and logs to see winningPlan, indexes, docs examined.
+- If the main call fails or times out, immediately call GET /api/llm-costs/diagnostics/last to fetch the snapshot for the failed attempt.
 - Apply indexes indicated by winningPlan or adjust filters to match existing indexes.
 - Optionally implement normalizedTimestamp write path and backfill migration for best performance.
 
 Notes
-- Avoid leaking full explain outputs in production; we log a truncated version and only ship summaries in meta.debug.
+- Avoid leaking full explain outputs in production; we log a truncated/summary version and only ship summaries in meta.debug.
 - For countDocuments(), pipeline count via aggregate + explain is used to capture executionStats uniformly.
-

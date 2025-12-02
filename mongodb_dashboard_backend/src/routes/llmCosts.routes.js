@@ -2,6 +2,7 @@
 
 const express = require('express');
 const { listLlmCosts } = require('../controllers/llmCosts.list.controller');
+const { getLlmCostsLastDiagnostics } = require('../controllers/llmCosts.diagnostics.controller');
 
 // Existing controllers if any can be required here for other methods
 // const { getById, createCost, updateCost, deleteCost } = require('../controllers/llmCosts.id.controller');
@@ -14,6 +15,13 @@ const router = express.Router();
  * List LLM cost records (tabular)
  */
 router.get('/', listLlmCosts);
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/llm-costs/diagnostics/last
+ * Lightweight endpoint to read the last diagnostics snapshot captured by the list handler.
+ */
+router.get('/diagnostics/last', getLlmCostsLastDiagnostics);
 
 // Example placeholders for id-based CRUD if needed later
 // router.get('/:id', getById);

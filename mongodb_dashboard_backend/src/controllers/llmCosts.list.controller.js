@@ -3,6 +3,9 @@
 const mongoose = require('mongoose');
 const LlmCost = require('../models/llmCosts.model');
 
+// In-memory last diagnostics snapshot for lightweight retrieval
+let lastDiagnostics = null;
+
 /**
  * PUBLIC_INTERFACE
  * listLlmCosts
@@ -15,15 +18,17 @@ const LlmCost = require('../models/llmCosts.model');
  * - Adds response headers: x-effective-tenant, x-llm-filter, x-llm-projection, x-llm-sort, x-llm-page, x-llm-limit, x-llm-used-or-on-time
  * - Adds timing headers: x-llm-timing-parsed-ms, x-llm-timing-built-ms, x-llm-timing-exec-ms, x-llm-timing-explain-ms (when enabled).
  * - meta.debug contains summarized explain when enabled (compact stats).
+ * - On error/timeout, partial headers are set and a diagnostics snapshot is persisted for later retrieval.
  */
 async function listLlmCosts(req, res) {
   const t0 = process.hrtime.bigint();
-  try {
-    const timings = {};
-    const mark = (label) => {
-      timings[label] = Number(process.hrtime.bigint() - t0) / 1e6; // ms since start
-    };
+  const timings = {};
+  const mark = (label) => {
+    timings[label] = Number(process.hrtime.bigint() - t0) / 1e6; // ms since start
+  };
 
+  // Wrap entire handler to still set diagnostic headers on error
+  try {
     // Resolve tenant
     const headerTenant =
       (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
@@ -40,9 +45,11 @@ async function listLlmCosts(req, res) {
     if (req.headers?.authorization) {
       // Authorization present: enforce JWT tenant
       if (headerTenant && jwtTenant && String(headerTenant) !== String(jwtTenant)) {
+        setPartialHeaders(res, { effectiveTenant: jwtTenant ?? headerTenant, timings });
         return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
       }
       if (queryTenant && jwtTenant && String(queryTenant) !== String(jwtTenant)) {
+        setPartialHeaders(res, { effectiveTenant: jwtTenant ?? queryTenant, timings });
         return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
       }
       effectiveTenant = jwtTenant;
@@ -51,6 +58,7 @@ async function listLlmCosts(req, res) {
     }
 
     if (!effectiveTenant) {
+      setPartialHeaders(res, { effectiveTenant: '', timings });
       return res.status(400).json({ success: false, message: 'Missing tenant: provide Authorization with tenant or x-organization-id header' });
     }
 
@@ -77,12 +85,13 @@ async function listLlmCosts(req, res) {
       try {
         rawFilter = JSON.parse(req.query.filter);
       } catch (e) {
+        setPartialHeaders(res, { effectiveTenant, timings, page, limit, sort, filter: {}, usedOrOnTime: false });
         return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
       }
     }
     const filter = Object.fromEntries(Object.entries(rawFilter).filter(([k]) => allowed.includes(k)));
 
-    // Time range filter applied on timestamp or created_at
+    // Time range filter applied on timestamp or created_at (note: $or may be slow; recorded in diagnostics)
     const range = {};
     if (req.query.from) {
       const d = new Date(req.query.from);
@@ -92,12 +101,10 @@ async function listLlmCosts(req, res) {
       const d = new Date(req.query.to);
       if (!isNaN(d.getTime())) range.$lte = d;
     }
-    const timeFilter = Object.keys(range).length
-      ? { $or: [{ timestamp: range }, { created_at: range }] }
-      : {};
+    const timeFilter = Object.keys(range).length ? { $or: [{ timestamp: range }, { created_at: range }] } : {};
     const usedOrOnTime = Object.keys(range).length > 0;
 
-    // Tenant filter: match any of known fields for tenant
+    // Tenant filter
     const tenantFilter = {
       $or: [
         { tenant_id: String(effectiveTenant) },
@@ -127,18 +134,33 @@ async function listLlmCosts(req, res) {
       cost_usd: 1,
       duration_ms: 1,
       status: 1,
-      llm_model: 1, // align with filter whitelist
+      llm_model: 1,
       project_id: 1,
       session_id: 1,
     };
 
+    // Initial diagnostics snapshot before heavy operations
+    const baseDiag = {
+      ts: new Date().toISOString(),
+      effectiveTenant: String(effectiveTenant),
+      page,
+      limit,
+      sort,
+      filter: finalFilter,
+      projection,
+      usedOrOnTime,
+      notes: [],
+    };
+    lastDiagnostics = { ...baseDiag, timings: { ...timings } };
+    console.log('[LLM-COSTS][DIAG][BEGIN]', safeJson(baseDiag));
+
     mark('parsed');
 
-    // Build mongoose queries
+    // Build queries
     const cursor = LlmCost.find(finalFilter, projection).sort(sort).skip((page - 1) * limit).limit(limit).lean();
     const countQuery = LlmCost.countDocuments(finalFilter);
 
-    // Diagnostics: explain plans
+    // Diagnostics: explain plans with short timeout to avoid contributing to 504
     const wantExplain = process.env.DEBUG_LLMCOSTS_EXPLAIN === '1';
     let explainFind = null;
     let explainCount = null;
@@ -148,21 +170,32 @@ async function listLlmCosts(req, res) {
 
     if (wantExplain && LlmCost.collection) {
       try {
+        const explainAbortMs = Number(process.env.DEBUG_LLMCOSTS_EXPLAIN_TIMEOUT_MS || '600'); // keep small
         const tExplainStart = process.hrtime.bigint();
 
-        // Use native driver for more complete explain for request's filter
-        const pipelineForCount = [{ $match: finalFilter }, { $count: 'count' }];
-        explainFind = await LlmCost.collection
-          .find(finalFilter, { projection })
-          .sort(sort)
-          .skip((page - 1) * limit)
-          .limit(limit)
-          .explain('executionStats');
+        const doExplain = async () => {
+          const pipelineForCount = [{ $match: finalFilter }, { $count: 'count' }];
+          const [ef, ec] = await Promise.all([
+            LlmCost.collection
+              .find(finalFilter, { projection })
+              .sort(sort)
+              .skip((page - 1) * limit)
+              .limit(limit)
+              .explain('executionStats'),
+            LlmCost.collection.aggregate(pipelineForCount).explain('executionStats'),
+          ]);
+          return { ef, ec };
+        };
 
-        explainCount = await LlmCost.collection.aggregate(pipelineForCount).explain('executionStats');
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('explain-timeout')), explainAbortMs));
+        const { ef, ec } = await Promise.race([doExplain(), timeout]).catch((e) => {
+          baseDiag.notes.push(`explain_aborted:${e.message}`);
+          return { ef: null, ec: null };
+        });
+        explainFind = ef;
+        explainCount = ec;
 
-        // Also construct example explains for the given task brief:
-        // organization_id=T0015, page=1, limit=10, with and without date range
+        // Example explains (tenant T0015) with minimal scope
         const exampleTenant = 'T0015';
         const exampleLimit = 10;
         const examplePage = 1;
@@ -192,52 +225,55 @@ async function listLlmCosts(req, res) {
           ],
         };
 
-        const [exFindNoDate, exCountNoDate, exFindWithDate, exCountWithDate] = await Promise.all([
-          LlmCost.collection
-            .find(exampleNoDateFilter, { projection: exampleProjection })
-            .sort(exampleSort)
-            .skip((examplePage - 1) * exampleLimit)
-            .limit(exampleLimit)
-            .explain('executionStats'),
-          LlmCost.collection.aggregate([{ $match: exampleNoDateFilter }, { $count: 'count' }]).explain('executionStats'),
-          LlmCost.collection
-            .find(exampleWithDateFilter, { projection: exampleProjection })
-            .sort(exampleSort)
-            .skip((examplePage - 1) * exampleLimit)
-            .limit(exampleLimit)
-            .explain('executionStats'),
-          LlmCost.collection.aggregate([{ $match: exampleWithDateFilter }, { $count: 'count' }]).explain('executionStats'),
-        ]);
-
-        exampleExplains = {
-          noDate: {
-            find: summarizeExplain(exFindNoDate),
-            count: summarizeExplain(exCountNoDate),
-          },
-          withDate: {
-            find: summarizeExplain(exFindWithDate),
-            count: summarizeExplain(exCountWithDate),
-          },
+        const doExample = async () => {
+          const [exFindNoDate, exCountNoDate, exFindWithDate, exCountWithDate] = await Promise.all([
+            LlmCost.collection
+              .find(exampleNoDateFilter, { projection: exampleProjection })
+              .sort(exampleSort)
+              .skip((examplePage - 1) * exampleLimit)
+              .limit(exampleLimit)
+              .explain('executionStats'),
+            LlmCost.collection.aggregate([{ $match: exampleNoDateFilter }, { $count: 'count' }]).explain('executionStats'),
+            LlmCost.collection
+              .find(exampleWithDateFilter, { projection: exampleProjection })
+              .sort(exampleSort)
+              .skip((examplePage - 1) * exampleLimit)
+              .limit(exampleLimit)
+              .explain('executionStats'),
+            LlmCost.collection.aggregate([{ $match: exampleWithDateFilter }, { $count: 'count' }]).explain('executionStats'),
+          ]);
+          return {
+            noDate: { find: summarizeExplain(exFindNoDate), count: summarizeExplain(exCountNoDate) },
+            withDate: { find: summarizeExplain(exFindWithDate), count: summarizeExplain(exCountWithDate) },
+          };
         };
 
-        // Log truncated explain to avoid flooding logs
-        console.log('[LLM-COSTS][EXPLAIN][FIND]', JSON.stringify(explainFind).slice(0, 20000));
-        console.log('[LLM-COSTS][EXPLAIN][COUNT]', JSON.stringify(explainCount).slice(0, 20000));
-        console.log('[LLM-COSTS][EXPLAIN][EXAMPLE]', JSON.stringify(exampleExplains).slice(0, 20000));
+        const timeout2 = new Promise((_, rej) => setTimeout(() => rej(new Error('example-explain-timeout')), explainAbortMs));
+        exampleExplains = await Promise.race([doExample(), timeout2]).catch((e) => {
+          baseDiag.notes.push(`example_explain_aborted:${e.message}`);
+          return null;
+        });
 
         const tExplainEnd = process.hrtime.bigint();
         timings.explain_ms = Number(tExplainEnd - tExplainStart) / 1e6;
+
+        // Log truncated explain
+        if (explainFind) console.log('[LLM-COSTS][EXPLAIN][FIND]', safeJson(summarizeExplain(explainFind)));
+        if (explainCount) console.log('[LLM-COSTS][EXPLAIN][COUNT]', safeJson(summarizeExplain(explainCount)));
+        if (exampleExplains) console.log('[LLM-COSTS][EXPLAIN][EXAMPLE]', safeJson(exampleExplains));
       } catch (e) {
-        console.warn('[LLM-COSTS][EXPLAIN] Failed to capture explain()', e?.message || e);
+        console.warn('[LLM-COSTS][EXPLAIN] capture error:', e?.message || e);
       }
     }
 
+    // Execute queries
     const tExecStart = process.hrtime.bigint();
     const [items, total] = await Promise.all([cursor.exec(), countQuery.exec()]);
     const tExecEnd = process.hrtime.bigint();
     timings.exec_ms = Number(tExecEnd - tExecStart) / 1e6;
     mark('executed');
 
+    // Set response headers
     try {
       res.set('x-effective-tenant', String(effectiveTenant));
       res.set('x-llm-filter', JSON.stringify(finalFilter));
@@ -246,13 +282,10 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-page', String(page));
       res.set('x-llm-limit', String(limit));
       res.set('x-llm-used-or-on-time', usedOrOnTime ? '1' : '0');
-
-      // Timings headers
       res.set('x-llm-timing-parsed-ms', String(Math.round(timings.parsed ?? 0)));
       res.set('x-llm-timing-built-ms', String(Math.round(timings.built ?? 0)));
       res.set('x-llm-timing-exec-ms', String(Math.round(timings.exec_ms ?? 0)));
       if (timings.explain_ms != null) res.set('x-llm-timing-explain-ms', String(Math.round(timings.explain_ms)));
-
       if (process.env.DEBUG_LLMCOSTS_EXPLAIN === '1') {
         if (explainFind) res.set('x-llm-explain-find', 'captured');
         if (explainCount) res.set('x-llm-explain-count', 'captured');
@@ -261,13 +294,21 @@ async function listLlmCosts(req, res) {
       // ignore header set failures
     }
 
+    // Update lastDiagnostics and respond
+    lastDiagnostics = {
+      ...baseDiag,
+      timings: { ...timings },
+      explain: process.env.DEBUG_LLMCOSTS_EXPLAIN === '1'
+        ? { find: summarizeExplain(explainFind), count: summarizeExplain(explainCount), examples: exampleExplains || undefined }
+        : undefined,
+    };
+
     const response = {
       success: true,
       data: items,
       meta: { page, limit, total, sort: sortStr || '-timestamp' },
     };
 
-    // Attach concise debug meta when enabled
     if (process.env.DEBUG_LLMCOSTS_EXPLAIN === '1') {
       response.meta.debug = {
         filter: finalFilter,
@@ -275,17 +316,29 @@ async function listLlmCosts(req, res) {
         projection,
         usedOrOnTime,
         timings,
-        // Only include summarized explain stats to keep payload small
-        explain: {
-          find: summarizeExplain(explainFind),
-          count: summarizeExplain(explainCount),
-          examples: exampleExplains || undefined,
-        },
+        explain: lastDiagnostics.explain,
       };
     }
 
+    console.log('[LLM-COSTS][DIAG][END]', safeJson({ ...lastDiagnostics, dataCount: Array.isArray(items) ? items.length : 0 }));
     return res.status(200).json(response);
   } catch (err) {
+    // On errors, set partial headers and persist diagnostics
+    try {
+      if (lastDiagnostics) {
+        lastDiagnostics.timings = { ...lastDiagnostics.timings, error_ms: Number(process.hrtime.bigint() - t0) / 1e6 };
+        lastDiagnostics.error = err?.message || String(err);
+      }
+      setPartialHeaders(res, {
+        effectiveTenant: lastDiagnostics?.effectiveTenant || '',
+        timings,
+        page: lastDiagnostics?.page,
+        limit: lastDiagnostics?.limit,
+        sort: lastDiagnostics?.sort,
+        filter: lastDiagnostics?.filter,
+        usedOrOnTime: lastDiagnostics?.usedOrOnTime,
+      });
+    } catch {}
     console.error('[LLM-COSTS][LIST] error:', err?.message || err);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
@@ -299,8 +352,6 @@ async function listLlmCosts(req, res) {
 function summarizeExplain(explain) {
   try {
     if (!explain) return null;
-
-    // executionStats available in find().explain('executionStats') and aggregate().explain('executionStats')
     const stats =
       explain.executionStats ||
       explain?.stages?.find((s) => s.$cursor)?.$cursor?.executionStats ||
@@ -319,7 +370,6 @@ function summarizeExplain(explain) {
       winningPlan: queryPlanner?.winningPlan?.stage || queryPlanner?.winningPlan?.inputStage?.stage,
     };
 
-    // Extract index names if available
     const extractIndexes = (node, acc) => {
       if (!node || typeof node !== 'object') return;
       if (node.indexName) acc.add(node.indexName);
@@ -330,12 +380,43 @@ function summarizeExplain(explain) {
     };
     const idx = new Set();
     extractIndexes(queryPlanner?.winningPlan, idx);
-    summary.usedIndexes = Array.from(idx);
-
-    return summary;
+    return { ...summary, usedIndexes: Array.from(idx) };
   } catch {
     return null;
   }
 }
 
-module.exports = { listLlmCosts };
+// Helper to set partial headers even when failing early
+function setPartialHeaders(res, { effectiveTenant, timings, page, limit, sort, filter, usedOrOnTime }) {
+  try {
+    if (effectiveTenant != null) res.set('x-effective-tenant', String(effectiveTenant));
+    if (filter != null) res.set('x-llm-filter', safeJson(filter));
+    if (sort != null) res.set('x-llm-sort', safeJson(sort));
+    if (page != null) res.set('x-llm-page', String(page));
+    if (limit != null) res.set('x-llm-limit', String(limit));
+    if (usedOrOnTime != null) res.set('x-llm-used-or-on-time', usedOrOnTime ? '1' : '0');
+    if (timings) {
+      res.set('x-llm-timing-parsed-ms', String(Math.round(timings.parsed ?? 0)));
+      res.set('x-llm-timing-built-ms', String(Math.round(timings.built ?? 0)));
+      if (timings.exec_ms != null) res.set('x-llm-timing-exec-ms', String(Math.round(timings.exec_ms)));
+      if (timings.explain_ms != null) res.set('x-llm-timing-explain-ms', String(Math.round(timings.explain_ms)));
+    }
+  } catch {}
+}
+
+// safe JSON short
+function safeJson(obj) {
+  try {
+    return JSON.stringify(obj);
+  } catch {
+    return '{}';
+  }
+}
+
+// PUBLIC_INTERFACE
+function getLastLlmCostsDiagnostics() {
+  /** Returns the last captured diagnostics snapshot for llm-costs listing. */
+  return lastDiagnostics || null;
+}
+
+module.exports = { listLlmCosts, getLastLlmCostsDiagnostics };
