@@ -43,9 +43,7 @@ export default [
       "object-shorthand": ["warn", "always"],
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
 
-      // Not a React project in this container; ensure no react rules interfere even if auto-detected
-      "react-hooks/rules-of-hooks": "off",
-      "react-hooks/exhaustive-deps": "off",
+
     },
   },
 ];
