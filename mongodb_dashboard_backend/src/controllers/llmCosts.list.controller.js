@@ -11,22 +11,29 @@ const { handleError } = require('../utils/http');
  */
 function normalizeItem(doc) {
   const breakdown = doc?.breakdown || {};
+
+  // Normalize token counts with fallbacks from breakdown
   const inputTokens =
-    doc?.tokens_in ??
-    breakdown?.prompt_tokens ??
-    breakdown?.input_tokens ??
-    breakdown?.tokens_in ??
+    (Number.isFinite(doc?.tokens_in) ? doc.tokens_in : null) ??
+    (Number.isFinite(breakdown?.prompt_tokens) ? breakdown.prompt_tokens : null) ??
+    (Number.isFinite(breakdown?.input_tokens) ? breakdown.input_tokens : null) ??
+    (Number.isFinite(breakdown?.tokens_in) ? breakdown.tokens_in : null) ??
     null;
+
   const outputTokens =
-    doc?.tokens_out ??
-    breakdown?.completion_tokens ??
-    breakdown?.output_tokens ??
-    breakdown?.tokens_out ??
+    (Number.isFinite(doc?.tokens_out) ? doc.tokens_out : null) ??
+    (Number.isFinite(breakdown?.completion_tokens) ? breakdown.completion_tokens : null) ??
+    (Number.isFinite(breakdown?.output_tokens) ? breakdown.output_tokens : null) ??
+    (Number.isFinite(breakdown?.tokens_out) ? breakdown.tokens_out : null) ??
     null;
+
+  // Normalize model with llm_model fallback
   const model = doc?.model || doc?.llm_model || null;
 
   // currency and total cost handling
   const currency = doc?.currency || 'USD';
+
+  // cost_usd normalized with total_cost fallback and string parsing
   let costUsd = null;
   if (doc && Object.prototype.hasOwnProperty.call(doc, 'cost_usd')) {
     costUsd = doc.cost_usd;
@@ -45,37 +52,55 @@ function normalizeItem(doc) {
     costUsd = Number.isFinite(n) ? n : null;
   }
 
-  // Standard columns for table
+  // Standard columns for table (ensure all required fields exist)
   const standard = {
     _id: String(doc?._id || ''),
     request_id: doc?.request_id ?? doc?.task_id ?? null,
-    session_id: doc?.session_id ?? null,
-    project_id: doc?.project_id ?? null,
     timestamp: doc?.timestamp || doc?.created_at || null,
-    created_at: doc?.created_at ?? null,
     model,
-    model_version: doc?.model_version ?? doc?.version ?? null,
     provider: doc?.provider ?? null,
     user_id: doc?.user_id ?? null,
     organization_id: doc?.organization_id || doc?.tenant_id || null,
-    tenant_id: doc?.tenant_id ?? null,
     tokens_in: Number.isFinite(inputTokens) ? inputTokens : null,
     tokens_out: Number.isFinite(outputTokens) ? outputTokens : null,
-    prompt: breakdown?.prompt ?? doc?.prompt ?? null,
-    completion: breakdown?.completion ?? doc?.completion ?? null,
     cost_usd: typeof costUsd === 'number' ? costUsd : null,
-    total_cost: typeof doc?.total_cost === 'number' ? doc.total_cost : (typeof doc?.total_cost === 'string' ? parseFloat(String(doc.total_cost).replace(/^\s*\$/, '')) : null),
-    currency,
     duration_ms: doc?.duration_ms ?? doc?.latency_ms ?? null,
     status: doc?.status ?? null,
+
+    // Extra required fields per spec
+    session_id: doc?.session_id ?? null,
+    project_id: doc?.project_id ?? null,
+    currency,
+    created_at: doc?.created_at ?? null,
+    // Spec mentions llm_model fallback for 'model' already above
+    // Include tenant_id as passthrough (not a primary spec field but helpful)
+    tenant_id: doc?.tenant_id ?? null,
+    model_version: doc?.model_version ?? doc?.version ?? null,
     provider_status: doc?.provider_status ?? null,
+    total_cost:
+      typeof doc?.total_cost === 'number'
+        ? doc.total_cost
+        : typeof doc?.total_cost === 'string'
+        ? parseFloat(String(doc.total_cost).replace(/^\s*\$/, ''))
+        : null,
+    // Optional textual summaries if provided
+    prompt: (doc?.prompt ?? breakdown?.prompt) ?? null,
+    completion: (doc?.completion ?? breakdown?.completion) ?? null,
   };
 
   // Lightweight breakdown for UI (tokens/costs)
   const breakdownSummary = {
     tokens: {
-      prompt: Number.isFinite(breakdown?.prompt_tokens) ? breakdown.prompt_tokens : (Number.isFinite(breakdown?.input_tokens) ? breakdown.input_tokens : null),
-      completion: Number.isFinite(breakdown?.completion_tokens) ? breakdown.completion_tokens : (Number.isFinite(breakdown?.output_tokens) ? breakdown.output_tokens : null),
+      prompt: Number.isFinite(breakdown?.prompt_tokens)
+        ? breakdown.prompt_tokens
+        : Number.isFinite(breakdown?.input_tokens)
+        ? breakdown.input_tokens
+        : null,
+      completion: Number.isFinite(breakdown?.completion_tokens)
+        ? breakdown.completion_tokens
+        : Number.isFinite(breakdown?.output_tokens)
+        ? breakdown.output_tokens
+        : null,
     },
     costs: {
       input: typeof breakdown?.input_cost === 'number' ? breakdown.input_cost : null,
@@ -91,6 +116,7 @@ function normalizeItem(doc) {
     'extra',
     'details',
   ]);
+
   const extra = {};
   if (doc && typeof doc === 'object') {
     for (const [k, v] of Object.entries(doc)) {
@@ -99,6 +125,7 @@ function normalizeItem(doc) {
       }
     }
   }
+
   // always include raw breakdown and metadata under details
   const details = {
     breakdown,
@@ -112,7 +139,12 @@ function normalizeItem(doc) {
 
 // PUBLIC_INTERFACE
 async function listLlmCosts(req, res) {
-  /** List LLM cost records (tabular) with enforced guards, timing headers, and diagnostics capture. */
+  /**
+   * List LLM cost records (tabular) with enforced guards, timing headers, and diagnostics capture.
+   * Ensures the response includes: _id, request_id, timestamp, model (llm_model fallback), provider,
+   * user_id, organization_id, tokens_in/tokens_out (breakdown fallbacks), cost_usd (total_cost fallback),
+   * duration_ms, status, session_id, project_id, currency, created_at, and details/raw.
+   */
   const startedAt = Date.now();
   const diag = {
     route: 'GET /api/llm-costs',
@@ -132,7 +164,9 @@ async function listLlmCosts(req, res) {
     // Tenant resolution: JWT precedence handled upstream; expect req.tenantId/organizationId or header/query
     const jwtTenant = req?.auth?.tenantId ? String(req.auth.tenantId) : null;
     const headerTenant = req.headers?.['x-organization-id'] ? String(req.headers['x-organization-id']) : null;
-    const queryTenant = (req.query?.tenant_id || req.query?.organization_id) ? String(req.query.tenant_id || req.query.organization_id) : null;
+    const queryTenant = (req.query?.tenant_id || req.query?.organization_id)
+      ? String(req.query.tenant_id || req.query.organization_id)
+      : null;
 
     // If Authorization present and conflicting tenant hints provided, reject
     if (req.headers?.authorization && (headerTenant || queryTenant)) {
@@ -170,8 +204,20 @@ async function listLlmCosts(req, res) {
     // Sort guard: only allow index-friendly fields
     let sort = { timestamp: -1 };
     if (req.query.sort) {
-      const allowed = new Set(['timestamp', 'cost_usd', 'tokens_in', 'tokens_out', 'duration_ms', 'status', '_id', 'created_at']);
-      const fields = req.query.sort.split(',').map(s => s.trim()).filter(Boolean);
+      const allowed = new Set([
+        'timestamp',
+        'cost_usd',
+        'tokens_in',
+        'tokens_out',
+        'duration_ms',
+        'status',
+        '_id',
+        'created_at',
+      ]);
+      const fields = req.query.sort
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       const s = {};
       for (const f of fields) {
         const dir = f.startsWith('-') ? -1 : 1;
@@ -193,50 +239,60 @@ async function listLlmCosts(req, res) {
       windowApplied = 'default';
     } else if (from && !to) {
       const maxTo = new Date(from.getTime() + MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
-      to = (maxTo < now ? maxTo : now);
+      to = maxTo < now ? maxTo : now;
       windowApplied = 'clamped_to';
     } else if (!from && to) {
       const minFrom = new Date(to.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
       from = minFrom;
       windowApplied = 'clamped_from';
     } else {
-      if ((to - from) > MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000) {
+      if (to - from > MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000) {
         diag.error = 'date_window_exceeds_max';
         getDiagnosticsStore().set(diag);
-        return res.status(400).json({ success: false, error: 'date_window_exceeds_max', maxDays: MAX_DAYS_WINDOW });
+        return res
+          .status(400)
+          .json({ success: false, error: 'date_window_exceeds_max', maxDays: MAX_DAYS_WINDOW });
       }
     }
 
     const filter = {
-      $or: [
-        { organization_id: tenant },
-        { tenant_id: tenant },
-      ],
-      ...(from || to ? { timestamp: Object.assign({}, from ? { $gte: from } : {}, to ? { $lte: to } : {}) } : {}),
+      $or: [{ organization_id: tenant }, { tenant_id: tenant }],
+      ...(from || to
+        ? {
+            timestamp: Object.assign(
+              {},
+              from ? { $gte: from } : {},
+              to ? { $lte: to } : {}
+            ),
+          }
+        : {}),
     };
 
+    // Minimal projection to include all necessary fields while keeping index usage optimal.
     const projection = {
       _id: 1,
       request_id: 1,
-      task_id: 1,
-      session_id: 1,
-      project_id: 1,
+      task_id: 1, // fallback for request_id
       timestamp: 1,
       created_at: 1,
       model: 1,
-      llm_model: 1,
+      llm_model: 1, // fallback for model
       model_version: 1,
       provider: 1,
       provider_status: 1,
       user_id: 1,
       organization_id: 1,
       tenant_id: 1,
+      session_id: 1,
+      project_id: 1,
+
       // tokens and textual prompt/completion summaries
       tokens_in: 1,
       tokens_out: 1,
       prompt: 1,
       completion: 1,
-      // breakdown tokens + costs
+
+      // breakdown tokens + costs (for fallbacks + details.view)
       breakdown: 1,
       'breakdown.prompt_tokens': 1,
       'breakdown.completion_tokens': 1,
@@ -244,18 +300,19 @@ async function listLlmCosts(req, res) {
       'breakdown.output_tokens': 1,
       'breakdown.input_cost': 1,
       'breakdown.output_cost': 1,
+
       // costs and currency
       cost_usd: 1,
-      total_cost: 1,
+      total_cost: 1, // fallback for cost_usd
       currency: 1,
+
       // durations and status
       duration_ms: 1,
-      latency_ms: 1,
+      latency_ms: 1, // fallback for duration_ms
       status: 1,
+
       // metadata free-form details for the UI details panel
       metadata: 1,
-      // allow any extra fields to be optionally surfaced in details.raw
-      // strict: false ensures extras exist; we still project entire doc keys not listed here via manual pick in code
     };
 
     diag.filter = filter;
@@ -266,16 +323,25 @@ async function listLlmCosts(req, res) {
 
     const parseEnd = Date.now();
 
-    const collection = (await db).collection(LlmCost.collection?.name || LlmCost.collectionName || 'llm-costs');
+    const collection = (await db).collection(
+      LlmCost.collection?.name || LlmCost.collectionName || 'llm-costs'
+    );
     const skip = (page - 1) * limit;
 
     // Build a Mongo sort spec from object
     const sortSpec = sort;
 
-    const cursor = collection.find(filter, { projection }).sort(sortSpec).skip(skip).limit(limit);
+    const cursor = collection
+      .find(filter, { projection })
+      .sort(sortSpec)
+      .skip(skip)
+      .limit(limit);
     const builtEnd = Date.now();
 
-    const [rawItems, total] = await Promise.all([cursor.toArray(), collection.countDocuments(filter)]);
+    const [rawItems, total] = await Promise.all([
+      cursor.toArray(),
+      collection.countDocuments(filter),
+    ]);
     const execEnd = Date.now();
 
     // normalize items to tabular fields
@@ -297,7 +363,9 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-timing-parsed-ms', String(parseEnd - startedAt));
       res.set('x-llm-timing-built-ms', String(builtEnd - parseEnd));
       res.set('x-llm-timing-exec-ms', String(execEnd - builtEnd));
-    } catch (_) { /* ignore header errors */ }
+    } catch (_) {
+      /* ignore header errors */
+    }
 
     // record diagnostics
     diag.timings = {
@@ -330,10 +398,10 @@ async function listLlmCosts(req, res) {
             timings: {
               parsed_ms: parseEnd - startedAt,
               built_ms: builtEnd - parseEnd,
-              exec_ms: execEnd - builtEnd
-            }
-          }
-        }
+              exec_ms: execEnd - builtEnd,
+            },
+          },
+        },
       },
     });
   } catch (err) {
