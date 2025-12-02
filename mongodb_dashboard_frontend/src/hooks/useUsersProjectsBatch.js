@@ -94,7 +94,7 @@ export default function useUsersProjectsBatch(options = {}) {
     // serve fresh cache if within TTL
     const cached = responseCache.get(key);
     if (cached && (Date.now() - (cached.ts || 0)) < cacheTimeMs) {
-      devLog('cache hit', { key });
+      devLog('cache hit', { key, userIds: ids.length });
       setData(cached.data || {});
       setLoading(false);
       setError(null);

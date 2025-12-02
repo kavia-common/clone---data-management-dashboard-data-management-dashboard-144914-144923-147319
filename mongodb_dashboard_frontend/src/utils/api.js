@@ -21,11 +21,17 @@ function joinUrl(base, path) {
 export async function apiGet(url, options = {}) {
   const base =
     (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_BASE_URL) || '';
+  // Always prefer app-relative /api path so the dev server proxy forwards to backend (3001).
+  // Avoid hardcoding window.origin:3000/api/... which breaks in production.
   const finalUrl = isAbsoluteUrl(url)
     ? url
     : url.startsWith('/api')
       ? url
       : joinUrl(base, url);
+  if (process.env.NODE_ENV !== 'production' && /3000\/api\//.test(String(url))) {
+    // eslint-disable-next-line no-console
+    console.warn('[apiGet] Detected potential direct :3000/api path. Please use /api/... base only.');
+  }
 
   const headers = buildAuthHeaders({
     Accept: 'application/json',

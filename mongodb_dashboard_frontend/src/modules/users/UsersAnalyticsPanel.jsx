@@ -113,6 +113,14 @@ export default function UsersAnalyticsPanel({
   });
 
   // Aggregations
+  if (process.env.NODE_ENV !== 'production' && userIds.length > 0) {
+    // eslint-disable-next-line no-console
+    console.debug('[UsersAnalyticsPanel] using batched users projects', {
+      totalUsers: userIds.length,
+      mapKeys: Object.keys(projectsByUser || {}).length,
+    });
+  }
+
   const aggregates = useMemo(() => {
     // Projects by user count
     const projectsCountByUser = [];

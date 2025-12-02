@@ -4,8 +4,10 @@ import PropTypes from 'prop-types';
 // Prefer existing UI primitives if available
 import Modal from '../ui/Modal.jsx';
 
-// Views
-import useUsersProjects from '../../hooks/useUsersProjects';
+ // Views
+ // Prefer batched retrieval hook to avoid N-per-user network calls. For single user view we still reuse
+ // the batch hook to leverage shared cache/coalescing with list pages.
+ import useUsersProjectsBatch from '../../hooks/useUsersProjectsBatch';
 
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
@@ -184,15 +186,28 @@ UserDetailsView.propTypes = {
  */
 function UserProjectsView({ userId, tenantId, from, to }) {
   const enabled = Boolean(userId && tenantId);
-  const { data, loading, error, refetch } = useUsersProjects({
-    userId,
+  // Use batch hook even for single user to guarantee deduping/coalescing with other views
+  const {
+    data: projectsByUser = {},
+    loading,
+    error,
+    refetch,
+  } = useUsersProjectsBatch({
+    userIds: userId ? [String(userId)] : [],
     organization_id: tenantId,
     from,
     to,
     enabled,
-    debounceMs: 400,
+    debounceMs: 300,
   });
-  const projects = Array.isArray(data?.projects) ? data.projects : [];
+  const projects = Array.isArray(projectsByUser?.[String(userId)]) ? projectsByUser[String(userId)] : [];
+  if (process.env.NODE_ENV !== 'production' && enabled) {
+    // eslint-disable-next-line no-console
+    console.debug('[TabbedUserModal] projects batch used (single-user view)', {
+      userId: String(userId),
+      got: Array.isArray(projects) ? projects.length : 0,
+    });
+  }
 
   if (!enabled) {
     return <div className="text-gray-500">Select a user with a valid tenant to view projects.</div>;
