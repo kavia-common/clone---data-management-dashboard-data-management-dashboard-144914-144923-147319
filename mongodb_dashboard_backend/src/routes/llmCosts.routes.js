@@ -71,6 +71,12 @@ router.use((req, res, next) => {
         );
       }
       try { res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs'); } catch (_) {}
+    try {
+      if (req.tenantId) {
+        const t = String(req.tenantId);
+        res.set('X-Applied-Tenant-Field', 'probe'); // will be overwritten by controller once probed
+      }
+    } catch (_) {}
     } catch (_) {}
   } catch (_) {
     // non-fatal

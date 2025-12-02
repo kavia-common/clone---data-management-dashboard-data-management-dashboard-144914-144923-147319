@@ -82,3 +82,12 @@ module.exports.ensureIndexes = async () => {
   try { await LLMCost.ensureIndexes(); } catch (_) {}
   return true;
 };
+/**
+ * PUBLIC_INTERFACE
+ * preferredTenantIndexHints
+ * Provides preferred index hints for query planners depending on the applied tenant field.
+ */
+module.exports.preferredTenantIndexHints = {
+  tenant_id: { tenant_id: 1, timestamp: -1 },
+  organization_id: { organization_id: 1, timestamp: -1 },
+};
