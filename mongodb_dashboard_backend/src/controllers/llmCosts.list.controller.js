@@ -21,6 +21,17 @@ let lastDiagnostics = null;
  * - meta.debug contains summarized explain when enabled (compact stats).
  * - On error/timeout, partial headers are set and a diagnostics snapshot is persisted for later retrieval.
  */
+/**
+ * PUBLIC_INTERFACE
+ * listLlmCosts
+ * List LLM cost records for a tenant with enforced date window and limit guards.
+ * Returns an envelope: { success, data, meta } and sets diagnostic headers.
+ * Query params:
+ * - organization_id|tenant_id or x-organization-id header to set tenant when no JWT.
+ * - page, limit (max 200), sort (default -timestamp)
+ * - from, to (ISO dates) with MAX_DAYS_WINDOW enforcement (default 90d window when omitted)
+ * - filter (JSON): whitelist keys [status, provider, llm_model, user_id, session_id, project_id, request_id]
+ */
 async function listLlmCosts(req, res) {
   const t0 = process.hrtime.bigint();
   const timings = {};
@@ -209,6 +220,7 @@ async function listLlmCosts(req, res) {
 
     // Projection for tabular view
     const projection = {
+      _id: 1, // explicitly include _id for tabular UI safety
       request_id: 1,
       // Canonical time field for filtering/sorting; keep created_at only for display fallback mapping in UI
       timestamp: 1,
@@ -379,6 +391,15 @@ async function listLlmCosts(req, res) {
       if (process.env.DEBUG_LLMCOSTS_EXPLAIN === '1') {
         if (explainFind) res.set('x-llm-explain-find', 'captured');
         if (explainCount) res.set('x-llm-explain-count', 'captured');
+        // include summarized winning plan index names for quick verification
+        const findSummary = summarizeExplain(explainFind);
+        const countSummary = summarizeExplain(explainCount);
+        if (findSummary?.usedIndexes?.length) {
+          res.set('x-llm-explain-find-summary', JSON.stringify({ usedIndexes: findSummary.usedIndexes.slice(0, 5) }));
+        }
+        if (countSummary?.usedIndexes?.length) {
+          res.set('x-llm-explain-count-summary', JSON.stringify({ usedIndexes: countSummary.usedIndexes.slice(0, 5) }));
+        }
       }
     } catch {
       // ignore header set failures
