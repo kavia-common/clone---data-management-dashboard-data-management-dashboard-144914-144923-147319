@@ -2,6 +2,7 @@
 
 const mongoose = require('mongoose');
 const LlmCost = require('../models/llmCosts.model');
+const { ensureLlmCostsIndexes } = require('../models/llmCosts.indexes');
 
 // In-memory last diagnostics snapshot for lightweight retrieval
 let lastDiagnostics = null;
@@ -29,6 +30,13 @@ async function listLlmCosts(req, res) {
 
   // Wrap entire handler to still set diagnostic headers on error
   try {
+    // Best-effort ensure critical indexes exist (non-blocking on failure)
+    try {
+      await ensureLlmCostsIndexes();
+    } catch (e) {
+      // Ignore failures; queries will still run and explains will capture any missing index issues
+    }
+
     // Resolve tenant
     const headerTenant =
       (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||

@@ -59,6 +59,23 @@ Operational steps
 - Apply indexes indicated by winningPlan or adjust filters to match existing indexes.
 - Optionally implement normalizedTimestamp write path and backfill migration for best performance.
 
+Index verification (required)
+- Ensure the following compound indexes exist on the llm-costs collection:
+  - { tenant_id: 1, timestamp: -1 }
+  - { organization_id: 1, timestamp: -1 }
+- The model defines these indexes and the list route calls ensureLlmCostsIndexes() which runs model.syncIndexes().
+- To verify index usage for organization_id=T0015 (page=1, limit=10) without a date filter and with default sort -timestamp:
+  1) Start server with: DEBUG_LLMCOSTS_EXPLAIN=1
+  2) Call:
+     curl -sS -H "x-organization-id: T0015" "http://localhost:3001/api/llm-costs?page=1&limit=10" | jq .
+  3) Check response:
+     - Headers x-llm-explain-find and x-llm-explain-count should be "captured"
+     - Body meta.debug.explain.examples.noDate.find.usedIndexes should include an index with key organization_id_1_timestamp_-1 (name may vary by driver/index build)
+     - Body meta.debug.explain.examples.noDate.count.usedIndexes similarly indicates index usage
+- With a 7-day date filter:
+  curl -sS -H "x-organization-id: T0015" "http://localhost:3001/api/llm-costs?page=1&limit=10&from=$(date -u -d '7 days ago' +%FT%TZ)" | jq .
+  Expect meta.debug.explain.examples.withDate.find.usedIndexes to include organization_id_1_timestamp_-1 (or tenant_id_1_timestamp_-1 if tenant_id matched)
+
 Notes
 - Avoid leaking full explain outputs in production; we log a truncated/summary version and only ship summaries in meta.debug.
 - For countDocuments(), pipeline count via aggregate + explain is used to capture executionStats uniformly.
