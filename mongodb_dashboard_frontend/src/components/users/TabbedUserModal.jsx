@@ -4,10 +4,8 @@ import PropTypes from 'prop-types';
 // Prefer existing UI primitives if available
 import Modal from '../ui/Modal.jsx';
 
- // Views
- // Prefer batched retrieval hook to avoid N-per-user network calls. For single user view we still reuse
- // the batch hook to leverage shared cache/coalescing with list pages.
-import useUsersProjectsBatch from '../../hooks/useUsersProjectsBatch';
+// Views
+import { useUserProjects } from '../../hooks/useUserProjects';
 
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
@@ -186,28 +184,7 @@ UserDetailsView.propTypes = {
  */
 function UserProjectsView({ userId, tenantId, from, to }) {
   const enabled = Boolean(userId && tenantId);
-  // Use batch hook even for single user to guarantee deduping/coalescing with other views
-  const {
-    data: projectsByUser = {},
-    loading,
-    error,
-    refetch,
-  } = useUsersProjectsBatch({
-    userIds: userId ? [String(userId)] : [],
-    organization_id: tenantId,
-    from,
-    to,
-    enabled,
-    debounceMs: 300,
-  });
-  const projects = Array.isArray(projectsByUser?.[String(userId)]) ? projectsByUser[String(userId)] : [];
-  if (process.env.NODE_ENV !== 'production' && enabled) {
-    // eslint-disable-next-line no-console
-    console.debug('[TabbedUserModal] projects batch used (single-user view)', {
-      userId: String(userId),
-      got: Array.isArray(projects) ? projects.length : 0,
-    });
-  }
+  const { projects, loading, error, refetch } = useUserProjects({ userId, tenantId, from, to, enabled });
 
   if (!enabled) {
     return <div className="text-gray-500">Select a user with a valid tenant to view projects.</div>;
@@ -248,7 +225,7 @@ function UserProjectsView({ userId, tenantId, from, to }) {
 
   const ProjectCard = ({ project }) => {
     const id = project?.project_id || project?.projectId || project?._id || project?.id || '—';
-    // const name = project?.name || project?.project_name || project?.projectName || '—'; // not used in render
+    const name = project?.name || project?.project_name || project?.projectName || '—';
     const status = project?.status || project?.state || '';
     const desc = project?.description || project?.project_description || '';
     const created = project?.createdAt || project?.created_at || '';

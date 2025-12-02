@@ -14,8 +14,7 @@ import {
   Cell,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
-import useUsersProjectsBatch from "../../hooks/useUsersProjectsBatch";
-
+import { getApiClient } from "../../api";
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
 
@@ -26,12 +25,10 @@ import Skeleton from "../../components/ui/Skeleton";
  * - Projects by User (bar)
  * - Projects by Department (pie/donut)
  *
- * Data flow (batched):
- * - Fetch users once via useUsers().
- * - Build a single userIds array and call useUsersProjectsBatch({ userIds, organization_id, from, to }).
- * - Read per-user projects from the returned map keyed by userId.
- * This replaces previous per-item fetch loops and eliminates N calls. The batch hook dedupes,
- * debounces, and cancels in-flight requests to avoid re-fetch loops.
+ * Data source:
+ * - Reuses /api/users to get users, then uses /api/users/:userId/projects
+ *   to fetch per-user projects when available. Falls back to client-side
+ *   aggregation from data already loaded if needed.
  *
  * Filters:
  * - Date range (start, end with explicit ISO)
@@ -91,36 +88,73 @@ export default function UsersAnalyticsPanel({
     limit: 200,
   });
 
-  // Fetch projects for all users in one batched request.
-  // PUBLIC_INTERFACE: Centralized data flow
-  // - We gather userIds from the users list and send one request via the batch hook.
-  // - The hook ensures dedupe/debounce/cancellation and returns a map keyed by userId.
-  const userIds = useMemo(
-    () => (Array.isArray(users) ? users.map((u) => String(u?._id || u?.id || "")).filter(Boolean) : []),
-    [users]
-  );
-  const {
-    data: projectsByUser = {},
-    loading: projectsLoading,
-    error: projectsError,
-  } = useUsersProjectsBatch({
-    userIds,
-    organization_id: activeTenantId,
-    from: startISO,
-    to: endISO,
-    enabled: Boolean(activeTenantId && userIds.length > 0),
-    debounceMs: 300,
-  });
+  // Fetch projects per user when needed
+  const [projectsByUser, setProjectsByUser] = useState({});
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      // Lazily fetch projects for each user for better accuracy of counts over time.
+      // If endpoint not available or fails, gracefully continue with partial data.
+      if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
+        setProjectsByUser({});
+        return;
+      }
+      setProjectsLoading(true);
+      setProjectsError("");
+      const api = getApiClient();
+      const acc = {};
+      try {
+        // Fetch in small batches to avoid overloading backend
+        const batchSize = 8;
+        for (let i = 0; i < users.length; i += batchSize) {
+          const slice = users.slice(i, i + batchSize);
+          await Promise.all(
+            slice.map(async (u) => {
+              if (!u?._id) return;
+              try {
+                const res = await api.get(
+                  `/users/${encodeURIComponent(String(u._id))}/projects`,
+                  {
+                    params: {
+                      organization_id: activeTenantId,
+                      from: startISO,
+                      to: endISO,
+                    },
+                  }
+                );
+                const payload = res.data?.data ?? res.data;
+                const list = Array.isArray(payload?.projects)
+                  ? payload.projects
+                  : [];
+                acc[String(u._id)] = list;
+              } catch {
+                // Ignore individual user fetch errors; rely on others or fallback
+                acc[String(u._id)] = acc[String(u._id)] || [];
+              }
+            })
+          );
+          if (cancelled) return;
+        }
+        if (!cancelled) setProjectsByUser(acc);
+      } catch (e) {
+        if (!cancelled) {
+          setProjectsError(e?.message || "Failed to load user projects.");
+          setProjectsByUser({});
+        }
+      } finally {
+        if (!cancelled) setProjectsLoading(false);
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [users, activeTenantId, startISO, endISO]);
 
   // Aggregations
-  if (process.env.NODE_ENV !== 'production' && userIds.length > 0) {
-    // eslint-disable-next-line no-console
-    console.debug('[UsersAnalyticsPanel] using batched users projects', {
-      totalUsers: userIds.length,
-      mapKeys: Object.keys(projectsByUser || {}).length,
-    });
-  }
-
   const aggregates = useMemo(() => {
     // Projects by user count
     const projectsCountByUser = [];
