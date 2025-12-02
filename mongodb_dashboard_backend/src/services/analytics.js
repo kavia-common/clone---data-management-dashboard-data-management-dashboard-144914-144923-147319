@@ -38,6 +38,11 @@ async function getOverviewTotals(tenantId, req = undefined) {
  * analyticsService
  * Named export object for analytics helpers to avoid anonymous default export patterns.
  */
+/**
+ * PUBLIC_INTERFACE
+ * analyticsService
+ * Exported object of analytics helpers.
+ */
 const analyticsService = { getOverviewTotals };
 
 module.exports = analyticsService;

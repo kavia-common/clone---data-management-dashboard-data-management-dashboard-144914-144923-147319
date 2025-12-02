@@ -3,9 +3,12 @@
 /**
  * Deprecated: Users Analytics Metrics Controller was removed.
  */
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * noopUsersAnalyticsMetrics
+ * No-op metrics controller kept for backward compatibility.
+ */
 function noopUsersAnalyticsMetrics() {
-  /** No-op metrics controller kept for backward compatibility. */
   return null;
 }
 
