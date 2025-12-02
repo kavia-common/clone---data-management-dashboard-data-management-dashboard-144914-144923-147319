@@ -148,6 +148,7 @@ safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
 safeUse('/api/analytics', require('./routes/analytics.overview.routes'));
 safeUse('/api/analytics', require('./routes/analytics'));
+safeUse('/api/sessions', require('./routes/sessions.analytics.routes'));
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));

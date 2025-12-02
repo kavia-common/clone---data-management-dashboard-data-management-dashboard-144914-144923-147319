@@ -89,3 +89,30 @@ Troubleshooting
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
 - Mongo not connected:
   - /api/health will reflect db: disconnected; verify MONGODB_URI and MONGODB_DB in .env.
+
+## Session Tracking Aggregates (Performance)
+
+New fast aggregation endpoints:
+- GET /api/sessions/by-organization
+- GET /api/sessions/by-type
+
+Details:
+- Aggregation pipelines use tenant scoping by default (JWT/header). Use organization_id=T0000 to bypass and aggregate across all tenants for super-admin.
+- Optional query parameters:
+  - start (ISO date-time)
+  - end (ISO date-time)
+  - limit (default 20, max 1000)
+- Lightweight in-memory cache per query key with ~45s TTL.
+- Input validation for dates; invalid values return 400.
+
+Recommended MongoDB indexes (run in your Mongo shell):
+```js
+db.session_tracking.createIndex({ tenant_id: 1, last_updated: -1 })
+db.session_tracking.createIndex({ tenant_id: 1, session_start: -1 })
+db.session_tracking.createIndex({ service_type: 1 })
+db.session_tracking.createIndex({ session_type: 1 })
+db.session_tracking.createIndex({ type: 1 })
+db.session_tracking.createIndex({ organization_name: 1 })
+```
+
+These indexes support time-bound and grouping operations for both "by type" and "by organization" queries and drastically reduce query latency on larger datasets.
