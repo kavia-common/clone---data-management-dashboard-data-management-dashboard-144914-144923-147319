@@ -115,15 +115,19 @@ async function listLlmCosts(req, res) {
     let from = req.query.from ? new Date(req.query.from) : null;
     let to = req.query.to ? new Date(req.query.to) : null;
 
+    let windowApplied = '';
     if (!from && !to) {
       to = now;
       from = new Date(now.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
+      windowApplied = 'default';
     } else if (from && !to) {
       const maxTo = new Date(from.getTime() + MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
       to = (maxTo < now ? maxTo : now);
+      windowApplied = 'clamped_to';
     } else if (!from && to) {
       const minFrom = new Date(to.getTime() - MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000);
       from = minFrom;
+      windowApplied = 'clamped_from';
     } else {
       if ((to - from) > MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000) {
         diag.error = 'date_window_exceeds_max';
@@ -199,6 +203,9 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-limit', String(limit));
       res.set('x-llm-window-from', from ? from.toISOString() : '');
       res.set('x-llm-window-to', to ? to.toISOString() : '');
+      if (typeof windowApplied === 'string' && windowApplied) {
+        res.set('x-llm-window-applied', windowApplied);
+      }
       res.set('x-llm-timing-parsed-ms', String(parseEnd - startedAt));
       res.set('x-llm-timing-built-ms', String(builtEnd - parseEnd));
       res.set('x-llm-timing-exec-ms', String(execEnd - builtEnd));
