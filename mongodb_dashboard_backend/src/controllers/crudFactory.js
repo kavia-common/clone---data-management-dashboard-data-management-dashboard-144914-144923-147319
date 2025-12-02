@@ -272,6 +272,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         if (Model && Model.collection && Model.collection.name) {
           res.set('X-Model-Collection', Model.collection.name);
         }
+        // Also expose which tenant field (alias) is likely in effect for index hints
+        const likelyTenantField = appliedFilter?.$or?.some(x => Object.prototype.hasOwnProperty.call(x, 'tenant_id')) ? 'tenant_id' : 'organization_id';
+        res.set('X-Applied-Tenant-Field', likelyTenantField);
       } catch (_) {}
 
       // Determine allowed sort fields per model and validate sort string
