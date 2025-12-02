@@ -171,106 +171,45 @@ export default function Sessions() {
   // Aggregates for charts
   const [aggLoading, setAggLoading] = useState(false);
   const [aggError, setAggError] = useState("");
-  const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
-  const [byType, setByType] = useState([]); // [{ session_type, session_count }]
+  const [byOrg, setByOrg] = useState([]);   // [{ organization, total }]
+  const [byType, setByType] = useState([]); // [{ type, total }]
 
-  async function loadAggregates(qStr = "") {
-    /**
-     * Fetch sessions data across multiple pages (capped) and build client-side aggregates
-     * for charts: by organization_name and by session_type.
-     */
+  // Debounced, single-call per chart using new backend endpoints with cancellation
+  const abortRef = useRef({ org: null, type: null });
+  async function loadAggregatesDebounced() {
     setAggLoading(true);
     setAggError("");
     try {
-      const limit = 200;
-      const maxPages = 10;
-      let page = 1;
-      const all = [];
-      while (page <= maxPages) {
-        const params = { page, limit, q: qStr };
-        // Use ONLY start/end for date range API request
-        if (startDate) {
-          params.start = new Date(startDate).toISOString();
-        }
-        if (endDate) {
-          params.end =
-            endDate && !/T/.test(endDate)
-              ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
-              : new Date(endDate).toISOString();
-        }
-        const res = await listSessions(params);
-        const arr = Array.isArray(res?.items) ? res.items : [];
-        all.push(...arr);
-        if (arr.length < limit) break;
-        page += 1;
-      }
+      // Build consolidated params for charts
+      const { buildChartParams, getSessionsByOrganization, getSessionsByType } = await import("../../api/sessionsAggregates");
+      const params = buildChartParams({ startDate, endDate, limit: 12 });
 
-      // Aggregate by organization
-      const orgCounts = new Map();
-      all.forEach((it) => {
-        let org =
-          it?.organization_name ||
-          it?.organization?.name ||
-          it?.tenant_id ||
-          "";
-        org = String(org || "").trim();
-        if (!org) org = "Unknown";
-        orgCounts.set(org, (orgCounts.get(org) || 0) + 1);
-      });
-      const orgArr = Array.from(orgCounts.entries())
-        .map(([organization_name, session_count]) => ({ organization_name, session_count }))
-        .sort((a, b) => b.session_count - a.session_count);
+      // Cancel previous inflight
+      if (abortRef.current.org) { abortRef.current.org.abort(); }
+      if (abortRef.current.type) { abortRef.current.type.abort(); }
 
-      // Aggregate by type
-      const typeCounts = new Map();
-      all.forEach((it) => {
-        let t = it?.session_type || it?.type || it?.service_type || "";
-        t = String(t || "").trim();
-        if (!t) t = "Unknown";
-        typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
-      });
-      const typeArr = Array.from(typeCounts.entries())
-        .map(([session_type, session_count]) => ({ session_type, session_count }))
-        .sort((a, b) => b.session_count - a.session_count);
+      const orgCtrl = new AbortController();
+      const typeCtrl = new AbortController();
+      abortRef.current.org = orgCtrl;
+      abortRef.current.type = typeCtrl;
 
-      setByOrg(orgArr);
-      setByType(typeArr);
+      // Parallel fetch with memoized cache at api layer
+      const [orgItems, typeItems] = await Promise.all([
+        getSessionsByOrganization(params, { signal: orgCtrl.signal }),
+        getSessionsByType(params, { signal: typeCtrl.signal }),
+      ]);
 
-      // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
-      // Keep pairs of { id, name } for filtering
-      // ✅ Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+      setByOrg((Array.isArray(orgItems) ? orgItems : []).map((x) => ({
+        organization: x.organization || x.organization_name || "Unknown",
+        total: typeof x.total === "number" ? x.total : (x.session_count || 0),
+      })));
 
-      // Build unique user list with IDs and names
-      const userPairs = all
-        .map((it) => ({
-          id: it?.user_id,
-          name:
-            it?.User_name ??
-            it?.user_name ??
-            it?.user?.name ??
-            it?.username ??
-            it?.email ??
-            "",
-        }))
-        .filter((u) => u.id && u.name);
-
-      const uniqueUsers = [];
-      const seen = new Set();
-      userPairs.forEach((u) => {
-        if (!seen.has(u.id)) {
-          seen.add(u.id);
-          uniqueUsers.push(u);
-        }
-      });
-
-      // Build distinct tenant IDs
-      const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
-
-      // Update dropdown options
-      setUserNameOptions(uniqueUsers);
-      setTenantIdOptions(tenantIds);
-
+      setByType((Array.isArray(typeItems) ? typeItems : []).map((x) => ({
+        type: x.type || x.session_type || x.service_type || "Unknown",
+        total: typeof x.total === "number" ? x.total : (x.session_count || 0),
+      })));
     } catch (e) {
+      if (e?.name === "AbortError") return;
       setByOrg([]);
       setByType([]);
       setAggError(e?.response?.data?.message || e?.message || "Failed to load session aggregates.");
@@ -395,20 +334,29 @@ export default function Sessions() {
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, "", key, dir);
-    loadAggregates("");
+    // Charts use new endpoints
+    loadAggregatesDebounced();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
   // Debounced server-side search on query change (250ms default)
-  const debouncedQuery = useDebouncedValue(query, 250);
-  // Debounced text search only
+  const debouncedQuery = useDebouncedValue(query, 300);
+
+  // Reload table on debounced text, and reload charts only when date range changes
   useEffect(() => {
     const q = (debouncedQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, q, key, dir);
-    loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, startDate, endDate]);
+  }, [debouncedQuery]);
+
+  // Date changes trigger charts reload with debounce managed inside API cache + quick toggle loading here
+  const debouncedStart = useDebouncedValue(startDate, 350);
+  const debouncedEnd = useDebouncedValue(endDate, 350);
+  useEffect(() => {
+    loadAggregatesDebounced();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedStart, debouncedEnd]);
 
   // Immediate refetch when dropdown filters change (no debounce)
   useEffect(() => {
@@ -477,7 +425,7 @@ export default function Sessions() {
         >
           <div className="chart-wrapper" style={{ height: 320 }}>
             <SessionsByOrganization
-              data={byOrg}
+              data={byOrg.map((it) => ({ organization_name: it.organization, session_count: it.total }))}
               loading={aggLoading}
               error={aggError}
             />
@@ -492,7 +440,7 @@ export default function Sessions() {
           {/* Wrapper participates in normal flow; no absolute positioning */}
           <div className="chart-wrapper" style={{ minHeight: 320 }}>
             <SessionsByType
-              data={byType}
+              data={byType.map((it) => ({ session_type: it.type, session_count: it.total }))}
               loading={aggLoading}
               error={aggError}
               maxItems={5}
