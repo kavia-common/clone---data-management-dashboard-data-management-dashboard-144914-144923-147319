@@ -1,5 +1,10 @@
 # Environment Notes
 
+Optional env vars:
+- DISABLE_WATCH=1  (default set in npm run dev) prevents nodemon-like watching in CI
+- NODE_OPTIONS="--max-old-space-size=512"  caps memory to avoid OOM/kill
+- DEBUG_LLMCOSTS_EXPLAIN=1  enables explain() capture for /api/llm-costs
+
 ## Memory and Dev Stability
 
 To prevent the dev server from being killed (OOM/kill -9), the npm scripts are already configured to cap memory and avoid heavy tooling.

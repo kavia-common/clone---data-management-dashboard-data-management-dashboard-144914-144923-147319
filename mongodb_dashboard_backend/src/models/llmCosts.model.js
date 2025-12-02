@@ -72,3 +72,4 @@ LLMCostsSchema.pre('findOneAndUpdate', function (next) {
 });
 
 module.exports = mongoose.model('LLMCost', LLMCostsSchema);
+module.exports.default = mongoose.model('LLMCost', LLMCostsSchema);

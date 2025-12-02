@@ -140,6 +140,17 @@ safeUse('/api/analytics', require('./routes/analytics'));
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
+app.use((req, res, next) => {
+  if (req.method === 'GET' && req.path === '/api/llm-costs') {
+    const start = process.hrtime.bigint();
+    res.once('finish', () => {
+      const end = process.hrtime.bigint();
+      const ms = Number(end - start) / 1e6;
+      console.log(`[LLM-COSTS][TIMING] ${ms.toFixed(1)}ms status=${res.statusCode}`);
+    });
+  }
+  next();
+});
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));

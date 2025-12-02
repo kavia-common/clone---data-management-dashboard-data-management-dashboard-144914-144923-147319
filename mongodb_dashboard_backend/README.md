@@ -1,4 +1,21 @@
-# Backend (Express) - Dashboard API
+# Backend
+
+## Dev stability flags
+
+- DISABLE_WATCH=1 to avoid file watching in constrained CI/containers.
+- NODE_OPTIONS="--max-old-space-size=512" to cap memory and prevent OOM killer.
+- DEBUG_LLMCOSTS_EXPLAIN=1 to capture explain() for GET /api/llm-costs (logged to console, summarized via response headers x-llm-explain-find/x-llm-explain-count).
+
+Example:
+```
+npm run dev
+# or with watch
+npm run dev:watch
+# with diagnostics
+DEBUG_LLMCOSTS_EXPLAIN=1 npm run dev
+```
+
+/api/health is a lightweight liveness endpoint that avoids heavy work and can be used by probes. (Express) - Dashboard API
 
 - Default port: 3001 (configurable via PORT in .env)
 - Host bind: 0.0.0.0 by default (configurable via HOST; if HOST is unset or set to 'localhost', the server will bind to 0.0.0.0 to avoid EADDRNOTAVAIL in preview/container environments)
