@@ -42,7 +42,7 @@ export default function Users() {
 
   return (
     <div>
-      {/* Users Analytics Panel */}
+      {/* Users Analytics Panel (timeline removed) */}
       <UsersAnalyticsPanel style={{ marginBottom: 12 }} />
 
       {/* Users by Department Chart */}
