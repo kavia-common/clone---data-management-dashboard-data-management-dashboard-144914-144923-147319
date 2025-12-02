@@ -206,6 +206,13 @@ router.get('/', (req, res, next) => {
   try { 
     res.set('X-Route', '/api/llm-costs'); 
     res.set('Cache-Control', 'no-store');
+    // Provide fallback diagnostics headers early; controller will overwrite with precise values
+    const t = req.tenantId ? String(req.tenantId) : '';
+    if (t) {
+      res.set('X-Applied-Tenant', t);
+      res.set('X-Applied-Filter', JSON.stringify({ $or: [{ tenant_id: t }, { organization_id: t }] }));
+      res.set('X-Applied-Tenant-Field', 'probe'); // provisional; controller will refine
+    }
   } catch (_) {}
 
   // Send early headers to avoid upstream 60s timeout while server works

@@ -51,6 +51,8 @@
       ".git",
       "dist",
       "build",
+      "coverage",
+      "public",
       "**/*.map"
     ],
     "ext": "js,json",
@@ -58,11 +60,15 @@
       "HOST": "0.0.0.0",
       "PORT": "3001",
       "NODE_ENV": "development",
+      "NODE_OPTIONS": "--max_old_space_size=768",
       "CHOKIDAR_USEPOLLING": "false",
       "TSC_COMPILE_ON_ERROR": "false",
       "HEARTBEAT_MS": "10000",
-      "MEM_LOG_INTERVAL_MS": "30000"
+      "MEM_LOG_INTERVAL_MS": "30000",
+      "SOURCE_MAP": "false"
     },
-    "delay": "300"
+    "delay": "300",
+    "legacyWatch": false,
+    "verbose": false
   }
 }

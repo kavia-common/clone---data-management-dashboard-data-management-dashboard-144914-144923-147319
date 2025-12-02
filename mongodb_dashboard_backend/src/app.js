@@ -122,6 +122,24 @@ const healthHandler = (req, res) => {
   return res.status(200).json(payload);
 };
 app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
+// PUBLIC_INTERFACE
+// GET /api/health/memory - returns current memory stats and configured thresholds
+app.get('/api/health/memory', (req, res) => {
+  const mu = process.memoryUsage();
+  const toMB = (n) => Math.round(n / (1024 * 1024));
+  const MAX_HEAP_MB = Number(process.env.MAX_OLD_SPACE_SIZE || 768);
+  const payload = {
+    rssMB: toMB(mu.rss),
+    heapUsedMB: toMB(mu.heapUsed),
+    heapTotalMB: toMB(mu.heapTotal),
+    externalMB: toMB(mu.external || 0),
+    arrayBuffersMB: toMB(mu.arrayBuffers || 0),
+    configuredMaxOldSpaceMB: MAX_HEAP_MB,
+    timestamp: new Date().toISOString(),
+  };
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json(payload);
+});
 
 // ---------------------------------------------
 // Routers
@@ -198,6 +216,7 @@ safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
+safeUse('/api/llm-costs', require('./routes/llmCosts.sample.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
