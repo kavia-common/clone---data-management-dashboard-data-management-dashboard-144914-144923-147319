@@ -4,10 +4,8 @@ const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
 const { connectDB } = require('./config/db');
-const { mongoConnectionManager } = require('./config/db.connectionManager');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
-const { dbConnectionGuard } = require('./middleware/dbConnectionGuard');
 const cors = require('cors');
 
 const app = express();
@@ -89,11 +87,9 @@ app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
-/**
- * Health endpoints:
- * - /healthz, /health, /live -> liveness (server up)
- * - /readiness -> readiness (quick DB ping)
- */
+// ---------------------------------------------
+// Health endpoints
+// ---------------------------------------------
 const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
@@ -104,29 +100,7 @@ const healthHandler = (req, res) => {
   res.set('Cache-Control', 'no-store');
   return res.status(200).json(payload);
 };
-app.get(['/api/health', '/health', '/healthz', '/live'], healthHandler);
-
-// PUBLIC_INTERFACE
-app.get('/readiness', async (req, res) => {
-  try {
-    const ping = await mongoConnectionManager.quickPing();
-    const status = ping.ok ? 'ready' : 'not-ready';
-    const code = ping.ok ? 200 : 503;
-    return res.status(code).json({
-      status,
-      db: ping.ok ? 'connected' : 'unavailable',
-      error: ping.error || null,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (e) {
-    return res.status(503).json({
-      status: 'not-ready',
-      db: 'unavailable',
-      error: e?.message || String(e),
-      timestamp: new Date().toISOString(),
-    });
-  }
-});
+app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
 
 // ---------------------------------------------
 // Routers
@@ -137,9 +111,6 @@ const safeUse = (path, router) => {
 
 const baseRouter = require('./routes');
 safeUse('/', baseRouter);
-
-// Short-circuit requests fast when DB is down or URI missing
-app.use(dbConnectionGuard);
 
 safeUse('/api/dev', require('./routes/dev.routes'));
 safeUse('/api/users', require('./routes/users.routes'));
@@ -217,9 +188,8 @@ if (process.env.NODE_ENV !== 'test') {
   if (!process.env.MONGODB_URI) {
     console.warn('[startup] MONGODB_URI not set. Starting without DB connection.');
   } else {
-    // initialize fail-fast connection via connection manager
     connectDB().catch((err) =>
-      console.error('Failed to connect to MongoDB on startup:', err?.message || err)
+      console.error('Failed to connect to MongoDB on startup:', err.message)
     );
   }
 } else {

@@ -2,7 +2,6 @@ const express = require('express');
 const healthController = require('../controllers/health');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
-const { dbConnectionGuard } = require('../middleware/dbConnectionGuard');
 
 // Core route modules
 const authRoutes = require('./auth.routes');
@@ -33,9 +32,6 @@ router.get('/', (req, res) => {
 });
 router.get('/healthz', healthController.check.bind(healthController));
 router.get('/health', healthController.check.bind(healthController));
-
- // Apply DB connection guard for API subtree except auth/health
-router.use(dbConnectionGuard);
 
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);

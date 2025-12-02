@@ -1,3 +1,4 @@
+
 /**
  * Utility string helpers with safe, minimal transforms used by backend only.
  * Avoids unnecessary escape characters; focuses on trimming and normalizing whitespace.
@@ -26,22 +27,7 @@ function toTitleCase(str) {
     .join(' ');
 }
 
-/**
- * PUBLIC_INTERFACE
- * Parses a mongoose sort string like "-created_at" or "name"
- * Returns an object { field: direction }
- */
-function parseSort(sortStr) {
-  if (!sortStr || typeof sortStr !== 'string') return null;
-  const isDesc = sortStr.startsWith('-'); // '-' does not need escaping
-  const field = sortStr.replace(/^-/, '');
-  if (!field) return null;
-  const direction = isDesc ? -1 : 1;
-  return { [field]: direction };
-}
-
 module.exports = {
   normalizeWhitespace,
   toTitleCase,
-  parseSort,
 };
