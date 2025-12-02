@@ -12,8 +12,14 @@ const mongoose = require('mongoose');
 
 const PORT = Number(process.env.PORT || process.env.REACT_APP_PORT) || 3001;
 // Always bind 0.0.0.0 to avoid EADDRNOTAVAIL in container/preview envs when frontend proxy targets localhost
-const HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';
+let HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Guard: if a conflicting HOST like 127.0.0.1/localhost slips through in container, normalize to 0.0.0.0
+if (['localhost', '127.0.0.1', '::1'].includes(String(process.env.HOST || '').toLowerCase())) {
+  try { console.warn(`[startup] Overriding HOST=${process.env.HOST} to 0.0.0.0 to prevent EADDRNOTAVAIL in container environments`); } catch {}
+  HOST = '0.0.0.0';
+}
 
 // PUBLIC_INTERFACE
 function logListening(host, port) {
@@ -106,26 +112,33 @@ function startServerStrict() {
           mongoose?.connection?.db?.databaseName ||
           process.env.MONGODB_DB ||
           '(not connected)';
-        // eslint-disable-next-line no-console
         console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
         logListening(HOST, PORT);
-        // concise pointers
         console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
-        // Single unambiguous readiness marker required by orchestrator:
-        // EXACT STRING: READY: http://HOST:PORT
+        // Readiness markers
         console.log(`READY: http://${HOST}:${PORT}`);
-        // Additional compatibility markers for various preview systems
         console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
         console.log(`Listening on http://${HOST}:${PORT}`);
+
+        // Diagnostic hints for common dev proxy pitfalls
+        const proxyEnv = {
+          FRONTEND_PROXY: process.env.FRONTEND_PROXY,
+          PROXY_TARGET: process.env.PROXY_TARGET,
+        };
+        if (proxyEnv.FRONTEND_PROXY || proxyEnv.PROXY_TARGET) {
+          console.log('[diagnostics] Detected proxy-related envs:', proxyEnv);
+          console.log('[diagnostics] Ensure frontend proxies to http://localhost:3001 only from the browser context; do not run HPM inside this backend.');
+        }
       } catch {}
       writePidFile();
     })
     .on('error', (err) => {
-      if (err && err.code === 'EADDRINUSE') {
-        // eslint-disable-next-line no-console
-        console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
+      const code = err && err.code;
+      if (code === 'EADDRINUSE') {
+        console.error(`[startup] EADDRINUSE on ${HOST}:${PORT}. Another process is using this port. If running nodemon, ensure no double-listen. PID file: ${PID_FILE}`);
+      } else if (code === 'EADDRNOTAVAIL') {
+        console.error(`[startup] EADDRNOTAVAIL for ${HOST}. Hint: set HOST=0.0.0.0 (current HOST=${HOST}). In containers, binding to localhost can fail.`);
       } else {
-        // eslint-disable-next-line no-console
         console.error('[startup] Server failed to start:', err?.message || err);
       }
       process.exit(1);

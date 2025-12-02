@@ -27,7 +27,6 @@ Preview runner compatibility
   - READY: http://HOST:PORT
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT
-  - Server ready: http://HOST:PORT (env=...)
 - If your frontend dev server uses a proxy (http-proxy-middleware) to reach this backend, ensure the proxy target points to the actual backend URL (e.g., http://localhost:3001 or the container hostname) and not to an interface that is not routable from the frontend container. Binding to 0.0.0.0 here avoids EADDRNOTAVAIL, but the proxy target must also be reachable.
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
@@ -85,7 +84,11 @@ Notes on authentication and hashing
   - POST /api/auth/reset-password
 
 Troubleshooting
+- EADDRNOTAVAIL:
+  - Container environments may not have a routable "localhost" interface. Ensure HOST=0.0.0.0 (default). The server enforces this when HOST is unset or set to localhost/127.0.0.1.
 - Port already in use (EADDRINUSE):
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
+- Proxy errors ([HPM] EADDRNOTAVAIL):
+  - This backend does not run any proxy. Check the frontend dev proxy configuration. Avoid pointing a proxy to itself (e.g., localhost:3001 → localhost:3001). Use the actual backend service URL accessible from the frontend environment.
 - Mongo not connected:
   - /api/health will reflect db: disconnected; verify MONGODB_URI and MONGODB_DB in .env.
