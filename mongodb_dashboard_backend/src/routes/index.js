@@ -48,7 +48,12 @@ router.use('/auth', authRoutes);
 router.use('/users', verifyAuth, requireTenant, usersRoutes);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 
-router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);
+/**
+ * Note: /api/llm-costs is mounted directly in app.js with its own guards to allow
+ * demo-mode header-based tenant when JWT is absent. Do not double-mount here to avoid
+ * unintended auth gating and duplicate handlers.
+ */
+// router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);
 router.use('/llm-costs-aggregate', verifyAuth, requireTenant, llmCostsAggregateRoutes);
 router.use('/costs', verifyAuth, requireTenant, costsByAgentRoutes);
 router.use('/session', verifyAuth, requireTenant, sessionRoutes);

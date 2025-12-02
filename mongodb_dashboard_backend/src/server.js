@@ -80,6 +80,7 @@ function startServerStrict() {
         console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
         logListening(HOST, PORT);
         console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
+        console.log(`[startup] Note: server is standalone Express. No dev proxy is configured. Do not attempt to proxy to http://localhost:${PORT} from within this server.`);
         console.log(`READY: http://${HOST}:${PORT}`);
         console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
       } catch {}

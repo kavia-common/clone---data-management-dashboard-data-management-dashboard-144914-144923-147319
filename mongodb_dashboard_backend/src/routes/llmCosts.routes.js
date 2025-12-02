@@ -24,6 +24,29 @@ router.get('/', listLlmCosts);
  */
 router.get('/diagnostics/last', getLastLlmCostsDiagnostics);
 
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/llm-costs/diagnostics
+ * Minimal help/diagnostics endpoint describing available paths and returning last snapshot.
+ */
+router.get('/diagnostics', async (req, res) => {
+  try {
+    const { getDiagnosticsStore } = require('../utils/llmCostsDiagnostics');
+    const last = getDiagnosticsStore().get();
+    return res.status(200).json({
+      success: true,
+      routes: [
+        { path: '/api/llm-costs', method: 'GET', description: 'List LLM cost records (tabular envelope)' },
+        { path: '/api/llm-costs/diagnostics/last', method: 'GET', description: 'Return last captured diagnostics from a list execution' },
+      ],
+      last,
+      note: 'Enable DEBUG_LLMCOSTS_EXPLAIN=1 to capture explain summaries.',
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: 'diagnostics_unavailable', message: err?.message || 'Unknown error' });
+  }
+});
+
 // Example placeholders for id-based CRUD if needed later
 // router.get('/:id', getById);
 // router.post('/', createCost);
