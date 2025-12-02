@@ -162,7 +162,21 @@ function startServerStrict() {
   });
   process.on('uncaughtException', (err) => {
     // eslint-disable-next-line no-console
+    const code = err && err.code;
+    if (code === 'EADDRNOTAVAIL' || code === 'EHOSTUNREACH' || code === 'ECONNRESET') {
+      console.warn(`[uncaughtException] Ignored transient network error: ${code} - ${err.message}`);
+      return;
+    }
     console.error('[uncaughtException]', err);
+  });
+  // Avoid crashing on common server error events surfaced globally
+  process.on('error', (err) => {
+    const code = err && err.code;
+    if (code === 'EADDRNOTAVAIL' || code === 'EHOSTUNREACH' || code === 'ECONNRESET') {
+      console.warn(`[process error] Ignored transient network error: ${code} - ${err.message}`);
+      return;
+    }
+    console.error('[process error]', err?.message || err);
   });
 
   return server;

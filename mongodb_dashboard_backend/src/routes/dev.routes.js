@@ -444,19 +444,11 @@ router.get('/llm-costs/ensure-indexes', asyncHandler(async (req, res) => {
         created.push({ spec, error: e?.message || 'createIndex failed' });
       }
     };
-    // Compound tenant+date indexes for sort and match
     await ensure({ tenant_id: 1, timestamp: -1 });
     await ensure({ tenant_id: 1, created_at: -1 });
-    await ensure({ organization_id: 1, timestamp: -1 });
-    await ensure({ organization_id: 1, created_at: -1 });
-    // Standalone date indexes
     await ensure({ timestamp: -1 });
     await ensure({ created_at: -1 });
-    // Useful helpers
     await ensure({ total_cost: -1 });
-    await ensure({ user_id: 1 });
-    await ensure({ project_id: 1 });
-    await ensure({ llm_model: 1, timestamp: -1 });
     return res.status(200).json({ success: true, created });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to ensure indexes', error: err?.message });
