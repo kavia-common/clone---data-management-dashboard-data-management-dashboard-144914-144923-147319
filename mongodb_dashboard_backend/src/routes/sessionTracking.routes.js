@@ -72,6 +72,7 @@ router.use((req, res, next) => {
 });
 
 const { getSessionTrackingAggregates, getSessionTrackingRaw } = require('../controllers/sessionTracking.analytics.controller');
+const { getServiceUsage } = require('../controllers/sessionTracking.services.controller');
 
 // Aggregation endpoint must be defined before the generic list endpoint to avoid shadowing query param handling
 /**
@@ -81,6 +82,8 @@ const { getSessionTrackingAggregates, getSessionTrackingRaw } = require('../cont
  * Query: interval=(daily|weekly|monthly|custom), start, end
  * Returns: { data: [{ date, count }], meta: { interval, start, end, total } }
  */
+router.get('/services', asyncHandler(getServiceUsage));
+
 router.get(
   '/',
   sessionsEarlyBypassDetector,
