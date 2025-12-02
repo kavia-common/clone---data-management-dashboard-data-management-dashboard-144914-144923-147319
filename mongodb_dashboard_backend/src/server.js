@@ -10,6 +10,43 @@ const net = require('net');
 const app = require('./app');
 const mongoose = require('mongoose');
 
+// Attach early process-level diagnostics to avoid silent exits and provide OOM hints
+(function attachProcessDiagnostics() {
+  try {
+    const log = (...args) => { try { console.log(...args); } catch {} };
+    const err = (...args) => { try { console.error(...args); } catch {} };
+
+    // Log warnings which often include memory pressure hints
+    process.on('warning', (w) => {
+      err('[process warning]', w?.name || 'Warning', w?.message || w, w?.stack || '');
+    });
+
+    // Capture beforeExit and exit to ensure cleanup logs show up in CI logs
+    process.on('beforeExit', (code) => log(`[process beforeExit] code=${code}`));
+    process.on('exit', (code) => log(`[process exit] code=${code}`));
+
+    // OOM conditions typically surface as uncaught exceptions (ERR_OUT_OF_MEMORY)
+    process.on('uncaughtException', (e) => {
+      const msg = e?.message || String(e);
+      err('[uncaughtException]', msg);
+      if (msg && msg.includes('JavaScript heap out of memory')) {
+        err('[diagnostic] OOM detected. Consider lowering load or increasing max_old_space_size via NODE_OPTIONS=--max_old_space_size=1024');
+      }
+    });
+
+    process.on('unhandledRejection', (reason) => {
+      err('[unhandledRejection]', reason);
+    });
+
+    // Some orchestrators send SIGQUIT on OOM-kill attempt; log signals explicitly
+    ['SIGTERM','SIGINT','SIGQUIT','SIGHUP'].forEach(sig => {
+      process.on(sig, () => {
+        log(`[signal] ${sig} received`);
+      });
+    });
+  } catch {}
+})();
+
 const PORT = Number(process.env.PORT || process.env.REACT_APP_PORT) || 3001;
 // Always bind 0.0.0.0 to avoid EADDRNOTAVAIL in container/preview envs when frontend proxy targets localhost
 let HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';

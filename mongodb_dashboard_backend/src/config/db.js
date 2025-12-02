@@ -28,6 +28,13 @@ async function connectDB() {
   }
 
   mongoose.set('strictQuery', true);
+  try {
+    const dbg = String(process.env.MONGOOSE_DEBUG || '').toLowerCase() === 'true';
+    mongoose.set('debug', dbg);
+    if (dbg) {
+      console.log('[db] Mongoose debug ENABLED (env MONGOOSE_DEBUG=true)');
+    }
+  } catch {}
 
   // In test mode, prefer fast failures and no buffering to keep tests snappy.
   const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';

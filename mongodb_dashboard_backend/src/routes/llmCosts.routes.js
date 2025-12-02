@@ -197,18 +197,48 @@ router.use((req, res, next) => {
  *         description: Forbidden on tenant mismatch with Authorization
  */
 router.get('/', (req, res, next) => {
-  try { res.set('X-Route', '/api/llm-costs'); } catch (_) {}
+  try { 
+    res.set('X-Route', '/api/llm-costs'); 
+    res.set('Cache-Control', 'no-store');
+  } catch (_) {}
+
+  // Send early headers to avoid upstream 60s timeout while server works
+  try {
+    if (!res.headersSent) {
+      // Immediately flush a small preamble for proxies that use activity-based timeouts
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'X-Stream-Preamble': 'true' });
+      // Write a harmless whitespace/heartbeat to keep the connection alive before heavy DB work
+      res.write(' ');
+    }
+  } catch (_) {}
+
   // Guardrails: if no explicit pagination, set a soft default to avoid huge payloads
   const hasPage = Object.prototype.hasOwnProperty.call(req.query || {}, 'page');
   const hasLimit = Object.prototype.hasOwnProperty.call(req.query || {}, 'limit');
   if (!hasPage && !hasLimit) {
     // Keep raw array response but limit server-side items to reduce timeout risk
-    // We pass through via query modifications; crudFactory caps non-explicit to 200 already
+    // crudFactory caps non-explicit to 200 already
     req.query = Object.assign({}, req.query);
-    // no-op
   }
+
+  // Defer to controller; it will respond with proper JSON envelope/body.
+  // If we pre-wrote headers, controller will still be able to end/finish the response because we didn't finish it here.
   next();
-}, asyncHandler(controller.list));
+}, asyncHandler(async (req, res, next) => {
+  // Use controller.list to produce the body; if response already started with headers, the controller will end it.
+  try {
+    await controller.list(req, res);
+  } catch (e) {
+    next(e);
+  } finally {
+    // Ensure we end the stream if we had written a heartbeat
+    try {
+      if (!res.writableEnded) {
+        res.end();
+      }
+    } catch (_) {}
+  }
+}));
 
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));

@@ -62,6 +62,18 @@ const buildDynamicSpec = (req) => {
 
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
+
+// PUBLIC_INTERFACE
+// WebSocket usage helper (no active WS endpoints). Provides project-level note in docs.
+app.get('/api/websocket-usage', (req, res) => {
+  return res.status(200).json({
+    success: true,
+    message: 'No WebSocket endpoints are currently exposed. The API supports HTTP streaming for long-running endpoints like /api/llm-costs by sending early headers to avoid upstream timeouts.',
+    examples: [
+      { method: 'GET', path: '/api/llm-costs', note: 'Streams headers early to keep upstream connections alive before DB queries finish.' }
+    ]
+  });
+});
 app.get('/api/docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 
 const swaggerUiHandler = swaggerUi.setup(null, {

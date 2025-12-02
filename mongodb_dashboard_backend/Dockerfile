@@ -19,6 +19,6 @@ COPY mongodb_dashboard_backend/ ./
 # Expose port (adjust if your app listens on a different port)
 EXPOSE 3001
 
-# Command to run the app
-#CMD ["node", "-r", "dotenv/config", "src/server.js"]
+# Command to run the app (production)
+# Use server.js (no webpack/webpack-dev-middleware/react dev server in backend)
 CMD ["node", "src/server.js"]
