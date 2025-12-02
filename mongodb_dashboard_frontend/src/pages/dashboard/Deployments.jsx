@@ -200,7 +200,6 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import { listDeployments } from "../../api";
-import DeploymentsOverTime from "../../components/charts/DeploymentsOverTime.jsx";
 import DeploymentStatusBarChart from "../../components/charts/DeploymentStatusBarChart.jsx";
 import useDeploymentStatusCounts from "../../hooks/useDeploymentStatusCounts";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
