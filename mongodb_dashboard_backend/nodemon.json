@@ -1,0 +1,23 @@
+{
+  "watch": ["src"],
+  "ext": "js,json",
+  "ignore": [
+    "node_modules",
+    "coverage",
+    "logs",
+    "public",
+    "dist",
+    "**/*.map"
+  ],
+  "delay": "300",
+  "legacyWatch": false,
+  "verbose": false,
+  "env": {
+    "NODE_ENV": "development",
+    "NODE_OPTIONS": "--max_old_space_size=768",
+    "CHOKIDAR_USEPOLLING": "false",
+    "TSC_COMPILE_ON_ERROR": "false",
+    "HEARTBEAT_MS": "10000",
+    "MEM_LOG_INTERVAL_MS": "30000"
+  }
+}

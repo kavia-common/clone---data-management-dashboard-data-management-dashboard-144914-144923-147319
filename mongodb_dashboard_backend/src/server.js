@@ -1,7 +1,7 @@
-/* Ensure environment variables from .env are loaded even if the process
- * is started without "-r dotenv/config" (e.g., by external orchestrators).
- * This guarantees preview/CI can boot without special node flags.
- */
+ /* Ensure environment variables from .env are loaded even if the process
+  * is started without "-r dotenv/config" (e.g., by external orchestrators).
+  * This guarantees preview/CI can boot without special node flags.
+  */
 try { require('dotenv').config(); } catch {}
 
 const fs = require('fs');
@@ -142,11 +142,6 @@ function removePidFile() {
 ensurePidFileGuard();
 
 function startServerStrict() {
-  // Configure server-level timeouts to play nicely with proxies/load balancers
-  try {
-    // Note: These will be applied after server is created below
-    // Defaults are too low under certain proxy chains; increase conservatively
-  } catch {}
   const server = app
     .listen(PORT, HOST, () => {
       try {
@@ -247,6 +242,30 @@ function startServerStrict() {
   } catch (e) {
     console.warn('[startup] Failed to attach per-route timeout middleware for /api/llm-costs', e?.message || e);
   }
+
+  // Periodic memory usage logs + heap limit warnings
+  try {
+    const MAX_HEAP_MB = Number(process.env.MAX_OLD_SPACE_SIZE || 768); // default dev cap
+    const warnThreshold = Math.max(64, Math.floor(MAX_HEAP_MB * 0.8)); // 80% of limit
+    const memIntervalMs = Number(process.env.MEM_LOG_INTERVAL_MS || 30000);
+
+    function formatMem() {
+      const mu = process.memoryUsage();
+      const rss = Math.round(mu.rss / (1024 * 1024));
+      const heapUsed = Math.round(mu.heapUsed / (1024 * 1024));
+      const heapTotal = Math.round(mu.heapTotal / (1024 * 1024));
+      return { rss, heapUsed, heapTotal };
+    }
+    function logMem(prefix = 'mem') {
+      const { rss, heapUsed, heapTotal } = formatMem();
+      console.log(`[${prefix}] rss=${rss}MB heapUsed=${heapUsed}MB heapTotal=${heapTotal}MB limit~${MAX_HEAP_MB}MB`);
+      if (heapUsed >= warnThreshold) {
+        console.warn(`[heap-warning] heapUsed=${heapUsed}MB >= ${warnThreshold}MB (~80% of ${MAX_HEAP_MB}MB). Consider reducing workload or increasing NODE_OPTIONS=--max_old_space_size.`);
+      }
+    }
+    const memInterval = setInterval(() => logMem('mem-tick'), memIntervalMs);
+    memInterval.unref?.();
+  } catch {}
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
