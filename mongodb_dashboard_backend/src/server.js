@@ -100,23 +100,23 @@
  ensurePidFileGuard();
  
  // Configure server-level timeouts to help prevent upstream 504s.
- // API_REQUEST_TIMEOUT_MS controls per-request timeout.
- // KeepAlive/Headers timeouts tuned to be larger than request timeout to avoid premature disconnects.
- const API_REQUEST_TIMEOUT_MS = parseInt(process.env.API_REQUEST_TIMEOUT_MS || '60000', 10);
- const HEADERS_TIMEOUT_MS = Math.max(API_REQUEST_TIMEOUT_MS + 5000, 65000);
- const KEEP_ALIVE_TIMEOUT_MS = Math.max(API_REQUEST_TIMEOUT_MS + 5000, 65000);
+ // Read from environment variables with safe defaults.
+ const SERVER_REQUEST_TIMEOUT_MS = parseInt(process.env.SERVER_REQUEST_TIMEOUT_MS || '120000', 10);
+ const SERVER_HEADERS_TIMEOUT_MS = parseInt(process.env.SERVER_HEADERS_TIMEOUT_MS || '125000', 10);
+ const SERVER_KEEPALIVE_TIMEOUT_MS = parseInt(process.env.SERVER_KEEPALIVE_TIMEOUT_MS || '65000', 10);
  
  function startServerStrict() {
    const server = http.createServer(app);
  
-   // Set Node server timeouts
-   server.headersTimeout = HEADERS_TIMEOUT_MS; // abort if headers not received within this
-   server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+   // Set Node.js HTTP server timeouts based on env
+   server.requestTimeout = SERVER_REQUEST_TIMEOUT_MS; // overall request timeout
+   server.headersTimeout = SERVER_HEADERS_TIMEOUT_MS; // time allowed to receive headers
+   server.keepAliveTimeout = SERVER_KEEPALIVE_TIMEOUT_MS; // keep-alive timeout
  
    // Attach a request-level timeout using res.setTimeout as a fallback for long-running handlers
    server.on('request', (req, res) => {
      if (typeof res.setTimeout === 'function') {
-       res.setTimeout(API_REQUEST_TIMEOUT_MS, () => {
+       res.setTimeout(SERVER_REQUEST_TIMEOUT_MS, () => {
          // If the response is already finished, skip
          if (res.headersSent) {
            try { res.end(); } catch (e) {}
@@ -127,7 +127,7 @@
          res.end(JSON.stringify({
            success: false,
            error: 'Request timeout',
-           timeoutMs: API_REQUEST_TIMEOUT_MS
+           timeoutMs: SERVER_REQUEST_TIMEOUT_MS
          }));
        });
      }

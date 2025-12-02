@@ -15,12 +15,21 @@ const app = express();
 // ---------------------------------------------
 app.set('trust proxy', 1);
 
-// Lightweight request timeout header and socket timeout (observability + complement to server.js)
+/**
+ * Optional per-request timeout using req.setTimeout.
+ * Controlled by EXPRESS_ROUTE_TIMEOUT_MS (ms). Default 0 disables.
+ * Adds X-Route-Timeout header for observability.
+ */
 app.use((req, res, next) => {
-  const timeoutMs = parseInt(process.env.API_REQUEST_TIMEOUT_MS || '60000', 10);
-  res.setHeader('X-Request-Timeout', `${timeoutMs}`);
-  if (typeof req.setTimeout === 'function') {
-    req.setTimeout(timeoutMs);
+  const envVal = process.env.EXPRESS_ROUTE_TIMEOUT_MS;
+  const timeoutMs = Number.isFinite(parseInt(envVal || '0', 10)) ? parseInt(envVal || '0', 10) : 0;
+  if (timeoutMs > 0) {
+    res.setHeader('X-Route-Timeout', `${timeoutMs}`);
+    if (typeof req.setTimeout === 'function') {
+      req.setTimeout(timeoutMs);
+    }
+  } else {
+    res.setHeader('X-Route-Timeout', '0');
   }
   next();
 });
