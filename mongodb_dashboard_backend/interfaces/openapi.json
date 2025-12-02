@@ -783,6 +783,21 @@
         "responses": {
           "200": {
             "description": "Tabular envelope response",
+            "headers": {
+              "x-effective-tenant": { "schema": { "type": "string" }, "description": "Resolved tenant used in filtering" },
+              "x-llm-filter": { "schema": { "type": "string" }, "description": "Effective MongoDB filter (JSON)" },
+              "x-llm-projection": { "schema": { "type": "string" }, "description": "Projection applied (JSON)" },
+              "x-llm-sort": { "schema": { "type": "string" }, "description": "Sort applied (JSON)" },
+              "x-llm-page": { "schema": { "type": "string" }, "description": "Page number" },
+              "x-llm-limit": { "schema": { "type": "string" }, "description": "Page size" },
+              "x-llm-used-or-on-time": { "schema": { "type": "string" }, "description": "1 if $or on time fields used" },
+              "x-llm-explain-find": { "schema": { "type": "string" }, "description": "Present when DEBUG_LLMCOSTS_EXPLAIN=1 and find explain captured" },
+              "x-llm-explain-count": { "schema": { "type": "string" }, "description": "Present when DEBUG_LLMCOSTS_EXPLAIN=1 and count explain captured" },
+              "x-llm-timing-parsed-ms": { "schema": { "type": "string" }, "description": "Parse time in ms" },
+              "x-llm-timing-built-ms": { "schema": { "type": "string" }, "description": "Build time in ms" },
+              "x-llm-timing-exec-ms": { "schema": { "type": "string" }, "description": "DB execution time in ms" },
+              "x-llm-timing-explain-ms": { "schema": { "type": "string" }, "description": "Explain capture time in ms (when enabled)" }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -815,7 +830,20 @@
                         "page": { "type": "integer" },
                         "limit": { "type": "integer" },
                         "total": { "type": "integer" },
-                        "sort": { "type": "string" }
+                        "sort": { "type": "string" },
+                        "debug": {
+                          "type": "object",
+                          "nullable": true,
+                          "description": "Included only when DEBUG_LLMCOSTS_EXPLAIN=1",
+                          "properties": {
+                            "filter": { "type": "object", "additionalProperties": true },
+                            "sort": { "type": "object", "additionalProperties": true },
+                            "projection": { "type": "object", "additionalProperties": true },
+                            "usedOrOnTime": { "type": "boolean" },
+                            "timings": { "type": "object", "additionalProperties": true },
+                            "explain": { "type": "object", "additionalProperties": true }
+                          }
+                        }
                       }
                     }
                   }

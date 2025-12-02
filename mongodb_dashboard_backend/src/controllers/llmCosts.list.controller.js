@@ -12,10 +12,18 @@ const LlmCost = require('../models/llmCosts.model');
  * - filter whitelist: status, provider, llm_model, user_id, session_id, project_id, request_id
  * Diagnostics:
  * - If DEBUG_LLMCOSTS_EXPLAIN=1, capture explain() for find and count via driver and log to console.
- * - Adds response headers: x-effective-tenant, x-llm-filter, x-llm-projection, and x-llm-explain-find/count when captured.
+ * - Adds response headers: x-effective-tenant, x-llm-filter, x-llm-projection, x-llm-sort, x-llm-page, x-llm-limit, x-llm-used-or-on-time
+ * - Adds timing headers: x-llm-timing-parsed-ms, x-llm-timing-built-ms, x-llm-timing-exec-ms, x-llm-timing-explain-ms (when enabled).
+ * - meta.debug contains summarized explain when enabled (compact stats).
  */
 async function listLlmCosts(req, res) {
+  const t0 = process.hrtime.bigint();
   try {
+    const timings = {};
+    const mark = (label) => {
+      timings[label] = Number(process.hrtime.bigint() - t0) / 1e6; // ms since start
+    };
+
     // Resolve tenant
     const headerTenant =
       (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
@@ -87,6 +95,7 @@ async function listLlmCosts(req, res) {
     const timeFilter = Object.keys(range).length
       ? { $or: [{ timestamp: range }, { created_at: range }] }
       : {};
+    const usedOrOnTime = Object.keys(range).length > 0;
 
     // Tenant filter: match any of known fields for tenant
     const tenantFilter = {
@@ -100,9 +109,10 @@ async function listLlmCosts(req, res) {
       ],
     };
 
-    const finalFilter = Object.keys(filter).length || Object.keys(timeFilter).length
-      ? { $and: [tenantFilter, ...(Object.keys(filter).length ? [filter] : []), ...(Object.keys(timeFilter).length ? [timeFilter] : [])] }
-      : tenantFilter;
+    const finalFilter =
+      Object.keys(filter).length || Object.keys(timeFilter).length
+        ? { $and: [tenantFilter, ...(Object.keys(filter).length ? [filter] : []), ...(Object.keys(timeFilter).length ? [timeFilter] : [])] }
+        : tenantFilter;
 
     // Projection for tabular view
     const projection = {
@@ -122,23 +132,25 @@ async function listLlmCosts(req, res) {
       session_id: 1,
     };
 
-    // Build mongoose queries
-    const cursor = LlmCost.find(finalFilter, projection)
-      .sort(sort)
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean();
+    mark('parsed');
 
+    // Build mongoose queries
+    const cursor = LlmCost.find(finalFilter, projection).sort(sort).skip((page - 1) * limit).limit(limit).lean();
     const countQuery = LlmCost.countDocuments(finalFilter);
 
     // Diagnostics: explain plans
     const wantExplain = process.env.DEBUG_LLMCOSTS_EXPLAIN === '1';
     let explainFind = null;
     let explainCount = null;
+    let exampleExplains = null;
+
+    mark('built');
 
     if (wantExplain && LlmCost.collection) {
       try {
-        // Use native driver for more complete explain
+        const tExplainStart = process.hrtime.bigint();
+
+        // Use native driver for more complete explain for request's filter
         const pipelineForCount = [{ $match: finalFilter }, { $count: 'count' }];
         explainFind = await LlmCost.collection
           .find(finalFilter, { projection })
@@ -149,34 +161,180 @@ async function listLlmCosts(req, res) {
 
         explainCount = await LlmCost.collection.aggregate(pipelineForCount).explain('executionStats');
 
+        // Also construct example explains for the given task brief:
+        // organization_id=T0015, page=1, limit=10, with and without date range
+        const exampleTenant = 'T0015';
+        const exampleLimit = 10;
+        const examplePage = 1;
+        const exampleSort = { timestamp: -1 };
+        const exampleProjection = projection;
+
+        const exampleTenantFilter = {
+          $or: [
+            { tenant_id: exampleTenant },
+            { organization_id: exampleTenant },
+            { tenantId: exampleTenant },
+            { organizationId: exampleTenant },
+            { orgId: exampleTenant },
+            { 'tenant.tenant_id': exampleTenant },
+          ],
+        };
+        const exampleNoDateFilter = exampleTenantFilter;
+        const exampleWithDateFilter = {
+          $and: [
+            exampleTenantFilter,
+            {
+              $or: [
+                { timestamp: { $gte: new Date(Date.now() - 7 * 86400000) } },
+                { created_at: { $gte: new Date(Date.now() - 7 * 86400000) } },
+              ],
+            },
+          ],
+        };
+
+        const [exFindNoDate, exCountNoDate, exFindWithDate, exCountWithDate] = await Promise.all([
+          LlmCost.collection
+            .find(exampleNoDateFilter, { projection: exampleProjection })
+            .sort(exampleSort)
+            .skip((examplePage - 1) * exampleLimit)
+            .limit(exampleLimit)
+            .explain('executionStats'),
+          LlmCost.collection.aggregate([{ $match: exampleNoDateFilter }, { $count: 'count' }]).explain('executionStats'),
+          LlmCost.collection
+            .find(exampleWithDateFilter, { projection: exampleProjection })
+            .sort(exampleSort)
+            .skip((examplePage - 1) * exampleLimit)
+            .limit(exampleLimit)
+            .explain('executionStats'),
+          LlmCost.collection.aggregate([{ $match: exampleWithDateFilter }, { $count: 'count' }]).explain('executionStats'),
+        ]);
+
+        exampleExplains = {
+          noDate: {
+            find: summarizeExplain(exFindNoDate),
+            count: summarizeExplain(exCountNoDate),
+          },
+          withDate: {
+            find: summarizeExplain(exFindWithDate),
+            count: summarizeExplain(exCountWithDate),
+          },
+        };
+
         // Log truncated explain to avoid flooding logs
         console.log('[LLM-COSTS][EXPLAIN][FIND]', JSON.stringify(explainFind).slice(0, 20000));
         console.log('[LLM-COSTS][EXPLAIN][COUNT]', JSON.stringify(explainCount).slice(0, 20000));
+        console.log('[LLM-COSTS][EXPLAIN][EXAMPLE]', JSON.stringify(exampleExplains).slice(0, 20000));
+
+        const tExplainEnd = process.hrtime.bigint();
+        timings.explain_ms = Number(tExplainEnd - tExplainStart) / 1e6;
       } catch (e) {
         console.warn('[LLM-COSTS][EXPLAIN] Failed to capture explain()', e?.message || e);
       }
     }
 
+    const tExecStart = process.hrtime.bigint();
     const [items, total] = await Promise.all([cursor.exec(), countQuery.exec()]);
+    const tExecEnd = process.hrtime.bigint();
+    timings.exec_ms = Number(tExecEnd - tExecStart) / 1e6;
+    mark('executed');
 
     try {
       res.set('x-effective-tenant', String(effectiveTenant));
       res.set('x-llm-filter', JSON.stringify(finalFilter));
       res.set('x-llm-projection', JSON.stringify(projection));
-      if (wantExplain) {
+      res.set('x-llm-sort', JSON.stringify(sort));
+      res.set('x-llm-page', String(page));
+      res.set('x-llm-limit', String(limit));
+      res.set('x-llm-used-or-on-time', usedOrOnTime ? '1' : '0');
+
+      // Timings headers
+      res.set('x-llm-timing-parsed-ms', String(Math.round(timings.parsed ?? 0)));
+      res.set('x-llm-timing-built-ms', String(Math.round(timings.built ?? 0)));
+      res.set('x-llm-timing-exec-ms', String(Math.round(timings.exec_ms ?? 0)));
+      if (timings.explain_ms != null) res.set('x-llm-timing-explain-ms', String(Math.round(timings.explain_ms)));
+
+      if (process.env.DEBUG_LLMCOSTS_EXPLAIN === '1') {
         if (explainFind) res.set('x-llm-explain-find', 'captured');
         if (explainCount) res.set('x-llm-explain-count', 'captured');
       }
-    } catch {}
+    } catch {
+      // ignore header set failures
+    }
 
-    return res.status(200).json({
+    const response = {
       success: true,
       data: items,
       meta: { page, limit, total, sort: sortStr || '-timestamp' },
-    });
+    };
+
+    // Attach concise debug meta when enabled
+    if (process.env.DEBUG_LLMCOSTS_EXPLAIN === '1') {
+      response.meta.debug = {
+        filter: finalFilter,
+        sort,
+        projection,
+        usedOrOnTime,
+        timings,
+        // Only include summarized explain stats to keep payload small
+        explain: {
+          find: summarizeExplain(explainFind),
+          count: summarizeExplain(explainCount),
+          examples: exampleExplains || undefined,
+        },
+      };
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     console.error('[LLM-COSTS][LIST] error:', err?.message || err);
     return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * summarizeExplain
+ * Returns a compact summary from a MongoDB explain output to highlight index usage and scanned docs.
+ */
+function summarizeExplain(explain) {
+  try {
+    if (!explain) return null;
+
+    // executionStats available in find().explain('executionStats') and aggregate().explain('executionStats')
+    const stats =
+      explain.executionStats ||
+      explain?.stages?.find((s) => s.$cursor)?.$cursor?.executionStats ||
+      explain?.stages?.find((s) => s.$cursor)?.$cursor?.allPlansExecution;
+    const queryPlanner =
+      explain.queryPlanner || explain?.stages?.find((s) => s.$cursor)?.$cursor?.queryPlanner || explain?.queryPlannerExtended;
+
+    const summary = {
+      nReturned: stats?.nReturned,
+      totalDocsExamined: stats?.totalDocsExamined,
+      totalKeysExamined: stats?.totalKeysExamined,
+      executionTimeMillis: stats?.executionTimeMillis,
+      stage: stats?.executionStages?.stage,
+      inputStage: stats?.executionStages?.inputStage?.stage,
+      usedIndexes: [],
+      winningPlan: queryPlanner?.winningPlan?.stage || queryPlanner?.winningPlan?.inputStage?.stage,
+    };
+
+    // Extract index names if available
+    const extractIndexes = (node, acc) => {
+      if (!node || typeof node !== 'object') return;
+      if (node.indexName) acc.add(node.indexName);
+      if (node.inputStage) extractIndexes(node.inputStage, acc);
+      if (Array.isArray(node.inputStages)) node.inputStages.forEach((s) => extractIndexes(s, acc));
+      if (Array.isArray(node.shards)) node.shards.forEach((sh) => extractIndexes(sh?.winningPlan, acc));
+      if (node.winningPlan) extractIndexes(node.winningPlan, acc);
+    };
+    const idx = new Set();
+    extractIndexes(queryPlanner?.winningPlan, idx);
+    summary.usedIndexes = Array.from(idx);
+
+    return summary;
+  } catch {
+    return null;
   }
 }
 
