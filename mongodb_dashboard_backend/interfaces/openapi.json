@@ -53,6 +53,30 @@
     }
   },
   "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Service health",
+        "description": "Lightweight health check that returns ok status and minimal process info.",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "db": { "type": "string", "description": "connected|connecting|disconnected" },
+                    "timestamp": { "type": "string", "format": "date-time" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/analytics/llm-cost-by-agent": {
       "get": {
         "summary": "LLM cost distribution by agent",

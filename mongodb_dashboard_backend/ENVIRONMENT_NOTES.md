@@ -1,4 +1,33 @@
-# Environment Notes for LLM Costs Endpoint Instrumentation
+# Environment Notes
+
+## Memory and Dev Stability
+
+To prevent the dev server from being killed (OOM/kill -9), the npm scripts are already configured to cap memory and avoid heavy tooling.
+
+- Start commands:
+  - Production-like lean: `npm run start:ci` (sets NODE_OPTIONS="--max-old-space-size=384 --heapsnapshot-near-heap-limit=1")
+  - Development lean: `npm run dev:lean`
+  - Development with watch: `npm run dev` (uses nodemon but ignores tests and heavy paths)
+- Source maps are disabled in these scripts to reduce memory: `GENERATE_SOURCEMAP=false`
+- Browserslist cache is disabled where applicable to avoid heavy postinstall updates.
+
+Environment variables affecting startup:
+- HOST=0.0.0.0 (default in scripts)
+- PORT=3001 (change as needed)
+- NODE_ENV=production|development|test
+- NODE_OPTIONS="--max-old-space-size=384 --heapsnapshot-near-heap-limit=1" (do not exceed small container memory)
+- CI=true in CI context
+
+## Health Check
+
+A lightweight health endpoint is available:
+
+- GET /api/health (aliases: /health, /healthz, /ready)
+- Returns: `{ status: 'ok', db: 'connected|connecting|disconnected', timestamp, pid }`
+
+Use it to verify that the server remains alive under constrained memory.
+
+## LLM Costs Endpoint Instrumentation
 
 The GET /api/llm-costs route contains optional performance instrumentation:
 
