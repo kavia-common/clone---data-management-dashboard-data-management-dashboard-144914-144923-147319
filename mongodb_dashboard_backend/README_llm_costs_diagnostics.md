@@ -23,7 +23,7 @@ How to use
    - Start the backend with env: DEBUG_LLMCOSTS_EXPLAIN=1
    - Optional: DEBUG_LLMCOSTS_EXPLAIN_TIMEOUT_MS=600 (default) to cap explain time
 2) Call the endpoint
-   - Use header x-organization-id or JWT-based tenant context.
+   - Use header x-organization-id or JWT-based tenant context. Without JWT in testing, you MUST include `x-organization-id: <TENANT_ID>` (e.g., `T0015`). Some proxies strip custom headers; use curl/Postman directly if needed.
    - Inspect response headers and meta.debug in JSON body.
    - If the main request times out or returns 500, call GET /api/llm-costs/diagnostics/last to fetch the last snapshot.
 3) Identify common causes of slowness

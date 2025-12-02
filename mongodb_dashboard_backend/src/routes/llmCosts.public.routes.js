@@ -4,6 +4,7 @@ const { buildCrudController } = require('../controllers/crudFactory');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
+const { getLlmCostsLastDiagnostics } = require('../controllers/llmCosts.diagnostics.controller');
 const LLMCost = require('../models/llmCosts.model');
 
 const router = express.Router();
@@ -60,6 +61,14 @@ router.get(
     return controller.list(req, res);
   })
 );
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/llm-costs/diagnostics/last
+ * Returns the last captured diagnostics snapshot for llm-costs listing.
+ * This route is intentionally lightweight and does not run DB queries.
+ */
+router.get('/diagnostics/last', asyncHandler(getLlmCostsLastDiagnostics));
 
 /**
  * PUBLIC_INTERFACE
