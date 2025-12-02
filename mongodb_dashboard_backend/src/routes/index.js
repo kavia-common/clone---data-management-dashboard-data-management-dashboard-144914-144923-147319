@@ -8,9 +8,6 @@ const authRoutes = require('./auth.routes');
 const usersRoutes = require('./users.routes');
 const tenantsRoutes = require('./tenants.routes');
 
-// Batch users projects route (new)
-const usersProjectsBatchRoutes = require('./users.projects.batch.routes');
-
 const llmCostsRoutes = require('./llmCosts.routes');
 const llmCostsAggregateRoutes = require('./llmCosts.aggregate.routes');
 const costsByAgentRoutes = require('./costs.byAgent.routes');
@@ -44,8 +41,6 @@ router.use('/auth', authRoutes);
  * Note: Super Admins (req.user.isSuperAdmin or T0000) are allowed to bypass tenant scoping by requireTenant/verifyAuth.
  */
 router.use('/users', verifyAuth, requireTenant, usersRoutes);
-// Mount batch endpoint under /api/users (POST /api/users/projects)
-router.use('/users', verifyAuth, requireTenant, usersProjectsBatchRoutes);
 router.use('/tenants', verifyAuth, requireTenant, tenantsRoutes);
 
 router.use('/llm-costs', verifyAuth, requireTenant, llmCostsRoutes);

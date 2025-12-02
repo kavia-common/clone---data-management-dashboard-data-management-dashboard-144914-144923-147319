@@ -16,27 +16,3 @@ Verification commands:
 - Debug logs:
   append ?debug=true to see final filter in response meta or header X-Debug-Final-Filter (for unpaginated lists).
 
-## Batch: POST /api/users/projects
-Request body:
-{
-  "userIds": ["u1", "u2"],
-  "organization_id": "org_123", // or tenant_id
-  "from": "2024-01-01T00:00:00Z",
-  "to": "2024-12-31T23:59:59Z"
-}
-
-Response:
-{
-  "success": true,
-  "tenant_id": "org_123",
-  "data": {
-    "u1": [{ "project_id": "p1", "project_name": "Demo", "last_activity": "2024-05-01T10:20:30.000Z" }],
-    "u2": []
-  },
-  "meta": { "requestedUserIds": 2, "from": "...", "to": "..." }
-}
-
-Notes:
-- Maximum 200 userIds per request.
-- Returns empty array for users with no projects in range.
-- CORS allowed via environment REACT_APP_FRONTEND_URL or permissive fallback.
