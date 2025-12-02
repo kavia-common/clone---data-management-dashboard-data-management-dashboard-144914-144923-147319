@@ -1,47 +1,63 @@
-# LLM Costs Endpoint Validation
+# LLM Costs Listing and Validation
 
-This document describes manual validation steps and notes for the `/api/llm-costs` endpoint and how to avoid 504s.
+This document provides notes to validate LLM costs endpoints, especially GET /api/llm-costs listing which was optimized to prevent timeouts.
 
-Key behaviors (Dec 2025):
-- Route-level timeout: default 12s (configurable via LLM_COSTS_ROUTE_TIMEOUT_MS). Handler returns 408 if exceeded to prevent upstream 504s.
-- Default date window: when no explicit pagination (page/limit) and no date filter is provided, server applies last 30 days filter (header X-Default-Date-Window: last-30-days).
-- Sane default pagination: when ?page is provided without &limit, server uses DEFAULT_PAGE_LIMIT (default 20, max 200) and sets header X-Default-Limit.
-- Safe sort allow list: timestamp, created_at, _id, total_cost; defaults to -timestamp if missing or invalid (X-Forced-Sort header when forced).
-- Tenant scoping: Use Authorization bearer JWT (preferred) or x-organization-id header for demo/testing. Any tenant fields in client filter are ignored; server enforces tenant.
+## GET /api/llm-costs (List - Tabular)
 
-Useful indexes:
-- { tenant_id: 1, timestamp: -1 }
-- { tenant_id: 1, created_at: -1 }
-- { organization_id: 1, timestamp: -1 }
-- Additional model indexes exist for project_id, session_id, etc.
+- Requires tenant scope (JWT tenant or x-organization-id header). Super-admin/T0000 bypass supported for all-tenant diagnostics.
+- Supports:
+  - Pagination: page (default 1), limit (default 50, max 200)
+  - Sorting: sort in { timestamp, created_at, _id, total_cost } with optional '-' for desc (default -timestamp)
+  - Filters (whitelisted): status, provider, llm_model, user_id, session_id, project_id, request_id
+  - Date range: from, to (ISO strings) applied to timestamp or created_at
+- Defaults to last 30 days when no from/to to avoid full scans.
+- Response shape (enveloped):
+  {
+    "success": true,
+    "data": [
+      {
+        "_id": "65f0...",
+        "request_id": "req_123",
+        "timestamp": "2025-01-12T08:43:10.120Z",
+        "model": "gpt-4o-mini",
+        "provider": "openai",
+        "user_id": "user_1",
+        "organization_id": "org_1",
+        "tokens_in": 123,
+        "tokens_out": 456,
+        "cost_usd": 0.01234,
+        "duration_ms": 842,
+        "status": "success"
+      }
+    ],
+    "meta": { "page": 1, "limit": 50, "total": 1234, "sort": "-timestamp" }
+  }
 
-Environment variables:
-- LLM_COSTS_ROUTE_TIMEOUT_MS=12000
-- DEFAULT_PAGE_LIMIT=20
+### Sample curl
 
-Manual validation
+curl -sS -H "Authorization: Bearer <JWT>" \
+  -H "x-organization-id: org_1" \
+  "http://localhost:3001/api/llm-costs?page=1&limit=50&sort=-timestamp&from=2025-01-01T00:00:00Z&to=2025-01-31T23:59:59Z&filter=$(node -p 'JSON.stringify({provider:\"openai\"})')"
 
-1) Ensure backend is running and DB is connected (optional for speed tests)
-- curl -s http://localhost:3001/api/health | jq
+### Performance expectations
+- The endpoint enforces indexed filters and projections; typical response time is well under 12s timeout.
+- Uses index { tenant_id:1, timestamp:-1 } or { organization_id:1, timestamp:-1 } from the model, plus projection to minimize payload.
 
-2) Sanity fetch with pagination and tenant
-- curl -s "http://localhost:3001/api/llm-costs?page=1&limit=20&sort=-timestamp" -H "x-organization-id: T0015" | jq
-Expect 200 with envelope: { "success": true, "data": [...], "meta": { "page": 1, "limit": 20, "total": N } }
+### HTTP headers
+- X-Applied-Tenant: Resolved tenant id or "all-tenants"
+- X-Default-Date-Window: "last-30-days" when applied
+- X-Forced-Sort: "timestamp" when the server overrides an unsafe sort
+- X-Query-Filter: Effective Mongo filter used
+- X-Projection: "tabular-v1"
+- X-Collection: Collection name ("llm-costs")
 
-3) Unpaginated fetch applies last-30-days window
-- curl -i -s "http://localhost:3001/api/llm-costs?organization_id=T0015" | sed -n '1,15p'
-Check headers contain X-Default-Date-Window: last-30-days and X-Applied-Tenant.
+## Known fields in the collection
+- timestamp, created_at (Date)
+- llm_model (String), provider (String)
+- total_cost (Number or String, currency symbol is sanitized when string)
+- usage.tokens_input, usage.tokens_output OR tokens_in, tokens_out
+- user_id, session_id, project_id, request_id
+- tenant_id OR organization_id (tenant scope)
+- duration_ms, status
 
-4) Invalid filter fails fast
-- curl -s "http://localhost:3001/api/llm-costs?organization_id=T0015&filter={bad" | jq
-Expect 400 with message "Invalid filter JSON".
-
-5) Timeout behavior (optional)
-Temporarily set a very low timeout to validate 408:
-- export LLM_COSTS_ROUTE_TIMEOUT_MS=1
-- curl -s "http://localhost:3001/api/llm-costs?organization_id=T0015&page=1&limit=10" | jq
-Expect 408 with message indicating timeout.
-
-Notes
-- If authenticated (Authorization bearer), the tenant from JWT is enforced; conflicting tenant hints return 403 by other middlewares/controllers.
-- For very large datasets, prefer pagination and include time filters to keep response under 2 seconds.
+Ensure at least one of timestamp/created_at exists for proper sorting.

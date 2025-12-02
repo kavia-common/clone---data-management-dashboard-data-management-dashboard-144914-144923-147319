@@ -21,6 +21,153 @@ const router = express.Router();
 const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
 
 /**
+ * Build safe, indexed filter with tenant enforcement and optional search fields.
+ * - organization/tenant is REQUIRED unless bypass enabled (T0000).
+ * - supports optional date range: from,to over timestamp/created_at.
+ * - whitelisted fields for filtering: status, provider, llm_model, user_id, session_id, project_id, request_id
+ */
+function buildIndexedFilter(req) {
+  const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass || req?.user?.isSuperAdmin);
+
+  // Parse filter JSON if present
+  let clientFilter = {};
+  if (typeof req.query.filter === 'string' && req.query.filter.trim() !== '') {
+    try {
+      clientFilter = JSON.parse(req.query.filter);
+    } catch {
+      throw Object.assign(new Error('Invalid filter JSON'), { statusCode: 400 });
+    }
+  }
+
+  // scrub tenant hints from client filter
+  delete clientFilter.tenant_id;
+  delete clientFilter.tenantId;
+  delete clientFilter.organization_id;
+  delete clientFilter.organizationId;
+  delete clientFilter['tenant.tenant_id'];
+
+  // Build enforced tenant filter
+  let enforcedTenantMatch = {};
+  if (!bypass) {
+    const tenantId = req?.tenantId || req?.organizationId || (req?.auth?.tenantId ? String(req.auth.tenantId) : undefined);
+    if (!tenantId) {
+      const err = new Error('Missing tenant (organization_id). Provide Authorization or x-organization-id header.');
+      err.statusCode = 400;
+      throw err;
+    }
+    const t = String(tenantId);
+    enforcedTenantMatch = {
+      $or: [
+        { tenant_id: t },
+        { organization_id: t },
+        { organizationId: t },
+        { tenantId: t },
+        { 'tenant.tenant_id': t },
+      ],
+    };
+  }
+
+  // Optional from/to date range
+  let dateMatch = {};
+  const from = req.query.from ? new Date(req.query.from) : null;
+  const to = req.query.to ? new Date(req.query.to) : null;
+  if (from || to) {
+    const ts = {};
+    if (from && !isNaN(from)) ts.$gte = from;
+    if (to && !isNaN(to)) ts.$lte = to;
+    dateMatch = {
+      $or: [
+        { timestamp: ts },
+        { created_at: ts },
+      ],
+    };
+  }
+
+  // Whitelist simple equality fields
+  const allow = ['status', 'provider', 'llm_model', 'user_id', 'session_id', 'project_id', 'request_id'];
+  const simple = {};
+  for (const key of allow) {
+    if (clientFilter[key] != null) simple[key] = clientFilter[key];
+  }
+
+  // Merge as $and components to preserve index usage
+  const andParts = [];
+  if (Object.keys(enforcedTenantMatch).length) andParts.push(enforcedTenantMatch);
+  if (Object.keys(simple).length) andParts.push(simple);
+  if (Object.keys(dateMatch).length) andParts.push(dateMatch);
+
+  // Any remaining complex client filters (e.g., $or on whitelisted keys)
+  const remainingKeys = Object.keys(clientFilter).filter((k) => !allow.includes(k));
+  if (remainingKeys.length) {
+    // Ignore non-whitelisted keys to avoid unindexed scans
+    // Optionally, we could add support for regex search on request_id etc.
+  }
+
+  const finalFilter = andParts.length ? { $and: andParts } : {};
+  return finalFilter;
+}
+
+/**
+ * Projection for tabular-friendly listing response.
+ * Only include columns needed by the UI table to reduce payload and speed up query.
+ */
+const listProjection = {
+  _id: 1,
+  timestamp: 1,
+  created_at: 1,
+  llm_model: 1,
+  provider: 1,
+  user_id: 1,
+  organization_id: 1,
+  tenant_id: 1,
+  session_id: 1,
+  project_id: 1,
+  request_id: 1,
+  status: 1,
+  total_cost: 1,
+  currency: 1,
+  'usage.tokens_input': 1,
+  'usage.tokens_output': 1,
+  tokens_in: 1,
+  tokens_out: 1,
+  duration_ms: 1,
+};
+
+/**
+ * Normalize a document to the required tabular fields.
+ */
+function mapToTabular(doc) {
+  const tokensIn = doc?.usage?.tokens_input ?? doc?.tokens_in ?? doc?.input_tokens ?? null;
+  const tokensOut = doc?.usage?.tokens_output ?? doc?.tokens_out ?? doc?.output_tokens ?? null;
+
+  // ensure numeric cost
+  let cost = doc?.total_cost;
+  if (typeof cost === 'string') {
+    const sanitized = cost.replace(/[$,]/g, '');
+    const num = Number(sanitized);
+    cost = Number.isFinite(num) ? num : null;
+  } else if (typeof cost !== 'number') {
+    cost = Number(cost);
+    if (!Number.isFinite(cost)) cost = null;
+  }
+
+  return {
+    _id: String(doc?._id || ''),
+    request_id: doc?.request_id ?? doc?.requestId ?? null,
+    timestamp: doc?.timestamp || doc?.created_at || null,
+    model: doc?.llm_model || doc?.model || null,
+    provider: doc?.provider || null,
+    user_id: doc?.user_id != null ? String(doc.user_id) : null,
+    organization_id: doc?.tenant_id || doc?.organization_id || null,
+    tokens_in: tokensIn != null ? Number(tokensIn) : null,
+    tokens_out: tokensOut != null ? Number(tokensOut) : null,
+    cost_usd: cost,
+    duration_ms: doc?.duration_ms != null ? Number(doc.duration_ms) : null,
+    status: doc?.status || null,
+  };
+}
+
+/**
  * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls
  * where Authorization may be missing and organization_id is provided as query/header.
  */
@@ -190,7 +337,38 @@ router.use((req, res, next) => {
  *         description: Optional JSON filter; tenant fields are ignored server-side.
  *     responses:
  *       200:
- *         description: OK
+ *         description: Tabular-friendly envelope response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id: { type: string, description: "Document id" }
+ *                       request_id: { type: string, nullable: true }
+ *                       timestamp: { type: string, format: date-time, nullable: true }
+ *                       model: { type: string, nullable: true }
+ *                       provider: { type: string, nullable: true }
+ *                       user_id: { type: string, nullable: true }
+ *                       organization_id: { type: string, nullable: true }
+ *                       tokens_in: { type: integer, nullable: true }
+ *                       tokens_out: { type: integer, nullable: true }
+ *                       cost_usd: { type: number, nullable: true }
+ *                       duration_ms: { type: integer, nullable: true }
+ *                       status: { type: string, nullable: true }
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     page: { type: integer }
+ *                     limit: { type: integer }
+ *                     total: { type: integer }
+ *                     sort: { type: string }
  *       400:
  *         description: Invalid filter or missing tenant (when not bypass)
  *       403:
@@ -207,14 +385,14 @@ router.use((req, res, next) => {
  */
 router.get(
   '/',
-  asyncHandler(async (req, res, next) => {
-    // Route-level timeout; prevents upstream 504s due to long processing
+  asyncHandler(async (req, res) => {
     const DEFAULT_TIMEOUT_MS = parseInt(process.env.LLM_COSTS_ROUTE_TIMEOUT_MS || '12000', 10);
     const DEFAULT_PAGE_LIMIT = Math.min(
-      Math.max(parseInt(process.env.DEFAULT_PAGE_LIMIT || '20', 10), 1),
+      Math.max(parseInt(process.env.DEFAULT_PAGE_LIMIT || '50', 10), 1),
       200
     );
 
+    // Route-level timeout guard
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -222,91 +400,88 @@ router.get(
         try { res.set('X-Server-Timeout', String(DEFAULT_TIMEOUT_MS)); } catch (_) {}
         return res.status(408).json({
           success: false,
-          message:
-            'Request timed out while processing LLM costs. Try reducing the time window or applying pagination.',
+          message: 'Request timed out while processing LLM costs. Apply pagination or date filters.',
         });
       }
     }, DEFAULT_TIMEOUT_MS);
 
     try {
-      // Enforce sane pagination defaults if page/limit provided partially or limit missing
-      const hasPage = typeof req.query.page !== 'undefined';
-      const hasLimit = typeof req.query.limit !== 'undefined';
-      if (hasPage && !hasLimit) {
-        req.query.limit = String(DEFAULT_PAGE_LIMIT);
-        try { res.set('X-Default-Limit', String(DEFAULT_PAGE_LIMIT)); } catch (_) {}
+      // Determine pagination
+      const page = Math.max(parseInt(req.query.page || '1', 10), 1);
+      const limit = Math.min(Math.max(parseInt(req.query.limit || String(DEFAULT_PAGE_LIMIT), 10), 1), 200);
+      const skip = (page - 1) * limit;
+
+      // Build safe filter
+      const filter = buildIndexedFilter(req);
+
+      // Enforce safe sort on indexed fields
+      const allowedSorts = new Set(['timestamp', 'created_at', '_id', 'total_cost']);
+      const sortStr = typeof req.query.sort === 'string' ? req.query.sort.trim() : '-timestamp';
+      const sortField = sortStr.replace(/^-/, '');
+      const sortDir = sortStr.startsWith('-') ? -1 : 1;
+      const sort = allowedSorts.has(sortField) ? { [sortField]: sortDir } : { timestamp: -1 };
+      if (!allowedSorts.has(sortField)) {
+        try { res.set('X-Forced-Sort', 'timestamp'); } catch (_) {}
       }
 
-      const hasExplicitPagination = hasPage || hasLimit;
-
-      // Parse filter if present; reject invalid JSON quickly with 400 to avoid expensive operations
-      let clientFilter = {};
-      if (typeof req.query.filter === 'string' && req.query.filter.trim() !== '') {
-        try {
-          clientFilter = JSON.parse(req.query.filter);
-        } catch {
-          clearTimeout(timer);
-          return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
-        }
-      }
-
-      // Guard: remove any tenant hints; tenant injected by middleware/controller
-      if (clientFilter && typeof clientFilter === 'object') {
-        delete clientFilter.tenant_id;
-        delete clientFilter.tenantId;
-        delete clientFilter.organization_id;
-        delete clientFilter.organizationId;
-        delete clientFilter['tenant.tenant_id'];
-      }
-
-      // If no explicit pagination and no date filters, add a default 30-day window to avoid full collection scans
-      const filterKeys = clientFilter && typeof clientFilter === 'object' ? Object.keys(clientFilter) : [];
-      const hasAnyDateClause = filterKeys.some((k) =>
-        ['timestamp', 'created_at', 'createdAt', 'date', 'updated_at', 'updatedAt'].includes(k)
-      );
-
-      if (!hasExplicitPagination && !hasAnyDateClause) {
+      // Default 30-day window if client didn't specify date range to avoid full scan
+      const hasDate = !!(req.query.from || req.query.to);
+      if (!hasDate) {
         const now = new Date();
         const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        const defaultDateFilter = {
-          $or: [{ timestamp: { $gte: from, $lte: now } }, { created_at: { $gte: from, $lte: now } }],
-        };
-        clientFilter =
-          clientFilter && Object.keys(clientFilter).length > 0
-            ? { $and: [clientFilter, defaultDateFilter] }
-            : defaultDateFilter;
-
+        const defaultDate = { $or: [{ timestamp: { $gte: from, $lte: now } }, { created_at: { $gte: from, $lte: now } }] };
+        if (Object.keys(filter).length) {
+          if (!filter.$and) filter.$and = [];
+          filter.$and.push(defaultDate);
+        } else {
+          Object.assign(filter, defaultDate);
+        }
         try { res.set('X-Default-Date-Window', 'last-30-days'); } catch (_) {}
       }
 
-      // Apply safe sort default if not provided; enforce only allow-listed fields
-      const allowedSorts = new Set(['timestamp', 'created_at', '_id', 'total_cost']);
-      const requestedSort = typeof req.query.sort === 'string' ? req.query.sort.trim() : '';
-      if (!requestedSort) {
-        req.query.sort = '-timestamp';
-      } else {
-        const sortField = requestedSort.replace(/^-/, '');
-        if (!allowedSorts.has(sortField)) {
-          req.query.sort = '-timestamp';
-          try { res.set('X-Forced-Sort', 'timestamp'); } catch (_) {}
-        }
-      }
+      // Query with projection and lean
+      const q = LLMCost.find(filter, listProjection).sort(sort).skip(skip).limit(limit).lean();
 
-      // Write back merged filter for the generic controller
-      if (clientFilter && Object.keys(clientFilter).length > 0) {
-        req.query.filter = JSON.stringify(clientFilter);
-      } else {
-        delete req.query.filter;
-      }
+      // Hint to use tenant+timestamp index if possible
+      try {
+        if (filter.$and?.some((c) => c.$or)) {
+          // If tenant enforced via $or, still add a reasonable hint on timestamp
+          q.hint({ timestamp: -1 });
+        } else if (filter.tenant_id) {
+          q.hint({ tenant_id: 1, timestamp: -1 });
+        }
+      } catch (_) {}
+
+      const [items, total] = await Promise.all([
+        q.exec(),
+        LLMCost.countDocuments(filter),
+      ]);
 
       if (timedOut) return;
 
-      return controller.list(req, res);
+      const data = Array.isArray(items) ? items.map(mapToTabular) : [];
+      const envelope = {
+        success: true,
+        data,
+        meta: {
+          page,
+          limit,
+          total,
+          sort: sortStr,
+        },
+      };
+
+      // Diagnostics headers
+      try {
+        res.set('X-Query-Filter', JSON.stringify(filter));
+        res.set('X-Projection', 'tabular-v1');
+        res.set('X-Collection', LLMCost.collection?.name || 'llm-costs');
+      } catch (_) {}
+
+      return res.status(200).json(envelope);
     } catch (err) {
-      if (!res.headersSent) {
-        return res.status(500).json({ success: false, message: 'Internal server error', error: err?.message });
-      }
-      return;
+      const status = err?.statusCode || 500;
+      return res.status(status).json({ success: false, message: err?.message || 'Internal server error' });
     } finally {
       clearTimeout(timer);
     }

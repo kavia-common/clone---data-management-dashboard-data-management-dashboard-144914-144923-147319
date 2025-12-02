@@ -56,7 +56,7 @@
     "/api/analytics/llm-cost-by-agent": {
       "get": {
         "summary": "LLM cost distribution by agent",
-        "description": "Aggregates the llm_cost/llm_costs collection by Agents[].\"Agent Name\", summing numeric values parsed from Agents[].\"Total Cost\" (strips leading '$'). Returns an array sorted in descending order of total_cost.\n",
+        "description": "Aggregates the llm_cost/llm_costs collection by Agents[ ].\"Agent Name\", summing numeric values parsed from Agents[ ].\"Total Cost\" (strips leading '$'). Returns an array sorted in descending order of total_cost.\n",
         "tags": [
           "Analytics"
         ],
@@ -737,8 +737,8 @@
     },
     "/api/llm-costs": {
       "get": {
-        "summary": "List LLM cost records",
-        "description": "Returns a list of LLM cost documents. Supports optional JSON filter, sorting and pagination. If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }. Otherwise a raw array is returned.\nTenant scoping: When Authorization (Bearer JWT) is present, the tenant from the JWT is enforced and overrides any header/query values. If a different organization_id/tenant_id is provided than the JWT tenant, the request is rejected with 403. Without JWT (demo/testing), x-organization-id header or query aliases (?tenant_id or ?organization_id) may be used to set scope. Any tenant fields in the filter are ignored server-side.\nDebugging: Responses include an X-Applied-Tenant header indicating the resolved tenant filter.",
+        "summary": "List LLM cost records (tabular)",
+        "description": "Returns a tabular-friendly list of LLM cost documents. Always returns an envelope { success, data, meta } with pagination. Indexed filters and projections are applied to avoid timeouts.\nTenant scoping: When Authorization (Bearer JWT) is present, the tenant from the JWT is enforced and overrides any header/query values. If a different organization_id/tenant_id is provided than the JWT tenant, the request is rejected with 403. Without JWT (demo/testing), x-organization-id header or query aliases (?tenant_id or ?organization_id) may be used to set scope. Any tenant fields in the filter are ignored server-side.\nDebugging: Responses include headers indicating effective tenant, filter and projection.",
         "tags": [
           "LLMCosts"
         ],
@@ -746,60 +746,55 @@
           { "bearerAuth": [] }
         ],
         "parameters": [
-          {
-            "in": "header",
-            "name": "x-organization-id",
-            "schema": { "type": "string" },
-            "required": false,
-            "description": "Tenant (organization) ID. Required when JWT is not provided; ignored if JWT is present with tenant. If provided and conflicts with JWT tenant, the request is rejected with 403."
-          },
-          {
-            "in": "query",
-            "name": "organization_id",
-            "schema": { "type": "string" },
-            "description": "Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query. If conflicting with JWT tenant, 403 is returned."
-          },
-          {
-            "in": "query",
-            "name": "tenant_id",
-            "schema": { "type": "string" },
-            "description": "Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query. If conflicting with JWT tenant, 403 is returned."
-          },
-          {
-            "in": "query",
-            "name": "page",
-            "schema": { "type": "integer", "minimum": 1 },
-            "description": "Optional page number to enable envelope response"
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "schema": { "type": "integer", "minimum": 1, "maximum": 200 },
-            "description": "Optional page size to enable envelope response"
-          },
-          {
-            "in": "query",
-            "name": "sort",
-            "schema": { "type": "string" },
-            "description": "Sort string (e.g., -timestamp or total_cost)"
-          },
-          {
-            "in": "query",
-            "name": "filter",
-            "schema": { "type": "string" },
-            "description": "JSON filter (tenant fields ignored by server; scoping enforced)"
-          }
+          { "in": "header", "name": "x-organization-id", "schema": { "type": "string" }, "required": false, "description": "Tenant (organization) ID. Required when JWT is not provided; ignored if JWT is present with tenant. If provided and conflicts with JWT tenant, the request is rejected with 403." },
+          { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query. If conflicting with JWT tenant, 403 is returned." },
+          { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Alias for tenant filter. Ignored when JWT is present. Header takes precedence over query. If conflicting with JWT tenant, 403 is returned." },
+          { "in": "query", "name": "page", "schema": { "type": "integer", "minimum": 1 }, "description": "Page number (default 1)" },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "minimum": 1, "maximum": 200 }, "description": "Page size (default 50, max 200)" },
+          { "in": "query", "name": "sort", "schema": { "type": "string" }, "description": "Sort string (e.g., -timestamp or total_cost)" },
+          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date-time" }, "description": "ISO date-time lower bound (applied to timestamp/created_at)" },
+          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date-time" }, "description": "ISO date-time upper bound (applied to timestamp/created_at)" },
+          { "in": "query", "name": "filter", "schema": { "type": "string" }, "description": "JSON filter (tenant fields ignored by server; scoping enforced). Whitelist: status, provider, llm_model, user_id, session_id, project_id, request_id" }
         ],
         "responses": {
           "200": {
-            "description": "Successful response (array or envelope based on pagination params)",
+            "description": "Tabular envelope response",
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    { "type": "array", "items": { "$ref": "#/components/schemas/GenericDocument" } },
-                    { "$ref": "#/components/schemas/ListEnvelope" }
-                  ]
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "_id": { "type": "string" },
+                          "request_id": { "type": "string", "nullable": true },
+                          "timestamp": { "type": "string", "format": "date-time", "nullable": true },
+                          "model": { "type": "string", "nullable": true },
+                          "provider": { "type": "string", "nullable": true },
+                          "user_id": { "type": "string", "nullable": true },
+                          "organization_id": { "type": "string", "nullable": true },
+                          "tokens_in": { "type": "integer", "nullable": true },
+                          "tokens_out": { "type": "integer", "nullable": true },
+                          "cost_usd": { "type": "number", "nullable": true },
+                          "duration_ms": { "type": "integer", "nullable": true },
+                          "status": { "type": "string", "nullable": true }
+                        }
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "page": { "type": "integer" },
+                        "limit": { "type": "integer" },
+                        "total": { "type": "integer" },
+                        "sort": { "type": "string" }
+                      }
+                    }
+                  }
                 }
               }
             }
