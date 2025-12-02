@@ -93,7 +93,7 @@ function sanitizePayloadWithTenant(req) {
 /**
  * Merge filter safely with enforced tenant_id, ignoring any client-provided tenant keys.
  */
-function mergeFilterWithTenant(filter, tenantId) {
+function mergeFilterWithTenant(filter, tenantId, forceOrgOnly = false) {
   const f = filter && typeof filter === 'object' ? { ...filter } : {};
   // strip possible client-supplied tenant hints
   delete f.tenant_id;
@@ -101,22 +101,18 @@ function mergeFilterWithTenant(filter, tenantId) {
   delete f.organization_id;
   delete f.organizationId;
   delete f.orgId;
+  delete f['tenant.tenant_id'];
 
   if (!tenantId) {return f;}
 
-  // Build a normalized tenant filter to match across possible fields (defensive)
-  const normalizedTenantFilter = {
-    $or: [
-      { tenant_id: String(tenantId) },
-      { organization_id: String(tenantId) },
-      { orgId: String(tenantId) },
-      { tenantId: String(tenantId) },
-      { organizationId: String(tenantId) },
-      { 'tenant.tenant_id': String(tenantId) },
-    ],
-  };
+  if (forceOrgOnly) {
+    // Strictly enforce organization_id for tenant scoping
+    const orgFilter = { organization_id: String(tenantId) };
+    return Object.keys(f).length > 0 ? { $and: [f, orgFilter] } : orgFilter;
+  }
 
-  // enforce tenant filter
+  // Legacy path (not used for llm-costs anymore) - kept for other models
+  const normalizedTenantFilter = { $or: [ { tenant_id: String(tenantId) }, { organization_id: String(tenantId) }, { orgId: String(tenantId) }, { tenantId: String(tenantId) }, { organizationId: String(tenantId) }, { 'tenant.tenant_id': String(tenantId) }, ], };
   return Object.keys(f).length > 0 ? { $and: [f, normalizedTenantFilter] } : normalizedTenantFilter;
 }
 
@@ -262,14 +258,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Build final applied filter with robust tenant alias removal and normalized OR across aliases
       // Additionally, perform a guaranteed existence probe across known tenant key aliases to lock the effective key.
+      const isLLMCost = Model?.modelName === 'LLMCost';
       let appliedFilter = (req.tenantScopeDisabled || req.allTenants)
         ? (filter && typeof filter === 'object' ? filter : {})
-        : mergeFilterWithTenant(filter, req.tenantId);
+        : mergeFilterWithTenant(filter, req.tenantId, isLLMCost);
 
-      // Existence probe only when tenant is enforced and model is LLMCost-like (generic safe for any model)
-      let effectiveTenantField = undefined;
+      // For LLMCosts, enforce X-Applied-Tenant-Field to organization_id and skip alias probing
+      let effectiveTenantField = isLLMCost ? 'organization_id' : undefined;
       let probeSampleId = null;
-      if (!(req.tenantScopeDisabled || req.allTenants) && req.tenantId) {
+      if (!(req.tenantScopeDisabled || req.allTenants) && req.tenantId && !isLLMCost) {
         const tVal = String(req.tenantId);
         const probeCandidates = [
           { tenant_id: tVal },
@@ -279,13 +276,11 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           { organizationId: tVal },
           { 'tenant.tenant_id': tVal },
         ];
-        // Try to find at least one document using each candidate field
         for (const candidate of probeCandidates) {
           try {
             const doc = await Model.findOne(candidate).select({ _id: 1 }).lean();
             if (doc && doc._id) {
               probeSampleId = String(doc._id);
-              // lock effective field by replacing appliedFilter with this precise candidate (AND any other non-tenant filters)
               const nonTenantFilter = (() => {
                 const f = filter && typeof filter === 'object' ? { ...filter } : {};
                 delete f.tenant_id;
@@ -299,16 +294,12 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               appliedFilter = Object.keys(nonTenantFilter).length
                 ? { $and: [nonTenantFilter, candidate] }
                 : candidate;
-              // Determine which field matched
               const key = Object.keys(candidate)[0];
               effectiveTenantField = key;
               break;
             }
-          } catch (_) {
-            // ignore, continue probing
-          }
+          } catch (_) {}
         }
-        // If no probe matched, keep the original OR filter but set likely field based on indexes preference
         if (!effectiveTenantField) {
           effectiveTenantField = appliedFilter?.$or?.some(x => Object.prototype.hasOwnProperty.call(x, 'tenant_id'))
             ? 'tenant_id'
@@ -325,9 +316,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         if (Model && Model.collection && Model.collection.name) {
           res.set('X-Model-Collection', Model.collection.name);
         }
-        // Also expose which tenant field (alias) is likely in effect for index hints (or the probed field)
-        const likelyTenantField = effectiveTenantField ||
-          (appliedFilter?.$or?.some(x => Object.prototype.hasOwnProperty.call(x, 'tenant_id')) ? 'tenant_id' : 'organization_id');
+        const likelyTenantField = isLLMCost ? 'organization_id' : (effectiveTenantField ||
+          (appliedFilter?.$or?.some(x => Object.prototype.hasOwnProperty.call(x, 'tenant_id')) ? 'tenant_id' : 'organization_id'));
         res.set('X-Applied-Tenant-Field', String(likelyTenantField));
         if (probeSampleId) {
           res.set('X-Exists-Probe-Id', probeSampleId);
@@ -356,14 +346,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             try { res.set('X-Query-Path', 'fast-find'); } catch (_) {}
             const tFast = Date.now();
             const sortObj = { timestamp: -1 };
-            const hintTenant = { tenant_id: 1, timestamp: -1 };
             const hintOrg = { organization_id: 1, timestamp: -1 };
-            const projection = { _id: 1, tenant_id: 1, organization_id: 1, timestamp: 1, created_at: 1, total_cost: 1, currency: 1, user_id: 1, llm_model: 1, provider: 1, project_id: 1 };
-            // Prefer probed field from header if provided
-            const headerField = res.getHeader && res.getHeader('X-Applied-Tenant-Field');
-            const hint = headerField && String(headerField) in { tenant_id:1, organization_id:1 }
-              ? (String(headerField) === 'tenant_id' ? hintTenant : hintOrg)
-              : (appliedFilter?.$or?.some(x => Object.prototype.hasOwnProperty.call(x, 'tenant_id')) ? hintTenant : hintOrg);
+            const projection = { _id: 1, organization_id: 1, timestamp: 1, created_at: 1, total_cost: 1, currency: 1, user_id: 1, llm_model: 1, provider: 1, project_id: 1 };
+            const hint = hintOrg;
             try { res.set('X-Query-IndexHint', JSON.stringify(hint)); } catch (_) {}
             const items = await Model.find(appliedFilter, projection)
               .sort(sortObj)
@@ -467,12 +452,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             } catch (_) {
               // Fallback to find() path with maxTimeMS
               try { res.set('X-Query-Path', 'find-paginated'); } catch (_) {}
-              const headerField2 = res.getHeader && res.getHeader('X-Applied-Tenant-Field');
-              const hintCandidate = headerField2 && String(headerField2) in { tenant_id:1, organization_id:1 }
-                ? (String(headerField2) === 'tenant_id' ? { tenant_id: 1, timestamp: -1 } : { organization_id: 1, timestamp: -1 })
-                : (appliedFilter?.$or?.some(x => Object.prototype.hasOwnProperty.call(x, 'tenant_id'))
-                  ? { tenant_id: 1, timestamp: -1 }
-                  : { organization_id: 1, timestamp: -1 });
+              const hintCandidate = { organization_id: 1, timestamp: -1 };
               try { res.set('X-Query-IndexHint', JSON.stringify(hintCandidate)); } catch (_) {}
               items = await Model.find(appliedFilter)
                 .sort(safeSort)
@@ -629,7 +609,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           if (!res.getHeader('X-Query-Path')) res.set('X-Query-Path', 'generic-nonpaginated');
           res.set('X-Query-Duration', String(Date.now() - t0_np));
           if (!res.getHeader('X-Applied-Tenant-Field')) {
-            const likelyTenantFieldNP = appliedFilter?.$or?.some(x => Object.prototype.hasOwnProperty.call(x, 'tenant_id')) ? 'tenant_id' : 'organization_id';
+            const likelyTenantFieldNP = isLLMCost ? 'organization_id' : (appliedFilter?.$or?.some(x => Object.prototype.hasOwnProperty.call(x, 'tenant_id')) ? 'tenant_id' : 'organization_id');
             res.set('X-Applied-Tenant-Field', String(likelyTenantFieldNP));
           }
         } catch (_) {}
@@ -644,19 +624,22 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const { id } = req.params;
       try {
         const bypass = !!(req.tenantScopeDisabled || req.allTenants);
+        const isLLMCost = Model?.modelName === 'LLMCost';
         const match = bypass
           ? { _id: id }
-          : {
-              _id: id,
-              $or: [
-                { tenant_id: String(req.tenantId) },
-                { organization_id: String(req.tenantId) },
-                { orgId: String(req.tenantId) },
-                { tenantId: String(req.tenantId) },
-                { organizationId: String(req.tenantId) },
-                { 'tenant.tenant_id': String(req.tenantId) },
-              ],
-            };
+          : (isLLMCost
+              ? { _id: id, organization_id: String(req.tenantId) }
+              : {
+                  _id: id,
+                  $or: [
+                    { tenant_id: String(req.tenantId) },
+                    { organization_id: String(req.tenantId) },
+                    { orgId: String(req.tenantId) },
+                    { tenantId: String(req.tenantId) },
+                    { organizationId: String(req.tenantId) },
+                    { 'tenant.tenant_id': String(req.tenantId) },
+                  ],
+                });
         const doc = await Model.findOne(match).lean();
         if (!doc) {return failure(res, 'Not found', 404);}
         return res.status(200).json(doc);
