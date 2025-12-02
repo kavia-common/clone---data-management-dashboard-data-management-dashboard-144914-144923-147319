@@ -1,7 +1,3 @@
-/* Ensure environment variables from .env are loaded even if the process
- * is started without "-r dotenv/config" (e.g., by external orchestrators).
- * This guarantees preview/CI can boot without special node flags.
- */
 try { require('dotenv').config(); } catch {}
 
 const fs = require('fs');
@@ -11,38 +7,24 @@ const app = require('./app');
 const mongoose = require('mongoose');
 
 const PORT = Number(process.env.PORT || process.env.REACT_APP_PORT) || 3001;
-// Always bind 0.0.0.0 to avoid EADDRNOTAVAIL in container/preview envs when frontend proxy targets localhost
 const HOST = (process.env.HOST && process.env.HOST !== 'localhost') ? process.env.HOST : '0.0.0.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const NODE_OPTIONS = process.env.NODE_OPTIONS || '';
+const GENERATE_SOURCEMAP = process.env.GENERATE_SOURCEMAP;
 
 // PUBLIC_INTERFACE
 function logListening(host, port) {
-  // eslint-disable-next-line no-console
   console.log(`Listening on http://${host}:${port}`);
 }
 
-// PID file path per requirement (shown in logs): .tmp/server.3001.pid
+// PID file path for single-instance guard
 const PID_FILE = path.join(process.cwd(), '.tmp', `server.${PORT}.pid`);
+try { fs.mkdirSync(path.dirname(PID_FILE), { recursive: true }); } catch {}
 
-// Ensure .tmp exists for pid management
-try {
-  fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
-} catch {}
+console.log(`[startup] ${NODE_ENV} | ${HOST}:${PORT} | node=${process.version}`);
+if (NODE_OPTIONS) console.log(`[startup] NODE_OPTIONS=${NODE_OPTIONS}`);
+if (GENERATE_SOURCEMAP === 'false') console.log('[startup] Source maps disabled');
 
-// Concise startup banner
-try {
-  // eslint-disable-next-line no-console
-  console.log(`[startup] ${NODE_ENV} | ${HOST}:${PORT}`);
-} catch {}
-
-/**
- * PUBLIC_INTERFACE
- * ensurePidFileGuard
- * Ensures single-instance behavior using a PID file.
- * - If PID file exists and process is alive and listening on PORT, log and exit.
- * - If PID file exists but process is not alive, remove it and continue.
- * - On success to listen, write our PID and set up cleanup handlers.
- */
 function ensurePidFileGuard() {
   if (!fs.existsSync(PID_FILE)) return;
   try {
@@ -52,16 +34,13 @@ function ensurePidFileGuard() {
       fs.unlinkSync(PID_FILE);
       return;
     }
-    // Check if process is alive
     try {
       process.kill(existingPid, 0);
-      // Optionally verify something is listening on PORT by attempting a connection
       const client = new net.Socket();
       const timeoutMs = 300;
       const onDone = (shouldExit) => {
         try { client.destroy(); } catch {}
         if (shouldExit) {
-          // eslint-disable-next-line no-console
           console.log(`[startup] Another instance is active (pid=${existingPid}) on port ${PORT}. Exiting.`);
           process.exit(0);
         }
@@ -72,30 +51,22 @@ function ensurePidFileGuard() {
       client.once('error', () => onDone(true));
       client.connect(PORT, '127.0.0.1');
     } catch {
-      // process not alive; stale pid file
       fs.unlinkSync(PID_FILE);
     }
   } catch {
-    // ignore and proceed
+    // ignore and continue
   }
 }
 
 function writePidFile() {
-  try {
-    fs.writeFileSync(PID_FILE, String(process.pid), 'utf8');
-  } catch (e) {
-    // eslint-disable-next-line no-console
+  try { fs.writeFileSync(PID_FILE, String(process.pid), 'utf8'); } catch (e) {
     console.warn('[startup] Could not write PID file:', e?.message);
   }
 }
-
 function removePidFile() {
-  try {
-    if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE);
-  } catch {}
+  try { if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE); } catch {}
 }
 
-// Run guard before attempting to bind
 ensurePidFileGuard();
 
 function startServerStrict() {
@@ -106,26 +77,18 @@ function startServerStrict() {
           mongoose?.connection?.db?.databaseName ||
           process.env.MONGODB_DB ||
           '(not connected)';
-        // eslint-disable-next-line no-console
         console.log(`[startup] listening http://${HOST}:${PORT} | db=${dbName}`);
         logListening(HOST, PORT);
-        // concise pointers
         console.log(`[startup] /health | /ready | /api/health | /api/docs | /api-docs`);
-        // Single unambiguous readiness marker required by orchestrator:
-        // EXACT STRING: READY: http://HOST:PORT
         console.log(`READY: http://${HOST}:${PORT}`);
-        // Additional compatibility markers for various preview systems
         console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
-        console.log(`Listening on http://${HOST}:${PORT}`);
       } catch {}
       writePidFile();
     })
     .on('error', (err) => {
       if (err && err.code === 'EADDRINUSE') {
-        // eslint-disable-next-line no-console
         console.error(`[startup] EADDRINUSE port ${PORT}. A process is already bound. See ${PID_FILE}.`);
       } else {
-        // eslint-disable-next-line no-console
         console.error('[startup] Server failed to start:', err?.message || err);
       }
       process.exit(1);
@@ -133,19 +96,20 @@ function startServerStrict() {
 
   const shutdown = (signal) => {
     try {
-      // eslint-disable-next-line no-console
       console.log(`${signal} received; shutting down`);
       server.close(async () => {
-        try {
-          await mongoose.connection.close();
-        } catch (e) {
-          // eslint-disable-next-line no-console
+        try { await mongoose.connection.close(); } catch (e) {
           console.error('Error closing MongoDB connection', e?.message || e);
         } finally {
           removePidFile();
         }
         process.exit(0);
       });
+      setTimeout(() => {
+        console.warn('[shutdown] force exiting');
+        removePidFile();
+        process.exit(1);
+      }, 5000).unref();
     } catch {
       removePidFile();
       process.exit(0);
@@ -157,11 +121,9 @@ function startServerStrict() {
   process.on('exit', removePidFile);
 
   process.on('unhandledRejection', (reason) => {
-    // eslint-disable-next-line no-console
     console.error('[unhandledRejection]', reason);
   });
   process.on('uncaughtException', (err) => {
-    // eslint-disable-next-line no-console
     const code = err && err.code;
     if (code === 'EADDRNOTAVAIL' || code === 'EHOSTUNREACH' || code === 'ECONNRESET') {
       console.warn(`[uncaughtException] Ignored transient network error: ${code} - ${err.message}`);
@@ -169,7 +131,6 @@ function startServerStrict() {
     }
     console.error('[uncaughtException]', err);
   });
-  // Avoid crashing on common server error events surfaced globally
   process.on('error', (err) => {
     const code = err && err.code;
     if (code === 'EADDRNOTAVAIL' || code === 'EHOSTUNREACH' || code === 'ECONNRESET') {
@@ -182,5 +143,4 @@ function startServerStrict() {
   return server;
 }
 
-// Export started server
 module.exports = startServerStrict();

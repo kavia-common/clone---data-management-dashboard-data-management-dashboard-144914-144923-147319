@@ -3,18 +3,21 @@
   "version": "1.0.0",
   "description": "Minimal Express app with scalable structure",
   "main": "src/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "start": "HOST=0.0.0.0 NODE_OPTIONS=--max_old_space_size=512 node src/server.js",
-    "dev": "cross-env NODE_ENV=development HOST=0.0.0.0 NODE_OPTIONS=--max_old_space_size=512 BROWSERSLIST_DISABLE_CACHE=1 node src/server.js",
-    "dev:watch": "cross-env NODE_ENV=development HOST=0.0.0.0 NODE_OPTIONS=--max_old_space_size=512 nodemon --exitcrash src/server.js",
-    "dev:nodemon": "cross-env NODE_ENV=development HOST=0.0.0.0 NODE_OPTIONS=--max_old_space_size=512 nodemon --exitcrash src/server.js",
-    "preview": "HOST=0.0.0.0 NODE_OPTIONS=--max_old_space_size=512 node src/server.js",
+    "start": "HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false node src/server.js",
+    "dev": "cross-env NODE_ENV=development HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=512 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false BROWSERSLIST_DISABLE_CACHE=1 nodemon --watch src --ext js,json --ignore \"src/**/__tests__/**\" --signal SIGINT src/server.js",
+    "dev:lean": "cross-env NODE_ENV=development HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false node src/server.js",
+    "start:ci": "cross-env NODE_ENV=production CI=true HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false node src/server.js",
     "docs": "echo 'Swagger UI at http://localhost:3001/api-docs (alias: /docs)' && node -e \"console.log('OpenAPI JSON at /openapi.json')\"",
-    "health": "curl -sSf http://127.0.0.1:${PORT:-3001}/health || true",
+    "health": "node -e \"fetch('http://127.0.0.1:'+ (process.env.PORT||3001) +'/health').then(r=>r.text()).then(t=>{console.log(t);process.exit(0)}).catch(e=>{console.error(e);process.exit(1)})\"",
     "test": "cross-env CI=true NODE_ENV=test jest --runInBand --ci --reporters=default",
     "lint": "eslint . || true",
     "lint:fix": "eslint . --fix || true",
-    "postinstall": "echo 'Updating Browserslist DB (non-blocking)' && npx --yes update-browserslist-db@latest --no-funding --no-update-notifier || true",
+    "postinstall": "echo 'Skipping heavy Browserslist DB update in CI. Run locally if needed: npx update-browserslist-db@latest --yes' || true",
     "gen:openapi": "node generate_openapi.js"
   },
   "dependencies": {
@@ -62,5 +65,10 @@
       "PORT": "3001",
       "NODE_ENV": "development"
     }
-  }
+  },
+  "browserslist": [
+    "defaults",
+    "maintained node versions",
+    "not ie <= 11"
+  ]
 }
