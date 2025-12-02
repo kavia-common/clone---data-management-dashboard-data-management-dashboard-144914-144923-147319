@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
-import { listUsers } from "../api";
+import useUsersData from "../hooks/useUsersData";
 
 /**
  * PUBLIC_INTERFACE
@@ -19,12 +19,18 @@ export default function UsersList({
 }) {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [query, setQuery] = useState("");
   const [organizationFilter, setOrganizationFilter] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+
+  // Use the optimized, memoized users data layer
+  const { items: baseItems, total: baseTotal, loading, error, refetch } = useUsersData({
+    // We currently fetch a single page from server; baseClient may ignore some params but we keep them for cache keying
+    page: 1,
+    limit: 200, // fetch a reasonably large page to avoid per-record fetches for small/med datasets
+    sort: undefined,
+  });
 
   const allowedFields = useMemo(
     () => [
@@ -54,35 +60,17 @@ export default function UsersList({
     ];
   }, []);
 
-  // PUBLIC_INTERFACE
-  async function load() {
-    setLoading(true);
-    setError("");
-    try {
-      // listUsers routes through shared client enforcing /api/users?organization_id=<ORG_ID> only.
-      const res = await listUsers({});
-      const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      setAllItems(arr);
-      setItems(arr);
-      setMeta((prev) => ({
-        page: 1,
-        limit: prev.limit || 10,
-        total: arr.length,
-      }));
-    } catch (e) {
-      setAllItems([]);
-      setItems([]);
-      setMeta({ page: 1, limit: 10, total: 0 });
-      setError(e?.response?.data?.message || e?.message || "Failed to load users.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  // Keep local mirror from optimized source
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const arr = Array.isArray(baseItems) ? baseItems : [];
+    setAllItems(arr);
+    setItems(arr);
+    setMeta((prev) => ({
+      page: 1,
+      limit: prev.limit || 10,
+      total: baseTotal || arr.length || 0,
+    }));
+  }, [baseItems, baseTotal]);
 
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
@@ -115,7 +103,8 @@ export default function UsersList({
     setOrganizationFilter("");
     setItems(allItems);
     setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
-    load();
+    // Bust cache and reload from server
+    refetch();
   }
 
   function handleRowClick(user) {

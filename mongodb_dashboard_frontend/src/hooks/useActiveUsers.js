@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getUsers } from "../services/usersService";
+import useUsersData from "./useUsersData";
 
 /**
  * PUBLIC_INTERFACE
@@ -48,28 +48,15 @@ export default function useActiveUsers(options = {}) {
     [page, limit, sort]
   );
 
-  const load = useCallback(async (signal) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { items, total: t } = await getUsers(params, { signal });
-      setUsers(items);
-      setTotal(t || 0);
-    } catch (e) {
-      if (e?.name === "AbortError") return;
-      setError(e?.message || "Failed to load active users.");
-      setUsers([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [params]);
+  // Centralized optimized users fetch (cached, debounced, cancelable)
+  const { items: cachedItems, total: cachedTotal, loading: baseLoading, error: baseError, refetch } = useUsersData(params);
 
   useEffect(() => {
-    const controller = new AbortController();
-    load(controller.signal);
-    return () => controller.abort();
-  }, [load]);
+    setUsers(cachedItems || []);
+    setTotal(cachedTotal || 0);
+    setLoading(baseLoading);
+    setError(baseError);
+  }, [cachedItems, cachedTotal, baseLoading, baseError]);
 
   return {
     users,
@@ -82,6 +69,6 @@ export default function useActiveUsers(options = {}) {
     setPage,
     setLimit,
     setSort,
-    refetch: () => load(),
+    refetch,
   };
 }
