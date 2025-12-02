@@ -327,6 +327,16 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           const t0 = Date.now();
           let items;
+          // Per-request safety timeout
+          const reqTimeoutMs = 60000;
+          let aborted = false;
+          const abortTimer = setTimeout(() => {
+            aborted = true;
+            try {
+              res.set('X-Request-Timeout', String(reqTimeoutMs));
+            } catch (_) {}
+          }, reqTimeoutMs);
+
           if (isLLMCost) {
             try {
               const sortStage = safeSort
@@ -357,9 +367,22 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
+              // Fail-fast query-level timeout; ensure disk use allowed
+              items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 30000 });
             } catch (_) {
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              // Fallback to find() path with maxTimeMS
+              items = await Model.find(appliedFilter)
+                .sort(safeSort)
+                .skip(skip)
+                .limit(hardCappedLimit)
+                .allowDiskUse(true)
+                .maxTimeMS?.(30000)
+                .lean();
+            } finally {
+              clearTimeout(abortTimer);
+            }
+            if (aborted) {
+              return failure(res, 'Request timeout while fetching LLM costs', 504);
             }
           } else if (isAppDeployment) {
             try {
@@ -458,6 +481,40 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           }
         } catch (_) {
           // Fallback to simple find if any aggregation operator unsupported
+        }
+        // For LLMCost, prefer aggregation with maxTimeMS to limit server work even on non-paginated requests
+        if (isLLMCost) {
+          try {
+            const pipeline = [
+              { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+              { $addFields: {
+                  timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                  organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
+                  numeric_total_cost: {
+                    $convert: {
+                      input: {
+                        $replaceAll: {
+                          input: { $toString: { $ifNull: ['$total_cost', 0] } },
+                          find: '$',
+                          replacement: ''
+                        }
+                      },
+                      to: 'double',
+                      onError: 0,
+                      onNull: 0
+                    }
+                  }
+                }
+              },
+              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
+              { $limit: 200 },
+            ];
+            const itemsAgg = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 30000 });
+            try { res.set('X-Query-Duration', String(Date.now() - t0_np)); } catch (_) {}
+            return res.status(200).json(itemsAgg);
+          } catch (_) {
+            // continue to find path below
+          }
         }
         const items = await query;
         try { res.set('X-Query-Duration', String(Date.now() - t0_np)); } catch (_) {}

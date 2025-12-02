@@ -105,6 +105,11 @@ function removePidFile() {
 ensurePidFileGuard();
 
 function startServerStrict() {
+  // Configure server-level timeouts to play nicely with proxies/load balancers
+  try {
+    // Note: These will be applied after server is created below
+    // Defaults are too low under certain proxy chains; increase conservatively
+  } catch {}
   const server = app
     .listen(PORT, HOST, () => {
       try {
@@ -164,6 +169,37 @@ function startServerStrict() {
       process.exit(0);
     }
   };
+
+  // Apply safe Node server timeouts
+  try {
+    server.keepAliveTimeout = 65000; // keep connections open slightly longer than common proxy timeouts
+    server.headersTimeout = 70000;   // must be greater than keepAliveTimeout
+    console.log(`[startup] Server timeouts set: keepAliveTimeout=${server.keepAliveTimeout}ms headersTimeout=${server.headersTimeout}ms`);
+  } catch (e) {
+    console.warn('[startup] Failed to set server timeouts', e?.message || e);
+  }
+
+  // Add a per-request timeout for the LLM costs route to gracefully abort long requests
+  try {
+    const llmCostsTimeoutMs = 60000;
+    app.use('/api/llm-costs', (req, res, next) => {
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try {
+          res.set('X-Request-Timeout', String(llmCostsTimeoutMs));
+        } catch (_) {}
+        if (!res.headersSent) {
+          return res.status(504).json({ success: false, message: 'Gateway Timeout: LLM costs query exceeded time limit' });
+        }
+      }, llmCostsTimeoutMs);
+      res.on('finish', () => clearTimeout(timer));
+      res.on('close', () => clearTimeout(timer));
+      if (!timedOut) next();
+    });
+  } catch (e) {
+    console.warn('[startup] Failed to attach per-route timeout middleware for /api/llm-costs', e?.message || e);
+  }
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
