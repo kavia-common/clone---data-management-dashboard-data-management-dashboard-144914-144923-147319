@@ -135,11 +135,7 @@ app.get('/api/users/tenant-summary', async (req, res) => {
  // Protected routes (with auth + tenant)
  // ---------------------------------------------
 app.use((req, res, next) => {
-  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-    if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
-      // Developer debug headers (disabled logs)
-    }
-  }
+  // Keep middleware lightweight; avoid verbose per-request logging in dev to reduce noise and CPU
   next();
 });
 

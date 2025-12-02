@@ -10,7 +10,7 @@ Quick start (development)
 - cp .env.example .env    # then edit as needed
 - npm ci                  # or: npm install
 - npm run dev             # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server)
-- npm run dev:watch       # same as dev, but with nodemon hot reload for local changes
+- npm run dev:watch       # nodemon with legacy watch & debounce (low inotify load)
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state
 
@@ -28,7 +28,7 @@ Preview runner compatibility
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT
   - Server ready: http://HOST:PORT (env=...)
-- If your frontend dev server uses a proxy (http-proxy-middleware) to reach this backend, ensure the proxy target points to the actual backend URL (e.g., http://localhost:3001 or the container hostname) and not to an interface that is not routable from the frontend container. Binding to 0.0.0.0 here avoids EADDRNOTAVAIL, but the proxy target must also be reachable.
+- The backend is independent from the frontend dev server. If the proxy from frontend fails or is misconfigured, the backend continues to run. Transient network errors (EADDRNOTAVAIL/EHOSTUNREACH/ECONNRESET) are handled gracefully without crashing.
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
   - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
