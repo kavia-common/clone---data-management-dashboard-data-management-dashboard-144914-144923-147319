@@ -2,7 +2,7 @@
 // import Card from "../../components/ui/Card.jsx";
 // import DataTable from "../../components/DataTable.jsx";
 // import { listDeployments } from "../../api";
-// import DeploymentsOverTime from "../../components/charts/DeploymentsOverTime.jsx";
+// 
 // import DeploymentStatusBarChart from "../../components/charts/DeploymentStatusBarChart.jsx";
 // import useDeploymentStatusCounts from "../../hooks/useDeploymentStatusCounts";
 
@@ -395,10 +395,7 @@ export default function Deployments() {
 
   return (
     <div className="grid">
-      <div className="block-full">
-        <DeploymentsOverTime height={340} />
-      </div>
-
+      {/* Status counts bar chart */}
       <div className="block-full">
         <DeploymentStatusBarChart
           title="Projects deployments by Status"
@@ -410,9 +407,9 @@ export default function Deployments() {
         />
       </div>
 
+      {/* Table card */}
       <div className="block-full">
-        <Card title="Project Deployment Details
-        " subtitle="Deployments list">
+        <Card title="Project Deployment Details" subtitle="Deployments list">
           {/* Search input above the table */}
           <div
             style={{
@@ -456,7 +453,6 @@ export default function Deployments() {
             loading={loading}
             pageSize={meta.limit}
             initialPage={meta.page}
-            // Keep server pagination totals; client filter reduces rendered rows only.
             serverTotal={meta.total}
             fetchPage={async (page, limit, sortKey, sortDir) => {
               if (sortKey) lastSortRef.current = { key: sortKey, dir: sortDir };
