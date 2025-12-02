@@ -67,6 +67,7 @@ async function listLlmCosts(req, res) {
     const maxLimit = 200;
     const defaultLimit = 50;
     const limit = Math.min(Math.max(parseInt(req.query.limit || String(defaultLimit), 10) || defaultLimit, 1), maxLimit);
+    // Default sort by canonical time field
     const sortStr = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : '-timestamp';
 
     let sort = { timestamp: -1 };
@@ -91,7 +92,7 @@ async function listLlmCosts(req, res) {
     }
     const filter = Object.fromEntries(Object.entries(rawFilter).filter(([k]) => allowed.includes(k)));
 
-    // Time range filter applied on timestamp or created_at (note: $or may be slow; recorded in diagnostics)
+    // Time range filter applied only on canonical timestamp (no $or across created_at)
     const range = {};
     if (req.query.from) {
       const d = new Date(req.query.from);
@@ -101,7 +102,7 @@ async function listLlmCosts(req, res) {
       const d = new Date(req.query.to);
       if (!isNaN(d.getTime())) range.$lte = d;
     }
-    const timeFilter = Object.keys(range).length ? { $or: [{ timestamp: range }, { created_at: range }] } : {};
+    const timeFilter = Object.keys(range).length ? { timestamp: range } : {};
     const usedOrOnTime = Object.keys(range).length > 0;
 
     // Tenant filter
@@ -124,7 +125,9 @@ async function listLlmCosts(req, res) {
     // Projection for tabular view
     const projection = {
       request_id: 1,
+      // Canonical time field for filtering/sorting; keep created_at only for display fallback mapping in UI
       timestamp: 1,
+      created_at: 1,
       model: 1,
       provider: 1,
       user_id: 1,
@@ -148,7 +151,6 @@ async function listLlmCosts(req, res) {
       sort,
       filter: finalFilter,
       projection,
-      usedOrOnTime,
       notes: [],
     };
     lastDiagnostics = { ...baseDiag, timings: { ...timings } };
@@ -217,10 +219,7 @@ async function listLlmCosts(req, res) {
           $and: [
             exampleTenantFilter,
             {
-              $or: [
-                { timestamp: { $gte: new Date(Date.now() - 7 * 86400000) } },
-                { created_at: { $gte: new Date(Date.now() - 7 * 86400000) } },
-              ],
+              timestamp: { $gte: new Date(Date.now() - 7 * 86400000) },
             },
           ],
         };
@@ -281,7 +280,7 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-sort', JSON.stringify(sort));
       res.set('x-llm-page', String(page));
       res.set('x-llm-limit', String(limit));
-      res.set('x-llm-used-or-on-time', usedOrOnTime ? '1' : '0');
+      // No $or usage on time fields; header removed
       res.set('x-llm-timing-parsed-ms', String(Math.round(timings.parsed ?? 0)));
       res.set('x-llm-timing-built-ms', String(Math.round(timings.built ?? 0)));
       res.set('x-llm-timing-exec-ms', String(Math.round(timings.exec_ms ?? 0)));
@@ -314,7 +313,7 @@ async function listLlmCosts(req, res) {
         filter: finalFilter,
         sort,
         projection,
-        usedOrOnTime,
+
         timings,
         explain: lastDiagnostics.explain,
       };
@@ -336,7 +335,7 @@ async function listLlmCosts(req, res) {
         limit: lastDiagnostics?.limit,
         sort: lastDiagnostics?.sort,
         filter: lastDiagnostics?.filter,
-        usedOrOnTime: lastDiagnostics?.usedOrOnTime,
+
       });
     } catch {}
     console.error('[LLM-COSTS][LIST] error:', err?.message || err);
@@ -387,14 +386,13 @@ function summarizeExplain(explain) {
 }
 
 // Helper to set partial headers even when failing early
-function setPartialHeaders(res, { effectiveTenant, timings, page, limit, sort, filter, usedOrOnTime }) {
+function setPartialHeaders(res, { effectiveTenant, timings, page, limit, sort, filter }) {
   try {
     if (effectiveTenant != null) res.set('x-effective-tenant', String(effectiveTenant));
     if (filter != null) res.set('x-llm-filter', safeJson(filter));
     if (sort != null) res.set('x-llm-sort', safeJson(sort));
     if (page != null) res.set('x-llm-page', String(page));
     if (limit != null) res.set('x-llm-limit', String(limit));
-    if (usedOrOnTime != null) res.set('x-llm-used-or-on-time', usedOrOnTime ? '1' : '0');
     if (timings) {
       res.set('x-llm-timing-parsed-ms', String(Math.round(timings.parsed ?? 0)));
       res.set('x-llm-timing-built-ms', String(Math.round(timings.built ?? 0)));

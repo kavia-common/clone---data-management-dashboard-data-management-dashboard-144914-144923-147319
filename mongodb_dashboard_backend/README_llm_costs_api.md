@@ -6,9 +6,9 @@ This document explains how to use and validate GET /api/llm-costs.
 - Method: GET
 - Security: Bearer JWT preferred. Without JWT (demo), provide x-organization-id header.
 - Pagination: page (default 1), limit (default 50, max 200)
-- Sorting: sort in { timestamp, created_at, _id, total_cost } with optional '-' for desc (default -timestamp)
+- Sorting: sort in { timestamp, _id, total_cost } with optional '-' for desc (default -timestamp)
 - Filters (whitelisted): status, provider, llm_model, user_id, session_id, project_id, request_id
-- Date range: ?from=ISO&to=ISO; defaults to last 30 days if not provided
+- Date range: ?from=ISO&to=ISO; applied only on the canonical field 'timestamp'. The server does NOT use created_at in predicates.
 
 Sample:
 curl -sS -H "Authorization: Bearer <JWT>" \
@@ -23,6 +23,7 @@ Response:
       "_id": "65f0...",
       "request_id": "req_123",
       "timestamp": "2025-01-12T08:43:10.120Z",
+      "created_at": "2025-01-12T08:43:10.120Z",
       "model": "gpt-4o-mini",
       "provider": "openai",
       "user_id": "user_1",
@@ -39,8 +40,8 @@ Response:
 
 Performance:
 - Uses indexed filters and projection to keep response under the route timeout (default 12s).
-- Default 30-day window applied when no date range is provided to prevent full scans.
+- Time filtering is canonical: only 'timestamp' is used in the query predicate, enabling index use and avoiding $or on time fields.
 
 Notes:
 - If Authorization is provided, the tenant must match any provided header/query tenant; otherwise 403.
-- Headers include X-Applied-Tenant, X-Query-Filter, X-Projection, X-Collection for diagnostics.
+- Headers include x-effective-tenant, x-llm-filter, x-llm-projection, x-llm-sort, x-llm-page, x-llm-limit, and timing headers (x-llm-timing-...). There is no header indicating "$or used on time" since only timestamp is used in predicates.

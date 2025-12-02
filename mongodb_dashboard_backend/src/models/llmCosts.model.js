@@ -6,15 +6,13 @@ const mongoose = require('mongoose');
  * Common fields are indexed to support filtering and sorting in list endpoints.
  *
  * Index notes:
+ * - Canonical time field: timestamp. Queries MUST use { timestamp: ... } only.
  * - Ensure compound indexes exist for tenant-scoped sorted scans:
  *     { tenant_id: 1, timestamp: -1 }
- *     { tenant_id: 1, created_at: -1 }
- *   These are declared below.
- * - To avoid $or across timestamp/created_at in queries, consider precomputing a normalizedTimestamp at write:
- *     normalizedTimestamp = timestamp || created_at
- *   and indexing:
- *     { tenant_id: 1, normalizedTimestamp: -1 }
- *   The current route normalizes at read-time using either $or or $ifNull in aggregations; precomputing yields better index usage at scale.
+ *   created_at remains for legacy ingestion/display fallback and is NOT used in query predicates.
+ * - For org alias:
+ *     { organization_id: 1, timestamp: -1 }
+ * - Additional helpful indexes declared below.
  */
 const CostBreakdownSchema = new mongoose.Schema(
   {
@@ -41,8 +39,8 @@ const LLMCostsSchema = new mongoose.Schema(
     currency: { type: String, default: 'USD' },
     breakdown: { type: CostBreakdownSchema, default: () => ({}) },
     metadata: { type: mongoose.Schema.Types.Mixed }, // free-form
-    timestamp: { type: Date, index: true, default: Date.now },
-    created_at: { type: Date, index: true, default: Date.now },
+    timestamp: { type: Date, index: true, default: Date.now }, // canonical time field for filtering/sorting
+    created_at: { type: Date, index: true, default: Date.now }, // legacy/display fallback; do NOT use in predicates
     updated_at: { type: Date, index: true, default: Date.now },
   },
   {
@@ -54,7 +52,7 @@ const LLMCostsSchema = new mongoose.Schema(
 
 // Useful indexes for common filter/sort combos
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
-LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
+// created_at retained for display fallback; do not index compound with tenant to discourage predicate usage
 // Facilitate common queries by organization_id as alias for tenant
 LLMCostsSchema.index({ organization_id: 1, timestamp: -1 });
 // Project and session specific lookups
