@@ -135,7 +135,11 @@ app.get('/api/users/tenant-summary', async (req, res) => {
  // Protected routes (with auth + tenant)
  // ---------------------------------------------
 app.use((req, res, next) => {
-  // Keep middleware lightweight; avoid verbose per-request logging in dev to reduce noise and CPU
+  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+    if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
+      // Developer debug headers (disabled logs)
+    }
+  }
   next();
 });
 
@@ -144,7 +148,6 @@ safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
 safeUse('/api/analytics', require('./routes/analytics.overview.routes'));
 safeUse('/api/analytics', require('./routes/analytics'));
-safeUse('/api/sessions', require('./routes/sessions.analytics.routes'));
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));

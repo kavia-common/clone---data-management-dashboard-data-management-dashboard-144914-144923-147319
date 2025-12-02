@@ -1071,38 +1071,6 @@
         }
       }
     },
-    "/api/sessions/by-type": {
-      "get": {
-        "summary": "Sessions count by type",
-        "description": "Aggregates sessions grouped by type with optional start/end and limit. Tenant-scoped unless T0000 bypass.",
-        "tags": ["SessionTracking"],
-        "parameters": [
-          { "in": "query", "name": "start", "schema": { "type": "string", "format": "date-time" } },
-          { "in": "query", "name": "end", "schema": { "type": "string", "format": "date-time" } },
-          { "in": "query", "name": "limit", "schema": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 20 } }
-        ],
-        "responses": {
-          "200": { "description": "Aggregated sessions by type" },
-          "400": { "description": "Invalid parameters" }
-        }
-      }
-    },
-    "/api/sessions/by-organization": {
-      "get": {
-        "summary": "Sessions count by organization",
-        "description": "Aggregates sessions grouped by organization_name (fallback tenant_id) with optional start/end and limit.",
-        "tags": ["SessionTracking"],
-        "parameters": [
-          { "in": "query", "name": "start", "schema": { "type": "string", "format": "date-time" } },
-          { "in": "query", "name": "end", "schema": { "type": "string", "format": "date-time" } },
-          { "in": "query", "name": "limit", "schema": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 20 } }
-        ],
-        "responses": {
-          "200": { "description": "Aggregated sessions by organization" },
-          "400": { "description": "Invalid parameters" }
-        }
-      }
-    },
     "/api/session-tracking": {
       "get": {
         "summary": "List session tracking records",

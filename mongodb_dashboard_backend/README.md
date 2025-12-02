@@ -10,7 +10,7 @@ Quick start (development)
 - cp .env.example .env    # then edit as needed
 - npm ci                  # or: npm install
 - npm run dev             # binds to 0.0.0.0:3001; dotenv is loaded programmatically; backend only (no React/webpack dev server)
-- npm run dev:watch       # nodemon with legacy watch & debounce (low inotify load)
+- npm run dev:watch       # same as dev, but with nodemon hot reload for local changes
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state
 
@@ -28,7 +28,7 @@ Preview runner compatibility
   - BACKEND_READY: url=http://HOST:PORT
   - Listening on http://HOST:PORT
   - Server ready: http://HOST:PORT (env=...)
-- The backend is independent from the frontend dev server. If the proxy from frontend fails or is misconfigured, the backend continues to run. Transient network errors (EADDRNOTAVAIL/EHOSTUNREACH/ECONNRESET) are handled gracefully without crashing.
+- If your frontend dev server uses a proxy (http-proxy-middleware) to reach this backend, ensure the proxy target points to the actual backend URL (e.g., http://localhost:3001 or the container hostname) and not to an interface that is not routable from the frontend container. Binding to 0.0.0.0 here avoids EADDRNOTAVAIL, but the proxy target must also be reachable.
 - Health endpoints for readiness checks:
   - GET /health       -> always 200 with db state
   - GET /ready        -> alias to /health (for Kubernetes-style readiness probes)
@@ -89,30 +89,3 @@ Troubleshooting
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
 - Mongo not connected:
   - /api/health will reflect db: disconnected; verify MONGODB_URI and MONGODB_DB in .env.
-
-## Session Tracking Aggregates (Performance)
-
-New fast aggregation endpoints:
-- GET /api/sessions/by-organization
-- GET /api/sessions/by-type
-
-Details:
-- Aggregation pipelines use tenant scoping by default (JWT/header). Use organization_id=T0000 to bypass and aggregate across all tenants for super-admin.
-- Optional query parameters:
-  - start (ISO date-time)
-  - end (ISO date-time)
-  - limit (default 20, max 1000)
-- Lightweight in-memory cache per query key with ~45s TTL.
-- Input validation for dates; invalid values return 400.
-
-Recommended MongoDB indexes (run in your Mongo shell):
-```js
-db.session_tracking.createIndex({ tenant_id: 1, last_updated: -1 })
-db.session_tracking.createIndex({ tenant_id: 1, session_start: -1 })
-db.session_tracking.createIndex({ service_type: 1 })
-db.session_tracking.createIndex({ session_type: 1 })
-db.session_tracking.createIndex({ type: 1 })
-db.session_tracking.createIndex({ organization_name: 1 })
-```
-
-These indexes support time-bound and grouping operations for both "by type" and "by organization" queries and drastically reduce query latency on larger datasets.

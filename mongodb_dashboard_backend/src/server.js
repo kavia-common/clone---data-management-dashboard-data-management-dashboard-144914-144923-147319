@@ -157,16 +157,17 @@ function startServerStrict() {
   process.on('exit', removePidFile);
 
   process.on('unhandledRejection', (reason) => {
-    // keep concise; do not crash on promise rejections
-    console.error('[unhandledRejection]', reason && reason.message ? reason.message : reason);
+    // eslint-disable-next-line no-console
+    console.error('[unhandledRejection]', reason);
   });
   process.on('uncaughtException', (err) => {
+    // eslint-disable-next-line no-console
     const code = err && err.code;
     if (code === 'EADDRNOTAVAIL' || code === 'EHOSTUNREACH' || code === 'ECONNRESET') {
       console.warn(`[uncaughtException] Ignored transient network error: ${code} - ${err.message}`);
       return;
     }
-    console.error('[uncaughtException]', err?.message || err);
+    console.error('[uncaughtException]', err);
   });
   // Avoid crashing on common server error events surfaced globally
   process.on('error', (err) => {
