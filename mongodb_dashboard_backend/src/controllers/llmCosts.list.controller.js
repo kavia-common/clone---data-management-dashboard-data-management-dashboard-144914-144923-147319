@@ -5,38 +5,109 @@ const LlmCost = require('../models/llmCosts.model');
 const { getDiagnosticsStore } = require('../utils/llmCostsDiagnostics');
 const { handleError } = require('../utils/http');
 
-// Map and normalize a raw item to required tabular fields with sensible fallbacks
+/**
+ * Normalize a raw cost document into a UI-friendly tabular record.
+ * Adds a "details" object containing raw/extra keys not part of standard columns.
+ */
 function normalizeItem(doc) {
   const breakdown = doc?.breakdown || {};
-  const inputTokens = doc?.tokens_in ?? breakdown?.prompt_tokens ?? breakdown?.input_tokens ?? null;
-  const outputTokens = doc?.tokens_out ?? breakdown?.completion_tokens ?? breakdown?.output_tokens ?? null;
+  const inputTokens =
+    doc?.tokens_in ??
+    breakdown?.prompt_tokens ??
+    breakdown?.input_tokens ??
+    breakdown?.tokens_in ??
+    null;
+  const outputTokens =
+    doc?.tokens_out ??
+    breakdown?.completion_tokens ??
+    breakdown?.output_tokens ??
+    breakdown?.tokens_out ??
+    null;
   const model = doc?.model || doc?.llm_model || null;
 
+  // currency and total cost handling
+  const currency = doc?.currency || 'USD';
   let costUsd = null;
   if (doc && Object.prototype.hasOwnProperty.call(doc, 'cost_usd')) {
     costUsd = doc.cost_usd;
   } else if (Object.prototype.hasOwnProperty.call(doc || {}, 'total_cost')) {
     costUsd = doc.total_cost;
-  } else if (typeof breakdown?.input_cost === 'number' || typeof breakdown?.output_cost === 'number') {
+  } else if (
+    typeof breakdown?.input_cost === 'number' ||
+    typeof breakdown?.output_cost === 'number'
+  ) {
     const a = typeof breakdown?.input_cost === 'number' ? breakdown.input_cost : 0;
     const b = typeof breakdown?.output_cost === 'number' ? breakdown.output_cost : 0;
     costUsd = a + b;
   }
+  if (typeof costUsd === 'string') {
+    const n = parseFloat(String(costUsd).replace(/^\s*\$/, ''));
+    costUsd = Number.isFinite(n) ? n : null;
+  }
 
-  return {
+  // Standard columns for table
+  const standard = {
     _id: String(doc?._id || ''),
     request_id: doc?.request_id ?? doc?.task_id ?? null,
+    session_id: doc?.session_id ?? null,
+    project_id: doc?.project_id ?? null,
     timestamp: doc?.timestamp || doc?.created_at || null,
+    created_at: doc?.created_at ?? null,
     model,
+    model_version: doc?.model_version ?? doc?.version ?? null,
     provider: doc?.provider ?? null,
     user_id: doc?.user_id ?? null,
     organization_id: doc?.organization_id || doc?.tenant_id || null,
+    tenant_id: doc?.tenant_id ?? null,
     tokens_in: Number.isFinite(inputTokens) ? inputTokens : null,
     tokens_out: Number.isFinite(outputTokens) ? outputTokens : null,
-    cost_usd: typeof costUsd === 'number' ? costUsd : (typeof costUsd === 'string' ? parseFloat(String(costUsd).replace('$','')) : null),
-    duration_ms: doc?.duration_ms ?? null,
+    prompt: breakdown?.prompt ?? doc?.prompt ?? null,
+    completion: breakdown?.completion ?? doc?.completion ?? null,
+    cost_usd: typeof costUsd === 'number' ? costUsd : null,
+    total_cost: typeof doc?.total_cost === 'number' ? doc.total_cost : (typeof doc?.total_cost === 'string' ? parseFloat(String(doc.total_cost).replace(/^\s*\$/, '')) : null),
+    currency,
+    duration_ms: doc?.duration_ms ?? doc?.latency_ms ?? null,
     status: doc?.status ?? null,
+    provider_status: doc?.provider_status ?? null,
   };
+
+  // Lightweight breakdown for UI (tokens/costs)
+  const breakdownSummary = {
+    tokens: {
+      prompt: Number.isFinite(breakdown?.prompt_tokens) ? breakdown.prompt_tokens : (Number.isFinite(breakdown?.input_tokens) ? breakdown.input_tokens : null),
+      completion: Number.isFinite(breakdown?.completion_tokens) ? breakdown.completion_tokens : (Number.isFinite(breakdown?.output_tokens) ? breakdown.output_tokens : null),
+    },
+    costs: {
+      input: typeof breakdown?.input_cost === 'number' ? breakdown.input_cost : null,
+      output: typeof breakdown?.output_cost === 'number' ? breakdown.output_cost : null,
+    },
+  };
+
+  // "details" raw/extra captures additional keys for optional UI rendering
+  const knownKeys = new Set([
+    ...Object.keys(standard),
+    'breakdown',
+    'metadata',
+    'extra',
+    'details',
+  ]);
+  const extra = {};
+  if (doc && typeof doc === 'object') {
+    for (const [k, v] of Object.entries(doc)) {
+      if (!knownKeys.has(k)) {
+        extra[k] = v;
+      }
+    }
+  }
+  // always include raw breakdown and metadata under details
+  const details = {
+    breakdown,
+    breakdown_summary: breakdownSummary,
+    metadata: doc?.metadata ?? null,
+    raw: extra,
+  };
+
+  return { ...standard, details };
 }
 
 // PUBLIC_INTERFACE
@@ -148,26 +219,43 @@ async function listLlmCosts(req, res) {
       _id: 1,
       request_id: 1,
       task_id: 1,
+      session_id: 1,
+      project_id: 1,
       timestamp: 1,
       created_at: 1,
       model: 1,
       llm_model: 1,
+      model_version: 1,
       provider: 1,
+      provider_status: 1,
       user_id: 1,
       organization_id: 1,
       tenant_id: 1,
+      // tokens and textual prompt/completion summaries
       tokens_in: 1,
       tokens_out: 1,
+      prompt: 1,
+      completion: 1,
+      // breakdown tokens + costs
+      breakdown: 1,
       'breakdown.prompt_tokens': 1,
       'breakdown.completion_tokens': 1,
       'breakdown.input_tokens': 1,
       'breakdown.output_tokens': 1,
-      cost_usd: 1,
-      total_cost: 1,
       'breakdown.input_cost': 1,
       'breakdown.output_cost': 1,
+      // costs and currency
+      cost_usd: 1,
+      total_cost: 1,
+      currency: 1,
+      // durations and status
       duration_ms: 1,
+      latency_ms: 1,
       status: 1,
+      // metadata free-form details for the UI details panel
+      metadata: 1,
+      // allow any extra fields to be optionally surfaced in details.raw
+      // strict: false ensures extras exist; we still project entire doc keys not listed here via manual pick in code
     };
 
     diag.filter = filter;
@@ -228,6 +316,24 @@ async function listLlmCosts(req, res) {
         limit,
         total,
         sort: req.query.sort || '-timestamp',
+        window: {
+          from: from ? from.toISOString() : null,
+          to: to ? to.toISOString() : null,
+          applied: windowApplied || null,
+        },
+        diagnostics: {
+          headers: {
+            effectiveTenant: String(tenant),
+            filter: filter,
+            projection,
+            sort: sortSpec,
+            timings: {
+              parsed_ms: parseEnd - startedAt,
+              built_ms: builtEnd - parseEnd,
+              exec_ms: execEnd - builtEnd
+            }
+          }
+        }
       },
     });
   } catch (err) {

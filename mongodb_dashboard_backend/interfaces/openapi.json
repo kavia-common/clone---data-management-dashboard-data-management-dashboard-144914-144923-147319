@@ -796,7 +796,10 @@
               "x-llm-timing-parsed-ms": { "schema": { "type": "string" }, "description": "Parse time in ms" },
               "x-llm-timing-built-ms": { "schema": { "type": "string" }, "description": "Build time in ms" },
               "x-llm-timing-exec-ms": { "schema": { "type": "string" }, "description": "DB execution time in ms" },
-              "x-llm-timing-explain-ms": { "schema": { "type": "string" }, "description": "Explain capture time in ms (when enabled)" }
+              "x-llm-timing-explain-ms": { "schema": { "type": "string" }, "description": "Explain capture time in ms (when enabled)" },
+              "x-llm-window-from": { "schema": { "type": "string" }, "description": "Effective window start (ISO)" },
+              "x-llm-window-to": { "schema": { "type": "string" }, "description": "Effective window end (ISO)" },
+              "x-llm-window-applied": { "schema": { "type": "string" }, "description": "default|clamped_to|clamped_from when the server applied defaults/clamps" }
             },
             "content": {
               "application/json": {
@@ -811,16 +814,54 @@
                         "properties": {
                           "_id": { "type": "string" },
                           "request_id": { "type": "string", "nullable": true },
+                          "session_id": { "type": "string", "nullable": true },
+                          "project_id": { "type": "string", "nullable": true },
                           "timestamp": { "type": "string", "format": "date-time", "nullable": true },
+                          "created_at": { "type": "string", "format": "date-time", "nullable": true },
                           "model": { "type": "string", "nullable": true },
+                          "model_version": { "type": "string", "nullable": true },
                           "provider": { "type": "string", "nullable": true },
+                          "provider_status": { "type": "string", "nullable": true },
                           "user_id": { "type": "string", "nullable": true },
                           "organization_id": { "type": "string", "nullable": true },
+                          "tenant_id": { "type": "string", "nullable": true },
                           "tokens_in": { "type": "integer", "nullable": true },
                           "tokens_out": { "type": "integer", "nullable": true },
+                          "prompt": { "type": "string", "nullable": true, "description": "Prompt text (when stored or derived)" },
+                          "completion": { "type": "string", "nullable": true, "description": "Completion text (when stored or derived)" },
                           "cost_usd": { "type": "number", "nullable": true },
+                          "total_cost": { "type": "number", "nullable": true },
+                          "currency": { "type": "string", "nullable": true, "example": "USD" },
                           "duration_ms": { "type": "integer", "nullable": true },
-                          "status": { "type": "string", "nullable": true }
+                          "status": { "type": "string", "nullable": true },
+                          "details": {
+                            "type": "object",
+                            "description": "Optional details containing raw breakdown, metadata and any extra fields",
+                            "properties": {
+                              "breakdown": { "type": "object", "additionalProperties": true },
+                              "breakdown_summary": {
+                                "type": "object",
+                                "properties": {
+                                  "tokens": {
+                                    "type": "object",
+                                    "properties": {
+                                      "prompt": { "type": "integer", "nullable": true },
+                                      "completion": { "type": "integer", "nullable": true }
+                                    }
+                                  },
+                                  "costs": {
+                                    "type": "object",
+                                    "properties": {
+                                      "input": { "type": "number", "nullable": true },
+                                      "output": { "type": "number", "nullable": true }
+                                    }
+                                  }
+                                }
+                              },
+                              "metadata": { "type": "object", "additionalProperties": true, "nullable": true },
+                              "raw": { "type": "object", "additionalProperties": true, "description": "Any remaining top-level fields not part of standard columns" }
+                            }
+                          }
                         }
                       }
                     },
@@ -831,6 +872,20 @@
                         "limit": { "type": "integer" },
                         "total": { "type": "integer" },
                         "sort": { "type": "string" },
+                        "window": {
+                          "type": "object",
+                          "properties": {
+                            "from": { "type": "string", "format": "date-time", "nullable": true },
+                            "to": { "type": "string", "format": "date-time", "nullable": true },
+                            "applied": { "type": "string", "nullable": true, "description": "default|clamped_to|clamped_from|null" }
+                          }
+                        },
+                        "diagnostics": {
+                          "type": "object",
+                          "properties": {
+                            "headers": { "type": "object", "additionalProperties": true }
+                          }
+                        },
                         "debug": {
                           "type": "object",
                           "nullable": true,
