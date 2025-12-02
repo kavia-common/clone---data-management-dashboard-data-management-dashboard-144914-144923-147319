@@ -10,9 +10,6 @@ const cors = require('cors');
 
 const app = express();
 
-// Stability-first settings
-app.disable('x-powered-by');
-
 // ---------------------------------------------
 // Middleware
 // ---------------------------------------------
@@ -22,31 +19,8 @@ app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
 app.options('/api/*', cors());
 app.use(rateLimiter());
-app.use(express.json({ limit: process.env.JSON_LIMIT || '1mb' }));
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
-
-// Early heartbeat middleware: if a response takes >10s to start, flush headers.
-const HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 10000);
-app.use((req, res, next) => {
-  let headersSent = false;
-  const timer = setTimeout(() => {
-    if (!res.headersSent) {
-      headersSent = true;
-      res.setHeader('X-Heartbeat', 'true');
-      res.setHeader('Cache-Control', 'no-store');
-      if (res.flushHeaders) {
-        res.flushHeaders();
-      }
-    }
-  }, HEARTBEAT_MS);
-  const clear = () => clearTimeout(timer);
-  res.on('finish', clear);
-  res.on('close', clear);
-  res.on('error', clear);
-  req._heartbeatTimerStartedAt = Date.now();
-  req._heartbeatHeadersSent = () => headersSent;
-  next();
-});
 
 // ---------------------------------------------
 // Swagger setup
@@ -73,24 +47,21 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
+    // Use same-origin server so Swagger calls hit this backend instance
     url: `${protocol}://${fullHost}`,
+    // servers: [
+
+    //   {
+    //     url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //     description: 'Predefined dev server',
+    //   },
+    // ],
   };
 };
 
+
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
-
-// PUBLIC_INTERFACE
-// WebSocket usage helper (no active WS endpoints). Provides project-level note in docs.
-app.get('/api/websocket-usage', (req, res) => {
-  return res.status(200).json({
-    success: true,
-    message: 'No WebSocket endpoints are currently exposed. The API supports HTTP streaming for long-running endpoints like /api/llm-costs by sending early headers to avoid upstream timeouts.',
-    examples: [
-      { method: 'GET', path: '/api/llm-costs', note: 'Streams headers early to keep the connection alive before DB queries finish.' }
-    ]
-  });
-});
 app.get('/api/docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 
 const swaggerUiHandler = swaggerUi.setup(null, {
@@ -122,24 +93,6 @@ const healthHandler = (req, res) => {
   return res.status(200).json(payload);
 };
 app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
-// PUBLIC_INTERFACE
-// GET /api/health/memory - returns current memory stats and configured thresholds
-app.get('/api/health/memory', (req, res) => {
-  const mu = process.memoryUsage();
-  const toMB = (n) => Math.round(n / (1024 * 1024));
-  const MAX_HEAP_MB = Number(process.env.MAX_OLD_SPACE_SIZE || 768);
-  const payload = {
-    rssMB: toMB(mu.rss),
-    heapUsedMB: toMB(mu.heapUsed),
-    heapTotalMB: toMB(mu.heapTotal),
-    externalMB: toMB(mu.external || 0),
-    arrayBuffersMB: toMB(mu.arrayBuffers || 0),
-    configuredMaxOldSpaceMB: MAX_HEAP_MB,
-    timestamp: new Date().toISOString(),
-  };
-  res.set('Cache-Control', 'no-store');
-  return res.status(200).json(payload);
-});
 
 // ---------------------------------------------
 // Routers
@@ -150,23 +103,6 @@ const safeUse = (path, router) => {
 
 const baseRouter = require('./routes');
 safeUse('/', baseRouter);
-try {
-  // Mark a header on all API requests to help detect multiple proxying/double route handling
-  app.use('/api', (req, res, next) => {
-    try { res.set('X-Router-Pass', String((Number(res.getHeader('X-Router-Pass')) || 0) + 1)); } catch (_) {}
-    next();
-  });
-} catch (_) {}
-
-// Proactively ensure critical indexes for LLMCosts to avoid collection scans on list/sort
-try {
-  const LLMCost = require('./models/llmCosts.model');
-  if (LLMCost?.ensureIndexes) {
-    LLMCost.ensureIndexes()
-      .then(() => { try { console.log('[startup] LLMCost indexes ensured'); } catch (_) {} })
-      .catch(() => {});
-  }
-} catch (_) {}
 
 safeUse('/api/dev', require('./routes/dev.routes'));
 safeUse('/api/users', require('./routes/users.routes'));
@@ -216,7 +152,6 @@ safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
-safeUse('/api/llm-costs', require('./routes/llmCosts.sample.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
