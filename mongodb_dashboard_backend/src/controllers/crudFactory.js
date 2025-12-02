@@ -19,6 +19,45 @@ function validateSort(sort, allowed = ['timestamp', 'created_at', '_id']) {
 }
 
 /**
+ * Minimal query timing log for health/diagnostics.
+ */
+function logQueryTiming(ctx) {
+  try {
+    const {
+      route = '',
+      model = '',
+      appliedFilter = {},
+      page,
+      limit,
+      skip,
+      sort,
+      durationMs,
+      total,
+      usedAggregation = false,
+      cacheHit = false,
+    } = ctx || {};
+    console.log(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        type: 'DIAG',
+        scope: 'LIST_TIMING',
+        route,
+        model,
+        sort,
+        page,
+        limit,
+        skip,
+        total: typeof total === 'number' ? total : undefined,
+        cacheHit,
+        usedAggregation,
+        durationMs,
+        filterHash: typeof appliedFilter === 'object' ? JSON.stringify(appliedFilter).length : undefined,
+      })
+    );
+  } catch (_) {}
+}
+
+/**
  * Enforce a maximum page size limit for safety.
  */
 function clampLimit(limit, max = 500) {
@@ -37,6 +76,8 @@ const MICRO_CACHE_TTL_MS = parseInt(
   process.env.LLM_COSTS_MICRO_CACHE_TTL_MS || process.env.MICRO_CACHE_TTL_MS || '1500',
   10
 );
+// For safety cap to 5000ms max
+const SAFE_MICRO_TTL = Math.max(250, Math.min(MICRO_CACHE_TTL_MS, 5000));
 const listMicroCache = new Map(); // key -> { expiresAt:number, payload:any }
 
 /**
@@ -58,15 +99,18 @@ function microGet(key) {
  * Set a micro-cached value with TTL.
  */
 function microSet(key, payload) {
-  listMicroCache.set(key, { payload, expiresAt: Date.now() + MICRO_CACHE_TTL_MS });
+  listMicroCache.set(key, { payload, expiresAt: Date.now() + SAFE_MICRO_TTL });
 }
 
 /**
  * Build a stable cache key for list requests.
  */
 function buildListKey(req, filter, sort, page, limit, skip, explicit) {
-  // baseUrl+path are stable per router mount; include query-shaping inputs.
-  return `list:${req.baseUrl}${req.path}:${JSON.stringify({ filter, sort, page, limit, skip, explicit })}`;
+  // baseUrl+path are stable per router mount; include query-shaping inputs and tenant/date params.
+  const tenant = String(req.tenantId || req.headers?.['x-organization-id'] || req.query?.tenant_id || req.query?.organization_id || '');
+  const from = req.query?.from || null;
+  const to = req.query?.to || null;
+  return `list:${req.baseUrl}${req.path}:${JSON.stringify({ tenant, filter, sort, page, limit, skip, explicit, from, to })}`;
 }
 
 /**
@@ -149,6 +193,20 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       // Determine effective tenant from JWT-backed middleware
       const effectiveTenant = req?.tenantId ? String(req.tenantId) : undefined;
 
+      // Request-level timeout to avoid upstream 504s
+      const routeTimeoutMs = parseInt(process.env.LLM_COSTS_ROUTE_TIMEOUT_MS || '12000', 10);
+      let timedOut = false;
+      const timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        if (!res.headersSent) {
+          try { res.set('X-Server-Timeout', String(routeTimeoutMs)); } catch (_) {}
+          return res.status(408).json({
+            success: false,
+            message: 'Request timed out. Please reduce date range or use pagination.',
+          });
+        }
+      }, routeTimeoutMs);
+
       // Observability headers
       try {
         if (effectiveTenant) {
@@ -219,6 +277,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       } catch (_) {}
       const hardCappedLimit = clampLimit(parsedLimit, 500);
 
+      const startedAt = Date.now();
+
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
       // parse query filter JSON if provided
@@ -270,6 +330,61 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const hasAuthHeader = !!req.headers?.authorization;
       if (!bypass && hasAuthHeader && clientRequestedTenant && String(clientRequestedTenant) !== String(req.tenantId)) {
         return failure(res, 'Forbidden: tenant scope mismatch', 403);
+      }
+
+      // For LLMCost lists: apply default 30-day window if not explicitly paginated AND no date constraints are present.
+      const isLLMCost = Model?.modelName === 'LLMCost';
+      if (isLLMCost) {
+        const hasExplicitPagination = explicit;
+        const filterKeys = filter && typeof filter === 'object' ? Object.keys(filter) : [];
+        const hasExplicitDate =
+          filterKeys.some((k) => ['timestamp', 'created_at', 'createdAt', 'date', 'updated_at', 'updatedAt'].includes(k)) ||
+          typeof req.query?.from === 'string' ||
+          typeof req.query?.to === 'string';
+
+        // Reject unbounded scans when not paginating and no date bound provided (actionable 400)
+        if (!hasExplicitPagination && !hasExplicitDate && !process.env.ALLOW_UNBOUNDED_LLM_COSTS) {
+          try { res.set('X-Rejected-Unbounded-Scan', 'true'); } catch (_) {}
+          clearTimeout(timeoutHandle);
+          return failure(
+            res,
+            'Unbounded scan rejected. Provide pagination (page,limit) or a date window (filter.timestamp/created_at or from/to). Default behavior uses last 30 days when allowed.',
+            400
+          );
+        }
+
+        // If client omitted date bounds and did not paginate, enforce last 30 days
+        if (!hasExplicitPagination && !hasExplicitDate) {
+          const now = new Date();
+          const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          const defaultDateFilter = {
+            $or: [
+              { timestamp: { $gte: from, $lte: now } },
+              { created_at: { $gte: from, $lte: now } },
+            ],
+          };
+          filter = filter && typeof filter === 'object' && Object.keys(filter).length > 0
+            ? { $and: [filter, defaultDateFilter] }
+            : defaultDateFilter;
+          try { res.set('X-Default-Date-Window', 'last-30-days'); } catch (_) {}
+        }
+
+        // If query parameters include from/to, merge them as a guard on timestamp/created_at
+        const qFrom = req.query?.from;
+        const qTo = req.query?.to;
+        if (typeof qFrom === 'string' || typeof qTo === 'string') {
+          const fromD = typeof qFrom === 'string' ? new Date(qFrom) : null;
+          const toD = typeof qTo === 'string' ? new Date(qTo) : null;
+          const range = {};
+          if (fromD && !isNaN(fromD.getTime())) range.$gte = fromD;
+          if (toD && !isNaN(toD.getTime())) range.$lte = toD;
+          if (Object.keys(range).length) {
+            const dateGuard = { $or: [{ timestamp: range }, { created_at: range }] };
+            filter = filter && typeof filter === 'object' && Object.keys(filter).length > 0
+              ? { $and: [filter, dateGuard] }
+              : dateGuard;
+          }
+        }
       }
 
       // Build final applied filter with robust tenant alias removal and normalized OR across aliases
@@ -331,8 +446,24 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
-          if (cached) {return res.status(200).json(cached);}
-          
+          if (cached) {
+            try { res.set('X-Micro-Cache', 'hit'); } catch (_) {}
+            logQueryTiming({
+              route: req.originalUrl,
+              model: Model?.modelName || '',
+              appliedFilter,
+              page, limit: hardCappedLimit, skip,
+              sort: safeSort,
+              durationMs: Date.now() - startedAt,
+              total: cached?.meta?.total,
+              usedAggregation: true,
+              cacheHit: true,
+            });
+            clearTimeout(timeoutHandle);
+            return res.status(200).json(cached);
+          }
+          try { res.set('X-Micro-Cache', 'miss'); } catch (_) {}
+
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           let items;
           if (isLLMCost) {
@@ -454,6 +585,18 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           }
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
+          logQueryTiming({
+            route: req.originalUrl,
+            model: Model?.modelName || '',
+            appliedFilter,
+            page, limit: hardCappedLimit, skip,
+            sort: safeSort,
+            durationMs: Date.now() - startedAt,
+            total,
+            usedAggregation: true,
+            cacheHit: false,
+          });
+          clearTimeout(timeoutHandle);
           return res.status(200).json(payload);
         }
 
@@ -487,6 +630,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
             const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            logQueryTiming({
+              route: req.originalUrl,
+              model: Model?.modelName || '',
+              appliedFilter,
+              sort: safeSort,
+              durationMs: Date.now() - startedAt,
+              usedAggregation: true,
+            });
+            clearTimeout(timeoutHandle);
             return res.status(200).json(items);
           }
           if (isAppDeployment) {
@@ -513,8 +665,18 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           // Fallback to simple find if any aggregation operator unsupported
         }
         const items = await query;
+        logQueryTiming({
+          route: req.originalUrl,
+          model: Model?.modelName || '',
+          appliedFilter,
+          sort: safeSort,
+          durationMs: Date.now() - startedAt,
+          usedAggregation: false,
+        });
+        clearTimeout(timeoutHandle);
         return res.status(200).json(items);
       } catch (err) {
+        clearTimeout(timeoutHandle);
         return mapAndReplyError(res, err, 'list');
       }
     },
