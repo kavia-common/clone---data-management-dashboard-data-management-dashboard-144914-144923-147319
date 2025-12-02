@@ -391,6 +391,7 @@ router.get(
       Math.max(parseInt(process.env.DEFAULT_PAGE_LIMIT || '50', 10), 1),
       200
     );
+    const DEBUG_COSTS = String(process.env.LLM_COSTS_DEBUG || process.env.DEBUG || '').toLowerCase() === 'true';
 
     // Route-level timeout guard
     let timedOut = false;
@@ -405,12 +406,17 @@ router.get(
       }
     }, DEFAULT_TIMEOUT_MS);
 
+    // Basic timing markers
+    const t0 = Date.now();
+    let tBuild = 0, tFind = 0, tCount = 0, tMap = 0, tTotal = 0;
+
     try {
       // Determine pagination
       const page = Math.max(parseInt(req.query.page || '1', 10), 1);
       const limit = Math.min(Math.max(parseInt(req.query.limit || String(DEFAULT_PAGE_LIMIT), 10), 1), 200);
       const skip = (page - 1) * limit;
 
+      const buildStart = Date.now();
       // Build safe filter
       const filter = buildIndexedFilter(req);
 
@@ -438,28 +444,72 @@ router.get(
         }
         try { res.set('X-Default-Date-Window', 'last-30-days'); } catch (_) {}
       }
+      tBuild = Date.now() - buildStart;
 
       // Query with projection and lean
       const q = LLMCost.find(filter, listProjection).sort(sort).skip(skip).limit(limit).lean();
 
       // Hint to use tenant+timestamp index if possible
+      let appliedHint = null;
       try {
-        if (filter.$and?.some((c) => c.$or)) {
-          // If tenant enforced via $or, still add a reasonable hint on timestamp
-          q.hint({ timestamp: -1 });
+        const hasTenantOr = Array.isArray(filter.$and) && filter.$and.some((c) => c && typeof c === 'object' && c.$or && Array.isArray(c.$or) && c.$or.some((d) => d.tenant_id || d.organization_id || d.organizationId || d.tenantId || d['tenant.tenant_id']));
+        if (hasTenantOr) {
+          q.hint({ tenant_id: 1, timestamp: -1 });
+          appliedHint = { tenant_id: 1, timestamp: -1 };
         } else if (filter.tenant_id) {
           q.hint({ tenant_id: 1, timestamp: -1 });
+          appliedHint = { tenant_id: 1, timestamp: -1 };
+        } else if (filter.organization_id) {
+          q.hint({ organization_id: 1, timestamp: -1 });
+          appliedHint = { organization_id: 1, timestamp: -1 };
+        } else {
+          q.hint({ timestamp: -1 });
+          appliedHint = { timestamp: -1 };
         }
       } catch (_) {}
 
-      const [items, total] = await Promise.all([
-        q.exec(),
-        LLMCost.countDocuments(filter),
-      ]);
+      // Execute find and count with timings
+      const tFindStart = Date.now();
+      const findPromise = q.exec();
+      const tCountStart = Date.now();
+      const countPromise = LLMCost.countDocuments(filter);
+      const [items, total] = await Promise.all([findPromise, countPromise]);
+      tFind = Date.now() - tFindStart;
+      tCount = Date.now() - tCountStart;
 
       if (timedOut) return;
 
+      // Diagnostics explain() only when DEBUG flag is set, to avoid overhead by default
+      let findExplain = null;
+      let countExplain = null;
+      if (DEBUG_COSTS) {
+        try {
+          const native = LLMCost.collection;
+          // Build native specs comparable to the Mongoose query
+          const nativeSort = sort;
+          const nativeProj = listProjection;
+          const cursor = native.find(filter, { projection: nativeProj }).sort(nativeSort).skip(skip).limit(limit);
+          // Note: hint() on native cursor if we applied it
+          if (appliedHint) {
+            try { cursor.hint(appliedHint); } catch (_) {}
+          }
+          findExplain = await cursor.explain('executionStats');
+        } catch (e) {
+          findExplain = { error: e?.message || 'find.explain failed' };
+        }
+        try {
+          const countCursor = LLMCost.collection.find(filter).project({ _id: 1 });
+          countExplain = await countCursor.explain('executionStats');
+        } catch (e) {
+          countExplain = { error: e?.message || 'count.explain failed' };
+        }
+      }
+
+      const mapStart = Date.now();
       const data = Array.isArray(items) ? items.map(mapToTabular) : [];
+      tMap = Date.now() - mapStart;
+      tTotal = Date.now() - t0;
+
       const envelope = {
         success: true,
         data,
@@ -468,6 +518,7 @@ router.get(
           limit,
           total,
           sort: sortStr,
+          timings_ms: { build: tBuild, find: tFind, count: tCount, map: tMap, total: tTotal },
         },
       };
 
@@ -476,6 +527,96 @@ router.get(
         res.set('X-Query-Filter', JSON.stringify(filter));
         res.set('X-Projection', 'tabular-v1');
         res.set('X-Collection', LLMCost.collection?.name || 'llm-costs');
+        res.set('X-Timings', JSON.stringify({ build: tBuild, find: tFind, count: tCount, map: tMap, total: tTotal }));
+        if (appliedHint) { res.set('X-Query-Hint', JSON.stringify(appliedHint)); }
+        // Emit high-level explain stats in headers to avoid bloating body
+        if (findExplain && findExplain.executionStats) {
+          const fe = findExplain.executionStats;
+          res.set('X-Explain-Find', JSON.stringify({
+            nReturned: fe.nReturned,
+            totalDocsExamined: fe.totalDocsExamined,
+            totalKeysExamined: fe.totalKeysExamined,
+            executionTimeMillis: fe.executionTimeMillis,
+            executionStages: fe.executionStages?.stage || 'n/a',
+          }));
+        }
+        if (countExplain && countExplain.executionStats) {
+          const ce = countExplain.executionStats;
+          res.set('X-Explain-Count', JSON.stringify({
+            nReturned: ce.nReturned,
+            totalDocsExamined: ce.totalDocsExamined,
+            totalKeysExamined: ce.totalKeysExamined,
+            executionTimeMillis: ce.executionTimeMillis,
+            executionStages: ce.executionStages?.stage || 'n/a',
+          }));
+        }
+      } catch (_) {}
+
+      // Inline recommendations based on patterns
+      const recommendations = [];
+      try {
+        // Detect $or on date fields which can break index intersection
+        const hasDateOr =
+          (filter.$or && filter.$or.some((c) => c.timestamp || c.created_at)) ||
+          (filter.$and && filter.$and.some((c) => c.$or && c.$or.some((d) => d.timestamp || d.created_at)));
+        if (hasDateOr) {
+          recommendations.push('Avoid $or across timestamp/created_at; normalize and query a single date field or use $ifNull in an aggregation with a precomputed field+index.');
+        }
+
+        // Check if tenant+timestamp or org+timestamp compound index exists (from model definitions)
+        const hasTenantTsIndex = true; // declared in model schema
+        if (!hasTenantTsIndex) {
+          recommendations.push('Add compound index { tenant_id:1, timestamp:-1 } for fast tenant-scoped sorted scans.');
+        }
+
+        // Excessive window/limit
+        if (limit > 200) {
+          recommendations.push('Reduce page size to <= 200 to avoid large network payloads.');
+        }
+        if (!hasDate) {
+          recommendations.push('Defaulting to last 30 days. For large tenants, specify narrower from/to window to reduce scanned keys.');
+        }
+
+        // Explain driven hints
+        if (findExplain && findExplain.executionStats) {
+          const fe = findExplain.executionStats;
+          if (fe.totalDocsExamined > fe.nReturned * 20) {
+            recommendations.push('High doc scan vs. results. Ensure compound index covers tenant_id and date, and that sort aligns with the index.');
+          }
+        }
+        if (countExplain && countExplain.executionStats) {
+          const ce = countExplain.executionStats;
+          if (ce.totalDocsExamined > ce.nReturned * 50) {
+            recommendations.push('countDocuments is scanning many docs; consider approximations or pre-aggregated counters if this path is hot.');
+          }
+        }
+
+        if (DEBUG_COSTS) {
+          envelope.meta.debug = {
+            appliedFilter: filter,
+            sort,
+            projection: listProjection,
+            hint: appliedHint || null,
+            explain: {
+              find: findExplain?.executionStats ? {
+                nReturned: findExplain.executionStats.nReturned,
+                totalDocsExamined: findExplain.executionStats.totalDocsExamined,
+                totalKeysExamined: findExplain.executionStats.totalKeysExamined,
+                executionTimeMillis: findExplain.executionStats.executionTimeMillis,
+              } : findExplain,
+              count: countExplain?.executionStats ? {
+                nReturned: countExplain.executionStats.nReturned,
+                totalDocsExamined: countExplain.executionStats.totalDocsExamined,
+                totalKeysExamined: countExplain.executionStats.totalKeysExamined,
+                executionTimeMillis: countExplain.executionStats.executionTimeMillis,
+              } : countExplain,
+            },
+            recommendations,
+          };
+        } else if (recommendations.length) {
+          // Provide compact, always-on top recommendation in headers
+          res.set('X-Recommendations', recommendations.slice(0, 2).join(' | '));
+        }
       } catch (_) {}
 
       return res.status(200).json(envelope);

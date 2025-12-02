@@ -4,6 +4,17 @@ const mongoose = require('mongoose');
  * LLM Costs model
  * This schema is permissive to accommodate varied cost records from different agents/models.
  * Common fields are indexed to support filtering and sorting in list endpoints.
+ *
+ * Index notes:
+ * - Ensure compound indexes exist for tenant-scoped sorted scans:
+ *     { tenant_id: 1, timestamp: -1 }
+ *     { tenant_id: 1, created_at: -1 }
+ *   These are declared below.
+ * - To avoid $or across timestamp/created_at in queries, consider precomputing a normalizedTimestamp at write:
+ *     normalizedTimestamp = timestamp || created_at
+ *   and indexing:
+ *     { tenant_id: 1, normalizedTimestamp: -1 }
+ *   The current route normalizes at read-time using either $or or $ifNull in aggregations; precomputing yields better index usage at scale.
  */
 const CostBreakdownSchema = new mongoose.Schema(
   {
