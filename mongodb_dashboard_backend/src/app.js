@@ -22,7 +22,7 @@ app.set('trust proxy', 1);
  */
 app.use((req, res, next) => {
   const envVal = process.env.EXPRESS_ROUTE_TIMEOUT_MS;
-  const timeoutMs = Number.isFinite(parseInt(envVal || '0', 10)) ? parseInt(envVal || '0', 10) : 0;
+  const timeoutMs = Number.isFinite(parseInt(envVal || '0', 10)) ? parseInt(envVal || '0', 10) : 300000;
   if (timeoutMs > 0) {
     res.setHeader('X-Route-Timeout', `${timeoutMs}`);
     if (typeof req.setTimeout === 'function') {

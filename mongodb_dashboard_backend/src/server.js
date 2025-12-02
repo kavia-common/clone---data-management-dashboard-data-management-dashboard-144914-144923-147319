@@ -101,9 +101,10 @@
  
  // Configure server-level timeouts to help prevent upstream 504s.
  // Read from environment variables with safe defaults.
- const SERVER_REQUEST_TIMEOUT_MS = parseInt(process.env.SERVER_REQUEST_TIMEOUT_MS || '120000', 10);
- const SERVER_HEADERS_TIMEOUT_MS = parseInt(process.env.SERVER_HEADERS_TIMEOUT_MS || '125000', 10);
- const SERVER_KEEPALIVE_TIMEOUT_MS = parseInt(process.env.SERVER_KEEPALIVE_TIMEOUT_MS || '65000', 10);
+ // Defaults increased per requirement to tolerate long-running analytics (e.g., /api/llm-costs).
+ const SERVER_REQUEST_TIMEOUT_MS = parseInt(process.env.SERVER_REQUEST_TIMEOUT_MS || '300000', 10);      // 5 minutes
+ const SERVER_HEADERS_TIMEOUT_MS = parseInt(process.env.SERVER_HEADERS_TIMEOUT_MS || '310000', 10);     // 5m10s
+ const SERVER_KEEPALIVE_TIMEOUT_MS = parseInt(process.env.SERVER_KEEPALIVE_TIMEOUT_MS || '120000', 10); // 2 minutes
  
  function startServerStrict() {
    const server = http.createServer(app);
@@ -151,7 +152,7 @@
          // Additional compatibility markers for various preview systems
          console.log(`BACKEND_READY: url=http://${HOST}:${PORT}`);
          console.log(`Listening on http://${HOST}:${PORT}`);
-         console.log(`Configured timeouts: request=${API_REQUEST_TIMEOUT_MS}ms, headers=${server.headersTimeout}ms, keepAlive=${server.keepAliveTimeout}ms`);
+         console.log(`Configured timeouts: request=${server.requestTimeout}ms, headers=${server.headersTimeout}ms, keepAlive=${server.keepAliveTimeout}ms`);
        } catch {}
        writePidFile();
      })
