@@ -217,7 +217,7 @@ router.get(
   '/',
   asyncHandler(async (req, res, next) => {
     // Request-level timeout smaller than typical upstream proxy to proactively respond
-    const DEFAULT_TIMEOUT_MS = parseInt(process.env.LLM_COSTS_ROUTE_TIMEOUT_MS || '12000', 10);
+    const DEFAULT_TIMEOUT_MS = parseInt(process.env.LLM_COSTS_ROUTE_TIMEOUT_MS || '10000', 10);
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -266,7 +266,7 @@ router.get(
 
       if (!hasExplicitPagination && !hasAnyDateClause) {
         const now = new Date();
-        const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const from = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
         const defaultDateFilter = {
           $or: [
             { timestamp: { $gte: from, $lte: now } },
@@ -277,7 +277,7 @@ router.get(
           clientFilter && typeof clientFilter === 'object' && Object.keys(clientFilter).length > 0
             ? JSON.stringify({ $and: [clientFilter, defaultDateFilter] })
             : JSON.stringify(defaultDateFilter);
-        try { res.set('X-Default-Date-Window', 'last-30-days'); } catch (_) {}
+        try { res.set('X-Default-Date-Window', 'last-14-days'); } catch (_) {}
       }
 
       if (timedOut) return;

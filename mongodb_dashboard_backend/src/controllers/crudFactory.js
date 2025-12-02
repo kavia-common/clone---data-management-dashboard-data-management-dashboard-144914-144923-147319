@@ -72,8 +72,8 @@ function clampLimit(limit, max = 500) {
  * Note: In-memory and per-process only.
  */
 const MICRO_CACHE_TTL_MS = parseInt(
-  // Allow a specific shorter TTL for heavy endpoints like llm-costs
-  process.env.LLM_COSTS_MICRO_CACHE_TTL_MS || process.env.MICRO_CACHE_TTL_MS || '1500',
+  // Prefer a slightly longer TTL for heavy endpoints like llm-costs to coalesce bursts
+  process.env.LLM_COSTS_MICRO_CACHE_TTL_MS || process.env.MICRO_CACHE_TTL_MS || '40000',
   10
 );
 // For safety cap to 5000ms max
@@ -492,13 +492,50 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                     }
                   }
                 },
+                { $project: {
+                    // Robust projection to limit fields
+                    _id: 1,
+                    tenant_id: 1,
+                    organization_id: 1,
+                    user_id: 1,
+                    project_id: 1,
+                    llm_model: 1,
+                    provider: 1,
+                    service_type: 1,
+                    operation: 1,
+                    total_cost: 1,
+                    numeric_total_cost: 1,
+                    timestamp: 1,
+                    created_at: 1,
+                    updated_at: 1,
+                    // keep compact breakdown metrics if present
+                    'breakdown.input_tokens': 1,
+                    'breakdown.output_tokens': 1
+                  }
+                },
                 { $sort: sortStage },
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
               items = await Model.aggregate(pipeline).allowDiskUse(true);
             } catch (_) {
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              items = await Model.find(appliedFilter, {
+                // match projection used above
+                tenant_id: 1,
+                organization_id: 1,
+                user_id: 1,
+                project_id: 1,
+                llm_model: 1,
+                provider: 1,
+                service_type: 1,
+                operation: 1,
+                total_cost: 1,
+                timestamp: 1,
+                created_at: 1,
+                updated_at: 1,
+                'breakdown.input_tokens': 1,
+                'breakdown.output_tokens': 1,
+              }).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
             }
           } else if (isAppDeployment) {
             try {
@@ -567,6 +604,25 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                       { $sort: sortStage },
                       { $skip: skip },
                       { $limit: hardCappedLimit },
+                      { $project: {
+                          _id: 1,
+                          tenant_id: 1,
+                          organization_id: 1,
+                          user_id: 1,
+                          project_id: 1,
+                          llm_model: 1,
+                          provider: 1,
+                          service_type: 1,
+                          operation: 1,
+                          total_cost: 1,
+                          numeric_total_cost: 1,
+                          timestamp: 1,
+                          created_at: 1,
+                          updated_at: 1,
+                          'breakdown.input_tokens': 1,
+                          'breakdown.output_tokens': 1
+                        }
+                      }
                     ],
                     totalCount: [{ $count: 'count' }],
                   }
@@ -629,7 +685,28 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               },
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
+            const items = await Model.aggregate([
+              ...pipeline,
+              { $project: {
+                  _id: 1,
+                  tenant_id: 1,
+                  organization_id: 1,
+                  user_id: 1,
+                  project_id: 1,
+                  llm_model: 1,
+                  provider: 1,
+                  service_type: 1,
+                  operation: 1,
+                  total_cost: 1,
+                  numeric_total_cost: 1,
+                  timestamp: 1,
+                  created_at: 1,
+                  updated_at: 1,
+                  'breakdown.input_tokens': 1,
+                  'breakdown.output_tokens': 1
+                }
+              }
+            ]).allowDiskUse(true);
             logQueryTiming({
               route: req.originalUrl,
               model: Model?.modelName || '',

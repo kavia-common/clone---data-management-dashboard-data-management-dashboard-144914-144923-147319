@@ -447,6 +447,8 @@ router.get('/llm-costs/ensure-indexes', asyncHandler(async (req, res) => {
     // Compound tenant+date indexes for sort and match
     await ensure({ tenant_id: 1, timestamp: -1 });
     await ensure({ tenant_id: 1, created_at: -1 });
+    await ensure({ organization_id: 1, timestamp: -1 });
+    await ensure({ organization_id: 1, created_at: -1 });
     // Standalone date indexes
     await ensure({ timestamp: -1 });
     await ensure({ created_at: -1 });
