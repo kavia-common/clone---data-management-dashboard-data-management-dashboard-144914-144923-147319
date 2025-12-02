@@ -216,16 +216,14 @@ router.use((req, res, next) => {
 router.get(
   '/',
   asyncHandler(async (req, res, next) => {
+    // Request-level timeout smaller than typical upstream proxy to proactively respond
     const DEFAULT_TIMEOUT_MS = parseInt(process.env.LLM_COSTS_ROUTE_TIMEOUT_MS || '12000', 10);
 
-    // Setup per-request timeout to avoid hanging end-to-end -> translate to 408
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       if (!res.headersSent) {
-        try {
-          res.set('X-Server-Timeout', String(DEFAULT_TIMEOUT_MS));
-        } catch (_) {}
+        try { res.set('X-Server-Timeout', String(DEFAULT_TIMEOUT_MS)); } catch (_) {}
         return res.status(408).json({
           success: false,
           message: 'Request timed out while processing LLM costs. Try reducing the time window or applying pagination.',
@@ -234,10 +232,22 @@ router.get(
     }, DEFAULT_TIMEOUT_MS);
 
     try {
-      // If client did not explicitly paginate, ensure a sane default date window to prevent full collection scans.
-      // We only apply this for GET list root ('/'), when filter is empty or does not include date/timestamp keys.
-      const hasExplicitPagination =
-        typeof req.query.page !== 'undefined' || typeof req.query.limit !== 'undefined';
+      // Ensure indexes for common paths (non-blocking)
+      try {
+        const { getDb } = require('../config/db');
+        getDb().then(async (db) => {
+          const col = db.collection('llm-costs');
+          // fire-and-forget common indexes for list path
+          col.createIndex({ tenant_id: 1, timestamp: -1 }).catch(() => {});
+          col.createIndex({ tenant_id: 1, created_at: -1 }).catch(() => {});
+          col.createIndex({ timestamp: -1 }).catch(() => {});
+          col.createIndex({ created_at: -1 }).catch(() => {});
+          col.createIndex({ total_cost: -1 }).catch(() => {});
+        }).catch(() => {});
+      } catch (_) {}
+
+      // If client did not explicitly paginate and no date filter, restrict to default 30-day window to avoid full scans
+      const hasExplicitPagination = typeof req.query.page !== 'undefined' || typeof req.query.limit !== 'undefined';
 
       // Parse filter if present
       let clientFilter = {};
@@ -245,8 +255,7 @@ router.get(
         try {
           clientFilter = JSON.parse(req.query.filter);
         } catch {
-          // keep empty; crudFactory will 400 on invalid JSON normally,
-          // but ensure we don't fail here and let controller handle consistently.
+          // leave empty; downstream will validate
         }
       }
 
@@ -256,33 +265,22 @@ router.get(
       );
 
       if (!hasExplicitPagination && !hasAnyDateClause) {
-        // Apply last 30 days default window
         const now = new Date();
         const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        // We can't project in basic find filter, so use the indexed field(s) directly:
-        // Prefer 'timestamp' if present, else 'created_at'
-        // crudFactory merges tenant filter after parsing filter JSON;
-        // we enrich filter JSON here so the list path can honor it.
         const defaultDateFilter = {
           $or: [
             { timestamp: { $gte: from, $lte: now } },
             { created_at: { $gte: from, $lte: now } },
           ],
         };
-        const merged =
+        req.query.filter =
           clientFilter && typeof clientFilter === 'object' && Object.keys(clientFilter).length > 0
-            ? { $and: [clientFilter, defaultDateFilter] }
-            : defaultDateFilter;
-
-        req.query.filter = JSON.stringify(merged);
-        try {
-          res.set('X-Default-Date-Window', 'last-30-days');
-        } catch (_) {}
+            ? JSON.stringify({ $and: [clientFilter, defaultDateFilter] })
+            : JSON.stringify(defaultDateFilter);
+        try { res.set('X-Default-Date-Window', 'last-30-days'); } catch (_) {}
       }
 
-      if (timedOut) return; // timer fired and response sent as 408
-
-      // Delegate to generic controller with safe sort enforcement and micro-cache
+      if (timedOut) return;
       return controller.list(req, res);
     } catch (err) {
       if (!res.headersSent) {

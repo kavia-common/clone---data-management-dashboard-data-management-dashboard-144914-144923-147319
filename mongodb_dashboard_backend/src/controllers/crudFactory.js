@@ -402,7 +402,56 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           } else {
             items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
-          const total = await Model.countDocuments(appliedFilter);
+          let total = 0;
+          if (isLLMCost) {
+            // Use $facet to get total and page slice in one pass; avoids separate countDocuments() on huge collections
+            try {
+              const sortStage = safeSort
+                ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
+                : { timestamp: -1 };
+              const pipeline = [
+                { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+                { $addFields: {
+                    timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                    organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
+                    numeric_total_cost: {
+                      $convert: {
+                        input: {
+                          $replaceAll: {
+                            input: { $toString: { $ifNull: ['$total_cost', 0] } },
+                            find: '$',
+                            replacement: ''
+                          }
+                        },
+                        to: 'double',
+                        onError: 0,
+                        onNull: 0
+                      }
+                    }
+                  }
+                },
+                {
+                  $facet: {
+                    items: [
+                      { $sort: sortStage },
+                      { $skip: skip },
+                      { $limit: hardCappedLimit },
+                    ],
+                    totalCount: [{ $count: 'count' }],
+                  }
+                }
+              ];
+              const faceted = await Model.aggregate(pipeline).allowDiskUse(true);
+              const first = Array.isArray(faceted) && faceted[0] ? faceted[0] : { items: [], totalCount: [] };
+              items = first.items || [];
+              total = Array.isArray(first.totalCount) && first.totalCount[0] ? (first.totalCount[0].count || 0) : 0;
+            } catch {
+              // Fallback to countDocuments if facet fails
+              total = await Model.countDocuments(appliedFilter);
+            }
+          } else {
+            total = await Model.countDocuments(appliedFilter);
+          }
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
