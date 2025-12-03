@@ -300,6 +300,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const clientRequestedTenant =
         (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
         (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+        (typeof req.query?.org_id === 'string' && req.query.org_id.trim()) ||
         (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
         (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
         (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||

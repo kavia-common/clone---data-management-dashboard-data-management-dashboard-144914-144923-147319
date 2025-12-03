@@ -1,6 +1,8 @@
 /* Ensure environment variables from .env are loaded even if the process
  * is started without "-r dotenv/config" (e.g., by external orchestrators).
  * This guarantees preview/CI can boot without special node flags.
+ * Note: This server can be started directly (node src/server.js) or via the wrapper (src/server/runner.js)
+ * which installs additional process-level signal handlers and graceful restart behavior.
  */
 try { require('dotenv').config(); } catch {}
 

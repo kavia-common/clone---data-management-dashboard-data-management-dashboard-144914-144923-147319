@@ -5,9 +5,15 @@
     "node_modules",
     "dist",
     "build",
+    "tmp",
+    ".tmp",
+    "logs",
+    "log",
     "*.log",
     "*.lock",
+    "*.pid",
     ".git",
+    ".cache",
     "coverage",
     "public",
     "assets",
@@ -15,14 +21,16 @@
     "interfaces",
     "kavia-docs"
   ],
-  "delay": "1500",
+  "delay": "1200",
   "signal": "SIGINT",
   "killSignal": "SIGINT",
   "env": {
     "HOST": "0.0.0.0",
     "PORT": "3001",
     "NODE_ENV": "development",
-    "MICRO_CACHE_TTL_MS": "1500"
+    "MICRO_CACHE_TTL_MS": "1500",
+    "CHOKIDAR_USEPOLLING": "false",
+    "WATCHPACK_POLLING": "false"
   },
   "events": {
     "restart": "echo '[nodemon] restarting due to changes...'",
@@ -30,7 +38,9 @@
   },
   "watchOptions": {
     "useFsEvents": false,
-    "interval": 500
+    "interval": 700,
+    "persistent": true,
+    "ignorePermissionErrors": true
   },
   "restartable": "rs",
   "verbose": false

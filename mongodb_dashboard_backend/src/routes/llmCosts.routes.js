@@ -209,18 +209,15 @@ router.get('/', asyncHandler(async (req, res) => {
   // Force fresh response for this endpoint only: disable caching/etag to avoid 304 with empty body
   try {
     // Strongest cache-busting for dynamic JSON
-    res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0, private');
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
-    // Try to remove any ETag that might be added upstream and mark it as disabled
+    // Remove validators to avoid 304
     if (typeof res.removeHeader === 'function') {
       res.removeHeader('ETag');
-    }
-    res.set('ETag', 'W/"disabled"');
-    // Remove Last-Modified if present so conditional GET doesn't short-circuit
-    if (typeof res.removeHeader === 'function') {
       res.removeHeader('Last-Modified');
     }
+    res.set('ETag', 'W/"disabled"');
   } catch (_) {}
 
   // Quick count path to minimize load
