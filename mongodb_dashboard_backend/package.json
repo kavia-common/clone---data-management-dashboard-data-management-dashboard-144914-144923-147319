@@ -18,7 +18,7 @@
     "health": "node -e \"(async()=>{try{const u='http://127.0.0.1:'+ (process.env.PORT||3001) +'/api/health';const r=await fetch(u);const t=await r.text();console.log(t);process.exit(0);}catch(e){console.error(e);process.exit(1)}})()\"",
     "verify:llm-costs": "node -e \"(async()=>{try{const port=process.env.PORT||3001;const u='http://127.0.0.1:'+port+'/api/llm-costs?organization_id=T0015&page=1&limit=10';const r=await fetch(u,{headers:{'x-organization-id':'T0015'}});console.log('status',r.status);const h=['x-effective-tenant','x-llm-filter','x-llm-projection','x-llm-sort','x-llm-page','x-llm-limit','x-llm-timing-parsed-ms','x-llm-timing-built-ms','x-llm-timing-exec-ms'];for(const k of h){console.log(k,':',r.headers.get(k)||'');}const j=await r.json().catch(()=>({}));console.log('keys in first row',Array.isArray(j.data)&&j.data[0]?Object.keys(j.data[0]):[]);process.exit(r.ok?0:1);}catch(e){console.error(e);process.exit(1)}})()\"",
     "test": "cross-env CI=true NODE_ENV=test jest --runInBand --ci --reporters=default",
-    "lint": "eslint . || true",
+    "lint": "eslint . --max-warnings=0 || true",
     "lint:fix": "eslint . --fix || true",
     "postinstall": "echo 'Skipping heavy Browserslist DB update in CI. Run locally if needed: npx update-browserslist-db@latest --yes' || true",
     "gen:openapi": "node generate_openapi.js"

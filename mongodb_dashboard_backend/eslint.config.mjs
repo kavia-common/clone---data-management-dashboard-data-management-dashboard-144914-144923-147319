@@ -43,9 +43,8 @@ export default [
       "no-console": "off",
       "prefer-const": "warn",
       "object-shorthand": ["warn", "always"],
+      // Backend only: no React hooks rules here; unused vars only warn and allow prefixed underscores
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
-
-
     },
   },
 ];
