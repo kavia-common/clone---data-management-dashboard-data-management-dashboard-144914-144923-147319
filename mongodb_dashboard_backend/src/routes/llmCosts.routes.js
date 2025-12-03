@@ -18,7 +18,7 @@ const router = express.Router();
  * Use safe default sort on indexed field 'timestamp' in descending order.
  * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } on the model.
  */
-const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
+const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort (requires { tenant_id:1, timestamp:-1 } index)
 
 /**
  * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls

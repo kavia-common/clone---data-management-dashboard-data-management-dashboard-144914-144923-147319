@@ -355,7 +355,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               ];
               items = await Model.aggregate(pipeline).allowDiskUse(true);
             } catch (_) {
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              // Fallback: prefer minimal projection to reduce payload
+              const projection = { breakdown: 0, metadata: 0 };
+              items = await Model.find(appliedFilter, projection).sort(safeSort).skip(skip).limit(hardCappedLimit).lean();
             }
           } else if (isAppDeployment) {
             try {
@@ -398,7 +400,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
         // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
         // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
-        let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
+        // Avoid allowDiskUse on simple find; prefer aggregation for heavy ops
+        let query = Model.find(appliedFilter, { breakdown: 0, metadata: 0 }).sort(safeSort).lean();
         try {
           if (isLLMCost) {
             // Use aggregation for minimal transformation without large memory footprint

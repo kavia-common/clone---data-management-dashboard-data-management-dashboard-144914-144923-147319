@@ -44,6 +44,11 @@ const LLMCostsSchema = new mongoose.Schema(
 // Useful indexes for common filter/sort combos
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
+
+// Add compound indexes for the common list path and sort stability
+LLMCostsSchema.index({ tenant_id: 1, timestamp: -1, _id: 1 });
+LLMCostsSchema.index({ tenant_id: 1, created_at: -1, _id: 1 });
+
 LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ session_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ llm_model: 1, timestamp: -1 });
