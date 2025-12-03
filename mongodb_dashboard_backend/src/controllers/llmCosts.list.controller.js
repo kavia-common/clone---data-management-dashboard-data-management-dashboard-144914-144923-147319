@@ -92,7 +92,7 @@ async function list(req, res) {
     agent_name: 1,
     'metadata.agent': 1,
     'metadata.Agent Name': 1,
-    total_cost: 1,
+    total_cost: { $ifNull: ['$total_cost', { $ifNull: ['$cost_usd', 0] }] },
     cost_usd: 1,
     'cost.amount': 1,
     'cost.currency': 1,
@@ -246,7 +246,7 @@ async function list(req, res) {
       $addFields: {
         user_min: {
           $let: {
-            vars: { u: { $first: '$_user' } },
+            vars: { u: { $first: '_user' } },
             in: {
               _id: '$$u._id',
               user_id: '$$u.user_id',
