@@ -13,7 +13,7 @@ const app = express();
 // ---------------------------------------------
 // Middleware
 // ---------------------------------------------
-app.set('trust proxy', String(process.env.REACT_APP_TRUST_PROXY || '1') === '0' ? false : 1);
+app.set('trust proxy', 1);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
@@ -47,9 +47,18 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
+    // Use same-origin server so Swagger calls hit this backend instance
     url: `${protocol}://${fullHost}`,
+    // servers: [
+
+    //   {
+    //     url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //     description: 'Predefined dev server',
+    //   },
+    // ],
   };
 };
+
 
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
@@ -71,12 +80,12 @@ app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
 
 // ---------------------------------------------
-// Health endpoints (ensure lightweight availability)
+// Health endpoints
 // ---------------------------------------------
 const healthHandler = (req, res) => {
   const ready = mongoose.connection.readyState;
   const db = ready === 1 ? 'connected' : ready === 2 ? 'connecting' : 'disconnected';
-  const payload = { status: 'ok', db, timestamp: new Date().toISOString(), pid: process.pid };
+  const payload = { status: 'ok', db, timestamp: new Date().toISOString() };
   if (db !== 'connected') {
     payload.hint = 'Database not connected. Ensure MONGODB_URI is set.';
   }
@@ -89,7 +98,7 @@ app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler
 // Routers
 // ---------------------------------------------
 const safeUse = (path, router) => {
-  if (router && typeof router === 'function') { app.use(path, router); }
+  if (router && typeof router === 'function') {app.use(path, router);}
 };
 
 const baseRouter = require('./routes');
@@ -109,8 +118,8 @@ app.get('/api/users/tenant-summary', async (req, res) => {
       json(payload) { this._sent = true; this._payload = payload; return this; },
     };
     await getUsersTenantSummary(req, fakeRes);
-    if (!fakeRes._sent) { return res.status(500).json({ success: false, message: 'Controller did not respond' }); }
-    if (fakeRes._status !== 200) { return res.status(fakeRes._status).json(fakeRes._payload); }
+    if (!fakeRes._sent) {return res.status(500).json({ success: false, message: 'Controller did not respond' });}
+    if (fakeRes._status !== 200) {return res.status(fakeRes._status).json(fakeRes._payload);}
     const items = Array.isArray(fakeRes._payload?.items) ? fakeRes._payload.items : [];
     const mapped = items.map((it) => ({
       tenant: it.tenant_name || it.tenant_id || '',
@@ -122,11 +131,13 @@ app.get('/api/users/tenant-summary', async (req, res) => {
   }
 });
 
-// Protected routes (with auth + tenant)
+ // ---------------------------------------------
+ // Protected routes (with auth + tenant)
+ // ---------------------------------------------
 app.use((req, res, next) => {
   if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
     if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
-      // Developer debug headers can be added here if needed
+      // Developer debug headers (disabled logs)
     }
   }
   next();
@@ -140,19 +151,6 @@ safeUse('/api/analytics', require('./routes/analytics'));
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
-app.use((req, res, next) => {
-  if (req.method === 'GET' && req.path === '/api/llm-costs') {
-    const start = process.hrtime.bigint();
-    res.once('finish', () => {
-      const end = process.hrtime.bigint();
-      const ms = Number(end - start) / 1e6;
-      // Include resolved tenant for easier verification in logs
-      const tenant = req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id || req?.auth?.tenantId || '';
-      console.log(`[LLM-COSTS][TIMING] ${ms.toFixed(1)}ms status=${res.statusCode} tenant=${tenant || 'n/a'}`);
-    });
-  }
-  next();
-});
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
