@@ -206,8 +206,10 @@ router.use((req, res, next) => {
  *         description: Forbidden on tenant mismatch with Authorization
  */
 router.get('/', asyncHandler(async (req, res) => {
-  // Force fresh response for this endpoint only: disable caching/etag to avoid 304 with empty body
+  // Strictly disable caching/conditional requests to avoid 304/502 from proxy layers
   try {
+    // Remove conditional headers from the incoming request context if present (defensive; Express doesn't expose setters on req headers)
+    // But ensure response never signals cacheability
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
@@ -216,6 +218,24 @@ router.get('/', asyncHandler(async (req, res) => {
       res.removeHeader('Last-Modified');
     }
     res.set('ETag', 'W/"disabled"');
+  } catch (_) {}
+
+  // Apply a route-level timeout as a safety net in addition to DB-level maxTimeMS and withRequestTimeout
+  try {
+    const ROUTE_TIMEOUT_MS = 1500;
+    res.set('X-Route-TimeoutMs', String(ROUTE_TIMEOUT_MS));
+    // In case Node would keep the socket open, ensure we end with a partial response
+    res.setTimeout(ROUTE_TIMEOUT_MS, () => {
+      try {
+        if (!res.headersSent) {
+          res.status(206).json({
+            success: true,
+            data: [],
+            meta: { partial: true, reason: 'route-timeout', timeoutMs: ROUTE_TIMEOUT_MS }
+          });
+        }
+      } catch (_) {}
+    });
   } catch (_) {}
 
   // Normalize tenant aliases early if not already resolved (for demo/dev without JWT)
@@ -237,6 +257,22 @@ router.get('/', asyncHandler(async (req, res) => {
       if (resolved) {
         req.tenantId = String(resolved);
       }
+    }
+  } catch (_) {}
+
+  // Clamp excessive pagination values pre-controller as a guardrail
+  try {
+    // limit: default 50 for costs, hard cap 1000
+    const lim = parseInt(req.query?.limit, 10);
+    if (!Number.isFinite(lim) || lim <= 0) {
+      req.query.limit = '50';
+    } else if (lim > 1000) {
+      req.query.limit = '1000';
+    }
+    // page must be >=1
+    const pg = parseInt(req.query?.page, 10);
+    if (!Number.isFinite(pg) || pg < 1) {
+      if (req.query?.page !== undefined) req.query.page = '1';
     }
   } catch (_) {}
 

@@ -486,6 +486,13 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           const { items, total } = timed.value || { items: [], total: 0 };
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
+          try {
+            res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
+            res.set('Pragma', 'no-cache');
+            res.set('Expires', '0');
+            if (typeof res.removeHeader === 'function') { res.removeHeader('ETag'); res.removeHeader('Last-Modified'); }
+            res.set('ETag', 'W/"disabled"');
+          } catch (_) {}
           return res.status(200).json(payload);
         }
 
@@ -543,7 +550,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               return await Model.aggregate(pipeline).allowDiskUse(true);
             }
             // default (non-LLMCost/AppDeployment) just returns the query results
-            return await Model.find(appliedFilter).sort(sortStage).maxTimeMS(800).allowDiskUse(true).lean();
+            // Note: allowDiskUse is not supported on find() across some Mongoose versions; avoid using it here.
+            return await Model.find(appliedFilter).sort(sortStage).maxTimeMS(800).lean();
           };
 
           const timed = await withRequestTimeout(runAgg, {
@@ -557,6 +565,13 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           });
 
           if (timed.timedOut) {
+            try {
+              res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
+              res.set('Pragma', 'no-cache');
+              res.set('Expires', '0');
+              if (typeof res.removeHeader === 'function') { res.removeHeader('ETag'); res.removeHeader('Last-Modified'); }
+              res.set('ETag', 'W/"disabled"');
+            } catch (_) {}
             return res.status(206).json(timed.partial || []);
           }
           if (timed.error) {
@@ -565,11 +580,23 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           const items = Array.isArray(timed.value) ? timed.value : (timed.value || []);
           try {
             res.set('X-Result-Empty', String(!items || items.length === 0));
+            res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
+            res.set('Pragma', 'no-cache');
+            res.set('Expires', '0');
+            if (typeof res.removeHeader === 'function') { res.removeHeader('ETag'); res.removeHeader('Last-Modified'); }
+            res.set('ETag', 'W/"disabled"');
           } catch (_) {}
           return res.status(200).json(items);
         } catch (_) {
           // Fallback to simple find if any aggregation operator unsupported
           const items = await query;
+          try {
+            res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
+            res.set('Pragma', 'no-cache');
+            res.set('Expires', '0');
+            if (typeof res.removeHeader === 'function') { res.removeHeader('ETag'); res.removeHeader('Last-Modified'); }
+            res.set('ETag', 'W/"disabled"');
+          } catch (_) {}
           return res.status(200).json(items);
         }
       } catch (err) {

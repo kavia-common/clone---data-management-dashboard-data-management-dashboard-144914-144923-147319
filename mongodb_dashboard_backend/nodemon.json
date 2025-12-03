@@ -33,7 +33,8 @@
     "NODE_ENV": "development",
     "MICRO_CACHE_TTL_MS": "1500",
     "CHOKIDAR_USEPOLLING": "false",
-    "WATCHPACK_POLLING": "false"
+    "WATCHPACK_POLLING": "false",
+    "BROWSERSLIST_DISABLE_CACHE": "1"
   },
   "events": {
     "restart": "echo '[nodemon] restarting due to changes...'",
