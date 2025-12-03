@@ -171,7 +171,21 @@ async function listLlmCosts(req, res) {
   const MAX_ALL_LIMIT = Number(process.env.LLMCOSTS_MAX_ALL_LIMIT || 20000);
   const CURSOR_BATCH_SIZE = Number(process.env.LLMCOSTS_CURSOR_BATCH_SIZE || 200); // lower batch to smooth memory
   const DB_MAX_TIME_MS = Number(process.env.LLMCOSTS_MAX_TIME_MS || 4000); // hard cap for DB work
-  const HANDLER_TIMEOUT_MS = Number(process.env.LLMCOSTS_HANDLER_TIMEOUT_MS || 5000); // fast-fail 504
+  // TEMP: Increased to 5 minutes for debugging heavy LLM costs queries only for this route.
+  // Revert by removing LLM_COSTS_ROUTE_TIMEOUT_MS_OVERRIDE or setting it to original (e.g., 5000).
+  // Priority of timeout sources (highest to lowest):
+  //   1) req.query.timeout_ms (for ad-hoc testing; numeric and <= 600000)
+  //   2) process.env.LLM_COSTS_ROUTE_TIMEOUT_MS_OVERRIDE
+  //   3) default TEMP value of 300000 (5 minutes)
+  //   4) fallback to old LLMCOSTS_HANDLER_TIMEOUT_MS if set (to preserve prior behavior, not used by default here)
+  const TEMP_DEFAULT_ROUTE_TIMEOUT_MS = 300000; // 5 minutes
+  const overrideFromEnv = Number(process.env.LLM_COSTS_ROUTE_TIMEOUT_MS_OVERRIDE);
+  const overrideFromQuery = Number(req.query?.timeout_ms);
+  const HANDLER_TIMEOUT_MS = Number.isFinite(overrideFromQuery) && overrideFromQuery > 0 && overrideFromQuery <= 600000
+    ? overrideFromQuery
+    : Number.isFinite(overrideFromEnv) && overrideFromEnv > 0
+      ? overrideFromEnv
+      : (Number.isFinite(Number(process.env.LLMCOSTS_HANDLER_TIMEOUT_MS)) ? Number(process.env.LLMCOSTS_HANDLER_TIMEOUT_MS) : TEMP_DEFAULT_ROUTE_TIMEOUT_MS);
 
   // diagnostics flag: DEFAULT TO FALSE to reduce overhead unless explicitly enabled
   const diagnosticsEnabled = String(req.query.diagnostics || 'false').toLowerCase() !== 'false';
@@ -472,6 +486,11 @@ async function listLlmCosts(req, res) {
         res.set('x-llm-timing-parsed-ms', String(parseEnd - startedAt));
         res.set('x-llm-timing-built-ms', String(builtEnd - parseEnd));
         res.set('x-llm-timing-exec-ms', String(execEnd - builtEnd));
+        // Diagnostics for route-scoped timeout
+        res.set('x-llm-timeout-ms', String(HANDLER_TIMEOUT_MS));
+        res.set('x-llm-timeout-source', Number.isFinite(overrideFromQuery)
+          ? 'query'
+          : (Number.isFinite(overrideFromEnv) ? 'env' : 'default'));
       } catch {}
 
       return res.status(504).json({
@@ -503,6 +522,11 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-timing-parsed-ms', String(parseEnd - startedAt));
       res.set('x-llm-timing-built-ms', String(builtEnd - parseEnd));
       res.set('x-llm-timing-exec-ms', String(execEnd - builtEnd));
+      // Diagnostics for route-scoped timeout
+      res.set('x-llm-timeout-ms', String(HANDLER_TIMEOUT_MS));
+      res.set('x-llm-timeout-source', Number.isFinite(overrideFromQuery)
+        ? 'query'
+        : (Number.isFinite(overrideFromEnv) ? 'env' : 'default'));
     } catch {}
 
     // Record diagnostics (optional)
