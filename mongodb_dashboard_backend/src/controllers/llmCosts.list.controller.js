@@ -110,11 +110,12 @@ async function list(req, res) {
       'cost.currency': 1,
       timestamp: 1,
       created_at: 1,
+      // users: 1
       // NO users/users[] here. If embedded users exist, they will be excluded by default.
     };
 
-    // When include_users=full is requested, clamp page size tighter (max 50)
-    const fullUsersMax = 50;
+    // When include_users=full is requested, allow a higher hard cap (max 150) with safeguards
+    const fullUsersMax = 150;
     if (includeUserFull) {
       if (!Number.isFinite(limit) || limit <= 0) limit = defaultLimit;
       if (limit > fullUsersMax) limit = fullUsersMax;
@@ -123,7 +124,8 @@ async function list(req, res) {
     const skip = usingExplicitPagination ? (page - 1) * limit : 0;
 
     // Clamp aggregate time
-    const maxTimeMS = Math.max(200, Math.min(Number(req.maxTimeMS || 1000), 1500));
+    // Enforce Mongo time limit; prefer ~1500–2000ms with upper bound 2000ms
+    const maxTimeMS = Math.max(200, Math.min(Number(req.maxTimeMS || 1500), 2000));
 
     // Header diagnostics (non-fatal)
     try {
@@ -151,15 +153,14 @@ async function list(req, res) {
         $project: {
           ...baseProject,
           users: 1, // explicitly include full embedded users if present
-          user: 1,  // if alternative singular exists
         },
       });
 
       let statusCode = 200;
       let items = [];
       let timedOut = false;
-      const mongoMaxTime = Math.max(1000, Math.min(Number(req.maxTimeMS || 1500), 1500));
-      const routeTimeoutMs = mongoMaxTime; // align with route-level guard
+      const mongoMaxTime = Math.max(1000, Math.min(Number(req.maxTimeMS || 1500), 2000));
+      const routeTimeoutMs = mongoMaxTime; // align with route-level guard (<= 2000ms)
       // Route-level timeout that returns 206 with partial payload if exceeded before Mongo returns
       const timer = setTimeout(() => {
         timedOut = true;
@@ -188,7 +189,8 @@ async function list(req, res) {
         try {
           res.set('X-Route-TimeoutMs', String(routeTimeoutMs));
           res.set('X-Mongo-MaxTimeMS', String(mongoMaxTime));
-          res.set('X-Users-Included', 'none');
+          res.set('X-Users-Included', 'full'); // requested mode
+          res.set('X-Limit', String(guardLimit));
           res.set('Cache-Control', 'no-store');
           if (typeof res.removeHeader === 'function') {
             res.removeHeader('ETag');
@@ -248,7 +250,7 @@ async function list(req, res) {
       } catch (_) {}
 
       if (usingExplicitPagination) {
-        const total = await LLMCost.countDocuments(filter).maxTimeMS(Math.min(mongoMaxTime, 1200)).exec();
+        const total = await LLMCost.countDocuments(filter).maxTimeMS(Math.min(mongoMaxTime, 2000)).exec();
         const payload = { success: true, data: items, meta: { page, limit, total } };
         if (memoryTruncated) {
           payload.meta.partial = true;
@@ -271,6 +273,11 @@ async function list(req, res) {
         .limit(guardLimit)
         .maxTimeMS(maxTimeMS)
         .lean({ getters: false, virtuals: false });
+      try {
+        res.set('X-Users-Included', 'none');
+        res.set('X-Limit', String(guardLimit));
+        res.set('X-Mongo-MaxTimeMS', String(maxTimeMS));
+      } catch (_) {}
 
       if (usingExplicitPagination) {
         const [items, total] = await Promise.all([
@@ -395,6 +402,11 @@ async function list(req, res) {
     let items = [];
     try {
       items = await LLMCost.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS }).exec();
+      try {
+        res.set('X-Users-Included', 'min');
+        res.set('X-Limit', String(guardLimit));
+        res.set('X-Mongo-MaxTimeMS', String(maxTimeMS));
+      } catch (_) {}
     } catch (aggErr) {
       // If users collection is missing or lookup fails AND there is an embedded users array, fallback to embedded minification
       const msg = String(aggErr?.message || aggErr || '');
@@ -447,7 +459,7 @@ async function list(req, res) {
       data: [],
       meta: {
         timedOut: isMongoTimeout || isSelectionTimeout,
-        maxTimeMS: Math.max(200, Math.min(Number(req.maxTimeMS || 1000), 1500)),
+        maxTimeMS: Math.max(200, Math.min(Number(req.maxTimeMS || 1500), 2000)),
         partial: true,
       },
     });
