@@ -176,6 +176,19 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
   return {
     // PUBLIC_INTERFACE
     async list(req, res) {
+      // For GET endpoints, disable caching to avoid conditional requests returning 304 with empty body
+      try {
+        if (req.method === 'GET') {
+          res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0, private');
+          res.set('Pragma', 'no-cache');
+          res.set('Expires', '0');
+          if (typeof res.removeHeader === 'function') {
+            res.removeHeader('ETag');
+            res.removeHeader('Last-Modified');
+          }
+          res.set('ETag', 'W/"disabled"');
+        }
+      } catch (_) {}
       // list handler for generic model with tenant scoping
       // Determine effective tenant from JWT-backed middleware
       const effectiveTenant = req?.tenantId ? String(req.tenantId) : undefined;
@@ -541,7 +554,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           if (timed.error) {
             throw timed.error;
           }
-          const items = timed.value || [];
+          const items = Array.isArray(timed.value) ? timed.value : (timed.value || []);
+          try {
+            res.set('X-Result-Empty', String(!items || items.length === 0));
+          } catch (_) {}
           return res.status(200).json(items);
         } catch (_) {
           // Fallback to simple find if any aggregation operator unsupported
@@ -555,6 +571,16 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
     // PUBLIC_INTERFACE
     async getById(req, res) {
+      try {
+        res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0, private');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
+        if (typeof res.removeHeader === 'function') {
+          res.removeHeader('ETag');
+          res.removeHeader('Last-Modified');
+        }
+        res.set('ETag', 'W/"disabled"');
+      } catch (_) {}
       const { id } = req.params;
       try {
         const bypass = !!(req.tenantScopeDisabled || req.allTenants);
@@ -585,6 +611,11 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       if (!clean) {return failure(res, 'Bad request: payload must be an object', 400);}
       try {
         const doc = await Model.create(clean);
+        try {
+          res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0, private');
+          if (typeof res.removeHeader === 'function') { res.removeHeader('ETag'); res.removeHeader('Last-Modified'); }
+          res.set('ETag', 'W/"disabled"');
+        } catch (_) {}
         return res.status(201).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'create');
@@ -613,6 +644,11 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             };
         const doc = await Model.findOneAndUpdate(match, clean, { new: true }).lean();
         if (!doc) {return failure(res, 'Not found', 404);}
+        try {
+          res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0, private');
+          if (typeof res.removeHeader === 'function') { res.removeHeader('ETag'); res.removeHeader('Last-Modified'); }
+          res.set('ETag', 'W/"disabled"');
+        } catch (_) {}
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'update');
@@ -639,6 +675,11 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             };
         const doc = await Model.findOneAndDelete(match).lean();
         if (!doc) {return failure(res, 'Not found', 404);}
+        try {
+          res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0, private');
+          if (typeof res.removeHeader === 'function') { res.removeHeader('ETag'); res.removeHeader('Last-Modified'); }
+          res.set('ETag', 'W/"disabled"');
+        } catch (_) {}
         return res.status(200).json({ _id: id });
       } catch (err) {
         return mapAndReplyError(res, err, 'remove');

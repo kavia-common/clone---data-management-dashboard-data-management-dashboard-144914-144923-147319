@@ -47,11 +47,20 @@ router.use((req, res, next) => {
         const qOrg =
           (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
           (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+          (typeof req.query?.org_id === 'string' && req.query.org_id.trim()) ||
           undefined;
         const resolved = hdrOrg || qOrg || undefined;
         if (resolved) {
           req.tenantId = String(resolved);
         }
+        try {
+          res.set('X-Requested-Tenant-Aliases', JSON.stringify({
+            header: hdrOrg || null,
+            query_org: req.query?.organization_id || null,
+            query_tenant: req.query?.tenant_id || null,
+            query_org_id: req.query?.org_id || null
+          }));
+        } catch (_) {}
       }
     }
 
@@ -197,6 +206,23 @@ router.use((req, res, next) => {
  *         description: Forbidden on tenant mismatch with Authorization
  */
 router.get('/', asyncHandler(async (req, res) => {
+  // Force fresh response for this endpoint only: disable caching/etag to avoid 304 with empty body
+  try {
+    // Strongest cache-busting for dynamic JSON
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    // Try to remove any ETag that might be added upstream and mark it as disabled
+    if (typeof res.removeHeader === 'function') {
+      res.removeHeader('ETag');
+    }
+    res.set('ETag', 'W/"disabled"');
+    // Remove Last-Modified if present so conditional GET doesn't short-circuit
+    if (typeof res.removeHeader === 'function') {
+      res.removeHeader('Last-Modified');
+    }
+  } catch (_) {}
+
   // Quick count path to minimize load
   if (String(req.query.counts || req.query.count || req.query.onlyCounts || '') === 'true') {
     // delegate to controller.list which handles counts fast path and returns envelope
@@ -205,6 +231,8 @@ router.get('/', asyncHandler(async (req, res) => {
   }
   // Hint for sort stability on common compound index
   try { res.set('X-Index-Hint', '{ organization_id:1, timestamp:-1 }|{ tenant_id:1, timestamp:-1 }'); } catch (_) {}
+
+  // Always ensure JSON 200 body will be sent by delegating to controller.list
   return controller.list(req, res);
 }));
 
