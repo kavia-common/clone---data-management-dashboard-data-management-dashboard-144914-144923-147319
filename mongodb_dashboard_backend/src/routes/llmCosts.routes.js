@@ -157,7 +157,7 @@ router.get(
     } catch (_) {}
 
     // Apply Mongo maxTimeMS and a route-level timeout (~1000ms)
-    const TIMEOUT_MS = 1000;
+    const TIMEOUT_MS = 100000;
     let timedOut = false;
     const to = setTimeout(() => {
       timedOut = true;

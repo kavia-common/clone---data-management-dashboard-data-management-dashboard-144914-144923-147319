@@ -87,6 +87,11 @@ async function list(req, res) {
     'cost.currency': 1,
     timestamp: 1,
     created_at: 1,
+    // users:  1,
+    organization_cost: 1,
+    // organization_name: 1,
+    projects : 1,
+    // current_plan: 1
   };
 
   // Guard when no explicit pagination to avoid huge arrays in memory
@@ -101,13 +106,12 @@ async function list(req, res) {
       .sort(sort)
       .skip(skip)
       .limit(guardLimit)
-      .lean({ getters: false, virtuals: false })
-      .maxTimeMS(maxTimeMS);
+      .lean({ getters: false, virtuals: false });
 
     if (usingExplicitPagination) {
       const [items, total] = await Promise.all([
         query.exec(),
-        LLMCost.countDocuments(filter).maxTimeMS(maxTimeMS).exec(),
+        LLMCost.countDocuments(filter).exec(),
       ]);
       // Ensure 200 response with envelope
       return res.status(200).json({

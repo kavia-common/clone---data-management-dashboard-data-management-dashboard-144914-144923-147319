@@ -1,35 +1,74 @@
 const mongoose = require('mongoose');
 
 /**
+ * INTERNAL: Assemble MongoDB URI from multiple env sources when MONGODB_URI is absent.
+ * Priority:
+ * 1) MONGODB_URI
+ * 2) DATABASE_URL (if it starts with mongodb)
+ * 3) Construct from MONGODB_HOST/PORT/USER/PASSWORD/MONGODB_DB with docker service defaults.
+ */
+function buildMongoUriFromEnv() {
+  const direct = (process.env.MONGODB_URI || '').trim();
+  if (direct) return direct;
+
+  const dbUrl = (process.env.DATABASE_URL || '').trim();
+  if (dbUrl && dbUrl.startsWith('mongodb')) return dbUrl;
+
+  const host =
+    (process.env.MONGODB_HOST || process.env.DB_HOST || 'mongodb_dashboard_db').trim();
+  const port = Number(process.env.MONGODB_PORT || process.env.DB_PORT || 27017);
+  const dbName =
+    (process.env.MONGODB_DB ||
+      process.env.DB_NAME ||
+      process.env.MONGO_INITDB_DATABASE ||
+      'dashboard').trim();
+
+  const user = (process.env.MONGODB_USER || process.env.DB_USER || '').trim();
+  const pass =
+    (process.env.MONGODB_PASSWORD ||
+      process.env.MONGODB_PASS ||
+      process.env.DB_PASSWORD ||
+      '').trim();
+  const authSource =
+    (process.env.MONGODB_AUTHSOURCE ||
+      process.env.MONGO_AUTHSOURCE ||
+      process.env.DB_AUTHSOURCE ||
+      (user ? 'admin' : '')).trim();
+
+  // Encode credentials safely
+  const cred =
+    user && pass ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@` : '';
+  const authQuery = authSource ? `?authSource=${encodeURIComponent(authSource)}` : '';
+
+  return `mongodb://${cred}${host}:${port}/${encodeURIComponent(dbName)}${authQuery}`;
+}
+
+/**
  * PUBLIC_INTERFACE
  * Establishes a connection to MongoDB using Mongoose.
- * - Reads the connection string from process.env.MONGODB_URI
- * - Does NOT hard-code any default credentials or URIs (security and environment portability)
- * - Emits useful, non-sensitive logs for verification
+ * - Reads the connection string from MONGODB_URI/DATABASE_URL, or composes from HOST/PORT/USER/PASSWORD vars.
+ * - Emits useful, non-sensitive logs for verification.
  *
  * Returns the active mongoose.connection.
  *
- * ENVIRONMENT VARIABLES REQUIRED:
- * - MONGODB_URI: Mongo connection string (e.g. mongodb://user:pass@host:27017/db)
- * - MONGODB_DB (optional): Database name override
- * - MONGOOSE_AUTO_INDEX (optional): 'true' to enable autoIndex
+ * ENV VARS (examples; see .env.example):
+ * - MONGODB_URI (preferred)
+ * - DATABASE_URL (mongodb://...)
+ * - MONGODB_HOST, MONGODB_PORT, MONGODB_DB, MONGODB_USER, MONGODB_PASSWORD, MONGODB_AUTHSOURCE
+ * - MONGOOSE_AUTO_INDEX (optional)
  */
 async function connectDB() {
-  // Enforce env-based configuration; never hard-code credentials
-  const uri = process.env.MONGODB_URI;
+  const uri = buildMongoUriFromEnv();
 
   if (!uri || typeof uri !== 'string' || uri.trim() === '') {
-     
     console.warn(
-      '[db] MONGODB_URI is not set. Skipping MongoDB connection. The API will start, health endpoints will report db=disconnected.'
+      '[db] No MongoDB URI could be resolved from environment. Skipping connection. Health will report db=disconnected.'
     );
-    // Return the current mongoose.connection without attempting to connect
     return mongoose.connection;
   }
 
   mongoose.set('strictQuery', true);
 
-  // In test mode, prefer fast failures and no buffering to keep tests snappy.
   const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
   if (isTest) {
     try {
@@ -39,57 +78,90 @@ async function connectDB() {
     }
   }
 
-  // Connection options recommended for modern Mongoose
-  // - Disable autoIndex by default to avoid failures on clusters with existing duplicate data.
-  //   You can override by setting MONGOOSE_AUTO_INDEX=true
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'test'; // Optional; if not set, Mongo will use the URI/path default
-
+  // Use env dbName override if provided; otherwise rely on URI path db
+  const envDbName = (process.env.MONGODB_DB || '').trim();
   const options = {
     autoIndex,
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: isTest ? 250 : 5000,
-    socketTimeoutMS: isTest ? 500 : 45000,
+    // Required connection robustness per task
+    maxPoolSize: Math.min(
+      10,
+      Math.max(5, Number(process.env.MONGODB_MAX_POOL_SIZE || 10))
+    ),
+    serverSelectionTimeoutMS: isTest
+      ? 500
+      : Math.min(
+          20000,
+          Math.max(10000, Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS || 15000))
+        ),
+    socketTimeoutMS: Math.min(
+      120000,
+      Math.max(45000, Number(process.env.MONGODB_SOCKET_TIMEOUT_MS || 45000))
+    ),
+    retryWrites: true,
     family: 4,
-    dbName,
+    ...(envDbName ? { dbName: envDbName } : {}),
   };
 
-  // Prepare a safe, masked log for the cluster host (never log credentials)
+  // Prepare masked log host
   let clusterHost = 'unknown-host';
   try {
     const parsed = new URL(uri);
     clusterHost = parsed.hostname || clusterHost;
   } catch {
-    // swallow parse errors; we will still attempt to connect
+    // ignore
   }
 
-  mongoose.connection.on('connected', () => {
-     
-    console.log(
-      `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
-    );
-    if (dbName) {
-       
-      console.log(`MongoDB dbName selected via env: ${dbName}`);
+  // Attach listeners once
+  if (!mongoose.connection._hasKaviaDbListeners) {
+    mongoose.connection.on('connected', () => {
+      console.log(
+        `MongoDB connected to host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
+      );
+      if (envDbName) console.log(`MongoDB dbName selected via env: ${envDbName}`);
+      console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
+    });
+
+    mongoose.connection.on('error', (err) => {
+      console.error('MongoDB connection error:', err?.message || err);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      console.warn('MongoDB disconnected');
+    });
+    mongoose.connection._hasKaviaDbListeners = true;
+  }
+
+  // Retry with backoff (3–5 attempts)
+  const attempts = Math.min(
+    5,
+    Math.max(3, Number(process.env.MONGODB_CONNECT_RETRIES || 4))
+  );
+  const baseDelay = Math.min(
+    5000,
+    Math.max(500, Number(process.env.MONGODB_CONNECT_RETRY_DELAY_MS || 1000))
+  );
+
+  let lastErr;
+  for (let i = 1; i <= attempts; i += 1) {
+    try {
+      await mongoose.connect(uri, options);
+      return mongoose.connection;
+    } catch (err) {
+      lastErr = err;
+      const delay = baseDelay * i; // linear backoff
+      console.warn(
+        `[db] Connection attempt ${i}/${attempts} failed: ${err?.message || err}. Retrying in ${delay}ms...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-     
-    console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
-  });
+  }
 
-  mongoose.connection.on('error', (err) => {
-     
-    console.error('MongoDB connection error:', err.message);
-  });
-
-  mongoose.connection.on('disconnected', () => {
-     
-    console.warn('MongoDB disconnected');
-  });
-
-  await mongoose.connect(uri, options);
-  return mongoose.connection;
+  // After retries, throw the last error to surface the failure (app can still run based on app.js)
+  console.error('[db] Failed to connect to MongoDB after retries.');
+  throw lastErr;
 }
 
 /**
@@ -99,11 +171,14 @@ async function connectDB() {
  * Ensures a connection is established; if not connected, attempts to connect first.
  */
 async function getDb() {
-  // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
   if (mongoose.connection.readyState !== 1) {
-    await connectDB();
+    try {
+      await connectDB();
+    } catch {
+      // If connection fails, bubble up a consistent error
+      throw new Error('Database not connected');
+    }
   }
-  // In rare cases during connect, db might still be null; await a tick
   if (!mongoose.connection.db) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
@@ -133,7 +208,6 @@ async function getCollection(nameOrNames) {
     const chosen = candidates.find((n) => existingNames.has(n)) || candidates[0];
     return db.collection(chosen);
   } catch (err) {
-    // Fallback: return the first candidate even if listCollections fails
     return db.collection(candidates[0]);
   }
 }
@@ -144,7 +218,6 @@ async function getCollection(nameOrNames) {
  * Returns boolean indicating if Mongoose is currently connected to MongoDB.
  */
 function isDbConnected() {
-  // 1 means connected
   return mongoose.connection && mongoose.connection.readyState === 1;
 }
 

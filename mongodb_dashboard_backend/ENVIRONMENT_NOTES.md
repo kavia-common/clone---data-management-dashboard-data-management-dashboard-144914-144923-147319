@@ -8,4 +8,9 @@
 - For live reload in development use `npm run dev:watch` (nodemon). In CI/previews prefer `npm run dev` to avoid watchers.
 
 Environment variables (set via .env by orchestrator, do not hardcode here):
-- HOST, PORT, MONGODB_URI, MONGODB_DB, and REACT_APP_* are ignored by backend unless explicitly referenced.
+- HOST, PORT, MONGODB_URI, MONGODB_DB
+- If MONGODB_URI is not provided, the backend composes one from:
+  MONGODB_HOST (default: mongodb_dashboard_db), MONGODB_PORT (default: 27017),
+  MONGODB_DB (default: dashboard), MONGODB_USER, MONGODB_PASSWORD, and optional MONGODB_AUTHSOURCE (default: admin when user is set).
+- For docker-compose, ensure the hostname uses the Mongo service name (e.g., mongodb_dashboard_db) so DNS resolves within the network.
+- Tuning: MONGODB_MAX_POOL_SIZE, MONGODB_SERVER_SELECTION_TIMEOUT_MS, MONGODB_SOCKET_TIMEOUT_MS, MONGODB_CONNECT_RETRIES, MONGODB_CONNECT_RETRY_DELAY_MS.
