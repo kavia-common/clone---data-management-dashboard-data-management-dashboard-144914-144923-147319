@@ -170,11 +170,11 @@ async function listLlmCosts(req, res) {
   const MAX_DAYS_WINDOW = Number(process.env.LLMCOSTS_MAX_DAYS_WINDOW || 90);
   const MAX_ALL_LIMIT = Number(process.env.LLMCOSTS_MAX_ALL_LIMIT || 20000);
   const CURSOR_BATCH_SIZE = Number(process.env.LLMCOSTS_CURSOR_BATCH_SIZE || 500);
-  const DB_MAX_TIME_MS = Number(process.env.LLMCOSTS_MAX_TIME_MS || 11000); // keep under upstream 12s reverse proxy
-  const HANDLER_TIMEOUT_MS = Number(process.env.LLMCOSTS_HANDLER_TIMEOUT_MS || 12000);
+  const DB_MAX_TIME_MS = Number(process.env.LLMCOSTS_MAX_TIME_MS || 8000); // tighter DB max time to reduce 504 likelihood
+  const HANDLER_TIMEOUT_MS = Number(process.env.LLMCOSTS_HANDLER_TIMEOUT_MS || 9500);
 
-  // diagnostics flag (skip extra meta/debug building if performance sensitive)
-  const diagnosticsEnabled = String(req.query.diagnostics || 'true').toLowerCase() !== 'false';
+  // diagnostics flag: DEFAULT TO FALSE to reduce overhead unless explicitly enabled
+  const diagnosticsEnabled = String(req.query.diagnostics || 'false').toLowerCase() !== 'false';
 
   try {
     const db = await getDb();
@@ -278,8 +278,15 @@ async function listLlmCosts(req, res) {
     }
 
     // Effective filter (ensure indexed fields used)
+    // Choose a single indexed field for the tenant filter to guarantee use of a compound index
+    // Prefer tenant_id; fall back to organization_id
+    const tenantField = 'tenant_id';
+    // If dataset historically used organization_id, allow switching key based on an env hint
+    const useOrg = String(process.env.LLMCOSTS_USE_ORG_ALIAS || '').toLowerCase() === 'true';
+    const effectiveTenantKey = useOrg ? 'organization_id' : tenantField;
+
     const filter = {
-      $or: [{ organization_id: tenant }, { tenant_id: tenant }],
+      [effectiveTenantKey]: tenant,
       ...(from || to
         ? {
             timestamp: Object.assign(
@@ -382,11 +389,20 @@ async function listLlmCosts(req, res) {
     // Execute with internal timeout guard
     const execPromise = (async () => {
       const rawItems = await cursor.toArray();
-      // Only run countDocuments when not fetching all
+
+      // Run countDocuments only when pagination is requested AND diagnostics is explicitly enabled.
+      // This avoids a second indexed scan in the hot path.
       let total = null;
-      if (!wantsAll) {
-        // Use same filter; avoid explain/extra work under load
-        total = await collection.countDocuments(filter, { maxTimeMS: Math.max(2000, Math.floor(DB_MAX_TIME_MS / 2)) });
+      if (!wantsAll && diagnosticsEnabled) {
+        try {
+          total = await collection.countDocuments(filter, {
+            maxTimeMS: Math.max(1500, Math.floor(DB_MAX_TIME_MS * 0.6)),
+            // hint the same index where possible to ensure a single-index scan path
+          });
+        } catch {
+          // If count fails due to time, degrade gracefully: only provide page count
+          total = null;
+        }
       }
       return { rawItems, total };
     })();

@@ -30,12 +30,11 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Drop client-provided generic filter to avoid unindexed queries
-    if (typeof req.query.filter !== 'undefined') {
-      try { res.set('X-Filter-Ignored', 'true'); } catch {}
-      delete req.query.filter;
+    // Default diagnostics to false unless explicitly true
+    if (typeof req.query.diagnostics === 'undefined') {
+      req.query.diagnostics = 'false';
     }
-    // Allow from/to if provided; the specialized controller will clamp/validate the window
+    // The controller enforces whitelist on filter keys and strict time windowing
     return listLlmCosts(req, res);
   })
 );
