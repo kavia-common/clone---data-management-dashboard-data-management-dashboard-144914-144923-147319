@@ -14,17 +14,21 @@
     "*.pid",
     ".git",
     ".cache",
+    ".next",
+    ".turbo",
     "coverage",
     "public",
     "assets",
     "attachments",
     "interfaces",
     "kavia-docs",
+    "../mongodb_dashboard_frontend/**",
+    "../**/frontend/**",
     "**/*.md",
     "**/*.spec.js",
     "**/__tests__/**"
   ],
-  "delay": "1200",
+  "delay": "800",
   "signal": "SIGINT",
   "killSignal": "SIGINT",
   "env": {
@@ -34,7 +38,10 @@
     "MICRO_CACHE_TTL_MS": "1500",
     "CHOKIDAR_USEPOLLING": "false",
     "WATCHPACK_POLLING": "false",
-    "BROWSERSLIST_DISABLE_CACHE": "1"
+    "BROWSERSLIST_DISABLE_CACHE": "1",
+    "GENERATE_SOURCEMAP": "false",
+    "INSPECT": "false",
+    "INSPECT_BRK": "false"
   },
   "events": {
     "restart": "echo '[nodemon] restarting due to changes...'",
@@ -42,7 +49,7 @@
   },
   "watchOptions": {
     "useFsEvents": false,
-    "interval": 700,
+    "interval": 750,
     "persistent": true,
     "ignorePermissionErrors": true
   },

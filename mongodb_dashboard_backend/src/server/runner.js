@@ -29,6 +29,18 @@ function log(msg, data) {
   } catch {}
 }
 
+// On start: log memory usage and GC flags (best-effort)
+try {
+  const mu = process.memoryUsage();
+  log('heap usage (MB)', {
+    rss: Math.round(mu.rss / 1024 / 1024),
+    heapTotal: Math.round(mu.heapTotal / 1024 / 1024),
+    heapUsed: Math.round(mu.heapUsed / 1024 / 1024),
+    external: Math.round(mu.external / 1024 / 1024),
+  });
+  log('NODE_OPTIONS', process.env.NODE_OPTIONS || '(unset)');
+} catch {}
+
 // Start the server by requiring the existing entry (side-effect export of started server instance)
 let serverInstance = null;
 try {
@@ -69,6 +81,7 @@ async function gracefulShutdown(signal = 'SIGTERM', code = 0) {
     process.removeAllListeners('SIGHUP');
     process.removeAllListeners('uncaughtException');
     process.removeAllListeners('unhandledRejection');
+    process.removeAllListeners('warning');
   } catch {}
   process.exit(code);
 }
@@ -124,14 +137,43 @@ process.on('SIGPIPE', () => {
 // Allow graceful restart on SIGHUP
 process.on('SIGHUP', () => { gracefulRestart(); });
 
-// Error handlers (do not crash, just log)
-process.on('uncaughtException', (err) => {
-  // eslint-disable-next-line no-console
-  console.error('[serverRunner][uncaughtException]', err);
+// Error and warning handlers (do not crash, just log and attempt graceful exit on OOM)
+process.on('warning', (w) => {
+  try {
+    const msg = String(w?.message || w);
+    // eslint-disable-next-line no-console
+    console.warn('[serverRunner][warning]', msg);
+    if (/heap|memory|gc/i.test(msg)) {
+      const mu = process.memoryUsage();
+      // eslint-disable-next-line no-console
+      console.warn('[serverRunner][memory]', {
+        rssMB: Math.round(mu.rss / 1024 / 1024),
+        heapUsedMB: Math.round(mu.heapUsed / 1024 / 1024),
+        heapTotalMB: Math.round(mu.heapTotal / 1024 / 1024),
+      });
+    }
+  } catch {}
 });
-process.on('unhandledRejection', (reason) => {
+
+process.on('uncaughtException', (err) => {
+  const msg = String(err?.message || err);
   // eslint-disable-next-line no-console
-  console.error('[serverRunner][unhandledRejection]', reason);
+  console.error('[serverRunner][uncaughtException]', msg);
+  if (/heap out of memory|allocation failed - javascript heap/i.test(msg)) {
+    // Attempt graceful shutdown to avoid thrashing
+    gracefulShutdown('OOM', 1).catch(() => process.exit(1));
+    return;
+  }
+  // keep process alive in dev to allow nodemon to restart
+});
+
+process.on('unhandledRejection', (reason) => {
+  const msg = String(reason?.message || reason);
+  // eslint-disable-next-line no-console
+  console.error('[serverRunner][unhandledRejection]', msg);
+  if (/heap out of memory|allocation failed - javascript heap/i.test(msg)) {
+    gracefulShutdown('OOM', 1).catch(() => process.exit(1));
+  }
 });
 
 module.exports = {}; // no-op export; this module is side-effectful

@@ -7,21 +7,23 @@ const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
+const { list: listLlmCosts } = require('../controllers/llmCosts.list.controller');
+const { getHierarchy } = require('../controllers/llmCosts.controller');
 
 /**
  * PUBLIC_INTERFACE
  * LLMCosts Router
- * Exposes CRUD endpoints with tenant enforcement.
+ * Exposes CRUD endpoints with tenant enforcement plus a safe list variant with strict pagination and lean projection.
  */
 const router = express.Router();
 /**
  * Use safe default sort on indexed field 'timestamp' in descending order.
- * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } on the model.
+ * Sorting by '-timestamp' benefits from index { tenant_id:1, timestamp:-1 } or { organization_id:1, timestamp:-1 } on the model.
  */
-const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort (requires { tenant_id:1, timestamp:-1 } index)
+const controller = buildCrudController(LLMCost, '-timestamp'); // default indexed sort
 
 /**
- * Apply core auth+tenant middleware but allow route-local resolver to set tenantId for demo/preview calls
+ * Apply core auth+tenant middleware; allow route-local resolver to set tenantId for demo/preview calls
  * where Authorization may be missing and organization_id is provided as query/header.
  */
 router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
@@ -29,7 +31,6 @@ router.use(verifyAuth, requireTenant, tenantScopeEnforcer());
 /**
  * Route-local resolver: for GET /api/llm-costs (list) allow resolving tenant
  * from x-organization-id or ?organization_id/?tenant_id when req.tenantId is not set.
- * Mirrors behavior of /api/users.
  */
 router.use((req, res, next) => {
   try {
@@ -54,17 +55,20 @@ router.use((req, res, next) => {
           req.tenantId = String(resolved);
         }
         try {
-          res.set('X-Requested-Tenant-Aliases', JSON.stringify({
-            header: hdrOrg || null,
-            query_org: req.query?.organization_id || null,
-            query_tenant: req.query?.tenant_id || null,
-            query_org_id: req.query?.org_id || null
-          }));
+          res.set(
+            'X-Requested-Tenant-Aliases',
+            JSON.stringify({
+              header: hdrOrg || null,
+              query_org: req.query?.organization_id || null,
+              query_tenant: req.query?.tenant_id || null,
+              query_org_id: req.query?.org_id || null,
+            })
+          );
         } catch (_) {}
       }
     }
 
-    // Diagnostics headers similar to users route
+    // Diagnostics headers
     try {
       if (req.tenantScopeDisabled || req.allTenants) {
         res.set('X-All-Tenants', 'true');
@@ -79,7 +83,9 @@ router.use((req, res, next) => {
           })
         );
       }
-      try { res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs'); } catch (_) {}
+      try {
+        res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs');
+      } catch (_) {}
     } catch (_) {}
   } catch (_) {
     // non-fatal
@@ -88,7 +94,7 @@ router.use((req, res, next) => {
 });
 
 /**
- * Super Admin and T0000 bypass (route-local, consistent with users route)
+ * Super Admin and T0000 bypass (route-local)
  */
 router.use((req, res, next) => {
   try {
@@ -111,12 +117,6 @@ router.use((req, res, next) => {
         requestedTenant,
         isT0000,
       });
-    } else {
-      console.log('[llmCosts.routes] bypass not applied', {
-        inputs: { hdr, qOrg, authTenant },
-        requestedTenant,
-        isT0000,
-      });
     }
   } catch (e) {
     // non-fatal
@@ -125,173 +125,46 @@ router.use((req, res, next) => {
 });
 
 /**
- * Diagnostics header injector
+ * GET /api/llm-costs — memory-safe list with strict clamp and lean projection
  */
-router.use((req, res, next) => {
-  try {
-    if (req.tenantScopeDisabled || req.allTenants) {
-      res.set('X-All-Tenants', 'true');
-      res.set('X-Applied-Tenant', 'all-tenants');
-    } else if (req.tenantId) {
-      const t = String(req.tenantId);
-      res.set('X-Applied-Tenant', t);
-      res.set(
-        'X-Applied-Filter',
-        JSON.stringify({
-          $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }, { tenantId: t }, { 'tenant.tenant_id': t }],
-        })
-      );
-    }
-    try { res.set('X-Model-Collection', LLMCost.collection?.name || 'llm-costs'); } catch (_) {}
-  } catch (_) {}
-  next();
-});
-
-/**
- * @swagger
- * tags:
- *   name: LLMCosts
- *   description: LLM usage cost records endpoints
- */
-
-/**
- * @swagger
- * /api/llm-costs:
- *   get:
- *     summary: List LLM cost records
- *     description: |
- *       Returns a list of LLM cost documents. Supports optional JSON filter, sorting and pagination.
- *       If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }.
- *       Otherwise a raw array is returned.
- *       Tenant scoping: When Authorization is present, JWT tenant is enforced and overrides header/query. If a different organization_id/tenant_id is provided than the JWT tenant, the request is rejected with 403.
- *       In demo mode without JWT, x-organization-id header or query aliases (?tenant_id/organization_id) can be used to set scope.
- *       The server ignores any tenant fields in the filter and injects the resolved tenant internally.
- *       Sorting does not require a timestamp field; it defaults safely to -timestamp if provided or allowed.
- *       Currency and numeric parsing: documents may contain currency strings (e.g., \"$1.23\"). Server-side aggregation
- *       and clients defensively coerce to numbers where needed. Prefer storing total_cost as a number.
- *     tags: [LLMCosts]
- *     operationId: listLlmCosts
- *     parameters:
- *       - in: header
- *         name: x-organization-id
- *         schema: { type: string }
- *         required: false
- *         description: Tenant (organization) ID when JWT is not present.
- *       - in: query
- *         name: organization_id
- *         schema: { type: string }
- *       - in: query
- *         name: tenant_id
- *         schema: { type: string }
- *       - in: query
- *         name: page
- *         schema: { type: integer, minimum: 1 }
- *       - in: query
- *         name: limit
- *         schema: { type: integer, minimum: 1, maximum: 200 }
- *       - in: query
- *         name: sort
- *         schema: { type: string }
- *         description: Allowed values include: timestamp, created_at, _id (prefix with '-' for desc). Default -timestamp.
- *       - in: query
- *         name: filter
- *         schema: { type: string }
- *         description: Optional JSON filter; tenant fields are ignored server-side.
- *     responses:
- *       200:
- *         description: OK
- *       400:
- *         description: Invalid filter or missing tenant (when not bypass)
- *       403:
- *         description: Forbidden on tenant mismatch with Authorization
- */
-router.get('/', asyncHandler(async (req, res) => {
-  // Strictly disable caching/conditional requests to avoid 304/502 from proxy layers
-  try {
-    // Remove conditional headers from the incoming request context if present (defensive; Express doesn't expose setters on req headers)
-    // But ensure response never signals cacheability
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
-    res.set('Pragma', 'no-cache');
-    res.set('Expires', '0');
-    if (typeof res.removeHeader === 'function') {
-      res.removeHeader('ETag');
-      res.removeHeader('Last-Modified');
-    }
-    res.set('ETag', 'W/"disabled"');
-  } catch (_) {}
-
-  // Apply a route-level timeout as a safety net in addition to DB-level maxTimeMS and withRequestTimeout
-  try {
-    const ROUTE_TIMEOUT_MS = 1500;
-    res.set('X-Route-TimeoutMs', String(ROUTE_TIMEOUT_MS));
-    // In case Node would keep the socket open, ensure we end with a partial response
-    res.setTimeout(ROUTE_TIMEOUT_MS, () => {
-      try {
-        if (!res.headersSent) {
-          res.status(206).json({
-            success: true,
-            data: [],
-            meta: { partial: true, reason: 'route-timeout', timeoutMs: ROUTE_TIMEOUT_MS }
-          });
-        }
-      } catch (_) {}
-    });
-  } catch (_) {}
-
-  // Normalize tenant aliases early if not already resolved (for demo/dev without JWT)
-  try {
-    if (!req.tenantId && !(req.tenantScopeDisabled || req.allTenants)) {
-      const hdrOrg =
-        (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-        (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-        (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
-        undefined;
-      const qOrg =
-        (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
-        (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-        (typeof req.query?.org_id === 'string' && req.query.org_id.trim()) ||
-        (typeof req.query?.organizationId === 'string' && req.query.organizationId.trim()) ||
-        (typeof req.query?.tenantId === 'string' && req.query.tenantId.trim()) ||
-        undefined;
-      const resolved = hdrOrg || qOrg || undefined;
-      if (resolved) {
-        req.tenantId = String(resolved);
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    // Disable caching
+    try {
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+      if (typeof res.removeHeader === 'function') {
+        res.removeHeader('ETag');
+        res.removeHeader('Last-Modified');
       }
-    }
-  } catch (_) {}
+      res.set('ETag', 'W/"disabled"');
+    } catch (_) {}
 
-  // Clamp excessive pagination values pre-controller as a guardrail
-  try {
-    // limit: default 50 for costs, hard cap 1000
-    const lim = parseInt(req.query?.limit, 10);
-    if (!Number.isFinite(lim) || lim <= 0) {
-      req.query.limit = '50';
-    } else if (lim > 1000) {
-      req.query.limit = '1000';
-    }
-    // page must be >=1
-    const pg = parseInt(req.query?.page, 10);
-    if (!Number.isFinite(pg) || pg < 1) {
-      if (req.query?.page !== undefined) req.query.page = '1';
-    }
-  } catch (_) {}
+    // Clamp pagination early
+    try {
+      const lim = parseInt(req.query?.limit, 10);
+      if (!Number.isFinite(lim) || lim <= 0) {
+        req.query.limit = '10';
+      } else if (lim > 100) {
+        req.query.limit = '100';
+      }
+      const pg = parseInt(req.query?.page, 10);
+      if (!Number.isFinite(pg) || pg < 1) {
+        if (req.query?.page !== undefined) req.query.page = '1';
+      }
+    } catch (_) {}
 
-  // Quick count path to minimize load
-  if (String(req.query.counts || req.query.count || req.query.onlyCounts || '') === 'true') {
-    req.query.page = req.query.page || '1';
-    req.query.limit = req.query.limit || '1';
-  }
+    // Run memory-safe list
+    return listLlmCosts(req, res);
+  })
+);
 
-  // Hint for sort stability on common compound index
-  try { res.set('X-Index-Hint', '{ organization_id:1, timestamp:-1 }|{ tenant_id:1, timestamp:-1 }'); } catch (_) {}
-  try {
-    res.set('X-Disable-ETag', 'true');
-    res.set('X-Always-JSON', 'true');
-  } catch (_) {}
+// Keep hierarchy endpoint as defined in controller
+router.get('/hierarchy', asyncHandler(getHierarchy));
 
-  return controller.list(req, res);
-}));
-
+// Basic CRUD routes (optional but preserved)
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));
 router.put('/:id', asyncHandler(controller.update));
