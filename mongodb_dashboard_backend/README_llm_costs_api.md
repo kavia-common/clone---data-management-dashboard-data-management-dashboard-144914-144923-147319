@@ -5,7 +5,7 @@ This document explains how to use and validate GET /api/llm-costs.
 - Path: /api/llm-costs
 - Method: GET
 - Security: Bearer JWT preferred. Without JWT (demo), provide x-organization-id header.
-- Pagination: page (default 1), limit (default 50, max 200)
+- Pagination: page (default 1), limit (default 50, max 200). To fetch the full matching set in one call use limit=all or all=true (server-capped at LLMCOSTS_MAX_ALL_LIMIT, default 20,000). When limit=all or all=true is used, total is computed as items.length and the server skips countDocuments() for performance.
 - Sorting: sort in { timestamp, _id, total_cost } with optional '-' for desc (default -timestamp)
 - Filters (whitelisted): status, provider, llm_model, user_id, session_id, project_id, request_id
 - Date range: ?from=ISO&to=ISO; applied only on the canonical field 'timestamp'. The server does NOT use created_at in predicates.

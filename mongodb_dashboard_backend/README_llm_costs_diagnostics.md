@@ -15,6 +15,9 @@ What was added
   - Example explain summaries for tenant T0015 are also included in meta.debug.explain.examples for:
     - No date filter (page=1, limit=10)
     - With date filter (last 7 days; same pagination)
+- New options:
+  - diagnostics=false query param to skip building diagnostics meta in the response for performance-sensitive flows.
+  - limit=all or all=true to stream all matching docs up to a server-side cap without running countDocuments().
 - New: a lightweight retrieval endpoint that does not run heavy queries:
   - GET /api/llm-costs/diagnostics/last returns the last captured diagnostics snapshot (including summarizeExplain when DEBUG_LLMCOSTS_EXPLAIN=1), even if the main list request timed out.
 

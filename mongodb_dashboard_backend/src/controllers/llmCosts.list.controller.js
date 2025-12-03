@@ -137,14 +137,20 @@ function normalizeItem(doc) {
   return { ...standard, details };
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * listLlmCosts
+ * Efficient, single-query LLM costs listing with strict windowing and guardrails to avoid 504 timeouts.
+ * - Uses a single find() with projection/sort/skip/limit (or limit=all cap) and returns data directly.
+ * - Enforces MAX_DAYS_WINDOW on timestamp filter.
+ * - Supports ?limit=all (bounded by MAX_ALL_LIMIT) or ?all=true to fetch up to MAX_ALL_LIMIT without countDocuments.
+ * - Skips countDocuments when returning all results to reduce load/latency.
+ * - Configures cursor with lean options (batchSize) and maxTimeMS for server-side execution bounds.
+ * - Adds Promise.race timeout fallback to ensure timely response with clear message.
+ * - Ensures tenant filtering hits indexed fields (tenant_id or organization_id).
+ * - Optional diagnostics=false to skip envelope diagnostics overhead.
+ */
 async function listLlmCosts(req, res) {
-  /**
-   * List LLM cost records (tabular) with enforced guards, timing headers, and diagnostics capture.
-   * Ensures the response includes: _id, request_id, timestamp, model (llm_model fallback), provider,
-   * user_id, organization_id, tokens_in/tokens_out (breakdown fallbacks), cost_usd (total_cost fallback),
-   * duration_ms, status, session_id, project_id, currency, created_at, and details/raw.
-   */
   const startedAt = Date.now();
   const diag = {
     route: 'GET /api/llm-costs',
@@ -158,47 +164,62 @@ async function listLlmCosts(req, res) {
     error: null,
   };
 
+  // Adjustable constants
+  const DEFAULT_PAGE_LIMIT = 50;
+  const MAX_PAGE_LIMIT = 200;
+  const MAX_DAYS_WINDOW = Number(process.env.LLMCOSTS_MAX_DAYS_WINDOW || 90);
+  const MAX_ALL_LIMIT = Number(process.env.LLMCOSTS_MAX_ALL_LIMIT || 20000);
+  const CURSOR_BATCH_SIZE = Number(process.env.LLMCOSTS_CURSOR_BATCH_SIZE || 500);
+  const DB_MAX_TIME_MS = Number(process.env.LLMCOSTS_MAX_TIME_MS || 11000); // keep under upstream 12s reverse proxy
+  const HANDLER_TIMEOUT_MS = Number(process.env.LLMCOSTS_HANDLER_TIMEOUT_MS || 12000);
+
+  // diagnostics flag (skip extra meta/debug building if performance sensitive)
+  const diagnosticsEnabled = String(req.query.diagnostics || 'true').toLowerCase() !== 'false';
+
   try {
     const db = await getDb();
 
-    // Tenant resolution: JWT precedence handled upstream; expect req.tenantId/organizationId or header/query
+    // Tenant resolution
     const jwtTenant = req?.auth?.tenantId ? String(req.auth.tenantId) : null;
     const headerTenant = req.headers?.['x-organization-id'] ? String(req.headers['x-organization-id']) : null;
     const queryTenant = (req.query?.tenant_id || req.query?.organization_id)
       ? String(req.query.tenant_id || req.query.organization_id)
       : null;
 
-    // If Authorization present and conflicting tenant hints provided, reject
+    // Enforce scope when JWT present
     if (req.headers?.authorization && (headerTenant || queryTenant)) {
       const hinted = headerTenant || queryTenant;
       if (jwtTenant && String(hinted) !== String(jwtTenant)) {
         diag.error = 'tenant_scope_mismatch';
-        getDiagnosticsStore().set(diag);
+        if (diagnosticsEnabled) getDiagnosticsStore().set(diag);
         return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
       }
     }
 
     const tenant = jwtTenant || headerTenant || queryTenant || req?.tenantId || req?.organizationId || null;
     diag.tenant = tenant;
-
     if (!tenant) {
       diag.error = 'missing_tenant';
-      getDiagnosticsStore().set(diag);
+      if (diagnosticsEnabled) getDiagnosticsStore().set(diag);
       return res.status(400).json({ success: false, error: 'missing_tenant' });
     }
 
-    // Pagination guards
-    const DEFAULT_PAGE_LIMIT = 20;
-    const MAX_PAGE_LIMIT = 200;
-    const MAX_DAYS_WINDOW = 90;
+    // limit=all or all=true handling with caps
+    const wantsAll = (String(req.query.limit || '').toLowerCase() === 'all') ||
+                     (String(req.query.all || '').toLowerCase() === 'true');
 
-    const page = Math.max(parseInt(req.query.page || '1', 10), 1);
-    let limit = parseInt(req.query.limit || DEFAULT_PAGE_LIMIT, 10);
-    if (isNaN(limit) || limit < 1) limit = DEFAULT_PAGE_LIMIT;
-    if (limit > MAX_PAGE_LIMIT) {
-      diag.error = 'limit_exceeds_max';
-      getDiagnosticsStore().set(diag);
-      return res.status(400).json({ success: false, error: 'limit_exceeds_max', max: MAX_PAGE_LIMIT });
+    const page = wantsAll ? 1 : Math.max(parseInt(req.query.page || '1', 10), 1);
+    let limit;
+    if (wantsAll) {
+      limit = MAX_ALL_LIMIT; // cap server-side
+    } else {
+      const parsedLimit = parseInt(req.query.limit || DEFAULT_PAGE_LIMIT, 10);
+      limit = isNaN(parsedLimit) || parsedLimit < 1 ? DEFAULT_PAGE_LIMIT : parsedLimit;
+      if (limit > MAX_PAGE_LIMIT) {
+        diag.error = 'limit_exceeds_max';
+        if (diagnosticsEnabled) getDiagnosticsStore().set(diag);
+        return res.status(400).json({ success: false, error: 'limit_exceeds_max', max: MAX_PAGE_LIMIT });
+      }
     }
 
     // Sort guard: only allow index-friendly fields
@@ -206,12 +227,13 @@ async function listLlmCosts(req, res) {
     if (req.query.sort) {
       const allowed = new Set([
         'timestamp',
+        '_id',
+        'total_cost',
         'cost_usd',
         'tokens_in',
         'tokens_out',
         'duration_ms',
         'status',
-        '_id',
         'created_at',
       ]);
       const fields = req.query.sort
@@ -248,13 +270,14 @@ async function listLlmCosts(req, res) {
     } else {
       if (to - from > MAX_DAYS_WINDOW * 24 * 60 * 60 * 1000) {
         diag.error = 'date_window_exceeds_max';
-        getDiagnosticsStore().set(diag);
+        if (diagnosticsEnabled) getDiagnosticsStore().set(diag);
         return res
           .status(400)
           .json({ success: false, error: 'date_window_exceeds_max', maxDays: MAX_DAYS_WINDOW });
       }
     }
 
+    // Effective filter (ensure indexed fields used)
     const filter = {
       $or: [{ organization_id: tenant }, { tenant_id: tenant }],
       ...(from || to
@@ -268,15 +291,30 @@ async function listLlmCosts(req, res) {
         : {}),
     };
 
-    // Minimal projection to include all necessary fields while keeping index usage optimal.
+    // Whitelisted optional filter json parsing (skip heavy validation)
+    if (req.query.filter) {
+      try {
+        const userFilter = JSON.parse(req.query.filter);
+        const whitelist = new Set(['status','provider','llm_model','user_id','session_id','project_id','request_id']);
+        for (const [k, v] of Object.entries(userFilter || {})) {
+          if (whitelist.has(k)) {
+            filter[k] = v;
+          }
+        }
+      } catch {
+        // ignore invalid filter JSON to avoid 500s
+      }
+    }
+
+    // Minimal projection
     const projection = {
       _id: 1,
       request_id: 1,
-      task_id: 1, // fallback for request_id
+      task_id: 1,
       timestamp: 1,
       created_at: 1,
       model: 1,
-      llm_model: 1, // fallback for model
+      llm_model: 1,
       model_version: 1,
       provider: 1,
       provider_status: 1,
@@ -285,14 +323,10 @@ async function listLlmCosts(req, res) {
       tenant_id: 1,
       session_id: 1,
       project_id: 1,
-
-      // tokens and textual prompt/completion summaries
       tokens_in: 1,
       tokens_out: 1,
       prompt: 1,
       completion: 1,
-
-      // breakdown tokens + costs (for fallbacks + details.view)
       breakdown: 1,
       'breakdown.prompt_tokens': 1,
       'breakdown.completion_tokens': 1,
@@ -300,18 +334,12 @@ async function listLlmCosts(req, res) {
       'breakdown.output_tokens': 1,
       'breakdown.input_cost': 1,
       'breakdown.output_cost': 1,
-
-      // costs and currency
       cost_usd: 1,
-      total_cost: 1, // fallback for cost_usd
+      total_cost: 1,
       currency: 1,
-
-      // durations and status
       duration_ms: 1,
-      latency_ms: 1, // fallback for duration_ms
+      latency_ms: 1,
       status: 1,
-
-      // metadata free-form details for the UI details panel
       metadata: 1,
     };
 
@@ -323,38 +351,104 @@ async function listLlmCosts(req, res) {
 
     const parseEnd = Date.now();
 
+    // Ensure indexes exist (non-blocking best-effort)
+    try {
+      const { ensureLlmCostsIndexes } = require('../models/llmCosts.indexes');
+      // Do not await to avoid long blocks; fire-and-forget in background
+      Promise.resolve(ensureLlmCostsIndexes()).catch(() => {});
+    } catch (_) {}
+
     const collection = (await db).collection(
       LlmCost.collection?.name || LlmCost.collectionName || 'llm-costs'
     );
     const skip = (page - 1) * limit;
-
-    // Build a Mongo sort spec from object
     const sortSpec = sort;
 
-    const cursor = collection
+    // Build the base cursor with performance options
+    let cursor = collection
       .find(filter, { projection })
       .sort(sortSpec)
-      .skip(skip)
-      .limit(limit);
+      .batchSize(CURSOR_BATCH_SIZE)
+      .maxTimeMS(DB_MAX_TIME_MS);
+
+    if (!wantsAll) {
+      cursor = cursor.skip(skip).limit(limit);
+    } else {
+      cursor = cursor.limit(MAX_ALL_LIMIT);
+    }
+
     const builtEnd = Date.now();
 
-    const [rawItems, total] = await Promise.all([
-      cursor.toArray(),
-      collection.countDocuments(filter),
-    ]);
+    // Execute with internal timeout guard
+    const execPromise = (async () => {
+      const rawItems = await cursor.toArray();
+      // Only run countDocuments when not fetching all
+      let total = null;
+      if (!wantsAll) {
+        // Use same filter; avoid explain/extra work under load
+        total = await collection.countDocuments(filter, { maxTimeMS: Math.max(2000, Math.floor(DB_MAX_TIME_MS / 2)) });
+      }
+      return { rawItems, total };
+    })();
+
+    const timeoutPromise = new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({ timeout: true });
+      }, HANDLER_TIMEOUT_MS).unref?.();
+    });
+
+    const result = await Promise.race([execPromise, timeoutPromise]);
     const execEnd = Date.now();
 
-    // normalize items to tabular fields
-    const items = Array.isArray(rawItems) ? rawItems.map(normalizeItem) : [];
+    if (result && result.timeout) {
+      // Timeout: return clear message without crashing
+      diag.error = 'handler_timeout';
+      diag.timings = {
+        parsed_ms: parseEnd - startedAt,
+        built_ms: builtEnd - parseEnd,
+        exec_ms: execEnd - builtEnd,
+        total_ms: Date.now() - startedAt,
+      };
+      if (diagnosticsEnabled) getDiagnosticsStore().set(diag);
 
-    // headers
+      try {
+        res.set('x-effective-tenant', String(tenant));
+        res.set('x-llm-filter', JSON.stringify(filter));
+        res.set('x-llm-projection', JSON.stringify(projection));
+        res.set('x-llm-sort', JSON.stringify(sortSpec));
+        res.set('x-llm-page', String(page));
+        res.set('x-llm-limit', wantsAll ? 'all' : String(limit));
+        res.set('x-llm-window-from', from ? from.toISOString() : '');
+        res.set('x-llm-window-to', to ? to.toISOString() : '');
+        if (typeof windowApplied === 'string' && windowApplied) {
+          res.set('x-llm-window-applied', windowApplied);
+        }
+        res.set('x-llm-timing-parsed-ms', String(parseEnd - startedAt));
+        res.set('x-llm-timing-built-ms', String(builtEnd - parseEnd));
+        res.set('x-llm-timing-exec-ms', String(execEnd - builtEnd));
+      } catch {}
+
+      return res.status(504).json({
+        success: false,
+        error: 'timeout',
+        message: 'The request exceeded the time limit. Try narrowing the date window or removing non-indexed filters.',
+      });
+    }
+
+    const rawItems = Array.isArray(result?.rawItems) ? result.rawItems : [];
+    const total = result?.total == null ? (wantsAll ? rawItems.length : 0) : result.total;
+
+    // Normalize without secondary queries
+    const items = rawItems.map(normalizeItem);
+
+    // Headers
     try {
       res.set('x-effective-tenant', String(tenant));
       res.set('x-llm-filter', JSON.stringify(filter));
       res.set('x-llm-projection', JSON.stringify(projection));
       res.set('x-llm-sort', JSON.stringify(sortSpec));
       res.set('x-llm-page', String(page));
-      res.set('x-llm-limit', String(limit));
+      res.set('x-llm-limit', wantsAll ? 'all' : String(limit));
       res.set('x-llm-window-from', from ? from.toISOString() : '');
       res.set('x-llm-window-to', to ? to.toISOString() : '');
       if (typeof windowApplied === 'string' && windowApplied) {
@@ -363,25 +457,23 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-timing-parsed-ms', String(parseEnd - startedAt));
       res.set('x-llm-timing-built-ms', String(builtEnd - parseEnd));
       res.set('x-llm-timing-exec-ms', String(execEnd - builtEnd));
-    } catch (_) {
-      /* ignore header errors */
-    }
+    } catch {}
 
-    // record diagnostics
+    // Record diagnostics (optional)
     diag.timings = {
       parsed_ms: parseEnd - startedAt,
       built_ms: builtEnd - parseEnd,
       exec_ms: execEnd - builtEnd,
       total_ms: Date.now() - startedAt,
     };
-    getDiagnosticsStore().set(diag);
+    if (diagnosticsEnabled) getDiagnosticsStore().set(diag);
 
     return res.status(200).json({
       success: true,
       data: items,
       meta: {
         page,
-        limit,
+        limit: wantsAll ? MAX_ALL_LIMIT : limit,
         total,
         sort: req.query.sort || '-timestamp',
         window: {
@@ -389,24 +481,26 @@ async function listLlmCosts(req, res) {
           to: to ? to.toISOString() : null,
           applied: windowApplied || null,
         },
-        diagnostics: {
-          headers: {
-            effectiveTenant: String(tenant),
-            filter: filter,
-            projection,
-            sort: sortSpec,
-            timings: {
-              parsed_ms: parseEnd - startedAt,
-              built_ms: builtEnd - parseEnd,
-              exec_ms: execEnd - builtEnd,
-            },
-          },
-        },
+        diagnostics: diagnosticsEnabled
+          ? {
+              headers: {
+                effectiveTenant: String(tenant),
+                filter,
+                projection,
+                sort: sortSpec,
+                timings: {
+                  parsed_ms: parseEnd - startedAt,
+                  built_ms: builtEnd - parseEnd,
+                  exec_ms: execEnd - builtEnd,
+                },
+              },
+            }
+          : undefined,
       },
     });
   } catch (err) {
     diag.error = err?.message || 'unknown_error';
-    getDiagnosticsStore().set(diag);
+    if (diagnosticsEnabled) getDiagnosticsStore().set(diag);
     return handleError(res, err);
   }
 }
