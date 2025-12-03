@@ -1,9 +1,23 @@
 {
   "watch": ["src"],
   "ext": "js,json",
-  "ignore": ["node_modules", "dist", "build", "*.log", "*.lock", ".git"],
-  "delay": "200",
-  "signal": "SIGTERM",
+  "ignore": [
+    "node_modules",
+    "dist",
+    "build",
+    "*.log",
+    "*.lock",
+    ".git",
+    "coverage",
+    "public",
+    "assets",
+    "attachments",
+    "interfaces",
+    "kavia-docs"
+  ],
+  "delay": "1500",
+  "signal": "SIGINT",
+  "killSignal": "SIGINT",
   "env": {
     "HOST": "0.0.0.0",
     "PORT": "3001",
@@ -13,5 +27,11 @@
   "events": {
     "restart": "echo '[nodemon] restarting due to changes...'",
     "crash": "echo '[nodemon] app crashed - waiting for file changes before starting...'"
-  }
+  },
+  "watchOptions": {
+    "useFsEvents": false,
+    "interval": 500
+  },
+  "restartable": "rs",
+  "verbose": false
 }

@@ -33,6 +33,13 @@ router.get('/', (req, res) => {
 router.get('/healthz', healthController.check.bind(healthController));
 router.get('/health', healthController.check.bind(healthController));
 
+// Also mount the lightweight route handler for /health if controller is unavailable
+try {
+  router.use('/', require('./health.routes.js'));
+} catch (_) {
+  // ignore if file not present
+}
+
 // Public auth routes remain unprotected
 router.use('/auth', authRoutes);
 

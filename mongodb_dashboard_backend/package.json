@@ -5,9 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "start": "NODE_OPTIONS=--max_old_space_size=512 node src/server.js",
-    "dev": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=1024 BROWSERSLIST_DISABLE_CACHE=1 node src/server.js",
-    "dev:watch": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=1024 nodemon --delay 200ms --watch src --signal SIGTERM src/server.js",
-    "dev:nodemon": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=1024 nodemon --delay 200ms --watch src --signal SIGTERM src/server.js",
+    "dev": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 BROWSERSLIST_DISABLE_CACHE=1 nodemon --signal SIGINT --delay 1500ms src/server.js",
+    "dev:watch": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 nodemon --signal SIGINT --delay 1500ms --watch src src/server.js",
+    "dev:nodemon": "cross-env NODE_ENV=development NODE_OPTIONS=--max_old_space_size=512 nodemon --signal SIGINT --delay 1500ms --watch src src/server.js",
     "preview": "NODE_OPTIONS=--max_old_space_size=512 node src/server.js",
     "docs": "echo 'Swagger UI at http://localhost:3001/api-docs (alias: /docs)' && node -e \"console.log('OpenAPI JSON at /openapi.json')\"",
     "health": "curl -sSf http://127.0.0.1:${PORT:-3001}/health || true",
@@ -49,13 +49,22 @@
       "*.md",
       ".git",
       "dist",
-      "build"
+      "build",
+      "coverage",
+      "public",
+      "assets",
+      "attachments",
+      "interfaces",
+      "kavia-docs"
     ],
     "ext": "js,json",
     "env": {
       "HOST": "0.0.0.0",
       "PORT": "3001",
-      "NODE_ENV": "development"
-    }
+      "NODE_ENV": "development",
+      "MICRO_CACHE_TTL_MS": "1500"
+    },
+    "signal": "SIGINT",
+    "delay": "1500"
   }
 }
