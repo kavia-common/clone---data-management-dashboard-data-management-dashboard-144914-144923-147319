@@ -78,6 +78,7 @@ export function toTitleCaseName(value) {
     // Start-of-word capitalization
     .replace(new RegExp(`\\b([${latinLetter}])`, 'g'), (_, ch) => ch.toUpperCase())
     // After apostrophe (straight or curly)
+    // Remove the unnecessary escape before the 'u2019' curly apostrophe and avoid over-escaping whitespace group
     .replace(new RegExp(`([’'])(\\s*)([${latinLetter}])`, 'g'), (_, quote, spaces, ch) => quote + spaces + ch.toUpperCase());
 
   return titleCased;
