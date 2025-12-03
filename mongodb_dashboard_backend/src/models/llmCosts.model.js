@@ -4,15 +4,6 @@ const mongoose = require('mongoose');
  * LLM Costs model
  * This schema is permissive to accommodate varied cost records from different agents/models.
  * Common fields are indexed to support filtering and sorting in list endpoints.
- *
- * Index notes:
- * - Canonical time field: timestamp. Queries MUST use { timestamp: ... } only.
- * - Ensure compound indexes exist for tenant-scoped sorted scans:
- *     { tenant_id: 1, timestamp: -1 }
- *   created_at remains for legacy ingestion/display fallback and is NOT used in query predicates.
- * - For org alias:
- *     { organization_id: 1, timestamp: -1 }
- * - Additional helpful indexes declared below.
  */
 const CostBreakdownSchema = new mongoose.Schema(
   {
@@ -26,36 +17,31 @@ const LLMCostsSchema = new mongoose.Schema(
     task_id: { type: String, index: true },
     session_id: { type: String, index: true }, // if linked with session_tracking
     tenant_id: { type: String, index: true },
-    organization_id: { type: String, index: true },
+    project_id: { type: String, index: true },
     user_id: { type: mongoose.Schema.Types.Mixed, index: true },
     organization_name: { type: String },
     llm_model: { type: String, index: true },
     provider: { type: String }, // openai, anthropic, etc.
     service_type: { type: String }, // code generation, query, etc.
     operation: { type: String }, // e.g., "chat.completions"
-    // Numeric total cost; callers should strip currency symbols before persisting.
-    // Server list/aggregation endpoints defensively coerce strings (e.g. "$1.23") to numbers where needed.
     total_cost: { type: Number, index: true },
     currency: { type: String, default: 'USD' },
     breakdown: { type: CostBreakdownSchema, default: () => ({}) },
     metadata: { type: mongoose.Schema.Types.Mixed }, // free-form
-    timestamp: { type: Date, index: true, default: Date.now }, // canonical time field for filtering/sorting
-    created_at: { type: Date, index: true, default: Date.now }, // legacy/display fallback; do NOT use in predicates
+    timestamp: { type: Date, index: true, default: Date.now },
+    created_at: { type: Date, index: true, default: Date.now },
     updated_at: { type: Date, index: true, default: Date.now },
   },
   {
     timestamps: false,
-    collection: 'llm-costs',
+    collection: 'llm_costs',
     strict: false, // allow additional fields that may exist in real documents
   }
 );
 
 // Useful indexes for common filter/sort combos
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
-// created_at retained for display fallback; do not index compound with tenant to discourage predicate usage
-// Facilitate common queries by organization_id as alias for tenant
-LLMCostsSchema.index({ organization_id: 1, timestamp: -1 });
-// Project and session specific lookups
+LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
 LLMCostsSchema.index({ project_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ session_id: 1, timestamp: -1 });
 LLMCostsSchema.index({ llm_model: 1, timestamp: -1 });
@@ -70,4 +56,3 @@ LLMCostsSchema.pre('findOneAndUpdate', function (next) {
 });
 
 module.exports = mongoose.model('LLMCost', LLMCostsSchema);
-module.exports.default = mongoose.model('LLMCost', LLMCostsSchema);

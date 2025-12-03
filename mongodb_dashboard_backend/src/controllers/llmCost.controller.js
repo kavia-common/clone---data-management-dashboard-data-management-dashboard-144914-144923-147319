@@ -44,7 +44,7 @@ async function getLlmCostByAgentController(req, res) {
       user_agent: req.get('user-agent') || '',
     }).catch(() => {});
 
-     
+    // eslint-disable-next-line no-console
     console.error('[analytics] /llm-cost-by-agent failed:', err?.message || err);
     // Acceptance: return 500 with { error: 'message' }
     return res.status(500).json({ error: 'Failed to aggregate LLM cost by agent' });

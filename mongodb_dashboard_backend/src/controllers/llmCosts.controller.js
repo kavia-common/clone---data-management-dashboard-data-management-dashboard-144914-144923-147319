@@ -30,52 +30,17 @@ async function getHierarchy(req, res) {
     delete filter.tenant_id;
     delete filter.tenantId;
     delete filter.organization_id;
-    delete filter.organizationId;
-    delete filter.orgId;
-
-    // JWT precedence check: if Authorization present and client hints conflict, reject with 403
-    const clientRequestedTenant =
-      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-      (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
-      (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-      (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
-      '';
-    if (req.headers?.authorization && clientRequestedTenant && String(clientRequestedTenant) !== String(req.tenantId || '')) {
-      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
-    }
-
-    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass);
-    const resolvedTenant = bypass ? undefined : (req?.tenantId || req?.organizationId || (req?.auth?.tenantId ? String(req.auth.tenantId) : undefined));
-    if (bypass) {
-      try { res.set('X-All-Tenants', 'true'); } catch(_) {}
-      console.log('[llmCosts.controller] bypass active: skipping tenant filter injection');
-    }
+    const resolvedTenant = req?.tenantId || req?.organizationId;
     if (resolvedTenant) {
-      const orgFilter = {
-        $or: [
-          { tenant_id: String(resolvedTenant) },
-          { organization_id: String(resolvedTenant) },
-          { orgId: String(resolvedTenant) },
-          { tenantId: String(resolvedTenant) },
-          { organizationId: String(resolvedTenant) },
-          { 'tenant.tenant_id': String(resolvedTenant) },
-        ],
-      };
-      filter = Object.keys(filter).length ? { $and: [filter, orgFilter] } : orgFilter;
+      filter = Object.keys(filter).length
+        ? { $and: [filter, { tenant_id: String(resolvedTenant) }] }
+        : { tenant_id: String(resolvedTenant) };
     }
 
     // Best-effort index creation (non-blocking); ignore errors
     ensureLlmCostsIndexes().catch(() => {});
 
     const data = await aggregateHierarchy({ filter, tenantId: resolvedTenant });
-    try {
-      if (resolvedTenant) {
-        res.set('X-Applied-Tenant', String(resolvedTenant));
-        res.set('x-applied-organization-id', String(resolvedTenant));
-        res.set('x-applied-tenant-filter', JSON.stringify(filter));
-      }
-    } catch (_) {}
     return success(res, data);
   } catch (err) {
     return handleError(res, err);

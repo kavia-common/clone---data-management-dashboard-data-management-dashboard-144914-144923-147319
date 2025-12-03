@@ -50,7 +50,7 @@ async function getUsersTenantSummary(req, res) {
         .split('|')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      if (statuses.length === 0) {statuses = null;}
+      if (statuses.length === 0) statuses = null;
     }
 
     // Parse includeInactive boolean
@@ -65,13 +65,8 @@ async function getUsersTenantSummary(req, res) {
 
     // Build match stage for users collection
     const match = {};
-    // Enforce organization scoping if provided (maps to tenant_id) unless super admin bypass active
-    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.usersSummaryAllTenantsBypass);
-    if (bypass) {
-      try { res.set('X-All-Tenants', 'true'); } catch (_) {}
-      console.log('[users.analytics.summary.controller] bypass active: skipping tenant scope in aggregation');
-    }
-    const scopedTenant = bypass ? undefined : (req.scopedTenantId || req.organizationId || req.tenantId);
+    // Enforce organization scoping if provided (maps to tenant_id)
+    const scopedTenant = req.scopedTenantId || req.organizationId || req.tenantId;
     if (scopedTenant) {
       // We will compute a _tenant_key field later; here restrict candidate docs to those having the scoped id
       // across known fields for performance.
@@ -84,8 +79,8 @@ async function getUsersTenantSummary(req, res) {
     // Date range: consider created_at or updated_at. Use $or to be permissive.
     if (from || to) {
       const dateRange = {};
-      if (from) {dateRange.$gte = from;}
-      if (to) {dateRange.$lte = to;}
+      if (from) dateRange.$gte = from;
+      if (to) dateRange.$lte = to;
       match.$or = [
         { created_at: dateRange },
         { updated_at: dateRange },

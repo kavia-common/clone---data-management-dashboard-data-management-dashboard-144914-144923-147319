@@ -35,16 +35,7 @@ function toNumber(val) {
  */
 async function getAggregatedCosts(req, res) {
   try {
-    const tenantId = (req?.tenantScopeDisabled || req?.allTenants || req?.costsAggregateAllTenantsBypass)
-      ? null
-      : (req?.tenantId || req?.organizationId || null);
-    const bypass = !!(req?.tenantScopeDisabled || req?.allTenants || req?.costsAggregateAllTenantsBypass);
-    if (bypass) {
-      try { res.set('X-All-Tenants', 'true'); } catch (_) {}
-      console.log('[llmCostsAggregate.controller] bypass active: returning data across all tenants');
-    } else {
-      console.log('[llmCostsAggregate.controller] tenant scoped', { tenantId });
-    }
+    const tenantId = req?.tenantId || req?.organizationId || null;
 
     // Fetch minimal set of fields but include fallbacks; schema is strict:false so extra fields may exist.
     const [rawUsers, rawProjects] = await Promise.all([
@@ -80,7 +71,7 @@ async function getAggregatedCosts(req, res) {
 
     return res.status(200).json({ users, projects });
   } catch (err) {
-     
+    // eslint-disable-next-line no-console
     console.error('GET /api/llm-costs failed:', err?.message || err);
     return res.status(500).json({ message: err?.message || 'Failed to fetch aggregated LLM costs' });
   }

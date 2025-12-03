@@ -14,25 +14,6 @@ const router = express.Router();
  */
 router.use(requireTenant, tenantScopeEnforcer());
 
-// Route-local super admin (T0000) bypass detector for analytics aggregate
-router.use((req, res, next) => {
-  try {
-    const hdr = (req.headers?.['x-organization-id'] || '').toString();
-    const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
-    const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
-    const requestedTenant = hdr || qOrg || authTenant || '';
-    const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
-    if (isT0000) {
-      req.tenantScopeDisabled = true;
-      req.allTenants = true;
-      req.costsAggregateAllTenantsBypass = true;
-      try { res.set('X-All-Tenants', 'true'); } catch (_) {}
-    }
-    console.log('[llmCosts.aggregate.routes] bypass check', { requestedTenant, isT0000, bypassApplied: !!isT0000 });
-  } catch (_) {}
-  next();
-});
-
 /**
  * @swagger
  * /api/analytics/llm-cost-by-agent:

@@ -30,7 +30,7 @@
  *       - in: query
  *         name: limit
  *         schema: { type: integer, minimum: 1, maximum: 200 }
- *         description: Optional page size to enable envelope response (max 200; requests above 200 are rejected with 400)
+ *         description: Optional page size to enable envelope response
  *       - in: query
  *         name: sort
  *         schema: { type: string }

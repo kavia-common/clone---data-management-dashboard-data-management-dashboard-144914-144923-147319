@@ -1,12 +1,6 @@
- /**
-  * Deprecated: Users Analytics Controller was removed.
-  */
- // PUBLIC_INTERFACE
- function noopUsersAnalytics() {
-   /** No-op users analytics controller kept for backward compatibility. */
-   return null;
- }
+'use strict';
 
- module.exports = {
-   noopUsersAnalytics,
- };
+/**
+ * Legacy Users Analytics Controller removed.
+ */
+module.exports = {};
