@@ -1,4 +1,3 @@
-
 /**
  * Utility string helpers with safe, minimal transforms used by backend only.
  * Avoids unnecessary escape characters; focuses on trimming and normalizing whitespace.
