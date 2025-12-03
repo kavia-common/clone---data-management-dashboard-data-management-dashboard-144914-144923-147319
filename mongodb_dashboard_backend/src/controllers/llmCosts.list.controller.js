@@ -80,19 +80,12 @@ async function list(req, res) {
       if (!resolvedTenant) {
         return res.status(400).json({ success: false, message: 'Missing tenant scope' });
       }
-      // Deterministic tenant mapping: prefer organization_id if present in stored docs, but fall back to tenant_id;
-      // Do NOT use a wide $or that may defeat indexes. The model has indexes on organization_id and tenant_id.
-      // We probe via a lightweight exists check to pick the best field deterministically.
+      // Deterministic tenant mapping: organization_id takes precedence; if not found at all, fallback to tenant_id.
       const t = String(resolvedTenant);
-      // Prefer organization_id; fallback to tenant_id
-      filter = { organization_id: t };
       try {
-        const existsOrg = await LLMCost.exists({ organization_id: t }).maxTimeMS?.(200);
-        if (!existsOrg) {
-          filter = { tenant_id: t };
-        }
+        const probe = await LLMCost.exists({ organization_id: t }).maxTimeMS(200);
+        filter = probe ? { organization_id: t } : { tenant_id: t };
       } catch (_) {
-        // On any error, fallback to tenant_id to keep it deterministic
         filter = { tenant_id: t };
       }
     }
@@ -114,15 +107,6 @@ async function list(req, res) {
       try { res.set('X-Filter-Parse-Error', String(e?.message || e)); } catch(_) {}
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
-
-    // Structured diagnostics: final filter and projection/sort/pagination details
-    try {
-      res.set('X-Final-Filter', JSON.stringify(filter));
-      res.set('X-Projection-Base', JSON.stringify(Object.keys(baseProject)));
-      res.set('X-Sort', sort);
-      res.set('X-Pagination', JSON.stringify({ page, limit, usingExplicitPagination }));
-      res.set('X-Include-User', includeUserMode || 'none');
-    } catch (_) {}
 
     // Determine if user should be included and how.
     // Guardrail: exclude user by default. When include_user=min, we join to users and return a small whitelist.
@@ -192,7 +176,24 @@ async function list(req, res) {
         return res.status(200).json(trimmed);
       }
 
-      // include_user=min: perform aggregation with bounded $project then $lookup to users with minimal whitelist.
+      // Structured diagnostics: final filter and projection/sort/pagination details (after variables defined)
+    try {
+      res.set('X-Final-Filter', JSON.stringify(filter));
+      res.set('X-Projection-Base', JSON.stringify(Object.keys(baseProject)));
+      res.set('X-Sort', sort);
+      res.set('X-Pagination', JSON.stringify({ page, limit, usingExplicitPagination }));
+      res.set('X-Include-User', includeUserMode || 'none');
+      // Also emit requested X-Diag-* headers
+      res.set('X-Diag-Filter', JSON.stringify(filter));
+      res.set('X-Diag-Projection', JSON.stringify(Object.keys(baseProject)));
+      res.set('X-Diag-Sort', sort);
+      res.set('X-Diag-Skip', String(usingExplicitPagination ? (page - 1) * limit : 0));
+      res.set('X-Diag-Limit', String(usingExplicitPagination ? limit : Math.min(50, 200)));
+      res.set('X-Diag-IncludeUser', includeUserMode || 'none');
+      res.set('X-Diag-Tenant', String(req.tenantId || ''));
+    } catch (_) {}
+
+    // include_user=min: perform aggregation with bounded $project then $lookup to users with minimal whitelist.
       // Try to use user_id as primary join key. As fallbacks, attempt normalized email if present.
       const usersColl = User.collection?.name || 'users';
 
@@ -362,17 +363,24 @@ async function list(req, res) {
     } catch (err) {
       const msg = String(err?.message || err);
       const isMongoTimeout = /operation exceeded time limit|timed out|MaxTimeMS/i.test(msg);
-      const status = isMongoTimeout ? 206 : 500;
+      const isSelectionTimeout = /server selection error|server selection timed out|ENOTFOUND|ECONNREFUSED/i.test(msg);
+      try { res.set('X-Mongo-Error', msg); } catch(_) {}
+      const status = isMongoTimeout || isSelectionTimeout ? 206 : 500;
       return res.status(status).json({
         success: false,
-        message: isMongoTimeout ? 'Query exceeded time limit' : 'Internal server error',
+        message: isMongoTimeout
+          ? 'Query exceeded time limit'
+          : isSelectionTimeout
+          ? 'Database selection timeout'
+          : 'Internal server error',
         data: [],
         meta: {
-          timedOut: isMongoTimeout,
+          timedOut: isMongoTimeout || isSelectionTimeout,
           maxTimeMS,
           page: usingExplicitPagination ? page : undefined,
           limit: usingExplicitPagination ? limit : undefined,
           error: msg,
+          partial: true,
         },
       });
     }

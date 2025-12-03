@@ -143,6 +143,22 @@ router.get(
       res.set('ETag', 'W/"disabled"');
     } catch (_) {}
 
+    // Route-level diagnostics: echo raw incoming controls as headers for debugging 502s
+    try {
+      res.set('X-Diag-Filter', (req.query?.filter && String(req.query.filter)) || '');
+      res.set('X-Diag-Projection', (req.query?.projection && String(req.query.projection)) || '');
+      res.set('X-Diag-Sort', (req.query?.sort && String(req.query.sort)) || '-timestamp');
+      res.set('X-Diag-Skip', (req.query?.skip && String(req.query.skip)) || '');
+      res.set('X-Diag-Limit', (req.query?.limit && String(req.query.limit)) || '');
+      res.set('X-Diag-IncludeUser', (req.query?.include_user && String(req.query.include_user)) || 'none');
+      const hdrTenant = (req.headers?.['x-organization-id'] && String(req.headers['x-organization-id'])) || '';
+      const qTenant =
+        (req.query?.organization_id && String(req.query.organization_id)) ||
+        (req.query?.tenant_id && String(req.query.tenant_id)) ||
+        '';
+      res.set('X-Diag-Tenant', JSON.stringify({ header: hdrTenant || null, query: qTenant || null }));
+    } catch (_) {}
+
     // Clamp pagination early (default 10, max 200)
     try {
       const lim = parseInt(req.query?.limit, 10);
@@ -175,10 +191,9 @@ router.get(
       try {
         if (!res.headersSent) {
           res.status(206).json({
-            success: false,
-            message: 'Query timed out',
+            success: true,
             data: [],
-            meta: { timedOut: true, maxTimeMS: TIMEOUT_MS },
+            meta: { timedOut: true, maxTimeMS: TIMEOUT_MS, partial: true },
           });
         }
       } catch (_) {}
@@ -192,12 +207,12 @@ router.get(
       if (!res.headersSent) {
         const msg = String(e?.message || e);
         const isMongoTimeout = /operation exceeded time limit|timed out|MaxTimeMS/i.test(msg);
-        const status = isMongoTimeout ? 206 : 500;
+        const status = isMongoTimeout ? 206 : 200; // ensure JSON and avoid proxy 502
         res.status(status).json({
           success: false,
           message: isMongoTimeout ? 'Query exceeded time limit' : 'Internal server error',
           data: [],
-          meta: { timedOut: isMongoTimeout || timedOut, maxTimeMS: TIMEOUT_MS, error: msg },
+          meta: { timedOut: isMongoTimeout || timedOut, maxTimeMS: TIMEOUT_MS, error: msg, partial: isMongoTimeout || timedOut },
         });
       }
     } finally {
