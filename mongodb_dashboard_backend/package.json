@@ -8,19 +8,19 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "cross-env NODE_ENV=production CI=true HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false node src/server.js",
-    "start:lean": "cross-env NODE_ENV=production CI=true DISABLE_WATCH=1 HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false node src/server.js",
-    "start:ci": "cross-env NODE_ENV=production CI=true DISABLE_WATCH=1 HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false node src/server.js",
-    "dev": "cross-env NODE_ENV=development CI=true DISABLE_WATCH=1 HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false node src/server.js",
-    "dev:lean": "cross-env NODE_ENV=development CI=true DISABLE_WATCH=1 HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false node src/server.js",
-    "dev:watch": "cross-env NODE_ENV=development CI=false HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=512 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false BROWSERSLIST_DISABLE_CACHE=1 nodemon --watch src --ext js,json --ignore \"src/**/__tests__/**\" --signal SIGINT src/server.js",
+    "start": "cross-env NODE_ENV=production CI=true HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false BROWSERSLIST_DISABLE_CACHE=1 BROWSERSLIST=none node src/server.js",
+    "start:lean": "cross-env NODE_ENV=production CI=true DISABLE_WATCH=1 HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false BROWSERSLIST_DISABLE_CACHE=1 BROWSERSLIST=none node src/server.js",
+    "start:ci": "cross-env NODE_ENV=production CI=true DISABLE_WATCH=1 HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false BROWSERSLIST_DISABLE_CACHE=1 BROWSERSLIST=none node src/server.js",
+    "dev": "cross-env NODE_ENV=development CI=true DISABLE_WATCH=1 HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false BROWSERSLIST_DISABLE_CACHE=1 BROWSERSLIST=none node src/server.js",
+    "dev:lean": "cross-env NODE_ENV=development CI=true DISABLE_WATCH=1 HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=384 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false BROWSERSLIST_DISABLE_CACHE=1 BROWSERSLIST=none node src/server.js",
+    "dev:watch": "cross-env NODE_ENV=development CI=false HOST=0.0.0.0 NODE_OPTIONS=\"--max-old-space-size=512 --heapsnapshot-near-heap-limit=1\" GENERATE_SOURCEMAP=false BROWSERSLIST_DISABLE_CACHE=1 BROWSERSLIST=none nodemon --watch src --ext js,json --ignore \"src/**/__tests__/**\" --signal SIGINT src/server.js",
     "docs": "echo 'Swagger UI at http://localhost:3001/api-docs (alias: /docs)' && node -e \"console.log('OpenAPI JSON at /openapi.json')\"",
     "health": "node -e \"(async()=>{try{const u='http://127.0.0.1:'+ (process.env.PORT||3001) +'/api/health';const r=await fetch(u);const t=await r.text();console.log(t);process.exit(0);}catch(e){console.error(e);process.exit(1)}})()\"",
     "verify:llm-costs": "node -e \"(async()=>{try{const port=process.env.PORT||3001;const u='http://127.0.0.1:'+port+'/api/llm-costs?organization_id=T0015&page=1&limit=10';const r=await fetch(u,{headers:{'x-organization-id':'T0015'}});console.log('status',r.status);const h=['x-effective-tenant','x-llm-filter','x-llm-projection','x-llm-sort','x-llm-page','x-llm-limit','x-llm-timing-parsed-ms','x-llm-timing-built-ms','x-llm-timing-exec-ms'];for(const k of h){console.log(k,':',r.headers.get(k)||'');}const j=await r.json().catch(()=>({}));console.log('keys in first row',Array.isArray(j.data)&&j.data[0]?Object.keys(j.data[0]):[]);process.exit(r.ok?0:1);}catch(e){console.error(e);process.exit(1)}})()\"",
     "test": "cross-env CI=true NODE_ENV=test jest --runInBand --ci --reporters=default",
-    "lint": "eslint . --max-warnings=0 || true",
-    "lint:fix": "eslint . --fix || true",
-    "postinstall": "echo 'Skipping heavy Browserslist DB update in CI. Run locally if needed: npx update-browserslist-db@latest --yes' || true",
+    "lint": "eslint src swagger.js --max-warnings=0 || true",
+    "lint:fix": "eslint src swagger.js --fix || true",
+    "postinstall": "echo 'Skipping Browserslist DB for backend (no frontend build here). If you need it locally, run: npx update-browserslist-db@latest --yes' || true",
     "gen:openapi": "node generate_openapi.js"
   },
   "dependencies": {
@@ -71,9 +71,4 @@
       "NODE_ENV": "development"
     }
   },
-  "browserslist": [
-    "defaults",
-    "maintained node versions",
-    "not ie <= 11"
-  ]
 }

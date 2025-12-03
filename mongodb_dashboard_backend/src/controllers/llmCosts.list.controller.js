@@ -140,15 +140,17 @@ function normalizeItem(doc) {
 /**
  * PUBLIC_INTERFACE
  * listLlmCosts
- * Efficient, single-query LLM costs listing with strict windowing and guardrails to avoid 504 timeouts.
- * - Uses a single find() with projection/sort/skip/limit (or limit=all cap) and returns data directly.
- * - Enforces MAX_DAYS_WINDOW on timestamp filter.
- * - Supports ?limit=all (bounded by MAX_ALL_LIMIT) or ?all=true to fetch up to MAX_ALL_LIMIT without countDocuments.
- * - Skips countDocuments when returning all results to reduce load/latency.
- * - Configures cursor with lean options (batchSize) and maxTimeMS for server-side execution bounds.
- * - Adds Promise.race timeout fallback to ensure timely response with clear message.
- * - Ensures tenant filtering hits indexed fields (tenant_id or organization_id).
- * - Optional diagnostics=false to skip envelope diagnostics overhead.
+ * GET /api/llm-costs
+ * Query:
+ *  - x-organization-id (header) | organization_id | tenant_id (query): tenant scope (required without JWT)
+ *  - page (int>=1, default 1), limit (int<=200, default 50) OR limit=all | all=true to fetch up to MAX_ALL_LIMIT
+ *  - sort: comma-separated fields (allowed: timestamp,_id,total_cost,cost_usd,tokens_in,tokens_out,duration_ms,status,created_at)
+ *  - from,to: ISO date-time bounds on timestamp with MAX_DAYS_WINDOW guard. If omitted, default window applied.
+ *  - filter: JSON with whitelisted fields (status,provider,llm_model,user_id,session_id,project_id,request_id)
+ * Behavior:
+ *  - Single query with projection and index-friendly sort/filters. Uses maxTimeMS and a handler timeout to avoid 504s.
+ *  - When limit=all/all=true, returns up to MAX_ALL_LIMIT items without countDocuments for performance.
+ *  - Returns { success, data, meta } and timing headers (x-llm-*) for diagnostics.
  */
 async function listLlmCosts(req, res) {
   const startedAt = Date.now();

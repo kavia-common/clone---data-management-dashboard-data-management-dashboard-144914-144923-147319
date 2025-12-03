@@ -1,5 +1,13 @@
 'use strict';
 
+/**
+ * PUBLIC_INTERFACE
+ * LLM Costs routes
+ * Notes:
+ * - Supports limit=all and all=true to fetch up to MAX_ALL_LIMIT records in a single query.
+ * - Tenant scoping is required via Authorization token or x-organization-id header (or query alias).
+ * - The controller applies a strict timestamp window with max days and internal timeouts to prevent 504s.
+ */
 const express = require('express');
 const { listLlmCosts } = require('../controllers/llmCosts.list.controller');
 // Use the actual diagnostics controller file present in the repository
