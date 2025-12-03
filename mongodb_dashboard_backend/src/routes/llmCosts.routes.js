@@ -139,16 +139,16 @@ router.get(
         res.removeHeader('ETag');
         res.removeHeader('Last-Modified');
       }
-      res.set('ETag', 'W/"disabled"');
+      res.set('ETag', 'W/\"disabled\"');
     } catch (_) {}
 
-    // Clamp pagination early
+    // Clamp pagination early (default 10, max 200)
     try {
       const lim = parseInt(req.query?.limit, 10);
       if (!Number.isFinite(lim) || lim <= 0) {
         req.query.limit = '10';
-      } else if (lim > 100) {
-        req.query.limit = '100';
+      } else if (lim > 200) {
+        req.query.limit = '200';
       }
       const pg = parseInt(req.query?.page, 10);
       if (!Number.isFinite(pg) || pg < 1) {
@@ -156,8 +156,43 @@ router.get(
       }
     } catch (_) {}
 
-    // Run memory-safe list
-    return listLlmCosts(req, res);
+    // Apply Mongo maxTimeMS and a route-level timeout (~1000ms)
+    const TIMEOUT_MS = 1000;
+    let timedOut = false;
+    const to = setTimeout(() => {
+      timedOut = true;
+      try {
+        // On timeout, return partial hint with 206
+        if (!res.headersSent) {
+          res.status(206).json({
+            success: false,
+            message: 'Query timed out',
+            data: [],
+            meta: { timedOut: true, maxTimeMS: TIMEOUT_MS }
+          });
+        }
+      } catch (_) {}
+    }, TIMEOUT_MS);
+
+    try {
+      // Flag downstream controller to use maxTimeMS
+      req.maxTimeMS = TIMEOUT_MS;
+      await listLlmCosts(req, res);
+    } catch (e) {
+      if (!res.headersSent) {
+        const msg = String(e?.message || e);
+        const isMongoTimeout = /operation exceeded time limit|timed out|MaxTimeMS/i.test(msg);
+        const status = isMongoTimeout ? 206 : 500;
+        res.status(status).json({
+          success: false,
+          message: isMongoTimeout ? 'Query exceeded time limit' : 'Internal server error',
+          data: [],
+          meta: { timedOut: isMongoTimeout || timedOut, maxTimeMS: TIMEOUT_MS }
+        });
+      }
+    } finally {
+      clearTimeout(to);
+    }
   })
 );
 

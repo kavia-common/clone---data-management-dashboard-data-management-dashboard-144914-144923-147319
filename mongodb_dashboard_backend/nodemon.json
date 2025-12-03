@@ -28,7 +28,7 @@
     "**/*.spec.js",
     "**/__tests__/**"
   ],
-  "delay": "800",
+  "delay": "1000",
   "signal": "SIGINT",
   "killSignal": "SIGINT",
   "env": {

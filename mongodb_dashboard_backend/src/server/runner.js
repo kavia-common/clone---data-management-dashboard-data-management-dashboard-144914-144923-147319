@@ -29,6 +29,13 @@ function log(msg, data) {
   } catch {}
 }
 
+/* Disable any inspector/source map related envs defensively for dev runner */
+try {
+  delete process.env.NODE_OPTIONS; // will not affect already-parsed options; ensures child spawns clean
+} catch {}
+try { process.env.GENERATE_SOURCEMAP = 'false'; } catch {}
+try { process.env.INSPECT = 'false'; process.env.INSPECT_BRK = 'false'; } catch {}
+
 // On start: log memory usage and GC flags (best-effort)
 try {
   const mu = process.memoryUsage();

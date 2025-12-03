@@ -1,110 +1,135 @@
 'use strict';
 
-const mongoose = require('mongoose');
-const LlmCosts = require('../models/llmCosts.model'); // model exists in models directory
-const { success, handleError } = require('../utils/http');
+const LLMCost = require('../models/llmCosts.model');
+const { success } = require('../utils/http');
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * list
+ * Handler: GET /api/llm-costs
+ * Returns list of LLM cost documents with strict pagination clamp, lean projection, Mongo maxTimeMS,
+ * and a route-level timeout handled by the caller (routes layer).
+ * - Default limit=10, max=200. If no explicit pagination provided, returns raw array (guarded by 50 items).
+ * - Enforces tenant scoping using req.tenantId/organizationId unless bypass flags are set.
+ * - Always returns JSON: 200 on success; 206 with minimal payload if maxTimeMS exceeded.
+ */
 async function list(req, res) {
-  /**
-   * PUBLIC_INTERFACE
-   * Handler: GET /api/llm-costs
-   * Returns list of LLM cost documents with strict pagination clamp and lean projection to minimize memory.
-   * - Enforces tenant scoping using req.tenantId/organizationId if present. Ignores tenant fields from client filter.
-   * - Default limit=10, max=100. If page/limit not provided, returns raw array with implicit limit 50 to guard memory.
-   */
+  // Disable caching defensively
   try {
-    // Parse and sanitize filter
-    let clientFilter = {};
-    if (req.query && req.query.filter) {
-      try {
-        clientFilter = JSON.parse(req.query.filter);
-      } catch {
-        return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    if (typeof res.removeHeader === 'function') {
+      res.removeHeader('ETag');
+      res.removeHeader('Last-Modified');
+    }
+  } catch (_) {}
+
+  // Pagination clamp
+  const defaultLimit = 10;
+  const maxLimit = 200;
+  const pageRaw = parseInt(req.query?.page, 10);
+  const limitRaw = parseInt(req.query?.limit, 10);
+  const usingExplicitPagination = Number.isFinite(pageRaw) || Number.isFinite(limitRaw);
+  const page = Math.max(1, Number.isFinite(pageRaw) ? pageRaw : 1);
+  let limit = Number.isFinite(limitRaw) ? limitRaw : defaultLimit;
+  if (!Number.isFinite(limit) || limit <= 0) limit = defaultLimit;
+  if (limit > maxLimit) limit = maxLimit;
+
+  const sort = (req.query?.sort && typeof req.query.sort === 'string') ? req.query.sort : '-timestamp';
+
+  // Build filter: start with tenant filter unless bypassed
+  let filter = {};
+  const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass);
+  const tenant = bypass ? null : (req.tenantId || req.organizationId || (req.auth?.tenantId ? String(req.auth.tenantId) : null));
+  if (tenant) {
+    filter.$or = [
+      { tenant_id: String(tenant) },
+      { organization_id: String(tenant) },
+      { orgId: String(tenant) },
+      { tenantId: String(tenant) },
+      { organizationId: String(tenant) },
+      { 'tenant.tenant_id': String(tenant) },
+    ];
+  }
+
+  // Merge client filter except tenant keys
+  try {
+    if (req.query?.filter) {
+      const userFilter = JSON.parse(req.query.filter);
+      delete userFilter.tenant_id;
+      delete userFilter.tenantId;
+      delete userFilter.organization_id;
+      delete userFilter.organizationId;
+      delete userFilter.orgId;
+      if (Object.keys(userFilter).length) {
+        filter = Object.keys(filter).length ? { $and: [filter, userFilter] } : userFilter;
       }
     }
-    delete clientFilter.tenant_id;
-    delete clientFilter.tenantId;
-    delete clientFilter.organization_id;
-    delete clientFilter.organizationId;
-    delete clientFilter.orgId;
+  } catch (e) {
+    return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+  }
 
-    // Resolve tenant
-    const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.costsAllTenantsBypass);
-    const resolvedTenant = bypass ? undefined : (req?.tenantId || req?.organizationId || (req?.auth?.tenantId ? String(req.auth.tenantId) : undefined));
-    const tenantFilter =
-      resolvedTenant
-        ? {
-            $or: [
-              { tenant_id: String(resolvedTenant) },
-              { organization_id: String(resolvedTenant) },
-              { orgId: String(resolvedTenant) },
-              { tenantId: String(resolvedTenant) },
-              { organizationId: String(resolvedTenant) },
-              { 'tenant.tenant_id': String(resolvedTenant) },
-            ],
-          }
-        : null;
+  // Projection to reduce payload
+  const projection = {
+    _id: 1,
+    tenant_id: 1,
+    organization_id: 1,
+    user_id: 1,
+    project_id: 1,
+    agent: 1,
+    agent_name: 1,
+    'metadata.agent': 1,
+    'metadata.Agent Name': 1,
+    total_cost: 1,
+    cost_usd: 1,
+    'cost.amount': 1,
+    'cost.currency': 1,
+    timestamp: 1,
+    created_at: 1,
+  };
 
-    const filter = tenantFilter
-      ? (Object.keys(clientFilter).length ? { $and: [clientFilter, tenantFilter] } : tenantFilter)
-      : clientFilter;
+  // Guard when no explicit pagination to avoid huge arrays in memory
+  const guardLimit = usingExplicitPagination ? limit : Math.min(50, maxLimit);
+  const skip = usingExplicitPagination ? (page - 1) * limit : 0;
 
-    // Pagination clamp
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const providedLimit = parseInt(req.query.limit, 10);
-    const defaultLimit = 10;
-    const maxLimit = 100;
-    const limit = Math.max(1, Math.min(maxLimit, Number.isFinite(providedLimit) ? providedLimit : defaultLimit));
-    const sort = (req.query.sort && String(req.query.sort)) || '-timestamp';
+  // Use Mongo maxTimeMS if provided by route, and clamp to [200, 2000]
+  const maxTimeMS = Math.max(200, Math.min(Number(req.maxTimeMS || 1000), 2000));
 
-    // Projection: return only commonly used fields
-    const projection = {
-      _id: 1,
-      tenant_id: 1,
-      organization_id: 1,
-      user_id: 1,
-      project_id: 1,
-      agent: 1,
-      agent_name: 1,
-      'metadata.agent': 1,
-      'metadata.Agent Name': 1,
-      total_cost: 1,
-      cost_usd: 1,
-      'cost.amount': 1,
-      'cost.currency': 1,
-      timestamp: 1,
-      created_at: 1,
-    };
-
-    // If no explicit pagination was provided, we still guard with a modest cap to avoid huge arrays in memory.
-    const usingExplicitPagination = Number.isFinite(providedLimit) || Number.isFinite(parseInt(req.query.page, 10));
-    const guardLimit = usingExplicitPagination ? limit : Math.min(50, maxLimit);
-    const skip = (page - 1) * guardLimit;
-
-    // Use lean() to avoid hydration, and avoid allowDiskUse on find
-    const query = LlmCosts.find(filter, projection).sort(sort).skip(skip).limit(guardLimit).lean({ getters: false, virtuals: false });
-    const items = await query.exec();
-
-    try {
-      if (resolvedTenant) {
-        res.set('X-Applied-Tenant', String(resolvedTenant));
-        res.set('x-applied-tenant-filter', JSON.stringify(filter));
-      }
-    } catch {}
+  try {
+    const query = LLMCost.find(filter, projection)
+      .sort(sort)
+      .skip(skip)
+      .limit(guardLimit)
+      .lean({ getters: false, virtuals: false })
+      .maxTimeMS(maxTimeMS);
 
     if (usingExplicitPagination) {
-      // Compute total count with the same filter, but avoid blocking: in dev this is fine for small tenants
-      const total = await LlmCosts.countDocuments(filter).exec();
-      return success(res, {
+      const [items, total] = await Promise.all([
+        query.exec(),
+        LLMCost.countDocuments(filter).maxTimeMS(maxTimeMS).exec(),
+      ]);
+      // Ensure 200 response with envelope
+      return res.status(200).json({
         success: true,
-        data: items,
-        meta: { page, limit: guardLimit, total },
+        data: items || [],
+        meta: { page, limit, total },
       });
     }
-    return success(res, items);
+
+    const items = await query.exec();
+    // For non-explicit pagination return raw array (consistent with OpenAPI)
+    return res.status(200).json(items || []);
   } catch (err) {
-    return handleError(res, err);
+    const msg = String(err?.message || err);
+    const isMongoTimeout = /operation exceeded time limit|timed out|MaxTimeMS/i.test(msg);
+    const status = isMongoTimeout ? 206 : 500;
+    return res.status(status).json({
+      success: false,
+      message: isMongoTimeout ? 'Query exceeded time limit' : 'Internal server error',
+      data: [],
+      meta: { timedOut: isMongoTimeout, maxTimeMS, page: usingExplicitPagination ? page : undefined, limit: usingExplicitPagination ? limit : undefined },
+    });
   }
 }
 
