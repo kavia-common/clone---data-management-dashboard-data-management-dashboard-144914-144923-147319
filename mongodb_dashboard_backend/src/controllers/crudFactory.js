@@ -130,10 +130,14 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
   // Build a default date range filter (last 180 days) on timestamp/created_at if none specified.
   // Rationale: Historical data often spans months; a too-narrow default silently empties results.
   // Apply default ONLY when no explicit timestamp/created_at criteria is present anywhere in the filter.
-  function injectDefaultDateWindowIfMissing(modelName, filter) {
+  function injectDefaultDateWindowIfMissing(modelName, filter, opts = {}) {
     try {
       if (modelName !== 'LLMCost') return filter;
       const f = filter && typeof filter === 'object' ? { ...filter } : {};
+      // If a tenant is explicitly resolved, do NOT apply any implicit date window (relaxed default)
+      if (opts && opts.explicitTenant) {
+        return f;
+      }
       // Helper to recursively detect timestamp/created_at usage in nested filters
       const hasDateIn = (obj) => {
         if (!obj || typeof obj !== 'object') return false;
@@ -276,16 +280,19 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       // Allow Super Admin global mode to bypass tenant checks
       const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass || req.sessionsAllTenantsBypass || req.deploymentsAllTenantsBypass || req.costsAllTenantsBypass);
       try { if (bypass) { res.set('X-All-Tenants', 'true'); } } catch(_) {}
-      // Relaxed: for list endpoints like /api/llm-costs and /api/session-tracking, allow organization_id/tenant_id query/header
+      // Relaxed: allow tenant alias resolution from headers/queries when not bypassed
       if (!bypass && !req.tenantId) {
-        // Attempt final resolution from common aliases if present
         const hdrOrg =
           (typeof req.headers?.['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
           (typeof req.headers?.['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+          (typeof req.headers?.['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
           '';
         const qOrg =
           (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
           (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+          (typeof req.query?.org_id === 'string' && req.query.org_id.trim()) ||
+          (typeof req.query?.organizationId === 'string' && req.query.organizationId.trim()) ||
+          (typeof req.query?.tenantId === 'string' && req.query.tenantId.trim()) ||
           '';
         if (hdrOrg || qOrg) {
           req.tenantId = String(hdrOrg || qOrg);
@@ -313,8 +320,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Build final applied filter with robust tenant alias removal and normalized OR across aliases
       let appliedFilter = (req.tenantScopeDisabled || req.allTenants) ? (filter && typeof filter === 'object' ? filter : {}) : mergeFilterWithTenant(filter, req.tenantId);
-      // Inject default 30-day window for llm-costs if client did not pass an explicit date filter
-      appliedFilter = injectDefaultDateWindowIfMissing(Model?.modelName, appliedFilter);
+      // Inject default date window for LLMCosts only when no explicit tenant is present (relaxed when organization provided)
+      appliedFilter = injectDefaultDateWindowIfMissing(Model?.modelName, appliedFilter, { explicitTenant: !!req.tenantId });
 
       // Expose applied filter, model collection and quick existence probe for diagnostics
       try {

@@ -208,11 +208,9 @@ router.use((req, res, next) => {
 router.get('/', asyncHandler(async (req, res) => {
   // Force fresh response for this endpoint only: disable caching/etag to avoid 304 with empty body
   try {
-    // Strongest cache-busting for dynamic JSON
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
-    // Remove validators to avoid 304
     if (typeof res.removeHeader === 'function') {
       res.removeHeader('ETag');
       res.removeHeader('Last-Modified');
@@ -220,16 +218,41 @@ router.get('/', asyncHandler(async (req, res) => {
     res.set('ETag', 'W/"disabled"');
   } catch (_) {}
 
+  // Normalize tenant aliases early if not already resolved (for demo/dev without JWT)
+  try {
+    if (!req.tenantId && !(req.tenantScopeDisabled || req.allTenants)) {
+      const hdrOrg =
+        (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+        (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
+        (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant'].trim()) ||
+        undefined;
+      const qOrg =
+        (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+        (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+        (typeof req.query?.org_id === 'string' && req.query.org_id.trim()) ||
+        (typeof req.query?.organizationId === 'string' && req.query.organizationId.trim()) ||
+        (typeof req.query?.tenantId === 'string' && req.query.tenantId.trim()) ||
+        undefined;
+      const resolved = hdrOrg || qOrg || undefined;
+      if (resolved) {
+        req.tenantId = String(resolved);
+      }
+    }
+  } catch (_) {}
+
   // Quick count path to minimize load
   if (String(req.query.counts || req.query.count || req.query.onlyCounts || '') === 'true') {
-    // delegate to controller.list which handles counts fast path and returns envelope
     req.query.page = req.query.page || '1';
     req.query.limit = req.query.limit || '1';
   }
+
   // Hint for sort stability on common compound index
   try { res.set('X-Index-Hint', '{ organization_id:1, timestamp:-1 }|{ tenant_id:1, timestamp:-1 }'); } catch (_) {}
+  try {
+    res.set('X-Disable-ETag', 'true');
+    res.set('X-Always-JSON', 'true');
+  } catch (_) {}
 
-  // Always ensure JSON 200 body will be sent by delegating to controller.list
   return controller.list(req, res);
 }));
 

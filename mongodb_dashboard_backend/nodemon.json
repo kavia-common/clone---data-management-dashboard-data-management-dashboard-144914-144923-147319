@@ -19,7 +19,10 @@
     "assets",
     "attachments",
     "interfaces",
-    "kavia-docs"
+    "kavia-docs",
+    "**/*.md",
+    "**/*.spec.js",
+    "**/__tests__/**"
   ],
   "delay": "1200",
   "signal": "SIGINT",
