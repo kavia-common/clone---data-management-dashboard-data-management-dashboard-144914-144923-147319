@@ -196,7 +196,17 @@ router.use((req, res, next) => {
  *       403:
  *         description: Forbidden on tenant mismatch with Authorization
  */
-router.get('/', asyncHandler(controller.list));
+router.get('/', asyncHandler(async (req, res) => {
+  // Quick count path to minimize load
+  if (String(req.query.counts || req.query.count || req.query.onlyCounts || '') === 'true') {
+    // delegate to controller.list which handles counts fast path and returns envelope
+    req.query.page = req.query.page || '1';
+    req.query.limit = req.query.limit || '1';
+  }
+  // Hint for sort stability on common compound index
+  try { res.set('X-Index-Hint', '{ organization_id:1, timestamp:-1 }|{ tenant_id:1, timestamp:-1 }'); } catch (_) {}
+  return controller.list(req, res);
+}));
 
 router.get('/:id', asyncHandler(controller.getById));
 router.post('/', asyncHandler(controller.create));

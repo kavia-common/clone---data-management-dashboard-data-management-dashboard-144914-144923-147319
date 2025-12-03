@@ -1,0 +1,17 @@
+{
+  "watch": ["src"],
+  "ext": "js,json",
+  "ignore": ["node_modules", "dist", "build", "*.log", "*.lock", ".git"],
+  "delay": "200",
+  "signal": "SIGTERM",
+  "env": {
+    "HOST": "0.0.0.0",
+    "PORT": "3001",
+    "NODE_ENV": "development",
+    "MICRO_CACHE_TTL_MS": "1500"
+  },
+  "events": {
+    "restart": "echo '[nodemon] restarting due to changes...'",
+    "crash": "echo '[nodemon] app crashed - waiting for file changes before starting...'"
+  }
+}

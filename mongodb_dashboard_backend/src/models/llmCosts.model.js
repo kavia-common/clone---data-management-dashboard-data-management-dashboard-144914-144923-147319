@@ -52,6 +52,7 @@ LLMCostsSchema.index({ timestamp: -1 });
 
 // Useful indexes for common filter/sort combos
 LLMCostsSchema.index({ organization_id: 1, timestamp: -1 }); // main path by org with recent-first sort
+LLMCostsSchema.index({ organization_id: 1, _id: -1 }); // stable pagination by org
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
 

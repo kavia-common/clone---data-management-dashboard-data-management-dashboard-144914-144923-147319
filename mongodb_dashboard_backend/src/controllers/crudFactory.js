@@ -21,7 +21,7 @@ function validateSort(sort, allowed = ['timestamp', 'created_at', '_id']) {
 /**
  * Enforce a maximum page size limit for safety.
  */
-function clampLimit(limit, max = 1000, defaultLimit = 50) {
+function clampLimit(limit, max = 200, defaultLimit = 25) {
   const n = parseInt(limit, 10);
   if (!Number.isFinite(n)) {return Math.min(defaultLimit, max);}
   const capped = Math.max(1, Math.min(n, max));
@@ -134,11 +134,12 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const f = filter && typeof filter === 'object' ? { ...filter } : {};
       const hasExplicitDate =
         (f.timestamp && typeof f.timestamp === 'object') ||
-        (f.created_at && typeof f.created_at === 'object') ||
+        (f.created_at && typeof f.created_at === 'object']) ||
         (f.$and && Array.isArray(f.$and) && f.$and.some((c) => (c.timestamp || c.created_at)));
       if (hasExplicitDate) return f;
       const to = new Date();
-      const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+      // Default to last 14 days to reduce memory/scan
+      const from = new Date(to.getTime() - 14 * 24 * 60 * 60 * 1000);
       const dateRange = {
         $or: [
           { timestamp: { $gte: from, $lte: to } },
@@ -354,6 +355,11 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           if (cached) {return res.status(200).json(cached);}
 
           const runQuery = async () => {
+            // Quick path: counts only
+            if (String(req.query.counts || req.query.count || req.query.onlyCounts || '') === 'true') {
+              const total = await Model.countDocuments(appliedFilter).maxTimeMS?.(600) ?? await Model.countDocuments(appliedFilter);
+              return { items: [], total };
+            }
             // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
             let items;
             if (isLLMCost) {
@@ -383,11 +389,12 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                   { $skip: skip },
                   { $limit: hardCappedLimit },
                 ];
-                items = await Model.aggregate(pipeline).allowDiskUse(true);
+                // Set per-op timeout
+                items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 800 });
               } catch (_) {
                 // Fallback: prefer minimal projection to reduce payload
                 const projection = { breakdown: 0, metadata: 0 };
-                items = await Model.find(appliedFilter, projection).sort(sortStage).skip(skip).limit(hardCappedLimit).lean();
+                items = await Model.find(appliedFilter, projection).sort(sortStage).skip(skip).limit(hardCappedLimit).maxTimeMS(800).lean();
               }
             } else if (isAppDeployment) {
               try {
@@ -419,7 +426,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             } else {
               items = await Model.find(appliedFilter).sort(sortStage).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
             }
-            const total = await Model.countDocuments(appliedFilter);
+            const total = await Model.countDocuments(appliedFilter).maxTimeMS?.(600) ?? await Model.countDocuments(appliedFilter);
             return { items, total };
           };
 
@@ -482,7 +489,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 },
                 { $sort: sortStage },
               ];
-              return await Model.aggregate(pipeline).allowDiskUse(true);
+              return await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 800 });
             }
             if (isAppDeployment) {
               const pipeline = [
@@ -504,7 +511,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               return await Model.aggregate(pipeline).allowDiskUse(true);
             }
             // default (non-LLMCost/AppDeployment) just returns the query results
-            return await Model.find(appliedFilter).sort(sortStage).allowDiskUse(true).lean();
+            return await Model.find(appliedFilter).sort(sortStage).maxTimeMS(800).allowDiskUse(true).lean();
           };
 
           const timed = await withRequestTimeout(runAgg, {
