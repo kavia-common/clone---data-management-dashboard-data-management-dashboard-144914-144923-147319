@@ -22,6 +22,8 @@
     "attachments",
     "interfaces",
     "kavia-docs",
+    "../../data-management-dashboard-144914-144924/**",
+    "../../data-management-dashboard-144914-144924/mongodb_dashboard_frontend/**",
     "../mongodb_dashboard_frontend/**",
     "../**/frontend/**",
     "**/*.md",

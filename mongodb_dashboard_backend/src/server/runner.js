@@ -48,6 +48,8 @@ try {
   log('NODE_OPTIONS', process.env.NODE_OPTIONS || '(unset)');
 } catch {}
 
+const HEAP_RSS_ABORT_MB = 300;
+
 // Start the server by requiring the existing entry (side-effect export of started server instance)
 let serverInstance = null;
 try {
@@ -60,6 +62,24 @@ try {
   // eslint-disable-next-line no-console
   console.error('[serverRunner] Failed to start server via ../server.js:', e?.message || e);
 }
+
+// Periodic memory usage monitor to avoid OOM in dev
+try {
+  const intervalMs = 15000;
+  setInterval(() => {
+    try {
+      const mu = process.memoryUsage();
+      const rssMB = Math.round(mu.rss / 1024 / 1024);
+      const heapUsedMB = Math.round(mu.heapUsed / 1024 / 1024);
+      if (rssMB >= HEAP_RSS_ABORT_MB) {
+        console.warn('[serverRunner] RSS exceeded threshold; initiating graceful shutdown', { rssMB, heapUsedMB, threshold: HEAP_RSS_ABORT_MB });
+        gracefulShutdown('RSS_LIMIT', 1);
+      } else {
+        log('memory', { rssMB, heapUsedMB });
+      }
+    } catch {}
+  }, intervalMs).unref?.();
+} catch {}
 
 /**
  * Graceful shutdown routine
