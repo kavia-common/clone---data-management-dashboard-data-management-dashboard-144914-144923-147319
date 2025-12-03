@@ -179,9 +179,21 @@ if (process.env.NODE_ENV !== 'test') {
   if (!process.env.MONGODB_URI) {
     console.warn('[startup] MONGODB_URI not set. Starting without DB connection.');
   } else {
-    connectDB().catch((err) =>
-      console.error('Failed to connect to MongoDB on startup:', err.message)
-    );
+    connectDB()
+      .then(async () => {
+        try {
+          const { ensureLlmCostsIndexes } = require('./models/llmCosts.indexes');
+          // fire-and-forget; do not await to keep startup snappy
+          Promise.resolve(ensureLlmCostsIndexes())
+            .then(() => console.log('[startup] ensureLlmCostsIndexes scheduled'))
+            .catch((e) => console.warn('[startup] ensureLlmCostsIndexes failed:', e?.message || e));
+        } catch (e) {
+          console.warn('[startup] ensureLlmCostsIndexes unavailable:', e?.message || e);
+        }
+      })
+      .catch((err) =>
+        console.error('Failed to connect to MongoDB on startup:', err.message)
+      );
   }
 } else {
   try { mongoose.set('bufferCommands', false); } catch { }

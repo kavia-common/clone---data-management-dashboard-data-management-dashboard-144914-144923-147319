@@ -167,11 +167,11 @@ async function listLlmCosts(req, res) {
   // Adjustable constants
   const DEFAULT_PAGE_LIMIT = 50;
   const MAX_PAGE_LIMIT = 200;
-  const MAX_DAYS_WINDOW = Number(process.env.LLMCOSTS_MAX_DAYS_WINDOW || 90);
+  const MAX_DAYS_WINDOW = Number(process.env.LLMCOSTS_MAX_DAYS_WINDOW || 7); // strict 7-day default window
   const MAX_ALL_LIMIT = Number(process.env.LLMCOSTS_MAX_ALL_LIMIT || 20000);
-  const CURSOR_BATCH_SIZE = Number(process.env.LLMCOSTS_CURSOR_BATCH_SIZE || 500);
-  const DB_MAX_TIME_MS = Number(process.env.LLMCOSTS_MAX_TIME_MS || 8000); // tighter DB max time to reduce 504 likelihood
-  const HANDLER_TIMEOUT_MS = Number(process.env.LLMCOSTS_HANDLER_TIMEOUT_MS || 9500);
+  const CURSOR_BATCH_SIZE = Number(process.env.LLMCOSTS_CURSOR_BATCH_SIZE || 200); // lower batch to smooth memory
+  const DB_MAX_TIME_MS = Number(process.env.LLMCOSTS_MAX_TIME_MS || 4000); // hard cap for DB work
+  const HANDLER_TIMEOUT_MS = Number(process.env.LLMCOSTS_HANDLER_TIMEOUT_MS || 5000); // fast-fail 504
 
   // diagnostics flag: DEFAULT TO FALSE to reduce overhead unless explicitly enabled
   const diagnosticsEnabled = String(req.query.diagnostics || 'false').toLowerCase() !== 'false';
@@ -196,7 +196,15 @@ async function listLlmCosts(req, res) {
       }
     }
 
-    const tenant = jwtTenant || headerTenant || queryTenant || req?.tenantId || req?.organizationId || null;
+    // Resolve tenant preferring explicit organization_id when provided to align with org-based indexes
+    const tenant =
+      (req.query?.organization_id ? String(req.query.organization_id) : null) ||
+      (headerTenant ? String(headerTenant) : null) ||
+      (jwtTenant ? String(jwtTenant) : null) ||
+      (req?.tenantId ? String(req.tenantId) : null) ||
+      (req?.organizationId ? String(req.organizationId) : null) ||
+      (queryTenant ? String(queryTenant) : null) ||
+      null;
     diag.tenant = tenant;
     if (!tenant) {
       diag.error = 'missing_tenant';
@@ -280,10 +288,13 @@ async function listLlmCosts(req, res) {
     // Effective filter (ensure indexed fields used)
     // Choose a single indexed field for the tenant filter to guarantee use of a compound index
     // Prefer tenant_id; fall back to organization_id
-    const tenantField = 'tenant_id';
-    // If dataset historically used organization_id, allow switching key based on an env hint
-    const useOrg = String(process.env.LLMCOSTS_USE_ORG_ALIAS || '').toLowerCase() === 'true';
-    const effectiveTenantKey = useOrg ? 'organization_id' : tenantField;
+    // Select effective tenant key:
+    // - If the client provided organization_id, strictly use organization_id to align with its index.
+    // - Else use tenant_id by default (or env override).
+    const tenantFieldDefault = 'tenant_id';
+    const useOrgEnv = String(process.env.LLMCOSTS_USE_ORG_ALIAS || '').toLowerCase() === 'true';
+    const providedOrgId = req.query?.organization_id || headerTenant; // header is x-organization-id
+    const effectiveTenantKey = providedOrgId ? 'organization_id' : (useOrgEnv ? 'organization_id' : tenantFieldDefault);
 
     const filter = {
       [effectiveTenantKey]: tenant,
@@ -297,6 +308,10 @@ async function listLlmCosts(req, res) {
           }
         : {}),
     };
+    // lightweight timing breadcrumb
+    if (process.env.DEBUG_LLMCOSTS_TIMING === '1') {
+      console.log('[llm-costs] filter built', { key: effectiveTenantKey, hasFrom: !!from, hasTo: !!to });
+    }
 
     // Whitelisted optional filter json parsing (skip heavy validation)
     if (req.query.filter) {
@@ -314,6 +329,7 @@ async function listLlmCosts(req, res) {
     }
 
     // Minimal projection
+    const includeDetails = String(req.query.includeDetails || 'false').toLowerCase() === 'true';
     const projection = {
       _id: 1,
       request_id: 1,
@@ -332,9 +348,19 @@ async function listLlmCosts(req, res) {
       project_id: 1,
       tokens_in: 1,
       tokens_out: 1,
-      prompt: 1,
-      completion: 1,
-      breakdown: 1,
+      // Exclude heavy text fields unless explicitly requested
+      ...(includeDetails ? { prompt: 1, completion: 1 } : { prompt: 0, completion: 0 }),
+      // Exclude heavy nested fields unless explicitly requested
+      ...(includeDetails
+        ? {
+            breakdown: 1,
+            metadata: 1,
+          }
+        : {
+            breakdown: 0,
+            metadata: 0,
+          }),
+      // Keep minimal fields for cost calc
       'breakdown.prompt_tokens': 1,
       'breakdown.completion_tokens': 1,
       'breakdown.input_tokens': 1,
@@ -347,7 +373,6 @@ async function listLlmCosts(req, res) {
       duration_ms: 1,
       latency_ms: 1,
       status: 1,
-      metadata: 1,
     };
 
     diag.filter = filter;
@@ -385,22 +410,24 @@ async function listLlmCosts(req, res) {
     }
 
     const builtEnd = Date.now();
+    if (process.env.DEBUG_LLMCOSTS_TIMING === '1') {
+      console.log('[llm-costs] timings', { parsed_ms: parseEnd - startedAt, built_ms: builtEnd - parseEnd });
+    }
 
     // Execute with internal timeout guard
     const execPromise = (async () => {
       const rawItems = await cursor.toArray();
 
-      // Run countDocuments only when pagination is requested AND diagnostics is explicitly enabled.
-      // This avoids a second indexed scan in the hot path.
+      // Run countDocuments only when explicitly requested via ?total=true and pagination is requested.
       let total = null;
-      if (!wantsAll && diagnosticsEnabled) {
+      const wantsTotal = String(req.query.total || 'false').toLowerCase() === 'true';
+      if (!wantsAll && wantsTotal) {
         try {
           total = await collection.countDocuments(filter, {
-            maxTimeMS: Math.max(1500, Math.floor(DB_MAX_TIME_MS * 0.6)),
-            // hint the same index where possible to ensure a single-index scan path
+            maxTimeMS: Math.max(1000, Math.floor(DB_MAX_TIME_MS * 0.75)),
           });
         } catch {
-          // If count fails due to time, degrade gracefully: only provide page count
+          // degrade gracefully
           total = null;
         }
       }
@@ -415,6 +442,9 @@ async function listLlmCosts(req, res) {
 
     const result = await Promise.race([execPromise, timeoutPromise]);
     const execEnd = Date.now();
+    if (process.env.DEBUG_LLMCOSTS_TIMING === '1') {
+      console.log('[llm-costs] exec_ms', execEnd - builtEnd);
+    }
 
     if (result && result.timeout) {
       // Timeout: return clear message without crashing
