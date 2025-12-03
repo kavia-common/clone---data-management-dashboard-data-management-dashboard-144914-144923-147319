@@ -127,19 +127,27 @@ function mergeFilterWithTenant(filter, tenantId) {
  */
 function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
-  // Build a default date range filter (last 30 days) on timestamp/created_at if none specified.
+  // Build a default date range filter (last 180 days) on timestamp/created_at if none specified.
+  // Rationale: Historical data often spans months; a too-narrow default silently empties results.
+  // Apply default ONLY when no explicit timestamp/created_at criteria is present anywhere in the filter.
   function injectDefaultDateWindowIfMissing(modelName, filter) {
     try {
       if (modelName !== 'LLMCost') return filter;
       const f = filter && typeof filter === 'object' ? { ...filter } : {};
-      const hasExplicitDate =
-        (f.timestamp && typeof f.timestamp === 'object') ||
-        (f.created_at && typeof f.created_at === 'object']) ||
-        (f.$and && Array.isArray(f.$and) && f.$and.some((c) => (c.timestamp || c.created_at)));
-      if (hasExplicitDate) return f;
+      // Helper to recursively detect timestamp/created_at usage in nested filters
+      const hasDateIn = (obj) => {
+        if (!obj || typeof obj !== 'object') return false;
+        if (obj.timestamp && typeof obj.timestamp === 'object') return true;
+        if (obj.created_at && typeof obj.created_at === 'object') return true;
+        if (Array.isArray(obj.$and) && obj.$and.some((c) => hasDateIn(c))) return true;
+        if (Array.isArray(obj.$or) && obj.$or.some((c) => hasDateIn(c))) return true;
+        return false;
+      };
+      if (hasDateIn(f)) return f;
+
       const to = new Date();
-      // Default to last 14 days to reduce memory/scan
-      const from = new Date(to.getTime() - 14 * 24 * 60 * 60 * 1000);
+      // More permissive default: last 180 days
+      const from = new Date(to.getTime() - 180 * 24 * 60 * 60 * 1000);
       const dateRange = {
         $or: [
           { timestamp: { $gte: from, $lte: to } },
@@ -366,8 +374,10 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               try {
                 const pipeline = [
                   { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+                  // Normalize key fields for downstream sort/projection
                   { $addFields: {
                       timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                      created_at: { $ifNull: ['$created_at', '$timestamp'] },
                       organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
                       numeric_total_cost: {
                         $convert: {
@@ -470,6 +480,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
                 { $addFields: {
                     timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                    created_at: { $ifNull: ['$created_at', '$timestamp'] },
                     organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
                     numeric_total_cost: {
                       $convert: {
