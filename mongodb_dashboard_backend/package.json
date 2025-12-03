@@ -5,9 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "start": "cross-env NODE_OPTIONS=\"--max_old_space_size=320 --heapsnapshot-near-heap-limit=1\" DISABLE_ETAG=true GENERATE_SOURCEMAP=false INSPECT=false INSPECT_BRK=false node src/server.js",
-    "dev": "cross-env NODE_ENV=development NODE_OPTIONS=\"--max_old_space_size=320 --heapsnapshot-near-heap-limit=1\" DISABLE_ETAG=true GENERATE_SOURCEMAP=false INSPECT=false INSPECT_BRK=false BROWSERSLIST_DISABLE_CACHE=1 nodemon --signal SIGINT --delay 1200ms --watch src --ext js,json src/server/runner.js",
-    "dev:watch": "cross-env NODE_ENV=development NODE_OPTIONS=\"--max_old_space_size=320 --heapsnapshot-near-heap-limit=1\" DISABLE_ETAG=true GENERATE_SOURCEMAP=false INSPECT=false INSPECT_BRK=false BROWSERSLIST_DISABLE_CACHE=1 nodemon --signal SIGINT --delay 1200ms --watch src --ext js,json src/server/runner.js",
-    "dev:nodemon": "cross-env NODE_ENV=development NODE_OPTIONS=\"--max_old_space_size=320 --heapsnapshot-near-heap-limit=1\" DISABLE_ETAG=true GENERATE_SOURCEMAP=false INSPECT=false INSPECT_BRK=false BROWSERSLIST_DISABLE_CACHE=1 nodemon --signal SIGINT --delay 1200ms --watch src --ext js,json src/server/runner.js",
+    "dev": "cross-env NODE_ENV=development NODE_OPTIONS=\"--max_old_space_size=320 --heapsnapshot-near-heap-limit=1\" DISABLE_ETAG=true GENERATE_SOURCEMAP=false INSPECT=false INSPECT_BRK=false nodemon --config nodemon.json src/server/runner.js",
+    "dev:watch": "cross-env NODE_ENV=development NODE_OPTIONS=\"--max_old_space_size=320 --heapsnapshot-near-heap-limit=1\" DISABLE_ETAG=true GENERATE_SOURCEMAP=false INSPECT=false INSPECT_BRK=false nodemon --config nodemon.json src/server/runner.js",
+    "dev:nodemon": "cross-env NODE_ENV=development NODE_OPTIONS=\"--max_old_space_size=320 --heapsnapshot-near-heap-limit=1\" DISABLE_ETAG=true GENERATE_SOURCEMAP=false INSPECT=false INSPECT_BRK=false nodemon --config nodemon.json src/server/runner.js",
     "preview": "cross-env NODE_OPTIONS=\"--max_old_space_size=320 --heapsnapshot-near-heap-limit=1\" DISABLE_ETAG=true GENERATE_SOURCEMAP=false INSPECT=false INSPECT_BRK=false node src/server.js",
     "docs": "echo 'Swagger UI at http://localhost:3001/api-docs (alias: /docs)' && node -e \"console.log('OpenAPI JSON at /openapi.json')\"",
     "health": "curl -sSf http://127.0.0.1:${PORT:-3001}/health || true",

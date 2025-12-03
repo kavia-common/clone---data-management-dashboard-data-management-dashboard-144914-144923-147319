@@ -94,7 +94,7 @@ async function connectDB() {
       ? 500
       : Math.min(
           20000,
-          Math.max(10000, Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS || 15000))
+          Math.max(15000, Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS || 15000))
         ),
     socketTimeoutMS: Math.min(
       120000,
