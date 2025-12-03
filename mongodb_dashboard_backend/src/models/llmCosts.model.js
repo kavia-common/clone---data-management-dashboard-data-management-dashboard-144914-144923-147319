@@ -41,11 +41,22 @@ const LLMCostsSchema = new mongoose.Schema(
   }
 );
 
+/**
+ * Indexes:
+ * - Single-field: organization_id, tenant_id, timestamp
+ * - Compound: { organization_id:1, timestamp:-1 }, { tenant_id:1, timestamp:-1 }, and stable sort variants with _id
+ */
+LLMCostsSchema.index({ organization_id: 1 });
+LLMCostsSchema.index({ tenant_id: 1 });
+LLMCostsSchema.index({ timestamp: -1 });
+
 // Useful indexes for common filter/sort combos
+LLMCostsSchema.index({ organization_id: 1, timestamp: -1 }); // main path by org with recent-first sort
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1 }); // supports default sort and tenant scoping
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1 }); // alternative sort path
 
 // Add compound indexes for the common list path and sort stability
+LLMCostsSchema.index({ organization_id: 1, timestamp: -1, _id: 1 });
 LLMCostsSchema.index({ tenant_id: 1, timestamp: -1, _id: 1 });
 LLMCostsSchema.index({ tenant_id: 1, created_at: -1, _id: 1 });
 

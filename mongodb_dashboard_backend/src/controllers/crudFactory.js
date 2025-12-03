@@ -1,4 +1,4 @@
-const { parsePagination, success, failure } = require('../utils/http');
+const { parsePagination, success, failure, withRequestTimeout } = require('../utils/http');
 
 /**
  * Validate sort string against a whitelist to prevent unindexed/in-memory heavy sorts.
@@ -21,10 +21,12 @@ function validateSort(sort, allowed = ['timestamp', 'created_at', '_id']) {
 /**
  * Enforce a maximum page size limit for safety.
  */
-function clampLimit(limit, max = 500) {
+function clampLimit(limit, max = 1000, defaultLimit = 50) {
   const n = parseInt(limit, 10);
-  if (!Number.isFinite(n)) {return Math.min(20, max);}
-  return Math.max(1, Math.min(n, max));
+  if (!Number.isFinite(n)) {return Math.min(defaultLimit, max);}
+  const capped = Math.max(1, Math.min(n, max));
+  // Additional safety: default page size should not exceed 50, and hard cap at 1000
+  return Math.min(capped, max);
 }
 
 /**
@@ -124,6 +126,30 @@ function mergeFilterWithTenant(filter, tenantId) {
  * Build a REST controller for a Mongoose model with tenant enforcement.
  */
 function buildCrudController(Model, listDefaultSort = '-timestamp') {
+
+  // Build a default date range filter (last 30 days) on timestamp/created_at if none specified.
+  function injectDefaultDateWindowIfMissing(modelName, filter) {
+    try {
+      if (modelName !== 'LLMCost') return filter;
+      const f = filter && typeof filter === 'object' ? { ...filter } : {};
+      const hasExplicitDate =
+        (f.timestamp && typeof f.timestamp === 'object') ||
+        (f.created_at && typeof f.created_at === 'object') ||
+        (f.$and && Array.isArray(f.$and) && f.$and.some((c) => (c.timestamp || c.created_at)));
+      if (hasExplicitDate) return f;
+      const to = new Date();
+      const from = new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const dateRange = {
+        $or: [
+          { timestamp: { $gte: from, $lte: to } },
+          { created_at: { $gte: from, $lte: to } },
+        ],
+      };
+      return Object.keys(f).length ? { $and: [f, dateRange] } : dateRange;
+    } catch {
+      return filter;
+    }
+  }
   // Map known Mongoose errors to user-friendly responses
   function mapAndReplyError(res, err, context = 'operation') {
     const name = err?.name || '';
@@ -210,7 +236,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Parse pagination but hard-cap the limit to prevent heavy responses.
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
-      const hardCappedLimit = clampLimit(parsedLimit, 500);
+      // For LLMCosts, keep small default cap (<=50) and hard cap 1000
+      const isLLMCostModel = Model?.modelName === 'LLMCost';
+      const hardCappedLimit = isLLMCostModel ? clampLimit(parsedLimit, 1000, 50) : clampLimit(parsedLimit, 500, 50);
 
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
@@ -261,7 +289,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       }
 
       // Build final applied filter with robust tenant alias removal and normalized OR across aliases
-      const appliedFilter = (req.tenantScopeDisabled || req.allTenants) ? (filter && typeof filter === 'object' ? filter : {}) : mergeFilterWithTenant(filter, req.tenantId);
+      let appliedFilter = (req.tenantScopeDisabled || req.allTenants) ? (filter && typeof filter === 'object' ? filter : {}) : mergeFilterWithTenant(filter, req.tenantId);
+      // Inject default 30-day window for llm-costs if client did not pass an explicit date filter
+      appliedFilter = injectDefaultDateWindowIfMissing(Model?.modelName, appliedFilter);
 
       // Expose applied filter, model collection and quick existence probe for diagnostics
       try {
@@ -281,6 +311,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         ? ['timestamp', 'created_at', 'updated_at', '_id', 'status', 'branch_name', 'project_name']
         : ['timestamp', 'created_at', '_id'];
       const safeSort = validateSort(req.query.sort || listDefaultSort, allowedSorts);
+      const sortStage = safeSort
+        ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1, _id: -1 } : { [safeSort]: 1, _id: 1 })
+        : { timestamp: -1, _id: -1 };
 
       // execute DB operations with safe sort and enforced tenant filter
       try {
@@ -315,19 +348,117 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           // pagination path
 
         if (req.method === 'GET' && explicit) {
-                    // cache and return envelope
-
+          // cache and return envelope
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
           if (cached) {return res.status(200).json(cached);}
-          
-          // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
-          let items;
-          if (isLLMCost) {
-            try {
-              const sortStage = safeSort
-                ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
-                : { timestamp: -1 };
+
+          const runQuery = async () => {
+            // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
+            let items;
+            if (isLLMCost) {
+              try {
+                const pipeline = [
+                  { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+                  { $addFields: {
+                      timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                      organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
+                      numeric_total_cost: {
+                        $convert: {
+                          input: {
+                            $replaceAll: {
+                              input: { $toString: { $ifNull: ['$total_cost', 0] } },
+                              find: '$',
+                              replacement: ''
+                            }
+                          },
+                          to: 'double',
+                          onError: 0,
+                          onNull: 0
+                        }
+                      }
+                    }
+                  },
+                  { $sort: sortStage },
+                  { $skip: skip },
+                  { $limit: hardCappedLimit },
+                ];
+                items = await Model.aggregate(pipeline).allowDiskUse(true);
+              } catch (_) {
+                // Fallback: prefer minimal projection to reduce payload
+                const projection = { breakdown: 0, metadata: 0 };
+                items = await Model.find(appliedFilter, projection).sort(sortStage).skip(skip).limit(hardCappedLimit).lean();
+              }
+            } else if (isAppDeployment) {
+              try {
+                const pipeline = [
+                  { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
+                  { $addFields: {
+                      // Normalize timestamp fields for consistent sorting
+                      timestamp: { $ifNull: ['$timestamp', '$created_at'] },
+                      created_at: { $ifNull: ['$created_at', '$createdAt'] },
+                      updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
+                      // Compute project_name from various sources
+                      project_name: {
+                        $ifNull: [
+                          '$project_name',
+                          { $ifNull: ['$projectName', { $ifNull: ['$metadata.projectName', '$project.name'] }] }
+                        ]
+                      }
+                    }
+                  },
+                  { $sort: sortStage },
+                  { $skip: skip },
+                  { $limit: hardCappedLimit },
+                ];
+                items = await Model.aggregate(pipeline).allowDiskUse(true);
+              } catch (_) {
+                // Fallback: simple find; project_name may be missing if stored under a different key
+                items = await Model.find(appliedFilter).sort(sortStage).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              }
+            } else {
+              items = await Model.find(appliedFilter).sort(sortStage).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+            }
+            const total = await Model.countDocuments(appliedFilter);
+            return { items, total };
+          };
+
+          const timed = await withRequestTimeout(runQuery, {
+            ms: 900,
+            onTimeout: async () => {
+              // Produce a partial, lightweight snapshot
+              const projection = isLLMCostModel
+                ? { _id: 1, timestamp: 1, created_at: 1, total_cost: 1, tenant_id: 1, organization_id: 1 }
+                : { _id: 1 };
+              const items = await Model.find(appliedFilter, projection).sort(sortStage).limit(Math.min(hardCappedLimit, 25)).lean();
+              return { items, total: undefined };
+            },
+          });
+
+          if (timed.timedOut) {
+            return res.status(206).json({
+              success: true,
+              data: timed.partial?.items || [],
+              meta: { page, limit: hardCappedLimit, total: timed.partial?.total ?? null, partial: true, timeoutMs: 900 },
+            });
+          }
+          if (timed.error) {
+            throw timed.error;
+          }
+          const { items, total } = timed.value || { items: [], total: 0 };
+          const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
+          microSet(key, payload);
+          return res.status(200).json(payload);
+        }
+
+        // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
+        // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
+        // Avoid allowDiskUse on simple find; prefer aggregation for heavy ops
+        let query = Model.find(appliedFilter, { breakdown: 0, metadata: 0 }).sort(sortStage).lean();
+        try {
+          const runAgg = async () => {
+            if (isLLMCost) {
+              // Use aggregation for minimal transformation without large memory footprint
               const pipeline = [
                 { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
                 { $addFields: {
@@ -350,28 +481,16 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                   }
                 },
                 { $sort: sortStage },
-                { $skip: skip },
-                { $limit: hardCappedLimit },
               ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
-            } catch (_) {
-              // Fallback: prefer minimal projection to reduce payload
-              const projection = { breakdown: 0, metadata: 0 };
-              items = await Model.find(appliedFilter, projection).sort(safeSort).skip(skip).limit(hardCappedLimit).lean();
+              return await Model.aggregate(pipeline).allowDiskUse(true);
             }
-          } else if (isAppDeployment) {
-            try {
-              const sortStage = safeSort
-                ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
-                : { timestamp: -1 };
+            if (isAppDeployment) {
               const pipeline = [
                 { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
                 { $addFields: {
-                    // Normalize timestamp fields for consistent sorting
                     timestamp: { $ifNull: ['$timestamp', '$created_at'] },
                     created_at: { $ifNull: ['$created_at', '$createdAt'] },
                     updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
-                    // Compute project_name from various sources
                     project_name: {
                       $ifNull: [
                         '$project_name',
@@ -381,81 +500,36 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                   }
                 },
                 { $sort: sortStage },
-                { $skip: skip },
-                { $limit: hardCappedLimit },
               ];
-              items = await Model.aggregate(pipeline).allowDiskUse(true);
-            } catch (_) {
-              // Fallback: simple find; project_name may be missing if stored under a different key
-              items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              return await Model.aggregate(pipeline).allowDiskUse(true);
             }
-          } else {
-            items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
-          }
-          const total = await Model.countDocuments(appliedFilter);
-          const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
-          microSet(key, payload);
-          return res.status(200).json(payload);
-        }
+            // default (non-LLMCost/AppDeployment) just returns the query results
+            return await Model.find(appliedFilter).sort(sortStage).allowDiskUse(true).lean();
+          };
 
-        // Non-paginated path: still enforce allowDiskUse and safeSort with tenant filter first.
-        // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
-        // Avoid allowDiskUse on simple find; prefer aggregation for heavy ops
-        let query = Model.find(appliedFilter, { breakdown: 0, metadata: 0 }).sort(safeSort).lean();
-        try {
-          if (isLLMCost) {
-            // Use aggregation for minimal transformation without large memory footprint
-            const pipeline = [
-              { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-              { $addFields: {
-                  timestamp: { $ifNull: ['$timestamp', '$created_at'] },
-                  organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
-                  numeric_total_cost: {
-                    $convert: {
-                      input: {
-                        $replaceAll: {
-                          input: { $toString: { $ifNull: ['$total_cost', 0] } },
-                          find: '$',
-                          replacement: ''
-                        }
-                      },
-                      to: 'double',
-                      onError: 0,
-                      onNull: 0
-                    }
-                  }
-                }
-              },
-              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
-            ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
-            return res.status(200).json(items);
+          const timed = await withRequestTimeout(runAgg, {
+            ms: 900,
+            onTimeout: async () => {
+              const projection = isLLMCostModel
+                ? { _id: 1, timestamp: 1, created_at: 1, total_cost: 1, tenant_id: 1, organization_id: 1 }
+                : { _id: 1 };
+              return await Model.find(appliedFilter, projection).sort(sortStage).limit(25).lean();
+            },
+          });
+
+          if (timed.timedOut) {
+            return res.status(206).json(timed.partial || []);
           }
-          if (isAppDeployment) {
-            const pipeline = [
-              { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-              { $addFields: {
-                  timestamp: { $ifNull: ['$timestamp', '$created_at'] },
-                  created_at: { $ifNull: ['$created_at', '$createdAt'] },
-                  updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
-                  project_name: {
-                    $ifNull: [
-                      '$project_name',
-                      { $ifNull: ['$projectName', { $ifNull: ['$metadata.projectName', '$project.name'] }] }
-                    ]
-                  }
-                }
-              },
-              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
-            ];
-            const items = await Model.aggregate(pipeline).allowDiskUse(true);
-            return res.status(200).json(items);
+          if (timed.error) {
+            throw timed.error;
           }
+          const items = timed.value || [];
+          return res.status(200).json(items);
         } catch (_) {
           // Fallback to simple find if any aggregation operator unsupported
+          const items = await query;
+          return res.status(200).json(items);
         }
-        const items = await query;
-        return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
       }
