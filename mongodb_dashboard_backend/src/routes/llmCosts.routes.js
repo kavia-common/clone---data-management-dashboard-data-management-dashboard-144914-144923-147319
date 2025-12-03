@@ -141,6 +141,8 @@ router.get(
         res.removeHeader('Last-Modified');
       }
       res.set('ETag', 'W/"disabled"');
+      // Ensure no-store to avoid proxy 304/502 behavior
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0, private');
     } catch (_) {}
 
     // Route-level diagnostics: echo raw incoming controls as headers for debugging 502s
@@ -150,7 +152,7 @@ router.get(
       res.set('X-Diag-Sort', (req.query?.sort && String(req.query.sort)) || '-timestamp');
       res.set('X-Diag-Skip', (req.query?.skip && String(req.query.skip)) || '');
       res.set('X-Diag-Limit', (req.query?.limit && String(req.query.limit)) || '');
-      res.set('X-Diag-IncludeUser', (req.query?.include_user && String(req.query.include_user)) || 'none');
+      res.set('X-Diag-IncludeUser', (req.query?.include_user && String(req.query.include_user)) || (req.query?.include_users && String(req.query.include_users)) || 'none');
       const hdrTenant = (req.headers?.['x-organization-id'] && String(req.headers['x-organization-id'])) || '';
       const qTenant =
         (req.query?.organization_id && String(req.query.organization_id)) ||

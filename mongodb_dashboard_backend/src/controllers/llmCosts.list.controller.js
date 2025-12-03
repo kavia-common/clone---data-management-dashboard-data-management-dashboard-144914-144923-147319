@@ -93,6 +93,7 @@ async function list(req, res) {
     // Include users mode detection. Support include_user=min and include_users=min. Any other value is ignored.
     const includeFlag = (req.query?.include_user || req.query?.include_users || '').toString().trim().toLowerCase();
     const includeUserMin = includeFlag === 'min';
+    const includeUserFull = includeFlag === 'full';
 
     // Base projection (NEVER include users/users[] directly; keep base small)
     const baseProject = {
@@ -112,7 +113,13 @@ async function list(req, res) {
       // NO users/users[] here. If embedded users exist, they will be excluded by default.
     };
 
-    const guardLimit = usingExplicitPagination ? limit : Math.min(50, maxLimit);
+    // When include_users=full is requested, clamp page size tighter (max 50)
+    const fullUsersMax = 50;
+    if (includeUserFull) {
+      if (!Number.isFinite(limit) || limit <= 0) limit = defaultLimit;
+      if (limit > fullUsersMax) limit = fullUsersMax;
+    }
+    const guardLimit = usingExplicitPagination ? limit : Math.min(includeUserFull ? fullUsersMax : 50, maxLimit);
     const skip = usingExplicitPagination ? (page - 1) * limit : 0;
 
     // Clamp aggregate time
@@ -121,9 +128,140 @@ async function list(req, res) {
     // Header diagnostics (non-fatal)
     try {
       res.set('X-Applied-Tenant', String(bypass ? 'all-tenants' : (resolvedTenant || '')));
-      res.set('X-Include-Users', includeUserMin ? 'min' : 'none');
+      res.set('X-Include-Users', includeUserFull ? 'full' : includeUserMin ? 'min' : 'none');
       res.set('Cache-Control', 'no-store');
+      res.set('X-Limit', String(guardLimit));
+      res.set('X-Mongo-MaxTimeMS', String(maxTimeMS));
+      res.set('X-Route-TimeoutMs', String(Math.max(1000, Math.min(Number(req.maxTimeMS || 1500), 5000))));
+      res.set('X-Users-Included', includeUserFull ? 'full' : includeUserMin ? 'min' : 'none');
     } catch (_) {}
+
+    // Full users path: include_users=full explicitly requested. Use aggregation with:
+    // $match (deterministic tenant filter) -> $sort (stable/index-backed) -> $skip -> $limit -> $project including users:1
+    if (includeUserFull) {
+      // Build deterministic aggregation with stable sort
+      const mongoSort = parseSort(sort);
+      const fullPipeline = [];
+      if (filter && Object.keys(filter).length) fullPipeline.push({ $match: filter });
+      if (mongoSort && Object.keys(mongoSort).length) fullPipeline.push({ $sort: mongoSort });
+      if (skip > 0) fullPipeline.push({ $skip: skip });
+      fullPipeline.push({ $limit: guardLimit });
+      // Final projection AFTER limiting to avoid materializing unnecessary users
+      fullPipeline.push({
+        $project: {
+          ...baseProject,
+          users: 1, // explicitly include full embedded users if present
+          user: 1,  // if alternative singular exists
+        },
+      });
+
+      let statusCode = 200;
+      let items = [];
+      let timedOut = false;
+      const mongoMaxTime = Math.max(1000, Math.min(Number(req.maxTimeMS || 1500), 1500));
+      const routeTimeoutMs = mongoMaxTime; // align with route-level guard
+      // Route-level timeout that returns 206 with partial payload if exceeded before Mongo returns
+      const timer = setTimeout(() => {
+        timedOut = true;
+      }, routeTimeoutMs);
+
+      try {
+        items = await LLMCost.aggregate(fullPipeline)
+          .option({ allowDiskUse: true, maxTimeMS: mongoMaxTime })
+          .exec();
+      } catch (e) {
+        const msg = String(e?.message || e);
+        const isTimeout = /operation exceeded time limit|timed out|MaxTimeMS/i.test(msg);
+        if (isTimeout) {
+          timedOut = true;
+        } else {
+          // Non-timeout errors bubble as 500
+          clearTimeout(timer);
+          throw e;
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+
+      // If timed out, return partial payload WITHOUT users field for safety
+      if (timedOut) {
+        try {
+          res.set('X-Route-TimeoutMs', String(routeTimeoutMs));
+          res.set('X-Mongo-MaxTimeMS', String(mongoMaxTime));
+          res.set('X-Users-Included', 'none');
+          res.set('Cache-Control', 'no-store');
+          if (typeof res.removeHeader === 'function') {
+            res.removeHeader('ETag');
+            res.removeHeader('Last-Modified');
+          }
+        } catch (_) {}
+        statusCode = 206;
+        const query = LLMCost.find(filter, baseProject)
+          .sort(sort)
+          .skip(skip)
+          .limit(guardLimit)
+          .maxTimeMS(mongoMaxTime)
+          .lean({ getters: false, virtuals: false });
+        const safeItems = await query.exec();
+        const trimmed = (safeItems || []).map(trimHeavyFields);
+        if (usingExplicitPagination) {
+          const total = await LLMCost.countDocuments(filter).maxTimeMS(mongoMaxTime).exec();
+          return res.status(206).json({
+            success: true,
+            data: trimmed,
+            meta: { page, limit, total, partial: true, note: 'users omitted due to route timeout' },
+          });
+        }
+        return res.status(206).json(trimmed);
+      }
+
+      // Defensive memory guard: if RSS > threshold while building response, truncate users to []
+      const MEMORY_RSS_GUARD = 300 * 1024 * 1024; // 300 MB
+      const rss = process?.memoryUsage?.().rss || 0;
+      let memoryTruncated = false;
+      if (rss > MEMORY_RSS_GUARD) {
+        items = (items || []).map((d) => {
+          const c = { ...d };
+          if (Array.isArray(c.users)) {
+            c.users = [];
+            memoryTruncated = true;
+          }
+          if (c.user && typeof c.user === 'object') {
+            // retain but avoid heavy nested if present
+            // leave as-is; primary heavy array is users
+          }
+          return c;
+        });
+        statusCode = 206;
+      }
+
+      try {
+        res.set('X-Users-Included', 'full');
+        res.set('X-Limit', String(guardLimit));
+        res.set('X-Mongo-MaxTimeMS', String(mongoMaxTime));
+        res.set('X-Route-TimeoutMs', String(routeTimeoutMs));
+        res.set('Cache-Control', 'no-store');
+        if (typeof res.removeHeader === 'function') {
+          res.removeHeader('ETag');
+          res.removeHeader('Last-Modified');
+        }
+      } catch (_) {}
+
+      if (usingExplicitPagination) {
+        const total = await LLMCost.countDocuments(filter).maxTimeMS(Math.min(mongoMaxTime, 1200)).exec();
+        const payload = { success: true, data: items, meta: { page, limit, total } };
+        if (memoryTruncated) {
+          payload.meta.partial = true;
+          payload.meta.note = 'users truncated due to memory guard';
+          return res.status(206).json(payload);
+        }
+        return res.status(statusCode).json(payload);
+      }
+      if (memoryTruncated) {
+        return res.status(206).json(items);
+      }
+      return res.status(statusCode).json(items);
+    }
 
     // Default path: no users join/minification requested. Simple lean find with baseProject
     if (!includeUserMin) {
