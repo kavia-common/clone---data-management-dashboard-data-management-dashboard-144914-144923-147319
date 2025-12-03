@@ -80,14 +80,21 @@ async function list(req, res) {
       if (!resolvedTenant) {
         return res.status(400).json({ success: false, message: 'Missing tenant scope' });
       }
-      filter.$or = [
-        { tenant_id: String(resolvedTenant) },
-        { organization_id: String(resolvedTenant) },
-        { orgId: String(resolvedTenant) },
-        { tenantId: String(resolvedTenant) },
-        { organizationId: String(resolvedTenant) },
-        { 'tenant.tenant_id': String(resolvedTenant) },
-      ];
+      // Deterministic tenant mapping: prefer organization_id if present in stored docs, but fall back to tenant_id;
+      // Do NOT use a wide $or that may defeat indexes. The model has indexes on organization_id and tenant_id.
+      // We probe via a lightweight exists check to pick the best field deterministically.
+      const t = String(resolvedTenant);
+      // Prefer organization_id; fallback to tenant_id
+      filter = { organization_id: t };
+      try {
+        const existsOrg = await LLMCost.exists({ organization_id: t }).maxTimeMS?.(200);
+        if (!existsOrg) {
+          filter = { tenant_id: t };
+        }
+      } catch (_) {
+        // On any error, fallback to tenant_id to keep it deterministic
+        filter = { tenant_id: t };
+      }
     }
 
     // Merge client filter except tenant keys
@@ -104,8 +111,18 @@ async function list(req, res) {
         }
       }
     } catch (e) {
+      try { res.set('X-Filter-Parse-Error', String(e?.message || e)); } catch(_) {}
       return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
     }
+
+    // Structured diagnostics: final filter and projection/sort/pagination details
+    try {
+      res.set('X-Final-Filter', JSON.stringify(filter));
+      res.set('X-Projection-Base', JSON.stringify(Object.keys(baseProject)));
+      res.set('X-Sort', sort);
+      res.set('X-Pagination', JSON.stringify({ page, limit, usingExplicitPagination }));
+      res.set('X-Include-User', includeUserMode || 'none');
+    } catch (_) {}
 
     // Determine if user should be included and how.
     // Guardrail: exclude user by default. When include_user=min, we join to users and return a small whitelist.

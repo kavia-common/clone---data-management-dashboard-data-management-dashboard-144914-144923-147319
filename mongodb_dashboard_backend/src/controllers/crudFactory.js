@@ -345,6 +345,21 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1, _id: -1 } : { [safeSort]: 1, _id: 1 })
         : { timestamp: -1, _id: -1 };
 
+      // Structured diagnostics for pagination and sort
+      try {
+        res.set(
+          'X-List-Exec',
+          JSON.stringify({
+            page,
+            limit: hardCappedLimit,
+            skip,
+            explicit,
+            sort: safeSort,
+            include_user: req.query?.include_user || 'none',
+          })
+        );
+      } catch (_) {}
+
       // execute DB operations with safe sort and enforced tenant filter
       try {
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
@@ -432,11 +447,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 const pipeline = [
                   { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
                   { $addFields: {
-                      // Normalize timestamp fields for consistent sorting
                       timestamp: { $ifNull: ['$timestamp', '$created_at'] },
                       created_at: { $ifNull: ['$created_at', '$createdAt'] },
                       updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
-                      // Compute project_name from various sources
                       project_name: {
                         $ifNull: [
                           '$project_name',
@@ -449,13 +462,14 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                   { $skip: skip },
                   { $limit: hardCappedLimit },
                 ];
-                items = await Model.aggregate(pipeline).allowDiskUse(true);
+                items = await Model.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 800 });
               } catch (_) {
-                // Fallback: simple find; project_name may be missing if stored under a different key
-                items = await Model.find(appliedFilter).sort(sortStage).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+                // Fallback: simple find; omit unsupported allowDiskUse on find
+                items = await Model.find(appliedFilter).sort(sortStage).skip(skip).limit(hardCappedLimit).maxTimeMS(800).lean();
               }
             } else {
-              items = await Model.find(appliedFilter).sort(sortStage).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
+              // Generic models: avoid allowDiskUse on find(); apply maxTimeMS
+              items = await Model.find(appliedFilter).sort(sortStage).skip(skip).limit(hardCappedLimit).maxTimeMS(800).lean();
             }
             const total = await Model.countDocuments(appliedFilter).maxTimeMS?.(600) ?? await Model.countDocuments(appliedFilter);
             return { items, total };
@@ -549,8 +563,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               ];
               return await Model.aggregate(pipeline).allowDiskUse(true);
             }
-            // default (non-LLMCost/AppDeployment) just returns the query results
-            // Note: allowDiskUse is not supported on find() across some Mongoose versions; avoid using it here.
+            // default (non-LLMCost/AppDeployment) just returns the query results (no allowDiskUse on find)
             return await Model.find(appliedFilter).sort(sortStage).maxTimeMS(800).lean();
           };
 
