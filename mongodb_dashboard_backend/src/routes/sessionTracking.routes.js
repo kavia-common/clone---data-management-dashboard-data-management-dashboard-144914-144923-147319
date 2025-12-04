@@ -167,14 +167,107 @@
 // module.exports = router;
 
 const express = require('express');
+const crypto = require('crypto');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
-const { isValidISODate, parseISODateSafe } = require('../utils/date');
 
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
+
+// Route-local, safe feature flags (default safe off)
+const ENABLE_ROUTE_CACHE = String(process.env.ENABLE_ROUTE_CACHE || 'true').toLowerCase() === 'true';
+const ENABLE_ETAG = String(process.env.ENABLE_ETAG || 'true').toLowerCase() === 'true';
+const CACHE_TTL_SECONDS = Number(process.env.CACHE_TTL_SECONDS || 60);
+const DEFAULT_CACHE_TTL_MS = Math.max(5, CACHE_TTL_SECONDS) * 1000;
+
+// Minute rounding helper for stable keys
+function roundToMinuteISO(value) {
+  if (!value || typeof value !== 'string') return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCSeconds(0, 0);
+  return d.toISOString();
+}
+
+// Simple in-memory TTL cache (per-process)
+const routeCache = new Map(); // key -> { expiresAt:number, payload:any, etag:string }
+function cacheKeyFromReq(req, enforcedTenant) {
+  // Normalize params and provide deterministic ordering
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || req.query.pageSize || 20);
+  const sort = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : '-session_start';
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const start = roundToMinuteISO(req.query.start || req.query.from || '');
+  const end = roundToMinuteISO(req.query.end || req.query.to || '');
+  const tenant = enforcedTenant ? String(enforcedTenant) : (req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : 'n/a');
+
+  // ensure stable object order by using array of pairs
+  return JSON.stringify({
+    route: 'GET:/api/session-tracking',
+    tenant,
+    page,
+    limit,
+    q,
+    start,
+    end,
+    sort
+  });
+}
+function cacheGet(key) {
+  const entry = routeCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    routeCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+function cacheSet(key, payload, etag) {
+  routeCache.set(key, { payload, etag, expiresAt: Date.now() + DEFAULT_CACHE_TTL_MS });
+}
+// Invalidation hooks for CRUD operations below
+function invalidateAllSessionTrackingCache() {
+  let cleared = 0;
+  for (const [k] of routeCache.entries()) {
+    if (k.includes('GET:/api/session-tracking')) {
+      routeCache.delete(k);
+      cleared++;
+    }
+  }
+  if (cleared && (process.env.NODE_ENV !== 'production')) {
+    console.log(`[cache] invalidated ${cleared} keys for /api/session-tracking`);
+  }
+}
+
+// Generate a strong ETag for a response body + context
+function computeETag(payload, context) {
+  try {
+    const basis = JSON.stringify({
+      ctx: context,
+      // to keep hash fast but stable, include length and first/last ids when array/enveloped
+      // fall back to entire payload string if not parseable
+      len: Array.isArray(payload) ? payload.length : Array.isArray(payload?.data) ? payload.data.length : null,
+      first: Array.isArray(payload) && payload[0]?._id ? String(payload[0]._id) : Array.isArray(payload?.data) && payload.data[0]?._id ? String(payload.data[0]._id) : null,
+      last: Array.isArray(payload) && payload[payload.length - 1]?._id ? String(payload[payload.length - 1]._id) : Array.isArray(payload?.data) && payload.data[payload.data.length - 1]?._id ? String(payload.data[payload.data.length - 1]._id) : null,
+      // max timestamp/updated for rough versioning if available
+      max_last_updated: (() => {
+        const arr = Array.isArray(payload) ? payload : (Array.isArray(payload?.data) ? payload.data : []);
+        let max = 0;
+        for (const it of arr) {
+          const v = new Date(it?.last_updated || it?.timestamp || it?.session_start || 0).getTime();
+          if (v > max) max = v;
+        }
+        return max || null;
+      })()
+    });
+    return crypto.createHash('sha1').update(basis).digest('hex');
+  } catch {
+    const s = typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+    return crypto.createHash('sha1').update(s).digest('hex');
+  }
+}
 
 /**
  * Early bypass detector for GET /api/session-tracking
@@ -241,10 +334,6 @@ router.get(
   '/',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
-
-    // --------------------------------------------------
-    // FIXED: Single bypass variable, declared once
-    // --------------------------------------------------
     const bypass = !!(
       req.tenantScopeDisabled ||
       req.allTenants ||
@@ -252,9 +341,7 @@ router.get(
       req?.user?.isSuperAdmin
     );
 
-    // --------------------------------------------------
-    // FIXED: Single enforcedTenant variable
-    // --------------------------------------------------
+    // Resolve tenant aliases
     const enforcedTenant =
       req.tenantId ||
       (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
@@ -263,7 +350,6 @@ router.get(
       (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
       null;
 
-    // If not bypassing and no tenant provided → error
     if (!bypass && !enforcedTenant) {
       return res.status(400).json({
         success: false,
@@ -271,28 +357,15 @@ router.get(
       });
     }
 
-    // --------------------------------------------------
-    // Request logging
-    // --------------------------------------------------
-    try {
-      res.set('X-Sessions-Bypass', String(bypass));
-      const appliedTenant = bypass ? 'all-tenants' : enforcedTenant;
-      res.set('X-Applied-Tenant', String(appliedTenant));
-    } catch {}
-
-    // Pagination
+    // Stable pagination and sort
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
-
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
-    // --------------------------------------------------
-    // Search filter
-    // --------------------------------------------------
+    // Text search
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let qFilter = {};
-
     if (q) {
       const regex = new RegExp(q, 'i');
       qFilter = {
@@ -314,20 +387,11 @@ router.get(
       };
     }
 
-    // --------------------------------------------------
-    // Filtering changes per requirement:
-    // - Ignore/remove any 'filter' query parameter entirely.
-    // - Do not construct or apply compound date filters from start/end.
-    // - Retain tenant/organization scoping and optional text search (q).
-    // --------------------------------------------------
-
-    // Explicitly ignore 'filter' param if present
+    // Ignore client filter param; retain tenant scope + search
     if (typeof req.query.filter !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch {}
     }
-    const filter = {}; // no additional filter from client
 
-    // Tenant enforced scope (unchanged)
     const enforcedScope = (!bypass && enforcedTenant)
       ? {
           $or: [
@@ -338,38 +402,90 @@ router.get(
         }
       : {};
 
-    // Do not apply server-side date filters for this listing endpoint now
-    const timeFilter = {};
-
-    // Combine qFilter and enforcedScope only
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
-
     if (!isEmpty(qFilter)) parts.push(qFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
-
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
-    // --------------------------------------------------
-    // Execute
-    // --------------------------------------------------
+    // Prepare cache meta
+    const cacheKey = cacheKeyFromReq(req, enforcedTenant);
+    const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
+    const wantETag = ENABLE_ETAG && req.method === 'GET';
+
+    // Attempt cache read
+    if (wantCache) {
+      const hit = cacheGet(cacheKey);
+      if (hit) {
+        try {
+          console.log(`[session-tracking] cache hit ${cacheKey}`);
+        } catch {}
+        // Handle If-None-Match
+        if (wantETag) {
+          const inm = req.headers['if-none-match'];
+          if (inm && inm === hit.etag) {
+            res.set('ETag', hit.etag);
+            res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS/1000)}, must-revalidate`);
+            return res.status(304).end();
+          }
+        }
+        res.set('X-Cache', 'HIT');
+        if (wantETag && hit.etag) res.set('ETag', hit.etag);
+        res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS/1000)}, must-revalidate`);
+        return res.status(200).json(hit.payload);
+      } else {
+        try {
+          console.log(`[session-tracking] cache miss ${cacheKey}`);
+        } catch {}
+      }
+    }
+
+    // DB execution
     try {
       if (explicit) {
         const [docs, total] = await Promise.all([
-          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit),
+          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
           SessionTracking.countDocuments(finalFilter),
         ]);
 
-        return res.json({
-          success: true,
-          data: docs,
-          meta: { page, limit, total }
-        });
+        const payload = { success: true, data: docs, meta: { page, limit, total } };
+        let etag = null;
+        if (wantETag) {
+          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q });
+          res.set('ETag', etag);
+        }
+        res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS/1000)}, must-revalidate`);
+        if (wantCache) {
+          cacheSet(cacheKey, payload, etag);
+        }
+
+        // If-None-Match handling post-compute
+        const inm = req.headers['if-none-match'];
+        if (wantETag && inm && etag && inm === etag) {
+          return res.status(304).end();
+        }
+
+        return res.status(200).json(payload);
       }
 
-      const docs = await SessionTracking.find(finalFilter).sort(sort);
-      return res.json(docs);
+      const docs = await SessionTracking.find(finalFilter).sort(sort).lean();
+      const payload = docs;
+      let etag = null;
+      if (wantETag) {
+        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q });
+        res.set('ETag', etag);
+      }
+      res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS/1000)}, must-revalidate`);
+      if (wantCache) {
+        cacheSet(cacheKey, payload, etag);
+      }
 
+      const inm = req.headers['if-none-match'];
+      if (wantETag && inm && etag && inm === etag) {
+        return res.status(304).end();
+      }
+
+      return res.status(200).json(payload);
     } catch (err) {
       return res.status(400).json({
         success: false,
@@ -380,9 +496,12 @@ router.get(
   })
 );
 
+// Hook CRUD operations to invalidate short-lived cache safely
+router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async (req, res) => { try { invalidateAllSessionTrackingCache(); } catch {} });
+router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async (req, res) => { try { invalidateAllSessionTrackingCache(); } catch {} });
+router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async (req, res) => { try { invalidateAllSessionTrackingCache(); } catch {} });
+
+// Keep ID read unchanged
 router.get('/:id', asyncHandler(controller.getById));
-router.post('/', asyncHandler(controller.create));
-router.put('/:id', asyncHandler(controller.update));
-router.delete('/:id', asyncHandler(controller.remove));
 
 module.exports = router;

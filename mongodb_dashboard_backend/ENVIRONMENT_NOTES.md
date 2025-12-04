@@ -5,6 +5,20 @@ Optional env vars:
 - NODE_OPTIONS="--max-old-space-size=512"  caps memory to avoid OOM/kill
 - DEBUG_LLMCOSTS_EXPLAIN=1  enables explain() capture for /api/llm-costs
 
+## Session Tracking Performance Flags
+
+These flags tune GET /api/session-tracking behavior (safe defaults provided):
+- ENABLE_ROUTE_CACHE=true        Enable short-lived in-memory route cache for identical queries.
+- CACHE_TTL_SECONDS=60           TTL for the above cache (30–60s recommended).
+- ENABLE_ETAG=true               Enable strong ETag generation and If-None-Match handling.
+- ENABLE_RESPONSE_COMPRESSION=true  Enable gzip/brotli compression middleware globally.
+
+Notes:
+- Cache keys normalize start/end (round to minute), include tenant_id, page, limit, q, sort.
+- Cache invalidation occurs automatically on POST/PUT/DELETE to /api/session-tracking.
+- Responses include Cache-Control: public, max-age=<TTL>, must-revalidate when caching is enabled.
+- ETag is a SHA1 over a compact signature of the response (length, first/last ids, max updated).
+
 ## Memory and Dev Stability
 
 To prevent the dev server from being killed (OOM/kill -9), the npm scripts are already configured to cap memory and avoid heavy tooling.

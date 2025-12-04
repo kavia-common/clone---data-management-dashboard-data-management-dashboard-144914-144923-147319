@@ -7,6 +7,7 @@ const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
+const compression = require('compression');
 
 const app = express();
 
@@ -19,6 +20,25 @@ app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
 app.options('/api/*', cors());
 app.use(rateLimiter());
+
+// Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION
+const ENABLE_RESPONSE_COMPRESSION = String(process.env.ENABLE_RESPONSE_COMPRESSION || 'true').toLowerCase() === 'true';
+if (ENABLE_RESPONSE_COMPRESSION) {
+  app.use(
+    compression({
+      // express compression enables brotli if available via Node zlib automatically when client supports it
+      threshold: 1024, // compress payloads > 1KB
+      filter: (req, res) => {
+        // allow clients to opt-out
+        if (req.headers['x-no-compress']) {
+          return false;
+        }
+        return compression.filter(req, res);
+      }
+    })
+  );
+}
+
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
