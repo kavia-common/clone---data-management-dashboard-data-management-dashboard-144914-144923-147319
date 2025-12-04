@@ -88,7 +88,20 @@ let server;
     `[startup] Initializing server on ${HOST}:${port} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
   );
   server = app
-    .listen(port, HOST, () => banner(port))
+    .listen(port, HOST, () => {
+      // Apply timeout tunables once server exists
+      try {
+        const reqTimeout = Number(process.env.SERVER_REQUEST_TIMEOUT_MS || process.env.EXPRESS_ROUTE_TIMEOUT_MS || 300000);
+        const headersTimeout = Number(process.env.SERVER_HEADERS_TIMEOUT_MS || 310000);
+        const keepAliveTimeout = Number(process.env.SERVER_KEEPALIVE_TIMEOUT_MS || 120000);
+        if (Number.isFinite(reqTimeout) && reqTimeout > 0) server.setTimeout(reqTimeout);
+        if (Number.isFinite(headersTimeout) && headersTimeout > 0) server.headersTimeout = headersTimeout;
+        if (Number.isFinite(keepAliveTimeout) && keepAliveTimeout > 0) server.keepAliveTimeout = keepAliveTimeout;
+      } catch (e) {
+        console.warn('[startup] Failed to apply server timeout tunables:', e?.message || e);
+      }
+      banner(port);
+    })
     .on('error', async (err) => {
       if (err && err.code === 'EADDRINUSE') {
         // Last-chance fallback: try next port if initial binding collides due to race

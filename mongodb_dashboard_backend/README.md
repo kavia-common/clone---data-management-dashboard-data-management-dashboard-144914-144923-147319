@@ -41,7 +41,9 @@ Quick start (development)
 - cp .env.example .env    # then edit as needed
 - npm ci                  # or: npm install
 - npm run dev             # lean dev: node src/server.js (no file watching). Safe for CI/containers.
-- npm run start:lean      # production env without watch, same as start but explicit lean
+- npm run dev:lean        # explicit lean dev (same behavior as dev)
+- npm run start:lean      # production env without watch, lower memory spikes, same as start but explicit lean
+- npm run start:ci        # CI-optimized start; avoids watchers and caps heap with near-heap-limit snapshot
 - npm run dev:watch       # nodemon hot reload for local changes
 - curl http://localhost:3001/health       # fast 200
 - curl http://localhost:3001/api/health   # includes db state
