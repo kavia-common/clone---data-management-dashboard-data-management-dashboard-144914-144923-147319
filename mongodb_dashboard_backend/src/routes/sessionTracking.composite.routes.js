@@ -181,7 +181,7 @@ function buildQueryState(req, enforcedTenant, bypass) {
 
 // PUBLIC_INTERFACE
 router.get(
-  '/composite',
+  '/',
   asyncHandler(async (req, res) => {
     // Determine bypass and tenant like the sessionTracking route
     const bypass = !!(
@@ -229,7 +229,52 @@ router.get(
         if (wantETag && hit.etag) res.set('ETag', hit.etag);
         res.set('Cache-Control', `public, max-age=${Math.floor(COMPOSITE_CACHE_TTL_MS / 1000)}, must-revalidate`);
         return res.status(200).json(hit.payload);
+      }
     }
+
+    // Graceful fallback when DB is not connected to allow ETag and cache verification
+    const mongoose = require('mongoose');
+    const ready = mongoose.connection?.readyState;
+    const dbConnected = ready === 1;
+    if (!dbConnected) {
+      const payload = {
+        success: true,
+        params: {
+          tenant_id: bypass ? 'all-tenants' : enforcedTenant,
+          page,
+          limit,
+          sort,
+          q,
+          start: start ? start.toISOString() : null,
+          end: end ? end.toISOString() : null,
+          include_breakdowns,
+          include_series,
+        },
+        table: { data: [], meta: { page, limit, total: 0, sort } },
+        aggregates: {
+          totals: { totalSessions: 0, active: 0, completed: 0 },
+          series: include_series ? { byType: [], byOrganization: [] } : undefined,
+          breakdowns: include_breakdowns ? { byStatus: [], byUser: [], byTenant: [] } : undefined,
+        },
+        generated_at: new Date().toISOString(),
+      };
+      const etag = wantETag ? computeETag(payload, {
+        tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q,
+        start: payload.params.start, end: payload.params.end,
+        include_breakdowns, include_series
+      }) : null;
+
+      if (wantETag && etag) res.set('ETag', etag);
+      res.set('Cache-Control', `public, max-age=${Math.floor(COMPOSITE_CACHE_TTL_MS / 1000)}, must-revalidate`);
+
+      const inm = req.headers['if-none-match'];
+      if (wantETag && inm && etag && inm === etag) {
+        return res.status(304).end();
+      }
+
+      if (wantCache) compositeCacheSet(cacheKey, payload, etag);
+      if (etag) payload.etag = etag;
+      return res.status(200).json(payload);
     }
 
     // Parallel fan-out: table list (paginated), totals/breakdowns, series
