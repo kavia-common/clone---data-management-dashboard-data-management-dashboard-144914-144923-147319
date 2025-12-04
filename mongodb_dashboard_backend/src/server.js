@@ -11,67 +11,114 @@ try { require('dotenv').config(); } catch {}
  */
 const app = require('./app');
 const mongoose = require('mongoose');
+const net = require('net');
 
-const PORT = Number(process.env.PORT) || 3001;
+const PREFERRED_PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
+const PORT_FALLBACK_START = Number(process.env.PORT_FALLBACK_START) || (PREFERRED_PORT + 1);
+const PORT_FALLBACK_TRIES = Number(process.env.PORT_FALLBACK_TRIES) || 9;
 
-// Defensive: ensure PORT is a positive integer
-const normalizedPort = Number.isFinite(PORT) && PORT > 0 ? PORT : 3001;
+// Defensive normalization
+const normalizePort = (p) => (Number.isFinite(p) && p > 0 ? p : 3001);
 
-// Early startup banner to aid diagnostics
-try {
+// Quick port availability check
+function isPortFree(port, host = '0.0.0.0') {
+  return new Promise((resolve) => {
+    const tester = net
+      .createServer()
+      .once('error', () => resolve(false))
+      .once('listening', () => tester.once('close', () => resolve(true)).close())
+      .listen(port, host);
+  });
+}
+
+// Try to find a free port starting from preferred first then fallbacks
+async function resolvePort() {
+  const preferred = normalizePort(PREFERRED_PORT);
+  // eslint-disable-next-line no-console
+  console.log(`[startup] Attempting to bind on ${HOST}:${preferred}`);
+  if (await isPortFree(preferred, HOST)) {
+    return preferred;
+  }
+  // eslint-disable-next-line no-console
+  console.warn(`[startup] Port ${preferred} in use. Searching for a free port...`);
+  const start = normalizePort(PORT_FALLBACK_START);
+  for (let i = 0; i < PORT_FALLBACK_TRIES; i += 1) {
+    const candidate = start + i;
+    // Skip if equals preferred
+    if (candidate === preferred) { continue; }
+    // eslint-disable-next-line no-await-in-loop
+    if (await isPortFree(candidate, HOST)) {
+      // eslint-disable-next-line no-console
+      console.warn(`[startup] Using fallback port ${candidate}`);
+      return candidate;
+    }
+  }
+  // If none found, fallback to preferred and let it error (rare)
+  return preferred;
+}
+
+function banner(port) {
+  const env = process.env.NODE_ENV || 'development';
+  try {
+    const dbName =
+      mongoose?.connection?.db?.databaseName ||
+      process.env.MONGODB_DB ||
+      '(not connected)';
+    // eslint-disable-next-line no-console
+    console.log('[startup] Express is starting with DB:', dbName);
+  } catch {}
+  // eslint-disable-next-line no-console
+  console.log(`[ready] Server listening on http://${HOST}:${port} (ENV=${env})`);
+  try {
+    console.log(`[ready] Health endpoint: http://${HOST}:${port}/health`);
+    console.log(`[ready] Docs endpoint:   http://${HOST}:${port}/api-docs`);
+    console.log(`[startup] Health:  curl http://127.0.0.1:${port}/health`);
+    console.log(`[startup] Swagger: open http://127.0.0.1:${port}/api-docs`);
+  } catch {}
+}
+
+let server;
+
+// Boot sequence with port resolution and graceful error handling
+(async () => {
+  const port = await resolvePort();
   // eslint-disable-next-line no-console
   console.log(
-    `[startup] Initializing server on ${HOST}:${normalizedPort} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
+    `[startup] Initializing server on ${HOST}:${port} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
   );
-} catch {}
-
-// Start listening unconditionally; Mongo connection is handled inside app.js and must not block server startup.
-const server = app
-  .listen(normalizedPort, HOST, () => {
-    try {
-      const dbName =
-        mongoose?.connection?.db?.databaseName ||
-        process.env.MONGODB_DB ||
-        '(not connected)';
-      // eslint-disable-next-line no-console
-      console.log('[startup] Express is starting with DB:', dbName);
-    } catch {
-      // ignore logging failure
-    }
-    // eslint-disable-next-line no-console
-    console.log(
-      `[ready] Server listening on http://${HOST}:${normalizedPort} (ENV=${process.env.NODE_ENV || 'development'})`
-    );
-    // Emit an explicit readiness banner the preview system can scrape
-    try {
-      console.log(`[ready] Health endpoint: http://${HOST}:${normalizedPort}/health`);
-      console.log(`[ready] Docs endpoint:   http://${HOST}:${normalizedPort}/api-docs`);
-    } catch {}
-    try {
-      // Helpful hint: echo how to curl health and docs
-      console.log(`[startup] Health: curl http://127.0.0.1:${normalizedPort}/health`);
-      console.log(`[startup] Swagger UI: http://127.0.0.1:${normalizedPort}/api-docs`);
-    } catch {}
-  })
-  .on('error', (err) => {
-    if (err && err.code === 'EADDRINUSE') {
-      // eslint-disable-next-line no-console
-      console.error(
-        `[startup] Port ${normalizedPort} is already in use. Ensure no other process is running on this port.`
-      );
-    } else {
-      // eslint-disable-next-line no-console
-      console.error('[startup] Server failed to start:', err);
-    }
-    // Exit so orchestrator/CI can restart
-    process.exit(1);
-  });
+  server = app
+    .listen(port, HOST, () => banner(port))
+    .on('error', async (err) => {
+      if (err && err.code === 'EADDRINUSE') {
+        // Last-chance fallback: try next port if initial binding collides due to race
+        const nextPort = port + 1;
+        // eslint-disable-next-line no-console
+        console.warn(`[startup] Port ${port} became busy. Retrying on ${nextPort}...`);
+        try {
+          server = app.listen(nextPort, HOST, () => banner(nextPort));
+          return;
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('[startup] Retry failed:', e);
+        }
+      } else {
+        // eslint-disable-next-line no-console
+        console.error('[startup] Server failed to start:', err);
+      }
+      // Exit only if we truly cannot bind any port
+      process.exit(1);
+    });
+})();
 
 // Graceful shutdown
 const shutdown = (signal) => {
   // eslint-disable-next-line no-console
   console.log(`${signal} signal received: closing HTTP server`);
+  if (!server) {
+    process.exit(0);
+    return;
+  }
   server.close(async () => {
     // eslint-disable-next-line no-console
     console.log('HTTP server closed');
