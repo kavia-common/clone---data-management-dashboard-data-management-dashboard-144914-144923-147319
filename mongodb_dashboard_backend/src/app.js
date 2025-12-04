@@ -113,6 +113,11 @@ const healthHandler = (req, res) => {
   return res.status(200).json(payload);
 };
 app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
+// Log at registration time to aid diagnosis if server boots but probes fail to reach
+try {
+  // eslint-disable-next-line no-console
+  console.log('[routes] Health endpoints registered at: /health, /api/health, /healthz, /ready, /live');
+} catch {}
 
 // ---------------------------------------------
 // Routers

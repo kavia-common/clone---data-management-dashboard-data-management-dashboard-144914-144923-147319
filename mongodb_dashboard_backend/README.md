@@ -19,6 +19,11 @@ DEBUG_LLMCOSTS_EXPLAIN=1 npm run dev
 
 - Default port: 3001 (configurable via PORT in .env)
 - Host bind: 0.0.0.0 by default (configurable via HOST; if HOST is unset or set to 'localhost', the server will bind to 0.0.0.0 to avoid EADDRNOTAVAIL in preview/container environments)
+- Startup logs now include standardized readiness markers:
+  - READY: http://HOST:PORT
+  - BACKEND_READY: url=http://HOST:PORT
+  - Listening on http://HOST:PORT
+  Use these to detect readiness in CI/preview runners.
 - Docs (Swagger UI): http://localhost:3001/api/docs (aliases: http://localhost:3001/api-docs and http://localhost:3001/docs)
 - OpenAPI JSON: http://localhost:3001/api/docs.json (aliases: http://localhost:3001/openapi.json and http://localhost:1/api-docs.json)
 

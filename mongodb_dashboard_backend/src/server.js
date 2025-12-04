@@ -14,9 +14,42 @@ const mongoose = require('mongoose');
 const net = require('net');
 
 const PREFERRED_PORT = Number(process.env.PORT) || 3001;
-const HOST = process.env.HOST || '0.0.0.0';
+// Normalize HOST to ensure container reachability. Some environments inject localhost/127.0.0.1 which
+// binds only to loopback and is not reachable from other containers; prefer 0.0.0.0 instead.
+const rawHost = process.env.HOST || '0.0.0.0';
+const HOST = ['localhost', '127.0.0.1', '::1', '0:0:0:0:0:0:0:1'].includes(String(rawHost).toLowerCase())
+  ? '0.0.0.0'
+  : rawHost;
 const PORT_FALLBACK_START = Number(process.env.PORT_FALLBACK_START) || (PREFERRED_PORT + 1);
 const PORT_FALLBACK_TRIES = Number(process.env.PORT_FALLBACK_TRIES) || 9;
+>>>>>>> REPLACE   
+````   
+Explanation: Add standardized readiness markers and more explicit logs when server starts listening
+````edit file="data-management-dashboard-144914-144923/mongodb_dashboard_backend/src/server.js"      
+<<<<<<< SEARCH
+  console.log(`[ready] Server listening on http://${HOST}:${port} (ENV=${env})`);
+  // Standard readiness markers for automated detectors
+  console.log(`READY: http://${HOST}:${port}`);
+  console.log(`BACKEND_READY: url=http://${HOST}:${port}`);
+  console.log(`Listening on http://${HOST}:${port}`);
+  try {
+    console.log(`[ready] Health endpoint: http://${HOST}:${port}/health`);
+    console.log(`[ready] Docs endpoint:   http://${HOST}:${port}/api-docs`);
+    console.log(`[startup] Health:  curl http://127.0.0.1:${port}/health`);
+    console.log(`[startup] Swagger: open http://127.0.0.1:${port}/api-docs`);
+  } catch {}
+=======
+  console.log(`[ready] Server listening on http://${HOST}:${port} (ENV=${env})`);
+  // Standard readiness markers for automated detectors
+  console.log(`READY: http://${HOST}:${port}`);
+  console.log(`BACKEND_READY: url=http://${HOST}:${port}`);
+  console.log(`Listening on http://${HOST}:${port}`);
+  try {
+    console.log(`[ready] Health endpoint: http://${HOST}:${port}/health`);
+    console.log(`[ready] Docs endpoint:   http://${HOST}:${port}/api-docs`);
+    console.log(`[startup] Health:  curl http://127.0.0.1:${port}/health`);
+    console.log(`[startup] Swagger: open http://127.0.0.1:${port}/api-docs`);
+  } catch {}
 
 // Defensive normalization
 const normalizePort = (p) => (Number.isFinite(p) && p > 0 ? p : 3001);
