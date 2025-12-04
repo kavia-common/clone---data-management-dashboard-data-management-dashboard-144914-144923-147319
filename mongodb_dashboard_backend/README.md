@@ -131,5 +131,14 @@ Notes on authentication and hashing
 Troubleshooting
 - Port already in use (EADDRINUSE):
   - Another instance might be running. A PID file is managed under .tmp/server.<port>.pid.
+  - Auto-fallback: If the preferred port (default 3001) is in use, the server selects a nearby free port (e.g., 3003) and logs:
+    - READY: http://0.0.0.0:<port>
+    - BACKEND_READY: url=http://0.0.0.0:<port>
+    - [ready] Health endpoint: http://0.0.0.0:<port>/health
+- Composite endpoint caching/ETag quick test:
+  - GET /api/session-tracking/composite?tenant_id=T0000&page=7&limit=200
+    - Expect: 200 with ETag and `Cache-Control: public, max-age=60, must-revalidate`
+  - Repeat with header `If-None-Match: <etag>` → Expect: 304 Not Modified
+  - Repeat within TTL without If-None-Match → Expect: 200 with `X-Cache: HIT` and the same ETag
 - Mongo not connected:
   - /api/health will reflect db: disconnected; verify MONGODB_URI and MONGODB_DB in .env.
