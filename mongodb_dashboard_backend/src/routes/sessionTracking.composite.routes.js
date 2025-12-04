@@ -362,11 +362,11 @@ router.get(
     const [listRes, totalsRes, byStatus, byUser, byTenant, byType, byOrganization] = await Promise.all([
       listPromise,
       totalsPromise.then((arr) => (Array.isArray(arr) && arr[0]) || { total: 0, active: 0, completed: 0 }),
-      breakdownsPromises ? breakdownsPromises.byStatus : Promise.resolve(null),
-      breakdownsPromises ? breakdownsPromises.byUser : Promise.resolve(null),
-      breakdownsPromises ? breakdownsPromises.byTenant : Promise.resolve(null),
-      seriesPromises ? seriesPromises.byType : Promise.resolve(null),
-      seriesPromises ? seriesPromises.byOrganization : Promise.resolve(null),
+      breakdownsPromises ? breakdownsPromises.byStatus : Promise.resolve([]),
+      breakdownsPromises ? breakdownsPromises.byUser : Promise.resolve([]),
+      breakdownsPromises ? breakdownsPromises.byTenant : Promise.resolve([]),
+      seriesPromises ? seriesPromises.byType : Promise.resolve([]),
+      seriesPromises ? seriesPromises.byOrganization : Promise.resolve([]),
     ]);
 
     const [docs, totalCount] = listRes;

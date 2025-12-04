@@ -5,7 +5,8 @@
  * SessionsAggregatesService: Efficient aggregation helpers for session_tracking.
  * - by organization (tenant-aware, group by organization_name with fallback to tenant_id)
  * - by type (group by service_type/session_type/type)
- * Uses raw MongoDB driver for performance and leverages indexes.
+ * Works with Mongoose connections by using mongoose.connection.db.listCollections/collection.
+ * Gracefully handles disconnected DB by returning empty arrays to callers.
  *
  * Notes on indexes:
  *  Ensure the following indexes exist on session_tracking collection:
@@ -19,7 +20,7 @@
  *   The service applies a time window ($match on last_updated OR session_start).
  */
 
-const db = require('../config/db');
+const mongoose = require('mongoose');
 
 // Simple in-memory cache with TTL
 const _cache = new Map();
@@ -87,6 +88,23 @@ function _buildTimeMatch({ start, end }) {
   return { $or: clauses };
 }
 
+/**
+ * Resolve the native collection handle using the active Mongoose connection.
+ * If DB is disconnected or unavailable, returns null.
+ */
+function _getSessionTrackingCollection() {
+  const ready = mongoose.connection?.readyState;
+  if (ready !== 1 || !mongoose.connection?.db) {
+    return null;
+  }
+  // Prefer an existing collection name, default to 'session_tracking'
+  try {
+    return mongoose.connection.db.collection('session_tracking');
+  } catch {
+    return null;
+  }
+}
+
 // PUBLIC_INTERFACE
 async function sessionsByType({ tenantId, start, end, limit = 20, allowBypass = false }) {
   /**
@@ -97,7 +115,13 @@ async function sessionsByType({ tenantId, start, end, limit = 20, allowBypass = 
   const cached = _getCache(cacheKey);
   if (cached) return cached;
 
-  const { session_tracking } = db.getCollections();
+  const col = _getSessionTrackingCollection();
+  if (!col) {
+    const empty = [];
+    _setCache(cacheKey, empty);
+    return empty;
+  }
+
   const matchStages = [];
 
   const tMatch = !allowBypass ? _tenantMatch(tenantId) : null;
@@ -136,12 +160,7 @@ async function sessionsByType({ tenantId, start, end, limit = 20, allowBypass = 
     ...(limit ? [{ $limit: Math.max(1, Number(limit) || 20) }] : []),
   ];
 
-  // Hint: attempt to use compound index on tenant_id + last_updated when possible
-  const agg = session_tracking.aggregate(pipeline, { allowDiskUse: true });
-  // Note: with MongoDB Node driver, hint on an aggregation must be set per $match stage; since that's tricky,
-  // we rely on available indexes. Make sure indexes from the comment are created in the cluster.
-
-  const result = await agg.toArray();
+  const result = await col.aggregate(pipeline, { allowDiskUse: true }).toArray();
   _setCache(cacheKey, result);
   return result;
 }
@@ -156,7 +175,13 @@ async function sessionsByOrganization({ tenantId, start, end, limit = 20, allowB
   const cached = _getCache(cacheKey);
   if (cached) return cached;
 
-  const { session_tracking } = db.getCollections();
+  const col = _getSessionTrackingCollection();
+  if (!col) {
+    const empty = [];
+    _setCache(cacheKey, empty);
+    return empty;
+  }
+
   const matchStages = [];
 
   const tMatch = !allowBypass ? _tenantMatch(tenantId) : null;
@@ -195,7 +220,7 @@ async function sessionsByOrganization({ tenantId, start, end, limit = 20, allowB
     ...(limit ? [{ $limit: Math.max(1, Number(limit) || 20) }] : []),
   ];
 
-  const result = await session_tracking.aggregate(pipeline, { allowDiskUse: true }).toArray();
+  const result = await col.aggregate(pipeline, { allowDiskUse: true }).toArray();
   _setCache(cacheKey, result);
   return result;
 }
