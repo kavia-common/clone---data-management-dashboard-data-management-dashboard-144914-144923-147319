@@ -300,11 +300,7 @@ export default function Costs() {
   }
 
   useEffect(() => {
-    // initial load on mount
     load();
-    // load is stable (declared in component scope) but depends on meta.limit if changed externally
-    // We intentionally do not include 'load' in deps to avoid ref churn and infinite loops.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -331,7 +327,6 @@ export default function Costs() {
   }, [query, allItems]);
 
   const columns = useMemo(() => {
-    // buildColumnsFromSample is a pure function defined in this file; items is the only reactive input
     const base = buildColumnsFromSample(items || []);
     return base.slice();
   }, [items]);
