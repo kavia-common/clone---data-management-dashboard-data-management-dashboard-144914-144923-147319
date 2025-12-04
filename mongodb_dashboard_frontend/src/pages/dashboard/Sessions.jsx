@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { listSessions } from "../../api";
+import { fetchSessionTracking } from "../../api/sessionTracking";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
+import { requestCache, buildStableParamsKey, normalizeString, normalizeIsoMinute, paramsKeyEqual } from "../../utils/requestCache";
 
-
+const isDev = typeof process !== "undefined" && process.env && process.env.NODE_ENV !== "production";
 
 // Simple helper to get distinct, sorted, non-empty values
 function distinctSorted(arr) {
@@ -23,16 +24,19 @@ function distinctSorted(arr) {
 export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
-   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
-   * - Keeps existing pagination using server-provided meta.total and page/limit.
-   * - Minimal loading and error states shown within the table and above toolbar.
+   * After optimization:
+   * - Unified single effect driven by a debounced params object (tenant_id, page, limit, q, start, end, sort)
+   * - AbortController-based in-flight cancellation
+   * - Strict param key equality and 60s client-side cache to avoid redundant requests
+   * - Maintains existing UI elements and DataTable integration
    */
+
+  // Table data
   const [items, setItems] = useState([]);
-
-
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Controls
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
@@ -77,12 +81,14 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Details modal state (session details; unrelated to deprecated "View All" costs modal)
+  // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  // Lock to prevent race conditions when multiple loads are inflight (e.g., debounce vs pagination)
-  const activeRequestRef = useRef(0);
+  // Track AbortController for in-flight cancellation
+  const abortRef = useRef(null);
+  // Track last successful paramsKey to skip redundant network calls
+  const lastSuccessKeyRef = useRef(null);
   // Remember the last known sort so search/debounced reloads preserve sort order across pages
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
@@ -160,8 +166,6 @@ export default function Sessions() {
         label,
         render,
         priority: 2,
-        // Slightly widen column if session list is present
-
       };
     });
   }
@@ -174,10 +178,11 @@ export default function Sessions() {
   const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
 
-  async function loadAggregates(qStr = "") {
+  async function loadAggregates(qStr = "", debouncedRange = { start: null, end: null }) {
     /**
      * Fetch sessions data across multiple pages (capped) and build client-side aggregates
      * for charts: by organization_name and by session_type.
+     * Reuses the same date range normalization as the table fetch.
      */
     setAggLoading(true);
     setAggError("");
@@ -187,18 +192,19 @@ export default function Sessions() {
       let page = 1;
       const all = [];
       while (page <= maxPages) {
-        const params = { page, limit, q: qStr };
-        // Use ONLY start/end for date range API request
-        if (startDate) {
-          params.start = new Date(startDate).toISOString();
-        }
-        if (endDate) {
-          params.end =
-            endDate && !/T/.test(endDate)
-              ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
-              : new Date(endDate).toISOString();
-        }
-        const res = await listSessions(params);
+        const params = {
+          page,
+          limit,
+          q: qStr,
+          // note: backend path uses start/end for date filters per project conventions
+          start: debouncedRange?.start || undefined,
+          end: debouncedRange?.end || undefined,
+          // Preserve sort
+          sort: lastSortRef.current?.dir === "desc"
+            ? `-${(lastSortRef.current?.key || "").toString()}`
+            : (lastSortRef.current?.key || "").toString(),
+        };
+        const res = await fetchSessionTracking(params);
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
         if (arr.length < limit) break;
@@ -236,11 +242,7 @@ export default function Sessions() {
       setByOrg(orgArr);
       setByType(typeArr);
 
-      // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
-      // Keep pairs of { id, name } for filtering
-      // ✅ Build distinct options for dropdowns from the aggregated dataset (all collected pages)
-
-      // Build unique user list with IDs and names
+      // Build distinct options for dropdowns
       const userPairs = all
         .map((it) => ({
           id: it?.user_id,
@@ -263,13 +265,10 @@ export default function Sessions() {
         }
       });
 
-      // Build distinct tenant IDs
       const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
 
-      // Update dropdown options
       setUserNameOptions(uniqueUsers);
       setTenantIdOptions(tenantIds);
-
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -279,147 +278,145 @@ export default function Sessions() {
     }
   }
 
-  // PUBLIC_INTERFACE
-  async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
-    /**
-     * Load sessions from server with pagination, optional query string, and server-driven sorting.
-     * When sortKey is provided, pass `sort` using:
-     *  - asc: field
-     *  - desc: -field
-     */
-    const requestId = ++activeRequestRef.current;
-    setLoading(true);
-    setError("");
-    try {
-      const sortFieldMap = {
-        // Map UI column keys to backend fields
-        User_name: "user_name", // prefer lowercase field in DB
-        tenant_id: "tenant_id",
-        organization_name: "organization_name",
-        service_type: "service_type",
-        task_id: "task_id", // legacy, not used in current allowedOrdered
-      };
-      // include optional date range as both from/to and start/end
-      const params = { page, limit, q: qStr };
+  // Initial aggregates load (no table fetch here; unified effect below will fetch table)
+  useEffect(() => {
+    const debouncedRange = {
+      start: normalizeIsoMinute(startDate || null),
+      end: normalizeIsoMinute(endDate || null),
+    };
+    loadAggregates("", debouncedRange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // on mount
 
-      // Date range params: ONLY send start/end, never from/to (backend expects only start/end)
-      if (startDate) {
-        params.start = new Date(startDate).toISOString();
-      }
-      if (endDate) {
-        // end as end-of-day
-        params.end =
-          endDate && !/T/.test(endDate)
-            ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
-            : new Date(endDate).toISOString();
-      }
+  // Build unified raw params from all controls
+  const rawParams = useMemo(() => {
+    // Build sort from last remembered sort for server sorting (used in table and aggregates fetch pagination loop)
+    const sortKey = normalizeString(lastSortRef.current?.key) || "";
+    const sortDir = normalizeString(lastSortRef.current?.dir) || "asc";
+    return {
+      tenant_id: normalizeString(filterTenantId),
+      page: meta.page,
+      limit: meta.limit,
+      q: normalizeString(query),
+      start: normalizeIsoMinute(startDate || null),
+      end: normalizeIsoMinute(endDate || null),
+      sortKey,
+      sortDir,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterTenantId, meta.page, meta.limit, query, startDate, endDate]);
 
-      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
-      const filter = {};
-      if (filterTenantId && filterTenantId.trim()) {
-        filter.tenant_id = filterTenantId.trim();
-      }
-      if (filterUserName && filterUserName.trim()) {
-        filter.user_id = filterUserName.trim();
-      }
+  // Single debounce (300–400ms). Use 350ms
+  const debouncedParams = useDebouncedValue(rawParams, 350);
 
-      if (Object.keys(filter).length > 0) {
-        params.filter = filter;
-      }
+  // Stable sort string
+  const sortParam = useMemo(() => {
+    const key = debouncedParams?.sortKey || "";
+    const dir = debouncedParams?.sortDir || "asc";
+    if (!key) return undefined;
+    return dir === "desc" ? `-${key}` : key;
+  }, [debouncedParams]);
 
-      if (sortKey) {
-        const backendField = sortFieldMap[sortKey] || String(sortKey);
-        params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
-      }
-      const res = await listSessions(params);
-      const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      // If a newer request started after this one, ignore late response
-      if (requestId !== activeRequestRef.current) return;
+  // Build stable params key
+  const paramsKey = useMemo(() => buildStableParamsKey(debouncedParams), [debouncedParams]);
 
-      // Client-side fallback date filtering
-      let filtered = Array.isArray(arr) ? arr : [];
-      if (startDate || endDate) {
-        const fromMs = startDate ? new Date(startDate).getTime() : null;
-        const toMs = endDate
-          ? (/T/.test(endDate)
-              ? new Date(endDate).getTime()
-              : new Date(new Date(endDate).setHours(23, 59, 59, 999)).getTime())
-          : null;
-        filtered = filtered.filter((it) => {
-          // derive session start and end
-          const s =
-            it?.session_start ||
-            it?.start_time ||
-            it?.started_at ||
-            it?.created_at ||
-            it?.timestamp ||
-            null;
-          const e =
-            it?.session_end ||
-            it?.end_time ||
-            it?.completed_at ||
-            it?.last_updated ||
-            null;
+  // Unified effect for table list fetch with cancellation and cache
+  useEffect(() => {
+    let didCancel = false;
 
-          const sMs = s ? new Date(s).getTime() : null;
-          const eMs = e ? new Date(e).getTime() : null;
+    async function run() {
+      if (isDev) console.info("[Sessions] debounced params", debouncedParams, "key=", paramsKey);
 
-          // If only start exists, check it against window
-          const inFrom = fromMs == null || (sMs != null ? sMs >= fromMs : eMs != null ? eMs >= fromMs : false);
-          const inTo = toMs == null || (sMs != null ? sMs <= toMs : eMs != null ? eMs <= toMs : true);
-          return inFrom && inTo;
-        });
+      // Strict skip: if same as last success, do nothing
+      if (paramsKeyEqual(paramsKey, lastSuccessKeyRef.current)) {
+        if (isDev) console.info("[Sessions] params unchanged – skipping fetch");
+        return;
       }
 
-      setItems(filtered);
-      setMeta({
-        page: res?.meta?.page || page,
-        limit: res?.meta?.limit || limit,
-        total:
-          res?.meta?.total ??
-          (Array.isArray(filtered) ? filtered.length : Array.isArray(arr) ? arr.length : 0),
-      });
-      // Update columns dynamically based on currently returned data
-      setColumns(buildRestrictedColumns(arr));
-    } catch (e) {
-      if (requestId !== activeRequestRef.current) return;
-      setItems([]);
-      setColumns(buildRestrictedColumns([]));
-      setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
-    } finally {
-      if (requestId === activeRequestRef.current) setLoading(false);
+      // Check cache
+      const cached = requestCache.get(paramsKey);
+      if (cached) {
+        if (isDev) console.info("[Sessions] cache hit – using cached result");
+        lastSuccessKeyRef.current = paramsKey;
+        if (!didCancel) {
+          setItems(cached.data || []);
+          setMeta(cached.meta || { page: debouncedParams?.page || 1, limit: debouncedParams?.limit || 10, total: (cached.data || []).length });
+          setLoading(false);
+          setError("");
+          setColumns(buildRestrictedColumns(cached.data || []));
+        }
+        return;
+      }
+
+      // Abort previous in-flight request
+      if (abortRef.current) {
+        abortRef.current.abort();
+        if (isDev) console.info("[Sessions] previous request aborted");
+      }
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setLoading(true);
+      setError("");
+
+      try {
+        const params = {
+          page: debouncedParams?.page || 1,
+          limit: debouncedParams?.limit || 10,
+          q: debouncedParams?.q || undefined,
+          start: debouncedParams?.start || undefined,
+          end: debouncedParams?.end || undefined,
+          sort: sortParam,
+          tenant_id: debouncedParams?.tenant_id || undefined,
+        };
+
+        if (isDev) console.info("[Sessions] fetching with params", params);
+        // fetchSessionTracking uses axios instance; axios v1 supports AbortController signal via config.signal
+        const res = await fetchSessionTracking(params, { signal: controller.signal });
+
+        if (didCancel) return;
+        if (controller.signal.aborted) {
+          if (isDev) console.info("[Sessions] request aborted – ignoring response");
+          return;
+        }
+
+        const arr = Array.isArray(res?.items) ? res.items : [];
+        const metaResp = res?.meta || { page: params.page, limit: params.limit, total: Array.isArray(arr) ? arr.length : 0 };
+
+        // Save to cache
+        requestCache.set(paramsKey, { data: arr, meta: metaResp });
+
+        // Mark success and update UI
+        lastSuccessKeyRef.current = paramsKey;
+        setItems(arr);
+        setMeta(metaResp);
+        setError("");
+        setColumns(buildRestrictedColumns(arr));
+      } catch (e) {
+        if (didCancel) return;
+        if (e && (e.name === "AbortError" || e.code === "ERR_CANCELED")) {
+          if (isDev) console.info("[Sessions] request canceled", e?.message || "");
+          return;
+        }
+        if (isDev) console.info("[Sessions] fetch error", e);
+        setItems([]);
+        setColumns(buildRestrictedColumns([]));
+        setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
+      } finally {
+        if (!didCancel) setLoading(false);
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+        }
+      }
     }
-  }
 
-  // Initial load
-  useEffect(() => {
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, "", key, dir);
-    loadAggregates("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // initial mount only
+    run();
 
-  // Debounced server-side search on query change (250ms default)
-  const debouncedQuery = useDebouncedValue(query, 250);
-  // Debounced text search only
-  useEffect(() => {
-    const q = (debouncedQuery || "").trim();
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    loadAggregates(q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, startDate, endDate]);
-
-  // Immediate refetch when dropdown filters change (no debounce)
-  useEffect(() => {
-    const q = (query || "").trim();
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterUserName, filterTenantId, startDate, endDate]);
-
-
+    return () => {
+      didCancel = true;
+      // No abort here; the next effect run aborts previous before starting.
+    };
+  }, [paramsKey, sortParam, debouncedParams]);
 
   // Toggle global dimming class while modal is open (align with user modal UX)
   useEffect(() => {
@@ -437,7 +434,7 @@ export default function Sessions() {
       try {
         const keys = Object.keys(row || {});
         // eslint-disable-next-line no-console
-        console.debug("[Sessions] Row clicked (tenant_id scoped) -> opening details modal with keys:", keys);
+        console.debug("[Sessions] Row clicked -> opening details modal with keys:", keys);
       } catch {
         // ignore logging errors
       }
@@ -458,7 +455,7 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts stacked vertically (normal flow, with spacing below so table doesn't overlap) */}
+      {/* Charts stacked vertically */}
       <div
         className="sessions-charts"
         role="region"
@@ -467,7 +464,7 @@ export default function Sessions() {
           display: "flex",
           flexDirection: "column",
           gap: 24,
-          marginBottom: 32, // ensure spacing before the table card
+          marginBottom: 32,
         }}
       >
         <Card
@@ -489,7 +486,6 @@ export default function Sessions() {
           title="Sessions by Type"
           subtitle="Count of sessions per type"
         >
-          {/* Wrapper participates in normal flow; no absolute positioning */}
           <div className="chart-wrapper" style={{ minHeight: 320 }}>
             <SessionsByType
               data={byType}
@@ -501,7 +497,7 @@ export default function Sessions() {
         </Card>
       </div>
 
-      {/* Existing table card remains below charts */}
+      {/* Table */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <input
@@ -575,22 +571,21 @@ export default function Sessions() {
           columns={Array.isArray(columns) ? columns : []}
           data={Array.isArray(items) ? items : []}
           loading={!!loading}
-
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
-            // Remember current sort so external triggers (search) keep ordering consistent
+            // Update sort memory so unified debounced fetch uses it
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
             } else if (!lastSortRef.current) {
               lastSortRef.current = { key: "", dir: "asc" };
             }
-            await load(page, limit, (query || "").trim(), sortKey, sortDir);
+            // Update meta; unified effect will trigger fetch
+            setMeta((m) => ({ ...m, page, limit }));
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
-
         />
       </Card>
     </div>
