@@ -1,6 +1,26 @@
 const mongoose = require('mongoose');
 
 /**
+ * PUBLIC_INTERFACE
+ * LLMCost Mongoose Model
+ *
+ * Purpose:
+ * - Represents individual LLM usage/cost records used by /api/llm-costs list and related analytics.
+ * - The schema is permissive to accommodate varied records from different providers/agents.
+ *
+ * Collection mapping:
+ * - By default, this model maps to the hyphenated collection name 'llm-costs' to match current deployments.
+ * - For legacy deployments where the collection is named with underscores ('llm_costs'), you can set:
+ *     process.env.LLMCOSTS_COLLECTION_NAME=llm_costs
+ *   at runtime to switch the model's collection name without code changes.
+ *
+ * Tenant scoping:
+ * - Tenant isolation is enforced in controllers/middleware; this model only defines the schema and indexes.
+ */
+const LLM_COLLECTION_NAME =
+  (process.env.LLMCOSTS_COLLECTION_NAME || '').trim() || 'llm-costs';
+
+/**
  * LLM Costs model
  * This schema is permissive to accommodate varied cost records from different agents/models.
  * Common fields are indexed to support filtering and sorting in list endpoints.
@@ -34,7 +54,7 @@ const LLMCostsSchema = new mongoose.Schema(
   },
   {
     timestamps: false,
-    collection: 'llm_costs',
+    collection: LLM_COLLECTION_NAME,
     strict: false, // allow additional fields that may exist in real documents
   }
 );
