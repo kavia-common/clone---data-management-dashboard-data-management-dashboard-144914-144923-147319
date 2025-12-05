@@ -11,14 +11,6 @@ const compression = require('compression');
 
 const app = express();
 
-// Expose models for controllers that optionally use Mongoose primary path
-app.locals.models = app.locals.models || {};
-try {
-  // Attempt to register LlmCost model if present (primary path)
-  // eslint-disable-next-line global-require
-  app.locals.models.LlmCost = require('./models/llmCosts.model');
-} catch { /* ignore missing model at startup */ }
-
 // ---------------------------------------------
 // Middleware
 // ---------------------------------------------
@@ -34,8 +26,10 @@ const ENABLE_RESPONSE_COMPRESSION = String(process.env.ENABLE_RESPONSE_COMPRESSI
 if (ENABLE_RESPONSE_COMPRESSION) {
   app.use(
     compression({
+      // express compression enables brotli if available via Node zlib automatically when client supports it
       threshold: 1024, // compress payloads > 1KB
       filter: (req, res) => {
+        // allow clients to opt-out
         if (req.headers['x-no-compress']) {
           return false;
         }
@@ -73,9 +67,18 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
+    // Use same-origin server so Swagger calls hit this backend instance
     url: `${protocol}://${fullHost}`,
+    // servers: [
+
+    //   {
+    //     url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //     description: 'Predefined dev server',
+    //   },
+    // ],
   };
 };
+
 
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
@@ -110,7 +113,9 @@ const healthHandler = (req, res) => {
   return res.status(200).json(payload);
 };
 app.get(['/api/health', '/health', '/healthz', '/ready', '/live'], healthHandler);
+// Log at registration time to aid diagnosis if server boots but probes fail to reach
 try {
+  // eslint-disable-next-line no-console
   console.log('[routes] Health endpoints registered at: /health, /api/health, /healthz, /ready, /live');
 } catch {}
 
@@ -151,13 +156,13 @@ app.get('/api/users/tenant-summary', async (req, res) => {
   }
 });
 
-// ---------------------------------------------
-// Protected/other routes
-// ---------------------------------------------
+ // ---------------------------------------------
+ // Protected routes (with auth + tenant)
+ // ---------------------------------------------
 app.use((req, res, next) => {
   if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
     if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
-      // Developer debug headers placeholder
+      // Developer debug headers (disabled logs)
     }
   }
   next();
@@ -172,11 +177,8 @@ safeUse('/api/analytics', require('./routes/analytics'));
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
-
-// Ensure new llm-costs routes (primary+fallback and hierarchy) are mounted
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
-
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
 safeUse('/api/session', require('./routes/session.routes'));
@@ -207,6 +209,7 @@ if (process.env.NODE_ENV !== 'test') {
       .then(async () => {
         try {
           const { ensureLlmCostsIndexes } = require('./models/llmCosts.indexes');
+          // fire-and-forget; do not await to keep startup snappy
           Promise.resolve(ensureLlmCostsIndexes())
             .then(() => console.log('[startup] ensureLlmCostsIndexes scheduled'))
             .catch((e) => console.warn('[startup] ensureLlmCostsIndexes failed:', e?.message || e));

@@ -270,9 +270,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       // Expose applied filter, model collection and quick existence probe for diagnostics
       try {
         const appliedFilterStr = JSON.stringify(appliedFilter);
-        // Requested header spellings for diagnostics
-        res.set('X-Applied-Tenant-Filter', appliedFilterStr);
-        // Backwards-compat existing headers
         res.set('x-applied-tenant-filter', appliedFilterStr);
         res.set('X-Applied-Filter', appliedFilterStr);
         res.set('x-applied-organization-id', String(req.tenantId || ''));
@@ -398,7 +395,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
           const total = await Model.countDocuments(appliedFilter);
-          try { res.set('X-Matched-Count', String(total)); } catch (_) {}
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);
@@ -460,10 +456,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           // Fallback to simple find if any aggregation operator unsupported
         }
         const items = await query;
-        try {
-          const preCount = await Model.countDocuments(appliedFilter);
-          res.set('X-Matched-Count', String(preCount));
-        } catch (_) {}
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
