@@ -16,7 +16,7 @@ import client from '../../api/client';
 function ServiceTypeChart({ organizationId, filters, title = 'Service Type', chartRenderer }) {
   const [state, setState] = useState({ loading: true, error: null, items: [] });
 
-  // Build query params consistent with Overview filters
+  // Build query params consistent with Overview filters and existing charts
   const queryParams = useMemo(() => {
     const params = new URLSearchParams();
 
@@ -25,14 +25,20 @@ function ServiceTypeChart({ organizationId, filters, title = 'Service Type', cha
       params.set('organization_id', organizationId);
     }
 
-    // include additional overview filter params if provided (date ranges/status/search, etc.)
-    // buildOverviewFilterParams returns a plain object; include as ?filter=<json> and/or direct keys if needed
-    const built = buildOverviewQueryParams(filters || {});
-    // built is a plain object of query params (strings)
+    // buildOverviewQueryParams returns a plain object of query params. It already encodes `filter` once.
+    const built = buildOverviewQueryParams(
+      {
+        ...(filters || {}),
+        // Ensure organization_id propagates as well in case caller didn't pass it in filters
+        organization_id: organizationId || (filters && filters.organization_id),
+      },
+      // useStartEnd not required for session-tracking; we use from/to patterns aligned with other charts.
+    );
+
+    // Append params exactly; do not double-encode `filter`
     Object.entries(built || {}).forEach(([k, v]) => {
-      if (v != null && v !== '') {
-        params.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v));
-      }
+      if (v == null || v === '') return;
+      params.set(k, String(v));
     });
 
     return params;
@@ -44,6 +50,7 @@ function ServiceTypeChart({ organizationId, filters, title = 'Service Type', cha
     async function load() {
       setState((s) => ({ ...s, loading: true, error: null }));
       try {
+        // Use relative path without base URL or localhost
         const url = `/api/session-tracking?${queryParams.toString()}`;
         const res = await client.get(url);
         const payload = res?.data;
@@ -78,8 +85,7 @@ function ServiceTypeChart({ organizationId, filters, title = 'Service Type', cha
 
   const { loading, error, items } = state;
 
-  // Default renderer: simple responsive list or fallback when no chart lib integration is present
-  // Try to reuse an existing chart component pattern - use a simple bar-like list using CSS if no chart lib is standardized.
+  // Default renderer: accessible proportional bar list
   const defaultRenderer = () => {
     if (loading) return <LoadingState label="Loading service types..." />;
     if (error) return <ErrorState message="Failed to load service types" details={error?.message} />;
