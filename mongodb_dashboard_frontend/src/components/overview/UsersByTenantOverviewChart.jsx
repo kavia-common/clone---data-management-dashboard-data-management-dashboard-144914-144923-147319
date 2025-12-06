@@ -164,9 +164,10 @@ function UsersByTenantOverviewChart({ className }) {
       )}
       {!loading && !error && byTenant.length > 0 && (
         <div className="overview-chart-container">
+          {/* Note: server endpoint /api/users/tenant-summary was intentionally removed.
+              We now fetch /api/users with created_at $gte/$lte and organization_id and aggregate client-side. */}
           <UsersByTenantChart
-            data={byTenant.map((d) => ({ label: d.tenant_name || d.tenant_id, value: d.count }))}
-            variant="donut"
+            data={byTenant.map((d) => ({ label: d.tenant_name || d.tenant_id, value: d.count, tenant_id: d.tenant_id }))}
             ariaLabel="Users by Tenant"
           />
         </div>

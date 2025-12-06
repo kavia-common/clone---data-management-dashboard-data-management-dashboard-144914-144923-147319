@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import PropTypes from "prop-types";
 import {
   BarChart,
@@ -11,97 +11,45 @@ import {
   ResponsiveContainer,
   LabelList,
 } from "recharts";
-import { getTenantUsersSummary } from "../../api/usersAnalytics";
 import { getChartTheme } from "./chartTheme";
 
 /**
  * PUBLIC_INTERFACE
  * UsersByTenantChart
- * A reusable, themed horizontal bar chart that visualizes "Users by Tenant".
+ * Presentational, themed horizontal bar chart for "Users by Tenant".
  *
- * Props:
- * - title?: string - Panel title
- * - subtitle?: string - Optional subtitle
- * - from?: string (ISO)
- * - to?: string (ISO)
- * - status?: string
- * - includeInactive?: boolean
- * - maxBars?: number - Limit number of bars (e.g., top 12)
- * - onBarClick?: (datum) => void
+ * Note: This component no longer fetches any data itself. The previous
+ * tenant-summary backend call was intentionally removed. Data must be provided
+ * by the parent component (e.g. UsersByTenantOverviewChart) which queries
+ * /api/users with created_at $gte/$lte and organization_id, and aggregates
+ * users by tenant client-side.
  */
 export default function UsersByTenantChart({
-  // Title/subtitle are intentionally ignored here to avoid duplicate headers.
-  // They are kept in the props for backward compatibility with existing callers.
-  title = "Users by Tenant", // deprecated in this component (use page-level Card header)
-  subtitle = "Distinct active users by tenant", // deprecated in this component
-  from,
-  to,
-  status = "completed|active",
-  includeInactive = false,
-  maxBars = 12,
+  data = [],
   onBarClick,
 }) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-
-  // Fetch data
-  useEffect(() => {
-    let mounted = true;
-    async function run() {
-      setLoading(true);
-      setErr("");
-      try {
-        const res = await getTenantUsersSummary();
-        if (!mounted) return;
-        const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
-        // Sort desc by count
-        const sorted = [...items].sort(
-          (a, b) => (b?.user_count || 0) - (a?.user_count || 0)
-        );
-        setRows(sorted.slice(0, maxBars));
-      } catch (e) {
-        if (!mounted) return;
-        setRows([]);
-        setErr(e?.message || "Failed to load Users by Tenant");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-    run();
-    return () => {
-      mounted = false;
-    };
-  }, [from, to, status, includeInactive, maxBars]);
-
+  // compute totals and derived fields for tooltip display
   const totalUsers = useMemo(
-    () => rows.reduce((sum, r) => sum + Number(r?.user_count || 0), 0),
-    [rows]
+    () => data.reduce((sum, r) => sum + Number(r?.value || r?.user_count || 0), 0),
+    [data]
   );
 
-  const data = useMemo(
-    () =>
-      rows.map((r) => {
-        const name =
-          (r?.tenant_name && String(r.tenant_name).trim()) ||
-          r?.tenant_id ||
-          "Unknown";
-        const count = Number(r?.user_count || 0);
-        const pct = totalUsers > 0 ? (count / totalUsers) * 100 : 0;
-        return {
-          name,
-          tenant_id: r?.tenant_id || name,
-          user_count: count,
-          percent: pct,
-        };
-      }),
-    [rows, totalUsers]
-  );
+  const shaped = useMemo(() => {
+    return data.map((d) => {
+      const count = Number(d?.value ?? d?.user_count ?? 0);
+      const pct = totalUsers > 0 ? (count / totalUsers) * 100 : 0;
+      return {
+        name: d?.label ?? d?.name ?? d?.tenant_name ?? d?.tenant_id ?? "Unknown",
+        tenant_id: d?.tenant_id || d?.id || d?.label || d?.name,
+        user_count: count,
+        percent: pct,
+      };
+    });
+  }, [data, totalUsers]);
 
   const t = getChartTheme();
   const primary = t.primary;
   const primaryDark = t.primaryActive;
-  const secondary = t.primaryHover;
   const gridStroke = t.grid;
 
   const CustomTooltip = ({ active, payload, label }) => {
@@ -131,7 +79,6 @@ export default function UsersByTenantChart({
     return null;
   };
 
-  // Value labels for each bar
   const valueLabel = (props) => {
     const { x, y, width, height, value } = props;
     const label = String(value);
@@ -152,7 +99,6 @@ export default function UsersByTenantChart({
     );
   };
 
-  // Render chart visualization only; outer page provides Card header and layout.
   return (
     <div role="region" aria-label="Users by Tenant chart" style={{ width: "100%" }}>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
@@ -160,7 +106,7 @@ export default function UsersByTenantChart({
           style={{
             background: "color-mix(in oklab, var(--color-accent) 12%, transparent)",
             border: "1px solid var(--color-border)",
-            color: "var(--color-text-primary)",
+            color: "var(--color-text-secondary)",
             fontSize: 12,
             padding: "6px 8px",
             borderRadius: 999,
@@ -172,24 +118,12 @@ export default function UsersByTenantChart({
         </span>
       </div>
       <div style={{ height: 360 }}>
-        {loading ? (
-          <div aria-busy="true">
-            <div className="skeleton" style={{ height: 16, width: "35%", marginBottom: 8 }} />
-            <div className="skeleton" style={{ height: 12, width: "55%", marginBottom: 8 }} />
-            <div className="skeleton" style={{ height: 12, width: "48%", marginBottom: 8 }} />
-            <div className="skeleton" style={{ height: 12, width: "62%", marginBottom: 8 }} />
-            <div className="skeleton" style={{ height: 12, width: "40%", marginBottom: 8 }} />
-          </div>
-        ) : err ? (
-          <div className="error" role="alert">
-            {err}
-          </div>
-        ) : data.length === 0 ? (
+        {shaped.length === 0 ? (
           <div className="screen-center">No users found</div>
         ) : (
           <ResponsiveContainer>
             <BarChart
-              data={data}
+              data={shaped}
               layout="vertical"
               margin={{ top: 8, right: 40, bottom: 8, left: 80 }}
               barCategoryGap={12}
@@ -248,12 +182,12 @@ export default function UsersByTenantChart({
 }
 
 UsersByTenantChart.propTypes = {
-  title: PropTypes.string,
-  subtitle: PropTypes.string,
-  from: PropTypes.string,
-  to: PropTypes.string,
-  status: PropTypes.string,
-  includeInactive: PropTypes.bool,
-  maxBars: PropTypes.number,
+  data: PropTypes.arrayOf(
+    PropTypes.shape({
+      label: PropTypes.string,
+      value: PropTypes.number,
+      tenant_id: PropTypes.string,
+    })
+  ),
   onBarClick: PropTypes.func,
 };

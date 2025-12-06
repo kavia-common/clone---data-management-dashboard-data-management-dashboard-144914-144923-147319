@@ -332,13 +332,9 @@ export async function listLlmCosts(params = {}) {
 }
 
 /**
- * PUBLIC_INTERFACE
- * getTenantUsersSummaryStrict
- * Calls /api/users/tenant-summary ensuring only organization_id is sent as a query param.
+ * The previous getTenantUsersSummaryStrict helper for /api/users/tenant-summary
+ * was intentionally removed. Use listUsers() with a filter on created_at and
+ * aggregate client-side when needed (see UsersByTenantOverviewChart).
  */
-export async function getTenantUsersSummaryStrict() {
-  const res = await httpGet("/api/users/tenant-summary", { params: {} });
-  return res.data;
-}
 
 /* No default export to favor named exports (lint rule) */

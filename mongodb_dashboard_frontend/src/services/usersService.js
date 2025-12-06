@@ -82,11 +82,13 @@ export async function listUsersServerFiltered({
   if (gteIso) filter.created_at.$gte = gteIso;
   if (lteIso) filter.created_at.$lte = lteIso;
 
+  // Intentionally querying /api/users only; tenant-summary endpoint is deprecated in UI.
+  // We send organization_id and a Mongo-style filter for created_at with $gte/$lte.
   const params = {
     organization_id,
     limit,
     filter,
-    mode, // pass mode as hint; backend may ignore
+    mode, // optional hint; backend can ignore
   };
 
   if (process.env.NODE_ENV !== 'production') {
