@@ -50,11 +50,11 @@ export default function OverviewContainer() {
       <OverviewTimeControls range={range} setRange={setRange} metric={metric} setMetric={setMetric} showMetricSelector />
       {loading && !kpis && <LoadingState message="Loading overview analytics..." />}
       {error && <ErrorState message={error} />}
+
       {!loading && !error && (
         <>
           <OverviewKpiCards kpis={kpis} loading={loading} />
           <OverviewTrendChart data={chartData} metric={metric} />
-          <UsersByTenantChart />
           {chartData?.length === 0 && (
             <div style={{ color: '#6B7280', fontSize: 14, textAlign: 'center' }}>
               No data available for the selected range.
@@ -62,6 +62,11 @@ export default function OverviewContainer() {
           )}
         </>
       )}
+
+      {/* UsersByTenantChart must always render under cards/trend regardless of container loading/error */}
+      <div className="overview-section">
+        <UsersByTenantChart />
+      </div>
     </div>
   );
 }
