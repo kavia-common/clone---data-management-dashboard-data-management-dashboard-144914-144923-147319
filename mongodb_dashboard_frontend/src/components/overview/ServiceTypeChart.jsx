@@ -4,44 +4,101 @@ import Card from '../common/Card';
 import LoadingState from '../common/LoadingState';
 import ErrorState from '../common/ErrorState';
 import { getApiClient } from '../../api/baseClient';
+import { buildOverviewQueryParams } from '../../api/buildOverviewFilterParams';
+import useOverviewFilters from '../../hooks/useOverviewFilters';
 
 /**
  * PUBLIC_INTERFACE
  * ServiceTypeChart
  * This component renders a "Service Type" chart that aggregates counts of session records by service_type.
- * It queries the backend /api/session-tracking endpoint with tenant_id only (no organization_id, no filter unless specified),
- * and aggregates service_type occurrences from the response items.
- *
- * Temporary behavior: We append limit=5 to the request to mitigate potential DB timeout during validation.
- * TODO: Remove the limit parameter once the user confirms timeouts are resolved and larger payloads are safe.
+ * It queries the backend /api/session-tracking endpoint using the same filter model as the Users chart,
+ * including: tenant_id, limit=500, optional mode, and created_at date window via filter {$gte,$lte}.
+ * It refetches when overview filters change.
  */
 function ServiceTypeChart({ tenantId, title = 'Service Type', chartRenderer }) {
   const [state, setState] = useState({ loading: true, error: null, items: [] });
 
-  // Build query string with only tenant_id and temporary limit to mitigate timeouts.
-  // TODO(temporary): Remove the 'limit=5' once backend validation confirms timeouts are resolved.
-  const queryString = useMemo(() => {
-    const params = new URLSearchParams();
-    if (tenantId) params.set('tenant_id', String(tenantId));
-    params.set('limit', '5'); // temporary throttle to reduce payload and avoid DB timeout
-    const qs = params.toString();
-    return qs ? `?${qs}` : '';
-  }, [tenantId]);
+  // Pull global overview filters (date window, mode, tenant, etc.)
+  const overviewFilters = useOverviewFilters();
+
+  // Build request params aligned with Overview: include tenant_id, limit=500, mode (if present),
+  // and pass created_at date constraints through the filter JSON using $gte/$lte based on from/to.
+  const requestParams = useMemo(() => {
+    // Base params from overview query helper (keeps from/to, granularity, etc.)
+    const base = buildOverviewQueryParams(
+      {
+        tenantId: tenantId || overviewFilters?.tenantId || overviewFilters?.organization_id,
+        organization_id: overviewFilters?.organization_id, // preserved by helper as organization_id
+        from: overviewFilters?.from,
+        to: overviewFilters?.to,
+        granularity: overviewFilters?.granularity,
+        // Allow passing through any extra filter fields if the context provided them
+        extra: overviewFilters?.extra || {},
+      },
+      { useStartEnd: false } // use from/to naming (not start/end)
+    );
+
+    // Ensure limit=500 and tenant_id for /api/session-tracking; use mode when present.
+    const params = {
+      ...base,
+      limit: 500,
+    };
+
+    // The /api/baseClient ensures tenant scoping via tenant_id. Provide explicitly to be clear.
+    if (tenantId) params.tenant_id = String(tenantId);
+    else if (overviewFilters?.tenantId) params.tenant_id = String(overviewFilters.tenantId);
+    else if (overviewFilters?.organization_id) params.tenant_id = String(overviewFilters.organization_id);
+
+    if (overviewFilters?.mode) params.mode = overviewFilters.mode;
+
+    // Build created_at window filter: { created_at: { $gte: fromISO, $lte: toISO } }
+    const f = {};
+    if (overviewFilters?.from || overviewFilters?.to) {
+      const createdRange = {};
+      if (overviewFilters?.from) createdRange.$gte = overviewFilters.from;
+      if (overviewFilters?.to) createdRange.$lte = overviewFilters.to;
+      f.created_at = createdRange;
+    }
+
+    // If there was already a filter supplied via base.filter (JSON-string from helper), merge them.
+    // base.filter, if present, is already JSON-stringified; parse, merge, then re-stringify.
+    if (base.filter) {
+      try {
+        const existing = JSON.parse(base.filter);
+        const merged = { ...(existing || {}) };
+        if (f.created_at) {
+          merged.created_at = {
+            ...(existing?.created_at || {}),
+            ...f.created_at,
+          };
+        }
+        params.filter = JSON.stringify(merged);
+      } catch {
+        // If parse fails, just set our created_at filter
+        if (f.created_at) params.filter = JSON.stringify({ created_at: f.created_at });
+      }
+    } else if (f.created_at) {
+      params.filter = JSON.stringify({ created_at: f.created_at });
+    }
+
+    return params;
+  }, [tenantId, overviewFilters]);
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
     async function load() {
       setState((s) => ({ ...s, loading: true, error: null }));
       try {
-        const url = `/api/session-tracking${queryString}`;
-        const res = await getApiClient().get(url);
+        // Same-origin path; baseClient will handle scoping and single-encoding
+        const res = await getApiClient().get('/api/session-tracking', { params: requestParams, signal: controller.signal });
         const payload = res?.data ?? res;
 
         // /api/session-tracking may return an array or an envelope { success, data, meta }
         const records = Array.isArray(payload) ? payload : payload?.data || [];
 
-        // Aggregate counts by service_type (e.g., code-generation, code-query)
+        // Aggregate counts by service_type
         const counts = new Map();
         for (const r of records) {
           const key = (r && r.service_type) ? String(r.service_type) : 'unknown';
@@ -56,11 +113,12 @@ function ServiceTypeChart({ tenantId, title = 'Service Type', chartRenderer }) {
       }
     }
 
-    load(); // single correct API call on mount/change
+    load(); // fetch on mount and whenever filters change
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [queryString]);
+  }, [requestParams]);
 
   const { loading, error, items } = state;
 

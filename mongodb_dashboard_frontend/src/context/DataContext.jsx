@@ -10,7 +10,7 @@ import { listUsers, listSessions } from "../api";
  */
 
 // Shape of the context
-const DataContext = createContext({
+export const DataContext = createContext({
   users: [],
   usersLoading: false,
   usersError: "",
