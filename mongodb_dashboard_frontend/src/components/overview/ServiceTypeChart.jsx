@@ -1,98 +1,95 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import Card from '../common/Card';
 import LoadingState from '../common/LoadingState';
 import ErrorState from '../common/ErrorState';
 import { getApiClient } from '../../api/baseClient';
-import { buildOverviewQueryParams } from '../../api/buildOverviewFilterParams';
 import useOverviewFilters from '../../hooks/useOverviewFilters';
+import { startOfUtcDay, endOfUtcDay } from '../../utils/dateUtc';
 
 /**
  * PUBLIC_INTERFACE
  * ServiceTypeChart
  * This component renders a "Service Type" chart that aggregates counts of session records by service_type.
- * It queries the backend /api/session-tracking endpoint using the same filter model as the Users chart,
- * including: tenant_id, limit=500, optional mode, and created_at date window via filter {$gte,$lte}.
- * It refetches when overview filters change.
+ *
+ * Today-only on refresh behavior (per user request):
+ * - On initial mount, we request only today's (UTC) sessions from /api/session-tracking to avoid heavy queries.
+ * - We include: tenant_id, limit=500, q="", sort="-session_start" (as in server logs), and mode='daily' (or provided).
+ * - Date bounds are passed as start/end in UTC: 00:00:00 to 23:59:59 for today, matching backend expectations.
+ * - The effect is stabilized to avoid repeated fetches:
+ *    * memoized params
+ *    * AbortController cancellation on unmount
+ *    * guard ref to avoid double state updates in React.StrictMode
+ * - Only refetch when relevant filters actually change (tenant/mode or the computed today range).
  */
 function ServiceTypeChart({ tenantId, title = 'Service Type', chartRenderer }) {
   const [state, setState] = useState({ loading: true, error: null, items: [] });
 
-  // Pull global overview filters (date window, mode, tenant, etc.)
+  // Pull global overview filters (tenant, mode, etc.). We intentionally scope to "today" on initial load.
   const overviewFilters = useOverviewFilters();
 
-  // Build request params aligned with Overview: include tenant_id, limit=500, mode (if present),
-  // and pass created_at date constraints through the filter JSON using $gte/$lte based on from/to.
-  const requestParams = useMemo(() => {
-    // Base params from overview query helper (keeps from/to, granularity, etc.)
-    const base = buildOverviewQueryParams(
-      {
-        tenantId: tenantId || overviewFilters?.tenantId || overviewFilters?.organization_id,
-        organization_id: overviewFilters?.organization_id, // preserved by helper as organization_id
-        from: overviewFilters?.from,
-        to: overviewFilters?.to,
-        granularity: overviewFilters?.granularity,
-        // Allow passing through any extra filter fields if the context provided them
-        extra: overviewFilters?.extra || {},
-      },
-      { useStartEnd: false } // use from/to naming (not start/end)
-    );
+  // Compute today's UTC range; memoized so it remains stable within a render unless the day changes.
+  const todayRange = useMemo(() => {
+    const now = new Date();
+    const start = startOfUtcDay(now).toISOString();
+    const end = endOfUtcDay(now).toISOString();
+    return { start, end };
+  }, []);
 
-    // Ensure limit=500 and tenant_id for /api/session-tracking; use mode when present.
+  // Build params for the request:
+  // tenant_id, limit=500, q="", sort="-session_start", mode (if available), and start/end (UTC today).
+  // Only include dependencies that should trigger refetches when they truly change.
+  const requestParams = useMemo(() => {
+    const resolvedTenant =
+      (tenantId && String(tenantId)) ||
+      (overviewFilters?.tenantId && String(overviewFilters.tenantId)) ||
+      (overviewFilters?.organization_id && String(overviewFilters.organization_id)) ||
+      undefined;
+
     const params = {
-      ...base,
+      tenant_id: resolvedTenant,
       limit: 500,
+      q: '', // explicit empty search for consistency with server logs
+      sort: '-session_start',
+      start: todayRange.start,
+      end: todayRange.end,
     };
 
-    // The /api/baseClient ensures tenant scoping via tenant_id. Provide explicitly to be clear.
-    if (tenantId) params.tenant_id = String(tenantId);
-    else if (overviewFilters?.tenantId) params.tenant_id = String(overviewFilters.tenantId);
-    else if (overviewFilters?.organization_id) params.tenant_id = String(overviewFilters.organization_id);
-
-    if (overviewFilters?.mode) params.mode = overviewFilters.mode;
-
-    // Build created_at window filter: { created_at: { $gte: fromISO, $lte: toISO } }
-    const f = {};
-    if (overviewFilters?.from || overviewFilters?.to) {
-      const createdRange = {};
-      if (overviewFilters?.from) createdRange.$gte = overviewFilters.from;
-      if (overviewFilters?.to) createdRange.$lte = overviewFilters.to;
-      f.created_at = createdRange;
-    }
-
-    // If there was already a filter supplied via base.filter (JSON-string from helper), merge them.
-    // base.filter, if present, is already JSON-stringified; parse, merge, then re-stringify.
-    if (base.filter) {
-      try {
-        const existing = JSON.parse(base.filter);
-        const merged = { ...(existing || {}) };
-        if (f.created_at) {
-          merged.created_at = {
-            ...(existing?.created_at || {}),
-            ...f.created_at,
-          };
-        }
-        params.filter = JSON.stringify(merged);
-      } catch {
-        // If parse fails, just set our created_at filter
-        if (f.created_at) params.filter = JSON.stringify({ created_at: f.created_at });
-      }
-    } else if (f.created_at) {
-      params.filter = JSON.stringify({ created_at: f.created_at });
-    }
+    const mode = overviewFilters?.mode || 'daily';
+    if (mode) params.mode = mode;
 
     return params;
-  }, [tenantId, overviewFilters]);
+  }, [
+    tenantId,
+    overviewFilters?.tenantId,
+    overviewFilters?.organization_id,
+    overviewFilters?.mode,
+    todayRange.start,
+    todayRange.end,
+  ]);
+
+  // Guard ref to avoid setting state from stale requests (StrictMode may double-invoke effects)
+  const inFlight = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
+    inFlight.current = controller;
 
     async function load() {
+      // Skip fetch if no tenant scope is resolved yet
+      if (!requestParams?.tenant_id) {
+        setState((s) => ({ ...s, loading: false }));
+        return;
+      }
+
       setState((s) => ({ ...s, loading: true, error: null }));
       try {
-        // Same-origin path; baseClient will handle scoping and single-encoding
-        const res = await getApiClient().get('/api/session-tracking', { params: requestParams, signal: controller.signal });
+        // Base client preserves params and ensures proper scoping
+        const res = await getApiClient().get('/api/session-tracking', {
+          params: requestParams,
+          signal: controller.signal,
+        });
         const payload = res?.data ?? res;
 
         // /api/session-tracking may return an array or an envelope { success, data, meta }
@@ -109,15 +106,22 @@ function ServiceTypeChart({ tenantId, title = 'Service Type', chartRenderer }) {
 
         if (!cancelled) setState({ loading: false, error: null, items });
       } catch (err) {
-        if (!cancelled) setState({ loading: false, error: err, items: [] });
+        if (!cancelled && err?.name !== 'AbortError') {
+          setState({ loading: false, error: err, items: [] });
+        }
       }
     }
 
-    load(); // fetch on mount and whenever filters change
+    load();
+
     return () => {
       cancelled = true;
-      controller.abort();
+      if (inFlight.current === controller) {
+        controller.abort();
+        inFlight.current = null;
+      }
     };
+    // Only refetch when requestParams changes (which is memoized and stable)
   }, [requestParams]);
 
   const { loading, error, items } = state;
