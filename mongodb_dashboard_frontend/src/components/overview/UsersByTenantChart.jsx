@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import PropTypes from "prop-types";
 import "./overview.css";
 import Card from "../common/Card";
 import LoadingState from "../common/LoadingState";
@@ -16,7 +17,7 @@ const MAX_BARS = 12;
  * Provides inline loading, error (with retry), and empty states.
  * Maintains Ocean Professional styling via oceanColors.
  */
-export default function UsersByTenantChart() {
+export default function UsersByTenantChart({ organization_id }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
@@ -30,7 +31,9 @@ export default function UsersByTenantChart() {
       // Prefer aggregated endpoint when available
       let aggregatedOk = false;
       try {
-        const aggRes = await apiClient.get("/api/users/tenant-summary");
+        const aggRes = await apiClient.get("/api/users/tenant-summary", {
+          params: organization_id ? { organization_id } : undefined,
+        });
         const aggItems = Array.isArray(aggRes?.data?.items) ? aggRes.data.items : [];
         if (aggItems.length > 0) {
           shaped = aggItems.map((it) => ({
@@ -44,11 +47,25 @@ export default function UsersByTenantChart() {
       }
 
       if (!aggregatedOk) {
-        const res = await apiClient.get("/api/users");
+        const res = await apiClient.get("/api/users", {
+          params: organization_id ? { organization_id } : undefined,
+        });
         const payload = res?.data;
-        const list = Array.isArray(payload) ? payload : (Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload?.items) ? payload.items : []));
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.items)
+          ? payload.items
+          : [];
         const grouped = list.reduce((acc, u) => {
-          const tenant = u.organization_id || u.tenant_id || u.organizationId || u.tenant || u.tenantId || "unknown";
+          const tenant =
+            u.organization_id ||
+            u.tenant_id ||
+            u.organizationId ||
+            u.tenant ||
+            u.tenantId ||
+            "unknown";
           acc[tenant] = (acc[tenant] || 0) + 1;
           return acc;
         }, {});
@@ -61,17 +78,19 @@ export default function UsersByTenantChart() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [organization_id]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!cancelled) await load();
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
 
-  const isEmpty = !loading && !error && items.length === 0;
+  const isEmpty = useMemo(() => !loading && !error && items.length === 0, [loading, error, items]);
 
   return (
     <Card title="Total Users by Tenant">
@@ -85,7 +104,9 @@ export default function UsersByTenantChart() {
         <div style={{ padding: "8px 0" }}>
           <ErrorState error={error} />
           <div style={{ marginTop: 8 }}>
-            <button className="btn btn-secondary" onClick={load}>Retry</button>
+            <button className="btn btn-secondary" onClick={load}>
+              Retry
+            </button>
           </div>
         </div>
       )}
@@ -112,3 +133,8 @@ export default function UsersByTenantChart() {
     </Card>
   );
 }
+
+UsersByTenantChart.propTypes = {
+  /** Optional tenant/org scope. When provided, sent as organization_id query param. */
+  organization_id: PropTypes.string,
+};

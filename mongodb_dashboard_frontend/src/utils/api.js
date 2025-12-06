@@ -19,8 +19,9 @@ function joinUrl(base, path) {
 
 // PUBLIC_INTERFACE
 export async function apiGet(url, options = {}) {
-  const base =
+  const baseEnv =
     (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_BASE_URL) || '';
+  const base = baseEnv && baseEnv.trim() ? baseEnv.trim() : '/api';
   const finalUrl = isAbsoluteUrl(url)
     ? url
     : url.startsWith('/api')
