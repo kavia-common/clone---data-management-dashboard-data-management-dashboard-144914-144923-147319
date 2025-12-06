@@ -1,4 +1,4 @@
-/*
+ /*
  Centralized Auth and Organization token provider for client requests.
  Responsible for reading/writing the JWT and organization_id from storage,
  and exposing helpers for API clients to attach headers consistently.

@@ -1,53 +1,113 @@
-import { getApiClient } from '../api/baseClient';
+import { getApiClient, listUsers } from '../api/baseClient';
+import { getOrganizationId as getTenantOrganizationId } from '../api/authTokenProvider';
+import { toUtcDateString, startOfUtcDay, endOfUtcDay, getWeeklyUtcRange, getMonthlyUtcRange } from '../utils/dateUtc';
 
 /**
  * PUBLIC_INTERFACE
- * Helpers to compute precise ISO boundaries.
+ * buildCreatedAtDateOnlyFilter
+ * Build Mongo-style created_at filter using UTC day boundaries with YYYY-MM-DD strings.
+ * Returns undefined if no valid window could be determined.
  */
-function toIso(d) {
-  try {
-    return d ? new Date(d).toISOString() : null;
-  } catch {
-    return null;
+export function buildCreatedAtDateOnlyFilter({
+  mode,
+  selectedDate,
+  selectedWeekAnchor,
+  selectedMonthAnchor,
+  customFrom,
+  customTo,
+} = {}) {
+  let fromDate = null;
+  let toDate = null;
+
+  const m = (mode || '').toLowerCase();
+
+  if (m === 'daily') {
+    const d = selectedDate ? new Date(selectedDate) : new Date();
+    fromDate = startOfUtcDay(d);
+    toDate = endOfUtcDay(d);
+  } else if (m === 'weekly') {
+    const anchor = selectedWeekAnchor ? new Date(selectedWeekAnchor) : new Date();
+    const [start, end] = getWeeklyUtcRange(anchor);
+    fromDate = start;
+    toDate = end;
+  } else if (m === 'monthly') {
+    const anchor = selectedMonthAnchor ? new Date(selectedMonthAnchor) : new Date();
+    const [start, end] = getMonthlyUtcRange(anchor);
+    fromDate = start;
+    toDate = end;
+  } else if (m === 'custom') {
+    if (customFrom) fromDate = startOfUtcDay(new Date(customFrom));
+    if (customTo) toDate = endOfUtcDay(new Date(customTo));
+  } else {
+    // No time mode provided; do not add a created_at filter
+    return undefined;
   }
+
+  const range = {};
+  if (fromDate) range.$gte = toUtcDateString(fromDate);
+  if (toDate) range.$lte = toUtcDateString(toDate);
+  if (!Object.keys(range).length) return undefined;
+  return { created_at: range };
 }
 
-function startOfDay(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-function endOfDay(d) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
-}
-function startOfMonth(d) {
-  const x = new Date(d);
-  x.setDate(1);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-function endOfMonth(d) {
-  const x = new Date(d);
-  x.setMonth(x.getMonth() + 1, 0);
-  x.setHours(23, 59, 59, 999);
-  return x;
+/**
+ * PUBLIC_INTERFACE
+ * fetchUsers
+ * Fetch users from /api/users including:
+ * - organization_id (tenant) always
+ * - mode passed through unchanged
+ * - filter containing created_at { $gte: 'YYYY-MM-DD', $lte: 'YYYY-MM-DD' } if applicable
+ * Other params (page, limit, sort) pass through unchanged.
+ */
+export async function fetchUsers(params = {}) {
+  const {
+    mode,
+    selectedDate,
+    selectedWeekAnchor,
+    selectedMonthAnchor,
+    customFrom,
+    customTo,
+    filter: existingFilter,
+    ...rest
+  } = params || {};
+
+  const organization_id =
+    rest.organization_id ||
+    getTenantOrganizationId?.() ||
+    undefined;
+
+  const createdAtFilter = buildCreatedAtDateOnlyFilter({
+    mode,
+    selectedDate,
+    selectedWeekAnchor,
+    selectedMonthAnchor,
+    customFrom,
+    customTo,
+  });
+
+  const filter = {
+    ...(existingFilter || {}),
+    ...(createdAtFilter ? createdAtFilter : {}),
+  };
+
+  const query = {
+    ...rest,
+    ...(organization_id ? { organization_id } : {}),
+    ...(mode ? { mode } : {}),
+    ...(Object.keys(filter).length ? { filter } : {}),
+  };
+
+  // Use baseClient's get which preserves JSON string as needed
+  const api = getApiClient();
+  const res = await api.get('/api/users', { params: query });
+  return res?.data;
 }
 
 /**
  * PUBLIC_INTERFACE
  * listUsersServerFiltered
- * Fetch users from /api/users with server-side filtering for created_at date range and tenant scope.
- * The backend contract allows a "filter" JSON parameter. We pass Mongo-style operators $gte/$lte.
- *
- * @param {Object} opts
- * @param {string} opts.organization_id - Tenant (organization) id to scope results
- * @param {'daily'|'weekly'|'monthly'|'custom'} [opts.mode='custom'] - Time selection
- * @param {string|Date|null} [opts.from=null] - Start date (used for custom)
- * @param {string|Date|null} [opts.to=null] - End date (used for custom)
- * @param {number} [opts.limit=500] - Page size hint
- * @returns {Promise<Array<Object>>} Array of user documents
+ * Backwards-compat shim for existing code paths; uses fetchUsers with explicit from/to and mode.
+ * Note: Converts 'from'/'to' datetimes to date-only bounds via buildCreatedAtDateOnlyFilter by passing custom mode.
  */
 export async function listUsersServerFiltered({
   organization_id,
@@ -56,54 +116,19 @@ export async function listUsersServerFiltered({
   to = null,
   limit = 500,
 } = {}) {
-  const api = getApiClient();
-  const now = new Date();
-
-  let gteIso = null;
-  let lteIso = null;
-
-  if (mode === 'daily') {
-    gteIso = toIso(startOfDay(now));
-    lteIso = toIso(endOfDay(now));
-  } else if (mode === 'weekly') {
-    const s = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
-    gteIso = toIso(startOfDay(s));
-    lteIso = toIso(endOfDay(now));
-  } else if (mode === 'monthly') {
-    gteIso = toIso(startOfMonth(now));
-    lteIso = toIso(endOfMonth(now));
-  } else {
-    // custom
-    gteIso = toIso(startOfDay(from || now));
-    lteIso = toIso(endOfDay(to || now));
-  }
-
-  const filter = { created_at: {} };
-  if (gteIso) filter.created_at.$gte = gteIso;
-  if (lteIso) filter.created_at.$lte = lteIso;
-
-  // Intentionally querying /api/users only; tenant-summary endpoint is deprecated in UI.
-  // We send organization_id and a Mongo-style filter for created_at with $gte/$lte.
-  const params = {
+  const payload = await fetchUsers({
     organization_id,
+    mode,
+    customFrom: from || undefined,
+    customTo: to || undefined,
     limit,
-    filter,
-    mode, // optional hint; backend can ignore
-  };
+  });
 
-  if (process.env.NODE_ENV !== 'production') {
-    // eslint-disable-next-line no-console
-    console.debug('[usersService] GET /api/users with params', params);
-  }
-
-  const res = await api.get('/api/users', { params });
-  const payload = res?.data;
-
-  // Normalize array/envelope
+  // Normalize array/envelope for callers that expect array
   if (Array.isArray(payload)) return payload;
   if (payload && Array.isArray(payload.data)) return payload.data;
   if (payload && Array.isArray(payload.items)) return payload.items;
   return [];
 }
 
-export default { listUsersServerFiltered };
+export default { fetchUsers, listUsersServerFiltered, buildCreatedAtDateOnlyFilter };
