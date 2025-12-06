@@ -11,14 +11,19 @@ import { getApiClient } from '../../api/baseClient';
  * This component renders a "Service Type" chart that aggregates counts of session records by service_type.
  * It queries the backend /api/session-tracking endpoint with tenant_id only (no organization_id, no filter unless specified),
  * and aggregates service_type occurrences from the response items.
+ *
+ * Temporary behavior: We append limit=5 to the request to mitigate potential DB timeout during validation.
+ * TODO: Remove the limit parameter once the user confirms timeouts are resolved and larger payloads are safe.
  */
 function ServiceTypeChart({ tenantId, title = 'Service Type', chartRenderer }) {
   const [state, setState] = useState({ loading: true, error: null, items: [] });
 
-  // Build query string with only tenant_id as requested.
+  // Build query string with only tenant_id and temporary limit to mitigate timeouts.
+  // TODO(temporary): Remove the 'limit=5' once backend validation confirms timeouts are resolved.
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
     if (tenantId) params.set('tenant_id', String(tenantId));
+    params.set('limit', '5'); // temporary throttle to reduce payload and avoid DB timeout
     const qs = params.toString();
     return qs ? `?${qs}` : '';
   }, [tenantId]);
