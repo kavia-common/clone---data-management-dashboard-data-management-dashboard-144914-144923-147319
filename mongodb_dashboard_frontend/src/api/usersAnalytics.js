@@ -1,62 +1,43 @@
-import { getApiClient } from "./baseClient";
-import { buildCreatedAtDateOnlyFilter } from "../services/usersService";
+import { getTenantUsersSummaryStrict } from "./index";
 
 /**
  * PUBLIC_INTERFACE
  * getTenantUsersSummary
- * Aggregates users by tenant from /api/users.
- * Always includes organization_id (auto-attached by base client) and accepts the same time params as buildCreatedAtDateOnlyFilter.
+ * Fetch aggregated users by tenant summary.
  *
- * Returns:
- *  { items: Array<{ tenant_id: string, tenant_name?: string|null, user_count: number }>, total: number }
+ * Important: Only organization_id must be sent as a query param.
+ * Any provided filter-like params (from, to, status, includeInactive) will be ignored on purpose.
+ *
+ * Returns a normalized payload:
+ * - { items: Array<{ tenant_id: string, tenant_name?: string|null, user_count: number }>, total?: number }
+ *   or raw array fallback if backend returns array.
+ *
+ * Notes:
+ * - Backend endpoint: GET /api/users/tenant-summary
  */
-export async function getTenantUsersSummary({
-  mode = "daily",
-  selectedDate,
-  selectedWeekAnchor,
-  selectedMonthAnchor,
-  customFrom,
-  customTo,
-  limit = 1000,
-} = {}) {
-  const api = getApiClient();
+export async function getTenantUsersSummary() {
+  try {
+    const data = await getTenantUsersSummaryStrict();
 
-  const createdAtFilter = buildCreatedAtDateOnlyFilter({
-    mode,
-    selectedDate,
-    selectedWeekAnchor,
-    selectedMonthAnchor,
-    customFrom,
-    customTo,
-  });
-
-  const params = {
-    mode,
-    limit,
-    ...(createdAtFilter ? { filter: createdAtFilter } : {}),
-  };
-
-  const res = await api.get("/api/users", { params });
-  const payload = res?.data;
-  const users = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.data)
-    ? payload.data
-    : Array.isArray(payload?.items)
-    ? payload.items
-    : [];
-
-  // Aggregate by tenant
-  const map = new Map();
-  for (const u of users) {
-    const tenant_id = u.tenant_id || u.organization_id || "unknown";
-    const tenant_name = u.tenant_name || u.organization_name || tenant_id;
-    const prev = map.get(tenant_id) || { tenant_id, tenant_name, user_count: 0 };
-    prev.user_count += 1;
-    map.set(tenant_id, prev);
+    // Normalize shapes:
+    if (data && Array.isArray(data.items)) {
+      return { items: data.items, total: data.total ?? data.items.length };
+    }
+    if (Array.isArray(data)) {
+      return { items: data, total: data.length };
+    }
+    // Pass-through minimal object
+    if (data && typeof data === "object") {
+      const items = Array.isArray(data.data) ? data.data : Array.isArray(data.items) ? data.items : [];
+      return { items, total: data.total ?? items.length ?? 0 };
+    }
+    return { items: [], total: 0 };
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[UsersAnalyticsAPI] getTenantUsersSummary failed:", err);
+    // Surface a controlled error message; caller can show a toast or inline error
+    throw new Error(err?.message || "Failed to load tenant users summary");
   }
-  const items = Array.from(map.values()).sort((a, b) => b.user_count - a.user_count);
-  return { items, total: items.length };
 }
 
-/* No default export to favor named exports */
+/* No default export to favor named exports (lint rule) */
