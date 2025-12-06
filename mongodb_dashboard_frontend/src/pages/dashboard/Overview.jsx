@@ -2,12 +2,12 @@ import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
+import UsersByTenantOverviewChart from "../../components/overview/UsersByTenantOverviewChart";
 
 /**
  * PUBLIC_INTERFACE
  * Overview
- * Simplified Overview page showing KPI cards only. Removed Sessions Trend, Users over time,
- * and Overall Features charts along with related state, imports, and effects.
+ * Simplified Overview page with KPI cards and a Users By Tenant chart below.
  */
 export default function Overview() {
   const [loading, setLoading] = useState(true);
@@ -113,6 +113,11 @@ export default function Overview() {
           <div className="error">{error}</div>
         </div>
       )}
+
+      {/* Users by Tenant chart block */}
+      <div className="block-full" style={{ gridColumn: "1 / -1" }}>
+        <UsersByTenantOverviewChart />
+      </div>
     </div>
   );
 }

@@ -5,6 +5,34 @@
   background: transparent;
 }
 
+/* Section wrapper for Users By Tenant chart */
+.overview-section.users-by-tenant {
+  margin-top: 16px;
+}
+
+.overview-section.users-by-tenant .overview-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.overview-section.users-by-tenant .overview-section-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.overview-section.users-by-tenant .overview-chart-container {
+  background: #ffffff;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
 .overview-card {
   background: #ffffff;
   border: 1px solid #E5E7EB;

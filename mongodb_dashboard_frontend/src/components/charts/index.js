@@ -1,1 +1,1 @@
-export { default as MostActiveUsersChart } from './MostActiveUsersChart';
+export { default as UsersByTenantChart } from './UsersByTenantChart';
