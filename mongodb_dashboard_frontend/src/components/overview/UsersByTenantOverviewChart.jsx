@@ -25,24 +25,50 @@ function UsersByTenantOverviewChart({ className }) {
   // Compute ISO window from selected bucket, keeping current UI intact
   const window = useMemo(() => {
     const now = new Date();
+    const startOfDay = (d) => {
+      const x = new Date(d);
+      x.setHours(0, 0, 0, 0);
+      return x;
+    };
+    const endOfDay = (d) => {
+      const x = new Date(d);
+      x.setHours(23, 59, 59, 999);
+      return x;
+    };
+    const startOfMonth = (d) => {
+      const x = new Date(d);
+      x.setDate(1);
+      x.setHours(0, 0, 0, 0);
+      return x;
+    };
+    const endOfMonth = (d) => {
+      const x = new Date(d);
+      x.setMonth(x.getMonth() + 1, 0);
+      x.setHours(23, 59, 59, 999);
+      return x;
+    };
+
     let from = null;
-    let to = now;
+    let to = null;
+
     if (filter.bucket === 'daily') {
-      from = new Date(now);
-      from.setDate(from.getDate() - 1);
+      from = startOfDay(now);
+      to = endOfDay(now);
     } else if (filter.bucket === 'weekly') {
-      from = new Date(now);
-      from.setDate(from.getDate() - 7);
+      const s = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+      from = startOfDay(s);
+      to = endOfDay(now);
     } else if (filter.bucket === 'monthly') {
-      from = new Date(now);
-      from.setMonth(from.getMonth() - 1);
+      from = startOfMonth(now);
+      to = endOfMonth(now);
     } else if (filter.bucket === 'custom') {
-      if (filter.from) from = new Date(filter.from);
-      if (filter.to) to = new Date(filter.to);
+      from = startOfDay(filter.from ? new Date(filter.from) : now);
+      to = endOfDay(filter.to ? new Date(filter.to) : now);
     } else {
-      from = new Date(now);
-      from.setDate(from.getDate() - 1);
+      from = startOfDay(now);
+      to = endOfDay(now);
     }
+
     return {
       from: from ? from.toISOString() : null,
       to: to ? to.toISOString() : null,
@@ -62,6 +88,7 @@ function UsersByTenantOverviewChart({ className }) {
       try {
         const res = await listUsersServerFiltered({
           organization_id: ctxOrg,
+          mode: filter.bucket === 'daily' ? 'daily' : filter.bucket === 'weekly' ? 'weekly' : filter.bucket === 'monthly' ? 'monthly' : 'custom',
           from: window.from,
           to: window.to,
           limit: 500, // adequate for chart aggregation

@@ -78,11 +78,15 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
   if (isUsersRoot) {
     // Allow server-side filtering for Overview chart:
     // keep organization_id (required), and pass through filter/limit/sort/page if explicitly provided.
-    // NOTE: created_at-based filtering is passed via "filter" JSON param.
+    // NOTE: created_at-based filtering is passed via "filter" JSON param which may contain Mongo-style operators like $gte/$lte.
+    // Do NOT modify/sanitize away '$' keys here; backend expects them as-is.
     const out = {};
     if (params && typeof params === "object") {
       if ("organization_id" in params) out.organization_id = params.organization_id;
-      if ("filter" in params) out.filter = params.filter; // includes created_at range
+      if ("filter" in params) {
+        // Accept both object and stringified JSON; pass through unchanged
+        out.filter = params.filter;
+      }
       if ("limit" in params) out.limit = params.limit;
       if ("sort" in params) out.sort = params.sort;
       if ("page" in params) out.page = params.page;
@@ -294,7 +298,9 @@ export async function health() {
 
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
-  /** Lists users; for /api/users only organization_id is sent. All other params (e.g., limit, page, sort, filter) are ignored for this endpoint by design. Returns normalized { items, total, meta }. */
+  /** Lists users. For /api/users we preserve organization_id and allow filter (JSON), limit, page, and sort.
+   * Returns normalized { items, total, meta }.
+   */
   const res = await httpGet("/api/users", { params });
   return normalizeListPayload(res.data);
 }
