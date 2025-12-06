@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
+import UsersByTenantChart from "../../components/overview/UsersByTenantChart.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -113,6 +114,11 @@ export default function Overview() {
           <div className="error">{error}</div>
         </div>
       )}
+
+      {/* Users by Tenant chart below KPI cards */}
+      <div className="block-full" style={{ marginTop: 16 }}>
+        <UsersByTenantChart />
+      </div>
     </div>
   );
 }
