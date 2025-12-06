@@ -18,6 +18,7 @@ export async function listUsersServerFiltered({ organization_id, from = null, to
   const api = getApiClient();
 
   // Build a filter that tries both created_at and updated_at to be safe with varied schemas
+  // created_at-based filtering: we pass the range on created_at (and aliases) via filter JSON
   const filter = {};
   if (from || to) {
     const gte = from || undefined;
@@ -34,7 +35,7 @@ export async function listUsersServerFiltered({ organization_id, from = null, to
     filter.updatedAt = { ...range };
   }
 
-  // Build query params; baseClient sanitization will keep only organization_id for /api/users root
+  // Build query params; baseClient sanitization will keep only organization_id and filter/limit/sort/page for /api/users
   const params = { organization_id, limit, filter: Object.keys(filter).length ? JSON.stringify(filter) : undefined };
 
   const res = await api.get('/api/users', { params });

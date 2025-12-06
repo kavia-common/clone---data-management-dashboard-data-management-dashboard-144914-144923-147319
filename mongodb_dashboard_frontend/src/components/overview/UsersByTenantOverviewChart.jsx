@@ -22,7 +22,7 @@ function UsersByTenantOverviewChart({ className }) {
   const [error, setError] = useState(null);
   const [users, setUsers] = useState([]);
 
-  // Compute ISO window from selected bucket
+  // Compute ISO window from selected bucket, keeping current UI intact
   const window = useMemo(() => {
     const now = new Date();
     let from = null;
@@ -49,7 +49,7 @@ function UsersByTenantOverviewChart({ className }) {
     };
   }, [filter]);
 
-  // Fetch users from backend with server-side filters
+  // Fetch users using created_at-based server filter
   useEffect(() => {
     let cancelled = false;
     async function load() {

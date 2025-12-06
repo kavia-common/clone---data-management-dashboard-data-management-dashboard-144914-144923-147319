@@ -78,10 +78,11 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
   if (isUsersRoot) {
     // Allow server-side filtering for Overview chart:
     // keep organization_id (required), and pass through filter/limit/sort/page if explicitly provided.
+    // NOTE: created_at-based filtering is passed via "filter" JSON param.
     const out = {};
     if (params && typeof params === "object") {
       if ("organization_id" in params) out.organization_id = params.organization_id;
-      if ("filter" in params) out.filter = params.filter;
+      if ("filter" in params) out.filter = params.filter; // includes created_at range
       if ("limit" in params) out.limit = params.limit;
       if ("sort" in params) out.sort = params.sort;
       if ("page" in params) out.page = params.page;
