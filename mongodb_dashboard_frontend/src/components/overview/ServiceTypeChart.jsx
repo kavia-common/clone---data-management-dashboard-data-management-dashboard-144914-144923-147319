@@ -4,7 +4,7 @@ import Card from '../common/Card';
 import LoadingState from '../common/LoadingState';
 import ErrorState from '../common/ErrorState';
 import { buildOverviewQueryParams } from '../../api/buildOverviewFilterParams';
-import client from '../../api/client';
+import { getApiClient } from '../../api/baseClient';
 
 /**
  * PUBLIC_INTERFACE
@@ -16,26 +16,23 @@ import client from '../../api/client';
 function ServiceTypeChart({ organizationId, filters, title = 'Service Type', chartRenderer }) {
   const [state, setState] = useState({ loading: true, error: null, items: [] });
 
-  // Build query params consistent with Overview filters and existing charts
+  // Build query params consistent with Overview filters and existing charts.
+  // Important conventions:
+  // - Use relative path (/api/session-tracking), not absolute origins.
+  // - Single-encode the filter param (no %25 double-encoding).
+  // - Include overview-level fields (organization_id, from/to, granularity).
   const queryParams = useMemo(() => {
     const params = new URLSearchParams();
 
-    // organization or tenant scope
-    if (organizationId) {
-      params.set('organization_id', organizationId);
-    }
-
-    // buildOverviewQueryParams returns a plain object of query params. It already encodes `filter` once.
     const built = buildOverviewQueryParams(
       {
         ...(filters || {}),
-        // Ensure organization_id propagates as well in case caller didn't pass it in filters
         organization_id: organizationId || (filters && filters.organization_id),
       },
-      // useStartEnd not required for session-tracking; we use from/to patterns aligned with other charts.
+      { useStartEnd: false }
     );
 
-    // Append params exactly; do not double-encode `filter`
+    // Append params as-is; do not re-encode.
     Object.entries(built || {}).forEach(([k, v]) => {
       if (v == null || v === '') return;
       params.set(k, String(v));
@@ -50,10 +47,11 @@ function ServiceTypeChart({ organizationId, filters, title = 'Service Type', cha
     async function load() {
       setState((s) => ({ ...s, loading: true, error: null }));
       try {
-        // Use relative path without base URL or localhost
-        const url = `/api/session-tracking?${queryParams.toString()}`;
-        const res = await client.get(url);
-        const payload = res?.data;
+        const qs = queryParams.toString();
+        const url = `/api/session-tracking${qs ? `?${qs}` : ''}`; // same-origin relative path
+        const res = await getApiClient().get(url);
+
+        const payload = res?.data ?? res;
 
         // Session-tracking may return an array directly or { success, data, meta }
         const records = Array.isArray(payload) ? payload : (payload && payload.data) || [];
