@@ -16,13 +16,13 @@ import { listUsersServerFiltered } from '../../services/usersService';
  * aggregates per-tenant counts from filtered results, and re-fetches when filters change.
  */
 function UsersByTenantOverviewChart({ className }) {
-  const { organizationId: ctxOrg } = useAuth() || {};
-  const [filter, setFilter] = useState({ bucket: 'daily', from: null, to: null }); // bucket: daily|weekly|monthly|custom
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [users, setUsers] = useState([]);
+  const auth = useAuth() || {};
+  const ctxOrg = auth.organizationId || auth?.organization?.id || auth?.organization_id || null;
 
-  // Compute ISO window from selected bucket, keeping current UI intact
+  // bucket: daily|weekly|monthly|custom
+  const [bucket, setBucket] = useState('daily');
+  const [customRange, setCustomRange] = useState({ from: null, to: null });
+
   const window = useMemo(() => {
     const now = new Date();
     const startOfDay = (d) => {
@@ -51,19 +51,19 @@ function UsersByTenantOverviewChart({ className }) {
     let from = null;
     let to = null;
 
-    if (filter.bucket === 'daily') {
+    if (bucket === 'daily') {
       from = startOfDay(now);
       to = endOfDay(now);
-    } else if (filter.bucket === 'weekly') {
+    } else if (bucket === 'weekly') {
       const s = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
       from = startOfDay(s);
       to = endOfDay(now);
-    } else if (filter.bucket === 'monthly') {
+    } else if (bucket === 'monthly') {
       from = startOfMonth(now);
       to = endOfMonth(now);
-    } else if (filter.bucket === 'custom') {
-      from = startOfDay(filter.from ? new Date(filter.from) : now);
-      to = endOfDay(filter.to ? new Date(filter.to) : now);
+    } else if (bucket === 'custom') {
+      from = startOfDay(customRange.from ? new Date(customRange.from) : now);
+      to = endOfDay(customRange.to ? new Date(customRange.to) : now);
     } else {
       from = startOfDay(now);
       to = endOfDay(now);
@@ -73,9 +73,12 @@ function UsersByTenantOverviewChart({ className }) {
       from: from ? from.toISOString() : null,
       to: to ? to.toISOString() : null,
     };
-  }, [filter]);
+  }, [bucket, customRange]);
 
-  // Fetch users using created_at-based server filter
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [users, setUsers] = useState([]);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -86,12 +89,13 @@ function UsersByTenantOverviewChart({ className }) {
       setLoading(true);
       setError(null);
       try {
+        const mode = bucket;
         const res = await listUsersServerFiltered({
           organization_id: ctxOrg,
-          mode: filter.bucket === 'daily' ? 'daily' : filter.bucket === 'weekly' ? 'weekly' : filter.bucket === 'monthly' ? 'monthly' : 'custom',
+          mode,
           from: window.from,
           to: window.to,
-          limit: 500, // adequate for chart aggregation
+          limit: 500,
         });
         if (!cancelled) {
           setUsers(res || []);
@@ -106,9 +110,8 @@ function UsersByTenantOverviewChart({ className }) {
     return () => {
       cancelled = true;
     };
-  }, [ctxOrg, window.from, window.to]);
+  }, [ctxOrg, bucket, window.from, window.to]);
 
-  // Aggregate counts per tenant from filtered users
   const byTenant = useMemo(() => {
     const map = new Map();
     for (const u of users) {
@@ -124,37 +127,23 @@ function UsersByTenantOverviewChart({ className }) {
     return entries;
   }, [users]);
 
-  // Handle filter changes from OverviewChartFilters
   const onFilterChange = (next) => {
     const g = (next?.granularity || '').toLowerCase();
-    const bucket =
-      g && ['day', 'week', 'month', 'custom'].includes(g)
-        ? g === 'day'
-          ? 'daily'
-          : g === 'week'
-          ? 'weekly'
-          : g === 'month'
-          ? 'monthly'
-          : 'custom'
-        : filter.bucket || 'daily';
-
-    setFilter({
-      bucket,
-      from: next?.from || null,
-      to: next?.to || null,
-    });
+    const nextBucket =
+      g === 'day' ? 'daily' : g === 'week' ? 'weekly' : g === 'month' ? 'monthly' : 'custom';
+    setBucket(nextBucket);
+    setCustomRange({ from: next?.from || null, to: next?.to || null });
   };
 
-  // Compose value for the filters component
   const filtersValue = useMemo(() => {
     const toGranularity = (b) =>
       b === 'daily' ? 'day' : b === 'weekly' ? 'week' : b === 'monthly' ? 'month' : 'custom';
     return {
-      granularity: toGranularity(filter.bucket),
-      from: filter.from || window.from,
-      to: filter.to || window.to,
+      granularity: toGranularity(bucket),
+      from: customRange.from || window.from,
+      to: customRange.to || window.to,
     };
-  }, [filter, window]);
+  }, [bucket, customRange, window]);
 
   return (
     <div className={`overview-section users-by-tenant ${className || ''}`}>

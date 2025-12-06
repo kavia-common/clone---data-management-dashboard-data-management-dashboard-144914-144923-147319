@@ -37,13 +37,16 @@ function buildUrl(pathOrUrl) {
 /**
  * Internal helper: build query string from params.
  * Merges existing querystring in a safe way if caller passes a URL containing ? already.
+ * Preserves nested objects by JSON.stringify (e.g., filter with $gte/$lte).
  */
 function toQuery(params = {}) {
   const usp = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
     if (v === undefined || v === null || v === "") return;
     if (Array.isArray(v)) {
-      v.forEach((val) => usp.append(k, String(val)));
+      v.forEach((val) =>
+        usp.append(k, typeof val === "object" ? JSON.stringify(val) : String(val))
+      );
     } else if (typeof v === "object") {
       usp.append(k, JSON.stringify(v));
     } else {
@@ -66,9 +69,30 @@ function isSessionTrackingRoot(pathOrUrl) {
 }
 
 /**
+ * Internal helper to console-safe log payloads only in development.
+ */
+function devLog(label, payload) {
+  const level = (process.env.REACT_APP_LOG_LEVEL || "").toLowerCase();
+  const isDev =
+    (process.env.NODE_ENV || process.env.REACT_APP_NODE_ENV) !== "production" ||
+    level === "debug" ||
+    level === "trace";
+  if (isDev) {
+    try {
+      // eslint-disable-next-line no-console
+      console.debug(`[api] ${label}:`, JSON.parse(JSON.stringify(payload)));
+    } catch {
+      // eslint-disable-next-line no-console
+      console.debug(`[api] ${label}:`, payload);
+    }
+  }
+}
+
+/**
  * For endpoint-specific rules, sanitize query params before building the request.
- * - For "/api/users" GET: allow only { organization_id }.
+ * - For "/api/users" GET: allow { organization_id, filter, limit, sort, page } and pass filter unchanged.
  * - For "/api/session-tracking" root: strip organization_id, allow tenant_id only (appended later).
+ * - For "/api/llm-costs": strip filter/from/to per backend contract.
  */
 function sanitizeEndpointParams(pathOrUrl, params = {}) {
   const path = String(pathOrUrl || "");
@@ -76,46 +100,31 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
     /\/api\/users(?:$|\?)/.test(path) && !/\/api\/users\/[A-Za-z0-9_-]/.test(path);
 
   if (isUsersRoot) {
-    // Allow server-side filtering for Overview chart:
-    // keep organization_id (required), and pass through filter/limit/sort/page if explicitly provided.
-    // NOTE: created_at-based filtering is passed via "filter" JSON param which may contain Mongo-style operators like $gte/$lte.
-    // Do NOT modify/sanitize away '$' keys here; backend expects them as-is.
     const out = {};
     if (params && typeof params === "object") {
       if ("organization_id" in params) out.organization_id = params.organization_id;
-      if ("filter" in params) {
-        // Accept both object and stringified JSON; pass through unchanged
-        out.filter = params.filter;
-      }
+      if ("filter" in params) out.filter = params.filter; // pass-through
       if ("limit" in params) out.limit = params.limit;
       if ("sort" in params) out.sort = params.sort;
       if ("page" in params) out.page = params.page;
+      if ("mode" in params) out.mode = params.mode; // optional hint; backend can ignore
     }
+    devLog("Sanitized /api/users params", out);
     return out;
   }
 
   if (isSessionTrackingRoot(pathOrUrl)) {
-    // Remove any organization_id remnants and 'filter' for session-tracking as backend ignores it now.
     const { organization_id, filter, ...rest } = params || {};
     return rest || {};
   }
 
-  // For llm-costs list root: strip 'filter' and any date-range params per backend contract
   const isLlmCostsRoot =
     typeof pathOrUrl === "string" &&
     /\/api\/llm-costs(?:$|[?&#/])/.test(pathOrUrl) &&
     !/\/api\/llm-costs\/[A-Za-z0-9_-]/.test(pathOrUrl);
 
   if (isLlmCostsRoot) {
-    const {
-      filter,
-      start,
-      end,
-      from,
-      to,
-      // keep everything else like page, limit, sort, organization_id
-      ...rest
-    } = params || {};
+    const { filter, start, end, from, to, ...rest } = params || {};
     return rest || {};
   }
 
@@ -141,7 +150,6 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
   const orgId = getOrganizationId();
 
   if (isSessionTrackingRoot(pathOrUrl)) {
-    // For session tracking, enforce tenant_id in query. We use stored organization id as tenant_id value.
     const existingHasTenant =
       "tenant_id" in (params || {}) ||
       (typeof pathOrUrl === "string" && /([?&])tenant_id=/.test(pathOrUrl));
@@ -154,7 +162,7 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
   if (orgId) baseParams.organization_id = orgId;
 
   if (isTenantSummary || isUsersRoot) {
-    return baseParams; // strictly only organization_id
+    return { ...(params || {}), ...baseParams };
   }
 
   const existingHasOrg =
@@ -172,18 +180,15 @@ function buildUrlWithParams(pathOrUrl, effParams) {
   if (!effParams || Object.keys(effParams).length === 0) {
     return buildUrl(pathOrUrl);
   }
-  // If pathOrUrl already has its own query, merge them
   if (typeof pathOrUrl === "string" && pathOrUrl.includes("?")) {
     const [base, existingQs] = pathOrUrl.split("?");
     const usp = new URLSearchParams(existingQs);
     Object.entries(effParams).forEach(([k, v]) => {
       if (v === undefined || v === null || v === "") return;
-      // Overwrite existing key to ensure scoping param wins
-      usp.set(k, String(v));
+      usp.set(k, typeof v === "object" ? JSON.stringify(v) : String(v));
     });
     return buildUrl(`${base}?${usp.toString()}`);
   }
-  // Normal path
   return buildUrl(`${pathOrUrl}${toQuery(effParams)}`);
 }
 
@@ -201,14 +206,12 @@ async function parseResponse(res) {
   }
 }
 
-/**
- * Axios-like "get" returning { data }.
- */
 async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
   const effParams = sanitizeEndpointParams(
     pathOrUrl,
     ensureScopedQueryParams(pathOrUrl, params)
   );
+  devLog("GET params", { pathOrUrl, effParams });
   const url = buildUrlWithParams(pathOrUrl, effParams);
   const res = await fetch(url, {
     method: "GET",
@@ -233,11 +236,11 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
 }
 
 async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {}) {
-  // Append scoped params depending on endpoint and sanitize per-endpoint
   const effParams = sanitizeEndpointParams(
     pathOrUrl,
     ensureScopedQueryParams(pathOrUrl, params)
   );
+  devLog(`${method} body`, { pathOrUrl, effParams, body });
   const url = buildUrlWithParams(pathOrUrl, effParams);
   const res = await fetch(url, {
     method,
@@ -264,7 +267,7 @@ async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {
 }
 
 function normalizeListPayload(payload) {
-  const items = Array.isArray(payload) ? payload : payload?.data || [];
+  const items = Array.isArray(payload) ? payload : payload?.data || payload?.items || [];
   const total =
     (payload && payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
     (Array.isArray(items) ? items.length : 0);
@@ -298,7 +301,7 @@ export async function health() {
 
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
-  /** Lists users. For /api/users we preserve organization_id and allow filter (JSON), limit, page, and sort.
+  /** Lists users. For /api/users we preserve organization_id and allow filter (JSON), limit, page, sort, mode.
    * Returns normalized { items, total, meta }.
    */
   const res = await httpGet("/api/users", { params });
@@ -332,7 +335,6 @@ export async function listLlmCosts(params = {}) {
  * PUBLIC_INTERFACE
  * getTenantUsersSummaryStrict
  * Calls /api/users/tenant-summary ensuring only organization_id is sent as a query param.
- * Any additional params provided are ignored to prevent accidental leakage of unsupported params.
  */
 export async function getTenantUsersSummaryStrict() {
   const res = await httpGet("/api/users/tenant-summary", { params: {} });

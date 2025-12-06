@@ -2,74 +2,37 @@ import { getApiClient } from '../api/baseClient';
 
 /**
  * PUBLIC_INTERFACE
- * listUsersServerFiltered
- * Fetch users from /api/users with server-side filtering for createdAt/updatedAt date range and tenant scope.
- * The backend contract allows a "filter" JSON parameter. We support either created_at, createdAt, updated_at, updatedAt.
- * We always include organization_id for tenant scoping via baseClient; explicit organization_id param further enforces it.
- *
- * @param {Object} opts
- * @param {string} opts.organization_id - Tenant (organization) id to scope results
- * @param {string|null} opts.from - ISO datetime (inclusive lower bound)
- * @param {string|null} opts.to - ISO datetime (inclusive upper bound)
- * @param {number} [opts.limit=500] - Page size hint; backend may ignore for this endpoint
- * @returns {Promise<Array<Object>>} Array of user documents
+ * Helpers to compute precise ISO boundaries.
  */
 function toIso(d) {
-  return d ? new Date(d).toISOString() : null;
+  try {
+    return d ? new Date(d).toISOString() : null;
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Compute inclusive date range boundaries for created_at using precise start/end of day/month.
- * - daily: startOfDay(now) to endOfDay(now)
- * - weekly: startOfDay(now - 6 days) to endOfDay(now) [last 7 days inclusive]
- * - monthly: startOfMonth(now) to endOfMonth(now)
- * - custom: startOfDay(from) to endOfDay(to)
- */
-function computeCreatedAtWindow({ mode = 'custom', from, to }) {
-  const now = new Date();
-
-  const startOfDay = (d) => {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-  };
-  const endOfDay = (d) => {
-    const x = new Date(d);
-    x.setHours(23, 59, 59, 999);
-    return x;
-  };
-  const startOfMonth = (d) => {
-    const x = new Date(d);
-    x.setDate(1);
-    x.setHours(0, 0, 0, 0);
-    return x;
-  };
-  const endOfMonth = (d) => {
-    const x = new Date(d);
-    x.setMonth(x.getMonth() + 1, 0); // move to last day of current month
-    x.setHours(23, 59, 59, 999);
-    return x;
-  };
-
-  if (mode === 'daily') {
-    const s = startOfDay(now);
-    const e = endOfDay(now);
-    return { gte: toIso(s), lte: toIso(e) };
-  }
-  if (mode === 'weekly') {
-    const s = startOfDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6));
-    const e = endOfDay(now);
-    return { gte: toIso(s), lte: toIso(e) };
-  }
-  if (mode === 'monthly') {
-    const s = startOfMonth(now);
-    const e = endOfMonth(now);
-    return { gte: toIso(s), lte: toIso(e) };
-  }
-  // custom
-  const s = startOfDay(from || now);
-  const e = endOfDay(to || now);
-  return { gte: toIso(s), lte: toIso(e) };
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfDay(d) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+function startOfMonth(d) {
+  const x = new Date(d);
+  x.setDate(1);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfMonth(d) {
+  const x = new Date(d);
+  x.setMonth(x.getMonth() + 1, 0);
+  x.setHours(23, 59, 59, 999);
+  return x;
 }
 
 /**
@@ -77,7 +40,6 @@ function computeCreatedAtWindow({ mode = 'custom', from, to }) {
  * listUsersServerFiltered
  * Fetch users from /api/users with server-side filtering for created_at date range and tenant scope.
  * The backend contract allows a "filter" JSON parameter. We pass Mongo-style operators $gte/$lte.
- * We always include organization_id for tenant scoping via baseClient; explicit organization_id param further enforces it.
  *
  * @param {Object} opts
  * @param {string} opts.organization_id - Tenant (organization) id to scope results
@@ -87,26 +49,50 @@ function computeCreatedAtWindow({ mode = 'custom', from, to }) {
  * @param {number} [opts.limit=500] - Page size hint
  * @returns {Promise<Array<Object>>} Array of user documents
  */
-export async function listUsersServerFiltered({ organization_id, mode = 'custom', from = null, to = null, limit = 500 } = {}) {
+export async function listUsersServerFiltered({
+  organization_id,
+  mode = 'custom',
+  from = null,
+  to = null,
+  limit = 500,
+} = {}) {
   const api = getApiClient();
+  const now = new Date();
 
-  // Compute precise created_at window
-  const { gte, lte } = computeCreatedAtWindow({ mode, from, to });
+  let gteIso = null;
+  let lteIso = null;
 
-  // Build Mongo-style filter for created_at with $gte/$lte
-  const filter = {
-    created_at: {},
-  };
-  if (gte) filter.created_at.$gte = gte;
-  if (lte) filter.created_at.$lte = lte;
+  if (mode === 'daily') {
+    gteIso = toIso(startOfDay(now));
+    lteIso = toIso(endOfDay(now));
+  } else if (mode === 'weekly') {
+    const s = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+    gteIso = toIso(startOfDay(s));
+    lteIso = toIso(endOfDay(now));
+  } else if (mode === 'monthly') {
+    gteIso = toIso(startOfMonth(now));
+    lteIso = toIso(endOfMonth(now));
+  } else {
+    // custom
+    gteIso = toIso(startOfDay(from || now));
+    lteIso = toIso(endOfDay(to || now));
+  }
 
-  // Build query params; baseClient sanitization will keep only organization_id and filter/limit/sort/page for /api/users
+  const filter = { created_at: {} };
+  if (gteIso) filter.created_at.$gte = gteIso;
+  if (lteIso) filter.created_at.$lte = lteIso;
+
   const params = {
     organization_id,
     limit,
-    // Send object directly; baseClient will JSON.stringify it in toQuery
     filter,
+    mode, // pass mode as hint; backend may ignore
   };
+
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.debug('[usersService] GET /api/users with params', params);
+  }
 
   const res = await api.get('/api/users', { params });
   const payload = res?.data;
