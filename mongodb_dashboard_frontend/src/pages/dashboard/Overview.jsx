@@ -125,7 +125,7 @@ export default function Overview() {
 
       {/* Service Type chart block */}
       <div className="block-full" style={{ gridColumn: "1 / -1" }}>
-        <ServiceTypeChart organizationId={organizationId || undefined} />
+        <ServiceTypeChart tenantId={organizationId || undefined} />
       </div>
     </div>
   );

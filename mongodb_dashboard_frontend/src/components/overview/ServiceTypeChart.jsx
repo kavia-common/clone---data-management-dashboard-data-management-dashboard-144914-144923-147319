@@ -3,43 +3,25 @@ import PropTypes from 'prop-types';
 import Card from '../common/Card';
 import LoadingState from '../common/LoadingState';
 import ErrorState from '../common/ErrorState';
-import { buildOverviewQueryParams } from '../../api/buildOverviewFilterParams';
 import { getApiClient } from '../../api/baseClient';
 
 /**
  * PUBLIC_INTERFACE
  * ServiceTypeChart
  * This component renders a "Service Type" chart that aggregates counts of session records by service_type.
- * It queries the backend /api/session-tracking endpoint using the same filter/query parameters used by the Overview charts,
- * including the active tenant (organization_id) and date range filters if available.
+ * It queries the backend /api/session-tracking endpoint with tenant_id only (no organization_id, no filter unless specified),
+ * and aggregates service_type occurrences from the response items.
  */
-function ServiceTypeChart({ organizationId, filters, title = 'Service Type', chartRenderer }) {
+function ServiceTypeChart({ tenantId, title = 'Service Type', chartRenderer }) {
   const [state, setState] = useState({ loading: true, error: null, items: [] });
 
-  // Build query params consistent with Overview filters and existing charts.
-  // Important conventions:
-  // - Use relative path (/api/session-tracking), not absolute origins.
-  // - Single-encode the filter param (no %25 double-encoding).
-  // - Include overview-level fields (organization_id, from/to, granularity).
-  const queryParams = useMemo(() => {
+  // Build query string with only tenant_id as requested.
+  const queryString = useMemo(() => {
     const params = new URLSearchParams();
-
-    const built = buildOverviewQueryParams(
-      {
-        ...(filters || {}),
-        organization_id: organizationId || (filters && filters.organization_id),
-      },
-      { useStartEnd: false }
-    );
-
-    // Append params as-is; do not re-encode.
-    Object.entries(built || {}).forEach(([k, v]) => {
-      if (v == null || v === '') return;
-      params.set(k, String(v));
-    });
-
-    return params;
-  }, [organizationId, filters]);
+    if (tenantId) params.set('tenant_id', String(tenantId));
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+  }, [tenantId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,39 +29,33 @@ function ServiceTypeChart({ organizationId, filters, title = 'Service Type', cha
     async function load() {
       setState((s) => ({ ...s, loading: true, error: null }));
       try {
-        const qs = queryParams.toString();
-        const url = `/api/session-tracking${qs ? `?${qs}` : ''}`; // same-origin relative path
+        const url = `/api/session-tracking${queryString}`;
         const res = await getApiClient().get(url);
-
         const payload = res?.data ?? res;
 
-        // Session-tracking may return an array directly or { success, data, meta }
-        const records = Array.isArray(payload) ? payload : (payload && payload.data) || [];
+        // /api/session-tracking may return an array or an envelope { success, data, meta }
+        const records = Array.isArray(payload) ? payload : payload?.data || [];
 
-        // Aggregate counts by service_type
+        // Aggregate counts by service_type (e.g., code-generation, code-query)
         const counts = new Map();
         for (const r of records) {
-          const key = (r?.service_type || 'unknown').toString();
+          const key = (r && r.service_type) ? String(r.service_type) : 'unknown';
           counts.set(key, (counts.get(key) || 0) + 1);
         }
 
         const items = Array.from(counts.entries()).map(([serviceType, count]) => ({ serviceType, count }));
 
-        if (!cancelled) {
-          setState({ loading: false, error: null, items });
-        }
+        if (!cancelled) setState({ loading: false, error: null, items });
       } catch (err) {
-        if (!cancelled) {
-          setState({ loading: false, error: err, items: [] });
-        }
+        if (!cancelled) setState({ loading: false, error: err, items: [] });
       }
     }
 
-    load();
+    load(); // single correct API call on mount/change
     return () => {
       cancelled = true;
     };
-  }, [queryParams]);
+  }, [queryString]);
 
   const { loading, error, items } = state;
 
@@ -95,7 +71,6 @@ function ServiceTypeChart({ organizationId, filters, title = 'Service Type', cha
       );
     }
 
-    // Compute max for proportional bars
     const max = Math.max(...items.map((i) => i.count));
 
     return (
@@ -146,8 +121,7 @@ function ServiceTypeChart({ organizationId, filters, title = 'Service Type', cha
 }
 
 ServiceTypeChart.propTypes = {
-  organizationId: PropTypes.string,
-  filters: PropTypes.object,
+  tenantId: PropTypes.string,
   title: PropTypes.string,
   chartRenderer: PropTypes.func,
 };
