@@ -1,39 +1,45 @@
 import { buildAuthHeaders, getOrganizationId } from '../api/authTokenProvider';
+import { getApiBase, joinUrl } from '../api/config';
 
 /**
  * PUBLIC_INTERFACE
  * apiGet (JS wrapper)
- * Centralized GET helper that automatically injects Authorization and appends tenant_id as a query parameter.
+ * Centralized GET helper that automatically injects Authorization and appends organization_id when available.
+ * Ensures exactly one '/api' is present in final URL.
  */
 function isAbsoluteUrl(url) {
   return /^https?:\/\//i.test(url);
 }
 
-function joinUrl(base, path) {
-  if (!base) return path || '';
-  const b = base.endsWith('/') ? base.slice(0, -1) : base;
-  if (!path) return b;
-  const p = path.startsWith('/') ? path : `/${path}`;
-  return `${b}${p}`;
+/**
+ * Ensure exactly one '/api' in final URL:
+ * - If url starts with '/api', join with base root (strip trailing '/api' if present).
+ * - If url is relative and doesn't start with '/api', prepend '/api' relative to base.
+ */
+function normalizeUrl(url) {
+  const base = getApiBase();
+  const baseRoot = String(base || '').replace(/\/+$/, '');
+  if (isAbsoluteUrl(url)) return url;
+
+  if (url.startsWith('/api')) {
+    const root = /\/api$/i.test(baseRoot) ? baseRoot.replace(/\/api$/i, '') : baseRoot;
+    return joinUrl(root, url);
+  }
+  const apiBase = /\/api$/i.test(baseRoot) ? baseRoot : `${baseRoot}/api`;
+  const rel = url.startsWith('/') ? url : `/${url}`;
+  return joinUrl(apiBase, rel);
 }
 
 // PUBLIC_INTERFACE
 export async function apiGet(url, options = {}) {
-  const baseEnv =
-    (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_BASE_URL) || '';
-  const base = baseEnv && baseEnv.trim() ? baseEnv.trim() : '/api';
-  const finalUrl = isAbsoluteUrl(url)
-    ? url
-    : url.startsWith('/api')
-      ? url
-      : joinUrl(base, url);
+  const finalUrl = normalizeUrl(url);
 
   const headers = buildAuthHeaders({
     Accept: 'application/json',
     ...(options.headers || {}),
   });
 
-  // Append organization_id query if not present (some endpoints require query param)
+  // Append organization_id query if not present (some endpoints require it)
   let effUrl = finalUrl;
   const orgId = getOrganizationId();
   if (orgId && !/[?&]organization_id=/.test(finalUrl)) {

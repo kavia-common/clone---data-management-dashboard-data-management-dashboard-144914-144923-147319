@@ -1,4 +1,4 @@
-import { getApiBase } from "./config";
+import { getApiBase, joinUrl } from "./config";
 import { buildAuthHeaders, getOrganizationId } from "./authTokenProvider";
 
 /**
@@ -16,22 +16,23 @@ function isAbsoluteUrl(url) {
  * - absolute URLs (returned as-is)
  */
 function buildUrl(pathOrUrl) {
-  const base = getApiBase(); // e.g., "http://host:3001/api"
+  const base = getApiBase(); // e.g., "http://host:3001" or "/api"
   if (isAbsoluteUrl(pathOrUrl)) return pathOrUrl;
 
   const baseRoot = String(base).replace(/\/+$/, "");
-  const hasApiSuffix = /\/api$/.test(baseRoot);
+  const hasApiSuffix = /\/api$/i.test(baseRoot);
 
   const path = String(pathOrUrl || "");
   if (path.startsWith("/api")) {
     // Join against base root (strip trailing "/api" from base)
-    const root = hasApiSuffix ? baseRoot.replace(/\/api$/, "") : baseRoot;
-    return `${root}${path}`;
+    const root = hasApiSuffix ? baseRoot.replace(/\/api$/i, "") : baseRoot;
+    return joinUrl(root, path);
   }
 
   // Normal: join base+"/api" with relative path
+  const apiBase = hasApiSuffix ? baseRoot : `${baseRoot}/api`;
   const p = path.startsWith("/") ? path : `/${path}`;
-  return `${baseRoot}${p}`;
+  return joinUrl(apiBase, p);
 }
 
 /**
