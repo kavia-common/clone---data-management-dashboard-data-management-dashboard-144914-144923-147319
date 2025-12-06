@@ -1,6 +1,5 @@
 /* eslint-disable no-console */
 import axios from 'axios';
-import { getApiBase, joinUrl } from './config';
 
 // PUBLIC_INTERFACE
 export function setAuthContext({ token, tenant_id }) {
@@ -30,32 +29,11 @@ export function getAuthContext() {
 }
 
 /**
- * Build a safe URL for axios request URL relative to base.
- * Rules:
- * - If path starts with '/api', don't prepend '/api' again; just join with base root.
- * - If path doesn't start with '/api', prepend '/api'.
- * - Collapse duplicate slashes.
- */
-function normalizePathWithBase(base, path) {
-  const baseRoot = String(base || '').replace(/\/+$/, '');
-  const p = String(path || '');
-  if (/^https?:\/\//i.test(p)) return p;
-  if (p.startsWith('/api')) {
-    // Strip trailing '/api' from base if present
-    const root = /\/api$/i.test(baseRoot) ? baseRoot.replace(/\/api$/i, '') : baseRoot;
-    return joinUrl(root, p);
-  }
-  const apiBase = /\/api$/i.test(baseRoot) ? baseRoot : `${baseRoot}/api`;
-  const rel = p.startsWith('/') ? p : `/${p}`;
-  return joinUrl(apiBase, rel);
-}
-
-/**
  * Axios instance that automatically attaches Authorization and x-tenant-id headers.
- * Uses centralized base resolution (env vars with fallback to relative '/api').
+ * Also logs missing headers in development to aid diagnostics.
  */
 const axiosInstance = axios.create({
-  baseURL: getApiBase(),
+  baseURL: process.env.REACT_APP_API_BASE_URL || '/api',
   withCredentials: false,
 });
 
@@ -71,22 +49,12 @@ axiosInstance.interceptors.request.use((config) => {
     cfg.headers['x-tenant-id'] = tenant_id;
   }
 
-  // Normalize URL against base to avoid '/api/api'
-  const base = cfg.baseURL ?? getApiBase();
-  if (typeof cfg.url === 'string') {
-    cfg.url = normalizePathWithBase(base, cfg.url);
-    // Axios with baseURL + absolute url may override baseURL; ensure baseURL is cleared for absolute URLs
-    if (/^https?:\/\//i.test(cfg.url)) {
-      cfg.baseURL = '';
-    }
-  }
-
   if (process.env.NODE_ENV !== 'production') {
     const hasAuth = !!cfg.headers?.Authorization;
     const xtenant = cfg.headers?.['x-tenant-id'] || null;
-    console.debug(
-      `[api-client] ${cfg.method?.toUpperCase?.() || 'GET'} ${cfg.url} Authorization=${hasAuth ? 'yes' : 'no'} x-tenant-id=${xtenant || 'n/a'}`
-    );
+    if (!hasAuth || !xtenant) {
+      console.debug(`[api-client] ${cfg.method?.toUpperCase?.() || 'GET'} ${cfg.url} Authorization=${hasAuth ? 'yes' : 'no'} x-tenant-id=${xtenant || 'n/a'}`);
+    }
   }
 
   return cfg;
