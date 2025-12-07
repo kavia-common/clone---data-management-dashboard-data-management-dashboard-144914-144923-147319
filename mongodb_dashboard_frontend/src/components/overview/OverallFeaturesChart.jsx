@@ -19,40 +19,65 @@ import { getSessionTracking } from '../../api/sessionTracking';
 /**
  * PUBLIC_INTERFACE
  * OverallFeaturesChart
- * Subscribes to shared Overview filter state and fetches session-tracking grouped by service_type.
- * Priority of filters:
- *   1) Shared Overview filters via useOverviewFilters (day|week|month|custom)
- *   2) Local toolbar/props as optional overrides when shared not available (defensive)
+ * Adds Day/Week/Month/Custom toolbar and fetches session-tracking grouped by service_type
+ * using session_start within selected window. For Custom, shows date pickers and only fetches
+ * once both start and end are picked.
  *
- * API:
- *   GET /api/session-tracking with query:
- *     { tenant_id, start, end, filter? (service_type) }
- * Aggregation:
- *   Group by service_type using session_start in [start,end]
- *
- * Props:
- *   - serviceType (optional): If provided, included as API filter; otherwise all types are aggregated.
+ * API query:
+ *   GET /api/session-tracking?tenant_id=<id>&start=<ISO>&end=<ISO>[&filter=<JSON>]
+ * Response can be array or envelope; normalize to array.
  */
 export default function OverallFeaturesChart({ serviceType }) {
   const { tenantId, timeRange, granularity, lastEventId } = useOverviewFilters?.() || {};
   const [series, setSeries] = useState([]);
   const [status, setStatus] = useState({ loading: true, error: null, empty: false });
 
-  // Track last fetch params to avoid duplicate calls when both local and shared filters exist
+  // Local toolbar state
+  const [rangeMode, setRangeMode] = useState('day'); // 'day' | 'week' | 'month' | 'custom'
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+
+  // Track last fetch params to avoid duplicate calls
   const lastParamsRef = useRef(null);
   const abortRef = useRef(null);
 
-  // Compute start/end from shared timeRange
-  // timeRange structure expectation: { mode: 'day'|'week'|'month'|'custom', start: Date|ISO, end: Date|ISO }
+  // Derive window from shared filters OR local rangeMode when shared not present.
   const { startISO, endISO } = useMemo(() => {
-    const start = timeRange?.start ? new Date(timeRange.start) : null;
-    const end = timeRange?.end ? new Date(timeRange.end) : null;
-    const toISO = (d) => (d instanceof Date && !isNaN(d) ? d.toISOString() : typeof d === 'string' ? new Date(d).toISOString() : null);
-    return {
-      startISO: start ? toISO(start) : null,
-      endISO: end ? toISO(end) : null,
-    };
-  }, [timeRange?.start, timeRange?.end]);
+    // If shared timeRange exists and aligns with known modes, prefer it
+    if (timeRange?.start && timeRange?.end) {
+      const toISO = (v) => {
+        if (!v) return null;
+        const d = typeof v === 'string' ? new Date(v) : v;
+        return d instanceof Date && !isNaN(d) ? d.toISOString() : null;
+      };
+      return { startISO: toISO(timeRange.start), endISO: toISO(timeRange.end) };
+    }
+
+    // Compute based on local rangeMode
+    const now = new Date();
+    const end = now;
+    const start = new Date(now);
+    if (rangeMode === 'day') {
+      start.setDate(now.getDate() - 1);
+    } else if (rangeMode === 'week') {
+      start.setDate(now.getDate() - 7);
+    } else if (rangeMode === 'month') {
+      start.setMonth(now.getMonth() - 1);
+    } else if (rangeMode === 'custom') {
+      const s = customStart ? new Date(customStart) : null;
+      const e = customEnd ? new Date(customEnd) : null;
+      return {
+        startISO: s && !isNaN(s) ? s.toISOString() : null,
+        endISO: e && !isNaN(e) ? e.toISOString() : null,
+      };
+    }
+    return { startISO: start.toISOString(), endISO: end.toISOString() };
+  }, [timeRange?.start, timeRange?.end, rangeMode, customStart, customEnd]);
+
+  const effectiveRangeLabel = useMemo(() => {
+    if (rangeMode !== 'custom') return rangeMode;
+    return customStart && customEnd ? 'custom' : 'custom-pending';
+  }, [rangeMode, customStart, customEnd]);
 
   const fetchAndAggregate = useCallback(async (params) => {
     const { tenant_id, start, end, service_type } = params || {};
@@ -62,21 +87,17 @@ export default function OverallFeaturesChart({ serviceType }) {
       return;
     }
 
-    // Deduplicate identical calls
     const key = JSON.stringify({ tenant_id, start, end, service_type });
     if (lastParamsRef.current === key) return;
     lastParamsRef.current = key;
 
-    // Abort any in-flight request
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
+    if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
       setStatus({ loading: true, error: null, empty: false });
-      // Build query for server-side filtering by session_start in [start,end]
+
       const filter = service_type ? JSON.stringify({ service_type }) : undefined;
       const query = {
         tenant_id,
@@ -84,14 +105,18 @@ export default function OverallFeaturesChart({ serviceType }) {
         end,
         ...(filter ? { filter } : {}),
         sort: '-session_start',
-        // no explicit pagination so backend returns raw array when limit/page not provided
       };
 
       const res = await getSessionTracking(query, { signal: controller.signal });
-      // Response can be array or envelope; normalize to array
-      const items = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : Array.isArray(res?.items) ? res.items : [];
+      const items = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.items)
+        ? res.items
+        : [];
 
-      // Aggregate by service_type
+      // Aggregate by service_type using session_start
       const counts = {};
       for (const it of items) {
         const stype = it?.service_type || 'unknown';
@@ -109,20 +134,25 @@ export default function OverallFeaturesChart({ serviceType }) {
       setSeries(entries);
       setStatus({ loading: false, error: null, empty: entries.length === 0 });
     } catch (err) {
-      if (err?.name === 'AbortError') {
-        return;
-      }
+      if (err?.name === 'AbortError') return;
       setSeries([]);
       setStatus({ loading: false, error: err?.message || 'Failed to load', empty: false });
     }
   }, []);
 
-  // Trigger fetch on relevant changes
+  // Trigger fetch on changes
   useEffect(() => {
     const finalTenant = tenantId || null;
     const start = startISO;
     const end = endISO;
     const stype = serviceType || null;
+
+    // For custom, only fetch when both dates selected or shared timeRange provided
+    if (rangeMode === 'custom' && !timeRange?.start && (!customStart || !customEnd)) {
+      setSeries([]);
+      setStatus({ loading: false, error: null, empty: true });
+      return;
+    }
 
     if (!finalTenant || !start || !end) {
       setSeries([]);
@@ -130,14 +160,12 @@ export default function OverallFeaturesChart({ serviceType }) {
       return;
     }
     fetchAndAggregate({ tenant_id: finalTenant, start, end, service_type: stype });
-  }, [tenantId, startISO, endISO, serviceType, lastEventId, fetchAndAggregate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, startISO, endISO, serviceType, lastEventId, rangeMode, customStart, customEnd]);
 
-  // Cleanup abort on unmount
   useEffect(() => {
     return () => {
-      if (abortRef.current) {
-        abortRef.current.abort();
-      }
+      if (abortRef.current) abortRef.current.abort();
     };
   }, []);
 
@@ -150,8 +178,46 @@ export default function OverallFeaturesChart({ serviceType }) {
     grid: '#E5E7EB',
   };
 
+  const RangeButton = ({ mode, label }) => (
+    <button
+      type="button"
+      onClick={() => setRangeMode(mode)}
+      className={`seg-btn ${rangeMode === mode ? 'active' : ''}`}
+      aria-pressed={rangeMode === mode}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <Card>
+    <Card title="Overall Features" subtitle="Session counts grouped by service type">
+      <div className="overall-features-toolbar">
+        <div className="segmented" role="tablist" aria-label="Time range filters">
+          <RangeButton mode="day" label="Day" />
+          <RangeButton mode="week" label="Week" />
+          <RangeButton mode="month" label="Month" />
+          <RangeButton mode="custom" label="Custom" />
+        </div>
+
+        {rangeMode === 'custom' && (
+          <div className="custom-range" aria-label="Custom date range">
+            <input
+              type="date"
+              value={customStart ? customStart.slice(0, 10) : ''}
+              onChange={(e) => setCustomStart(e.target.value ? new Date(e.target.value).toISOString() : '')}
+              aria-label="Start date"
+            />
+            <span className="to-sep">to</span>
+            <input
+              type="date"
+              value={customEnd ? customEnd.slice(0, 10) : ''}
+              onChange={(e) => setCustomEnd(e.target.value ? new Date(e.target.value).toISOString() : '')}
+              aria-label="End date"
+            />
+          </div>
+        )}
+      </div>
+
       {status.loading && <LoadingState message="Loading Overall Features..." />}
       {!status.loading && status.error && <ErrorState message={status.error} />}
       {!status.loading && !status.error && (
@@ -193,6 +259,9 @@ export default function OverallFeaturesChart({ serviceType }) {
           )}
         </>
       )}
+      <div className="overview-footer-note" aria-hidden>
+        <span className="kpi-pill">Range: {effectiveRangeLabel}</span>
+      </div>
     </Card>
   );
 }

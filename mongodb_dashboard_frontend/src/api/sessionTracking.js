@@ -6,6 +6,9 @@ import client from './client';
  * Fetches session tracking records. Accepts query object and optional fetch options.
  * - query: { page?, limit?, sort?, filter?, q?, pageSize?, tenant_id?, start?, end? }
  * - options: { signal? }
+ * Notes:
+ * - Backend supports raw array response when page/limit not provided, else envelope.
+ * - start/end should be ISO strings; filtering applies to session_start on server.
  */
 export async function getSessionTracking(query = {}, options = {}) {
   const params = new URLSearchParams();
@@ -21,5 +24,6 @@ export async function getSessionTracking(query = {}, options = {}) {
   return res?.data ?? res;
 }
 
+// PUBLIC_INTERFACE
 // Backward-compatibility alias to avoid build breaks if any old import remains
 export const fetchSessionTracking = getSessionTracking;
