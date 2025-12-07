@@ -6,6 +6,9 @@
   * - week: last 12 weeks
   * - month: last 12 months
   * - custom: use provided dateStart/dateEnd
+  *
+  * Note: We intentionally do not emit a "granularity" param here; consumers can add it if the
+  * backend endpoint expects it (e.g., some analytics endpoints). For session-tracking we only use from/to.
   */
 export function buildOverviewFilterParams({ rangeType, dateStart, dateEnd } = {}) {
   const now = new Date();

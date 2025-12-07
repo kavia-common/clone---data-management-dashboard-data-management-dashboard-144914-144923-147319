@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -16,15 +16,6 @@ import LoadingState from '../common/LoadingState';
 import ErrorState from '../common/ErrorState';
 import '../../components/charts/ActiveUsersTrendChart.css';
 
-/**
- * Helpers
- */
-function parseDateSafe(value) {
-  if (!value) return null;
-  const d = new Date(value);
-  return isNaN(d.getTime()) ? null : d;
-}
-
 // PUBLIC_INTERFACE
 /**
  * OverallFeaturesChart
@@ -33,27 +24,14 @@ function parseDateSafe(value) {
  */
 export default function OverallFeaturesChart({ tenantId: propTenantId, page = 1, limit = 200 }) {
   const filters = useOverviewFilters() || {};
-  // Normalize filter shape used across overview components
-  // Accept either { granularity, from, to } or { rangeType, dateStart, dateEnd }
-  const granularity =
-    (filters.granularity ||
-      filters.rangeType ||
-      (filters.range && filters.range.granularity) ||
-      'day')
-      .toString()
-      .toLowerCase();
 
-  const dateStart =
-    filters.from ||
-    filters.dateStart ||
-    (filters.range && filters.range.from) ||
-    null;
+  // Normalize filters received from Overview components
+  const granularity = String(
+    (filters.granularity || filters.rangeType || filters?.range?.granularity || 'day') ?? 'day'
+  ).toLowerCase();
 
-  const dateEnd =
-    filters.to ||
-    filters.dateEnd ||
-    (filters.range && filters.range.to) ||
-    null;
+  const dateStart = filters.from || filters.dateStart || filters?.range?.from || null;
+  const dateEnd = filters.to || filters.dateEnd || filters?.range?.to || null;
 
   const [data, setData] = useState([]);
   const [state, setState] = useState({ loading: false, error: null });
@@ -65,23 +43,29 @@ export default function OverallFeaturesChart({ tenantId: propTenantId, page = 1,
     async function load() {
       setState({ loading: true, error: null });
       try {
-        // Prefer prop tenant if provided; otherwise rely on global filters (if any)
-        const tenantId = propTenantId || filters.organization_id || filters.tenant_id || filters.tenantId || undefined;
+        // Prefer prop tenant if provided; fallback to filter context aliases
+        const tenantId =
+          propTenantId ||
+          filters.organization_id ||
+          filters.tenant_id ||
+          filters.tenantId ||
+          filters.organizationId ||
+          undefined;
 
         const params = {
+          // Include both aliases for backend compatibility
           tenant_id: tenantId,
           organization_id: tenantId,
+          // Pagination (optional): when page exists, backend returns envelope
           page,
           limit,
         };
 
-        // Attach time window based on filters; prefer direct from/to when available
-        const fromIso = dateStart ? new Date(dateStart).toISOString() : undefined;
-        const toIso = dateEnd ? new Date(dateEnd).toISOString() : undefined;
-        if (fromIso) params.from = fromIso;
-        if (toIso) params.to = toIso;
+        // Time window
+        if (dateStart) params.from = new Date(dateStart).toISOString();
+        if (dateEnd) params.to = new Date(dateEnd).toISOString();
 
-        // Some pages may expect granularity param for server hints; include when not custom
+        // Some endpoints support granularity hints; include if not custom
         if (granularity && granularity !== 'custom') {
           params.granularity = granularity;
         }
@@ -104,7 +88,16 @@ export default function OverallFeaturesChart({ tenantId: propTenantId, page = 1,
         }
       } catch (e) {
         if (controller.signal.aborted) return;
-        if (!cancelled) setState({ loading: false, error: e?.message || 'Failed to load Overall Features' });
+        if (!cancelled) {
+          const msg =
+            e?.message ||
+            (typeof e === 'string' ? e : 'Failed to load Overall Features');
+          setState({ loading: false, error: msg });
+          if (process.env.NODE_ENV !== 'production') {
+            // eslint-disable-next-line no-console
+            console.warn('[OverallFeaturesChart] load failed:', e);
+          }
+        }
       }
     }
 
@@ -113,7 +106,18 @@ export default function OverallFeaturesChart({ tenantId: propTenantId, page = 1,
       cancelled = true;
       controller.abort();
     };
-  }, [propTenantId, filters.tenant_id, filters.organization_id, filters.tenantId, granularity, dateStart, dateEnd, page, limit]);
+  }, [
+    propTenantId,
+    filters.tenant_id,
+    filters.organization_id,
+    filters.tenantId,
+    filters.organizationId,
+    granularity,
+    dateStart,
+    dateEnd,
+    page,
+    limit,
+  ]);
 
   const theme = {
     primary: '#2563EB',
@@ -127,7 +131,9 @@ export default function OverallFeaturesChart({ tenantId: propTenantId, page = 1,
   return (
     <Card title="Overall Features">
       {state.loading && <LoadingState message="Loading Overall Features..." />}
-      {!state.loading && state.error && <ErrorState message={state.error} />}
+      {!state.loading && state.error && (
+        <ErrorState message={state.error} />
+      )}
 
       {!state.loading && !state.error && (
         <>

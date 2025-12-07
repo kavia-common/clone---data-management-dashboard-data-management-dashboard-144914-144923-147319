@@ -4,6 +4,7 @@
 /**
  * sanitizeRequestParams
  * Removes undefined/null/empty-string query parameters to keep URLs clean.
+ * Note: Preserves page=1 and limit values; preserves boolean false and numeric 0.
  */
 export function sanitizeRequestParams(params = {}) {
   const out = {};
