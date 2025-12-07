@@ -171,6 +171,7 @@
 
 .overview-section.users-overall-features {
   margin-top: 16px;
+  /* Ensure only one Overall Features section is styled; do not duplicate containers */
 }
 
 .overall-features-card {

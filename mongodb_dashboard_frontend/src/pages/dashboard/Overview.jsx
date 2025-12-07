@@ -4,6 +4,7 @@ import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
 import UsersByTenantOverviewChart from "../../components/overview/UsersByTenantOverviewChart";
 import OverallFeaturesChart from "../../components/overview/OverallFeaturesChart.jsx";
+// Removed any alternative/summary components to avoid duplicate charts on page
 
 /**
  * PUBLIC_INTERFACE

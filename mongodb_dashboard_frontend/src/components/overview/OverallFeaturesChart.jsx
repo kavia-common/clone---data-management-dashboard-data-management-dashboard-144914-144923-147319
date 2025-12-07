@@ -81,16 +81,19 @@ export default function OverallFeaturesChart({ serviceType }) {
   }, [rangeMode, customStart, customEnd]);
 
   const fetchAndAggregate = useCallback(async ({ tenant_id, from, to, service_type }) => {
+    // Defensive: need tenant and valid range to fetch
     if (!tenant_id || !from || !to) {
       setSeries([]);
       setStatus((s) => ({ ...s, loading: false, error: null, empty: true }));
       return;
     }
 
+    // Avoid duplicate fetches with same params
     const key = JSON.stringify({ tenant_id, from, to, service_type });
     if (lastParamsRef.current === key) return;
     lastParamsRef.current = key;
 
+    // Abort any in-flight request
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -98,6 +101,7 @@ export default function OverallFeaturesChart({ serviceType }) {
     try {
       setStatus({ loading: true, error: null, empty: false });
 
+      // Unify to single API call to /api/session-tracking with from/to + date_field=session_start
       const filter = service_type ? JSON.stringify({ service_type }) : undefined;
       const query = {
         tenant_id,
@@ -108,12 +112,11 @@ export default function OverallFeaturesChart({ serviceType }) {
         sort: '-session_start',
       };
 
-      // Diagnostic log for verification in console and to help QA
       // eslint-disable-next-line no-console
       console.log('[OverallFeaturesChart] Fetch session-tracking', query);
 
       const res = await getSessionTracking(query, { signal: controller.signal });
-      const items = Array.isArray(res)
+      const data = Array.isArray(res)
         ? res
         : Array.isArray(res?.data)
         ? res.data
@@ -121,22 +124,35 @@ export default function OverallFeaturesChart({ serviceType }) {
         ? res.items
         : [];
 
-      const counts = {};
-      for (const it of items) {
-        const stype = it?.service_type || 'unknown';
-        const ts = it?.session_start || it?.created_at || it?.last_updated;
-        if (!ts) continue;
-        const t = new Date(ts).getTime();
-        if (isNaN(t)) continue;
-        counts[stype] = (counts[stype] || 0) + 1;
-      }
+      // Aggregate by service_type (unified source of truth)
+      const counts = data.reduce((acc, item) => {
+        const k = item?.service_type || 'unknown';
+        // Optional: ensure item is within range by timestamp fields if backend didn't filter by specified date_field
+        const ts = item?.session_start || item?.last_updated || item?.created_at;
+        if (ts) {
+          const t = new Date(ts).getTime();
+          const f = new Date(from).getTime();
+          const toT = new Date(to).getTime();
+          if (!isNaN(t) && !isNaN(f) && !isNaN(toT)) {
+            if (t < f || t > toT) {
+              return acc;
+            }
+          }
+        }
+        acc[k] = (acc[k] || 0) + 1;
+        return acc;
+      }, {});
 
-      const entries = Object.entries(counts)
-        .map(([name, value]) => ({ name, value }))
+      const labels = Object.keys(counts);
+      const seriesValues = Object.values(counts);
+
+      // Shape for recharts: [{ name, value }, ...]
+      const shaped = labels
+        .map((name, idx) => ({ name, value: seriesValues[idx] }))
         .sort((a, b) => b.value - a.value);
 
-      setSeries(entries);
-      setStatus({ loading: false, error: null, empty: entries.length === 0 });
+      setSeries(shaped);
+      setStatus({ loading: false, error: null, empty: labels.length === 0 });
     } catch (err) {
       if (err?.name === 'AbortError') return;
       setSeries([]);
@@ -144,14 +160,14 @@ export default function OverallFeaturesChart({ serviceType }) {
     }
   }, []);
 
-  // Trigger fetch on changes (align dependencies to ensure calls happen on every relevant change)
+  // Trigger fetch on changes but guard to avoid duplicate calls
   useEffect(() => {
-    const finalTenant = tenantId || null;
+    const finalTenant = tenantId || 'b2c'; // keep default tenant when selector not present
     const from = fromISO;
     const to = toISO;
     const stype = serviceType || null;
 
-    // For custom (local), only fetch when both dates are selected
+    // For local custom, fetch only when both dates are selected
     if (!timeRange?.start && rangeMode === 'custom' && (!customStart || !customEnd)) {
       setSeries([]);
       setStatus({ loading: false, error: null, empty: true });
@@ -165,14 +181,15 @@ export default function OverallFeaturesChart({ serviceType }) {
     }
 
     fetchAndAggregate({ tenant_id: finalTenant, from, to, service_type: stype });
+    // We intentionally avoid adding fetchAndAggregate as a dependency to keep its identity stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     tenantId,
     fromISO,
     toISO,
     serviceType,
-    lastEventId, // ensure re-fetch when global filter event increments
-    granularity, // align with Overview granularity changes
+    lastEventId,
+    granularity,
     rangeMode,
     customStart,
     customEnd,
