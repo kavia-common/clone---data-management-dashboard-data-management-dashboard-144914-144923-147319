@@ -4,7 +4,7 @@ import client from './client';
  * PUBLIC_INTERFACE
  * getSessionTracking
  * Fetches session tracking records. Accepts query object and optional fetch options.
- * - query: { page?, limit?, sort?, filter?, q?, pageSize?, tenant_id?, start?, end? }
+ * - query: { page?, limit?, sort?, filter?, q?, pageSize? }
  * - options: { signal? }
  */
 export async function getSessionTracking(query = {}, options = {}) {
@@ -14,12 +14,10 @@ export async function getSessionTracking(query = {}, options = {}) {
     params.append(k, v);
   });
 
+  // The underlying client should support abort signals if using fetch; for axios, map to CancelToken where available.
+  // Here, we forward the signal via client wrapper; if unsupported, it will be ignored safely.
   const res = await client.get(`/api/session-tracking?${params.toString()}`, {
     signal: options.signal,
   });
-  // Axios wraps response in { data }, fetch may return body directly via client wrapper
   return res?.data ?? res;
 }
-
-// Backward-compatibility alias to avoid build breaks if any old import remains
-export const fetchSessionTracking = getSessionTracking;
