@@ -1,23 +1,19 @@
-import React, { useEffect, useState, useContext } from "react";
+import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
 import UsersByTenantOverviewChart from "../../components/overview/UsersByTenantOverviewChart";
-import ServiceTypeChart from "../../components/overview/ServiceTypeChart";
-import { useAuth } from "../../context/AuthContext.jsx";
 
 /**
  * PUBLIC_INTERFACE
  * Overview
- * Simplified Overview page with KPI cards and charts below.
+ * Simplified Overview page with KPI cards and a Users By Tenant chart below.
  */
 export default function Overview() {
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
   const [error, setError] = useState("");
   const [, setApiStatus] = useState("checking");
-
-  const { organizationId } = useAuth?.() || {};
 
   // KPI metrics
   useEffect(() => {
@@ -121,11 +117,6 @@ export default function Overview() {
       {/* Users by Tenant chart block */}
       <div className="block-full" style={{ gridColumn: "1 / -1" }}>
         <UsersByTenantOverviewChart />
-      </div>
-
-      {/* Service Type chart block */}
-      <div className="block-full" style={{ gridColumn: "1 / -1" }}>
-        <ServiceTypeChart tenantId={organizationId || undefined} />
       </div>
     </div>
   );
