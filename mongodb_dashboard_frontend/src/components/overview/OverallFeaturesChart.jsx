@@ -103,6 +103,7 @@ export default function OverallFeaturesChart({ serviceType }) {
         tenant_id,
         from,
         to,
+        date_field: 'session_start',
         ...(filter ? { filter } : {}),
         sort: '-session_start',
       };
