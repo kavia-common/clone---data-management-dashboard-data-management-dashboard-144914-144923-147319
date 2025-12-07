@@ -1,50 +1,19 @@
-import { useContext, useMemo } from 'react';
+import { useContext } from 'react';
 import { DataContext } from '../context/DataContext';
 
 /**
  * PUBLIC_INTERFACE
  * useOverviewFilters
- * Returns global overview filters from DataContext when available, with a normalized shape:
- * { granularity?: 'day'|'week'|'month'|'custom', from?: ISO, to?: ISO, tenant_id?, organization_id? }
+ * Returns global overview filters from DataContext if provided. Otherwise returns an empty object to avoid crashes.
  */
-export default function useOverviewFilters() {
-  let raw = {};
+export function useOverviewFilters() {
   try {
     const ctx = useContext(DataContext);
-    raw = (ctx && (ctx.overviewFilters || ctx.filters)) || {};
+    // Many pages store filters on ctx.filters or ctx.overviewFilters; use either and fallback.
+    return (ctx && (ctx.overviewFilters || ctx.filters)) || {};
   } catch {
-    raw = {};
+    return {};
   }
-
-  // Normalize various shapes into a consistent contract
-  return useMemo(() => {
-    const granularity =
-      raw.granularity ||
-      raw.rangeType ||
-      (raw.range && raw.range.granularity) ||
-      undefined;
-
-    const from =
-      raw.from ||
-      raw.dateStart ||
-      (raw.range && raw.range.from) ||
-      undefined;
-
-    const to =
-      raw.to ||
-      raw.dateEnd ||
-      (raw.range && raw.range.to) ||
-      undefined;
-
-    const tenant_id = raw.tenant_id || raw.tenantId || raw.organization_id || raw.organizationId;
-
-    return {
-      ...raw,
-      granularity,
-      from,
-      to,
-      tenant_id,
-      organization_id: tenant_id,
-    };
-  }, [raw]);
 }
+
+export default useOverviewFilters;

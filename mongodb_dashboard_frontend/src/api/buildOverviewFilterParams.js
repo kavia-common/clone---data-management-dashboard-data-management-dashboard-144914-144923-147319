@@ -1,48 +1,41 @@
- /**
-  * PUBLIC_INTERFACE
-  * buildOverviewFilterParams
-  * Maps shared overview filters to { from, to } window.
-  * - day: last 30 days
-  * - week: last 12 weeks
-  * - month: last 12 months
-  * - custom: use provided dateStart/dateEnd
-  *
-  * Note: We intentionally do not emit a "granularity" param here; consumers can add it if the
-  * backend endpoint expects it (e.g., some analytics endpoints). For session-tracking we only use from/to.
-  */
-export function buildOverviewFilterParams({ rangeType, dateStart, dateEnd } = {}) {
-  const now = new Date();
-  const to = now.toISOString();
-  let from;
+import { buildFilterParam } from './buildFilterParam';
 
-  switch ((rangeType || 'day').toLowerCase()) {
-    case 'week': {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 12 * 7);
-      from = d.toISOString();
-      break;
-    }
-    case 'month': {
-      const d = new Date(now);
-      d.setMonth(d.getMonth() - 12);
-      from = d.toISOString();
-      break;
-    }
-    case 'custom': {
-      const out = {};
-      if (dateStart) out.from = new Date(dateStart).toISOString();
-      if (dateEnd) out.to = new Date(dateEnd).toISOString();
-      return out;
-    }
-    case 'day':
-    default: {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 30);
-      from = d.toISOString();
-    }
+/**
+ * PUBLIC_INTERFACE
+ * buildOverviewQueryParams
+ * Map a filter object into query params aligned with backend expectations.
+ * Supports: tenant/organization, from/to or start/end (per endpoint), granularity.
+ *
+ * @param {Object} filter - { tenantId?, organization_id?, from?, to?, start?, end?, granularity? }
+ * @param {Object} options - { useStartEnd?: boolean } when true uses start/end instead of from/to
+ * @returns {Record<string,string>}
+ */
+export function buildOverviewQueryParams(filter = {}, options = {}) {
+  const { useStartEnd = false } = options;
+  const params = {};
+
+  // Tenant: send as organization_id to be consistent; server also supports tenant_id aliases.
+  if (filter.organization_id || filter.tenantId) {
+    params.organization_id = filter.organization_id || filter.tenantId;
   }
 
-  return { from, to };
-}
+  // Date range
+  if (useStartEnd) {
+    if (filter.start || filter.from) params.start = (filter.start || filter.from);
+    if (filter.end || filter.to) params.end = (filter.end || filter.to);
+  } else {
+    if (filter.from) params.from = filter.from;
+    if (filter.to) params.to = filter.to;
+  }
 
-export default buildOverviewFilterParams;
+  // Granularity: day|week|month (some endpoints only accept day|week)
+  if (filter.granularity && filter.granularity !== 'custom') {
+    params.granularity = filter.granularity;
+  }
+
+  // passthrough for other supported fields if provided via buildFilterParam pattern
+  const extra = buildFilterParam(filter?.extra || {});
+  if (extra) params.filter = extra;
+
+  return params;
+}
