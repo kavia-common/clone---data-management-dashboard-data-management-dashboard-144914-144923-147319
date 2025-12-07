@@ -114,7 +114,8 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
   }
 
   if (isSessionTrackingRoot(pathOrUrl)) {
-    const { organization_id, filter, ...rest } = params || {};
+    // Preserve the filter object/JSON string as-is, drop organization_id (tenant_id is appended later).
+    const { organization_id, ...rest } = params || {};
     return rest || {};
   }
 

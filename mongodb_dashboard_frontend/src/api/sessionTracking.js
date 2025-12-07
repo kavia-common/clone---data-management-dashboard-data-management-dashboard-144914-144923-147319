@@ -3,16 +3,19 @@ import client from "./client";
 /**
  * PUBLIC_INTERFACE
  * getSessionTracking
- * Wrapper for GET /api/session-tracking. Accepts query params such as:
- * - filter: JSON string containing MongoDB-style filter (e.g., {"organization_id":"org1","session_start":{"$gte":"...","$lte":"..."}})
- * - sort, page, limit
+ * Wrapper for GET /api/session-tracking.
+ * Params:
+ * - filter: object or JSON string; when object, it will be JSON.stringified by the base client.
+ * - sort?: string (e.g., "-session_start")
+ * - page?: number
+ * - limit?: number
+ * Returns: payload as returned by backend (array or envelope). Consumers should normalize as needed.
  */
 export async function getSessionTracking(params = {}) {
   try {
     const res = await client.get("/api/session-tracking", { params });
     return res.data;
   } catch (err) {
-    // Normalize error
     const message =
       err?.response?.data?.message ||
       err?.response?.data?.error ||
