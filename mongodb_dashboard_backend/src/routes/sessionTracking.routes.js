@@ -172,6 +172,7 @@ const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
+const { isValidISODate, parseISODateSafe } = require('../utils/date');
 
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
@@ -334,6 +335,16 @@ router.get(
   '/',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
+    /**
+     * PUBLIC_INTERFACE
+     * GET /api/session-tracking
+     * Supports optional server-side filtering:
+     * - tenant_id (required unless super-admin/all-tenants bypass applies; aliases via header/query)
+     * - service_type (optional exact match)
+     * - start/end (optional ISO date-times; applied to session_start as $gte/$lte)
+     * - page, limit (pagination), sort (default -session_start)
+     * Also supports q (text search) as previously implemented.
+     */
     const bypass = !!(
       req.tenantScopeDisabled ||
       req.allTenants ||
@@ -341,7 +352,7 @@ router.get(
       req?.user?.isSuperAdmin
     );
 
-    // Resolve tenant aliases
+    // Resolve tenant from known aliases
     const enforcedTenant =
       req.tenantId ||
       (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
@@ -353,17 +364,60 @@ router.get(
     if (!bypass && !enforcedTenant) {
       return res.status(400).json({
         success: false,
-        message: 'tenant_id is required. Provide ?tenant_id=...'
+        message: 'tenant_id is required. Provide ?tenant_id=... (or header x-organization-id / x-tenant-id).'
       });
     }
 
-    // Stable pagination and sort
+    // Pagination and default sort
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
-    const sort = req.query.sort || '-session_start';
+    const sort = (typeof req.query.sort === 'string' && req.query.sort.trim()) || '-session_start';
 
-    // Text search
+    // Optional filters: service_type, start, end
+    const serviceType = typeof req.query.service_type === 'string' && req.query.service_type.trim()
+      ? req.query.service_type.trim()
+      : null;
+
+    // Date range parsing with graceful fallbacks (applies to session_start)
+    let start = null;
+    let end = null;
+    const now = new Date();
+    const DEFAULT_WINDOW_DAYS = 30;
+
+    const hasStart = typeof req.query.start === 'string' && req.query.start.trim();
+    const hasEnd = typeof req.query.end === 'string' && req.query.end.trim();
+
+    if (hasStart && !isValidISODate(req.query.start)) {
+      return res.status(400).json({ success: false, message: 'Invalid start date (must be ISO-8601)' });
+    }
+    if (hasEnd && !isValidISODate(req.query.end)) {
+      return res.status(400).json({ success: false, message: 'Invalid end date (must be ISO-8601)' });
+    }
+
+    if (hasStart) start = parseISODateSafe(req.query.start);
+    if (hasEnd) {
+      const parsed = parseISODateSafe(req.query.end);
+      // make end inclusive to the end of given day if time not specified
+      if (/T/.test(req.query.end)) {
+        end = parsed;
+      } else {
+        parsed.setUTCHours(23, 59, 59, 999);
+        end = parsed;
+      }
+    }
+
+    // If neither start nor end provided, default window
+    if (!start && !end) {
+      end = now;
+      start = new Date(end.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    } else if (start && !end) {
+      end = now;
+    } else if (!start && end) {
+      start = new Date(end.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    }
+
+    // Text search (existing behavior)
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let qFilter = {};
     if (q) {
@@ -387,11 +441,12 @@ router.get(
       };
     }
 
-    // Ignore client filter param; retain tenant scope + search
+    // Ignore client-supplied filter JSON to avoid conflicts; server builds safe filters
     if (typeof req.query.filter !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch {}
     }
 
+    // Tenant scope (unless bypass)
     const enforcedScope = (!bypass && enforcedTenant)
       ? {
           $or: [
@@ -402,13 +457,28 @@ router.get(
         }
       : {};
 
+    // Date range filter
+    const timeFilter = { session_start: {} };
+    if (start) timeFilter.session_start.$gte = start;
+    if (end) timeFilter.session_start.$lte = end;
+    if (Object.keys(timeFilter.session_start).length === 0) {
+      delete timeFilter.session_start;
+    }
+
+    // service_type filter
+    const serviceTypeFilter = serviceType ? { service_type: serviceType } : {};
+
+    // Build final filter parts
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
     if (!isEmpty(qFilter)) parts.push(qFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
+    if (!isEmpty(timeFilter)) parts.push(timeFilter);
+    if (!isEmpty(serviceTypeFilter)) parts.push(serviceTypeFilter);
+
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
-    // Prepare cache meta
+    // Cache key respects new filters (start/end already included; add service_type)
     const cacheKey = cacheKeyFromReq(req, enforcedTenant);
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
     const wantETag = ENABLE_ETAG && req.method === 'GET';
@@ -417,10 +487,7 @@ router.get(
     if (wantCache) {
       const hit = cacheGet(cacheKey);
       if (hit) {
-        try {
-          console.log(`[session-tracking] cache hit ${cacheKey}`);
-        } catch {}
-        // Handle If-None-Match
+        try { console.log(`[session-tracking] cache hit ${cacheKey}`); } catch {}
         if (wantETag) {
           const inm = req.headers['if-none-match'];
           if (inm && inm === hit.etag) {
@@ -434,13 +501,11 @@ router.get(
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS/1000)}, must-revalidate`);
         return res.status(200).json(hit.payload);
       } else {
-        try {
-          console.log(`[session-tracking] cache miss ${cacheKey}`);
-        } catch {}
+        try { console.log(`[session-tracking] cache miss ${cacheKey}`); } catch {}
       }
     }
 
-    // DB execution
+    // Execute query with pagination behavior preserved
     try {
       if (explicit) {
         const [docs, total] = await Promise.all([
@@ -451,20 +516,20 @@ router.get(
         const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
-          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q });
+          etag = computeETag(payload, {
+            tenant: bypass ? 'all-tenants' : enforcedTenant,
+            page, limit, sort, q, serviceType,
+            window: { start: start?.toISOString?.(), end: end?.toISOString?.() }
+          });
           res.set('ETag', etag);
         }
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS/1000)}, must-revalidate`);
-        if (wantCache) {
-          cacheSet(cacheKey, payload, etag);
-        }
+        if (wantCache) cacheSet(cacheKey, payload, etag);
 
-        // If-None-Match handling post-compute
         const inm = req.headers['if-none-match'];
         if (wantETag && inm && etag && inm === etag) {
           return res.status(304).end();
         }
-
         return res.status(200).json(payload);
       }
 
@@ -472,26 +537,27 @@ router.get(
       const payload = docs;
       let etag = null;
       if (wantETag) {
-        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q });
+        etag = computeETag(payload, {
+          tenant: bypass ? 'all-tenants' : enforcedTenant,
+          sort, q, serviceType,
+          window: { start: start?.toISOString?.(), end: end?.toISOString?.() }
+        });
         res.set('ETag', etag);
       }
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS/1000)}, must-revalidate`);
-      if (wantCache) {
-        cacheSet(cacheKey, payload, etag);
-      }
+      if (wantCache) cacheSet(cacheKey, payload, etag);
 
       const inm = req.headers['if-none-match'];
       if (wantETag && inm && etag && inm === etag) {
         return res.status(304).end();
       }
-
       return res.status(200).json(payload);
     } catch (err) {
-      return res.status(400).json({
-        success: false,
-        message: 'Request failed',
-        details: err?.message || ''
-      });
+      const message = err?.message || 'Request failed';
+      if (err?.name === 'CastError' || /Cast to/.test(message)) {
+        return res.status(400).json({ success: false, message: 'Invalid value provided (list)', details: message });
+      }
+      return res.status(400).json({ success: false, message, details: message });
     }
   })
 );
