@@ -19,31 +19,28 @@ import { getSessionTracking } from '../../api/sessionTracking';
 /**
  * PUBLIC_INTERFACE
  * OverallFeaturesChart
- * Adds Day/Week/Month/Custom toolbar and fetches session-tracking grouped by service_type
- * using session_start within selected window. For Custom, shows date pickers and only fetches
- * once both start and end are picked.
+ * Single render path. Fetches session-tracking with dynamic tenant + date range and
+ * aggregates counts by service_type using session_start within the selected window.
  *
- * API query:
- *   GET /api/session-tracking?tenant_id=<id>&start=<ISO>&end=<ISO>[&filter=<JSON>]
- * Response can be array or envelope; normalize to array.
+ * API usage (unchanged shape, only query params):
+ *   GET /api/session-tracking?tenant_id=<id>&from=<ISO>&to=<ISO>&date_field=session_start&sort=-session_start
  */
 export default function OverallFeaturesChart({ serviceType }) {
-  // Pull shared filters (matches how UsersByTenantOverviewChart responds)
-  const { tenantId, timeRange, granularity, lastEventId } = useOverviewFilters?.() || {};
+  // Pull shared filters (if provided via DataContext). Safe optional usage.
+  const { tenantId, timeRange, granularity, lastEventId } = (useOverviewFilters?.() || {});
 
+  // Local UI and data state
   const [series, setSeries] = useState([]);
   const [status, setStatus] = useState({ loading: true, error: null, empty: false });
-
-  // Local toolbar state mirrors OverviewChartFilters options
   const [rangeMode, setRangeMode] = useState('day'); // day|week|month|custom
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
 
-  // Track last fetch params to avoid duplicate calls
+  // Prevent duplicate calls and cancel in-flight
   const lastParamsRef = useRef(null);
   const abortRef = useRef(null);
 
-  // Derive window: prefer shared timeRange if present; otherwise use local selection
+  // Compute effective window: prefer global timeRange, otherwise derive from local rangeMode
   const { fromISO, toISO } = useMemo(() => {
     const toIso = (v) => {
       if (!v) return null;
@@ -58,19 +55,26 @@ export default function OverallFeaturesChart({ serviceType }) {
     const now = new Date();
     const end = now;
     const start = new Date(now);
-    if (rangeMode === 'day') {
-      start.setDate(now.getDate() - 1);
-    } else if (rangeMode === 'week') {
-      start.setDate(now.getDate() - 6);
-    } else if (rangeMode === 'month') {
-      start.setMonth(now.getMonth() - 1);
-    } else if (rangeMode === 'custom') {
-      const s = customStart ? new Date(customStart) : null;
-      const e = customEnd ? new Date(customEnd) : null;
-      return {
-        fromISO: s && !isNaN(s) ? s.toISOString() : null,
-        toISO: e && !isNaN(e) ? e.toISOString() : null,
-      };
+    switch (rangeMode) {
+      case 'day':
+        start.setDate(now.getDate() - 1);
+        break;
+      case 'week':
+        start.setDate(now.getDate() - 6);
+        break;
+      case 'month':
+        start.setMonth(now.getMonth() - 1);
+        break;
+      case 'custom': {
+        const s = customStart ? new Date(customStart) : null;
+        const e = customEnd ? new Date(customEnd) : null;
+        return {
+          fromISO: s && !isNaN(s) ? s.toISOString() : null,
+          toISO: e && !isNaN(e) ? e.toISOString() : null,
+        };
+      }
+      default:
+        break;
     }
     return { fromISO: start.toISOString(), toISO: end.toISOString() };
   }, [timeRange?.start, timeRange?.end, rangeMode, customStart, customEnd]);
@@ -80,20 +84,18 @@ export default function OverallFeaturesChart({ serviceType }) {
     return customStart && customEnd ? 'custom' : 'custom-pending';
   }, [rangeMode, customStart, customEnd]);
 
+  // Fetch and aggregate by service_type using unified API
   const fetchAndAggregate = useCallback(async ({ tenant_id, from, to, service_type }) => {
-    // Defensive: need tenant and valid range to fetch
     if (!tenant_id || !from || !to) {
       setSeries([]);
-      setStatus((s) => ({ ...s, loading: false, error: null, empty: true }));
+      setStatus({ loading: false, error: null, empty: true });
       return;
     }
 
-    // Avoid duplicate fetches with same params
     const key = JSON.stringify({ tenant_id, from, to, service_type });
     if (lastParamsRef.current === key) return;
     lastParamsRef.current = key;
 
-    // Abort any in-flight request
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -101,7 +103,6 @@ export default function OverallFeaturesChart({ serviceType }) {
     try {
       setStatus({ loading: true, error: null, empty: false });
 
-      // Unify to single API call to /api/session-tracking with from/to + date_field=session_start
       const filter = service_type ? JSON.stringify({ service_type }) : undefined;
       const query = {
         tenant_id,
@@ -112,9 +113,6 @@ export default function OverallFeaturesChart({ serviceType }) {
         sort: '-session_start',
       };
 
-      // eslint-disable-next-line no-console
-      console.log('[OverallFeaturesChart] Fetch session-tracking', query);
-
       const res = await getSessionTracking(query, { signal: controller.signal });
       const data = Array.isArray(res)
         ? res
@@ -124,35 +122,26 @@ export default function OverallFeaturesChart({ serviceType }) {
         ? res.items
         : [];
 
-      // Aggregate by service_type (unified source of truth)
-      const counts = data.reduce((acc, item) => {
-        const k = item?.service_type || 'unknown';
-        // Optional: ensure item is within range by timestamp fields if backend didn't filter by specified date_field
-        const ts = item?.session_start || item?.last_updated || item?.created_at;
-        if (ts) {
-          const t = new Date(ts).getTime();
-          const f = new Date(from).getTime();
-          const toT = new Date(to).getTime();
-          if (!isNaN(t) && !isNaN(f) && !isNaN(toT)) {
-            if (t < f || t > toT) {
-              return acc;
-            }
-          }
+      // Aggregate counts by service_type (ensuring range via session_start)
+      const fromT = new Date(from).getTime();
+      const toT = new Date(to).getTime();
+
+      const byType = data.reduce((acc, item) => {
+        const ts = item?.session_start ? new Date(item.session_start).getTime() : NaN;
+        if (!isNaN(ts) && !isNaN(fromT) && !isNaN(toT)) {
+          if (ts < fromT || ts > toT) return acc;
         }
+        const k = item?.service_type || 'unknown';
         acc[k] = (acc[k] || 0) + 1;
         return acc;
       }, {});
 
-      const labels = Object.keys(counts);
-      const seriesValues = Object.values(counts);
-
-      // Shape for recharts: [{ name, value }, ...]
-      const shaped = labels
-        .map((name, idx) => ({ name, value: seriesValues[idx] }))
+      const shaped = Object.entries(byType)
+        .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value);
 
       setSeries(shaped);
-      setStatus({ loading: false, error: null, empty: labels.length === 0 });
+      setStatus({ loading: false, error: null, empty: shaped.length === 0 });
     } catch (err) {
       if (err?.name === 'AbortError') return;
       setSeries([]);
@@ -160,14 +149,25 @@ export default function OverallFeaturesChart({ serviceType }) {
     }
   }, []);
 
-  // Trigger fetch on changes but guard to avoid duplicate calls
+  // Effect: trigger on relevant changes and avoid duplicates
   useEffect(() => {
-    const finalTenant = tenantId || 'b2c'; // keep default tenant when selector not present
+    // Dynamic tenant: prefer DataContext, else attempt URL param (?tenant_id), else fallback 'b2c'
+    let finalTenant = tenantId;
+    if (!finalTenant) {
+      try {
+        const url = new URL(window.location.href);
+        finalTenant = url.searchParams.get('tenant_id') || url.searchParams.get('organization_id') || undefined;
+      } catch {
+        // noop
+      }
+    }
+    finalTenant = finalTenant || 'b2c';
+
     const from = fromISO;
     const to = toISO;
     const stype = serviceType || null;
 
-    // For local custom, fetch only when both dates are selected
+    // For local custom, fetch only when both are selected (when not using global timeRange)
     if (!timeRange?.start && rangeMode === 'custom' && (!customStart || !customEnd)) {
       setSeries([]);
       setStatus({ loading: false, error: null, empty: true });
@@ -181,7 +181,6 @@ export default function OverallFeaturesChart({ serviceType }) {
     }
 
     fetchAndAggregate({ tenant_id: finalTenant, from, to, service_type: stype });
-    // We intentionally avoid adding fetchAndAggregate as a dependency to keep its identity stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     tenantId,
@@ -197,6 +196,7 @@ export default function OverallFeaturesChart({ serviceType }) {
     timeRange?.end,
   ]);
 
+  // Cleanup in-flight fetch
   useEffect(() => {
     return () => {
       if (abortRef.current) abortRef.current.abort();
@@ -215,11 +215,7 @@ export default function OverallFeaturesChart({ serviceType }) {
   const RangeButton = ({ mode, label }) => (
     <button
       type="button"
-      onClick={() => {
-        // eslint-disable-next-line no-console
-        console.log('[OverallFeaturesChart] Range mode change ->', mode);
-        setRangeMode(mode);
-      }}
+      onClick={() => setRangeMode(mode)}
       className={`seg-btn ${rangeMode === mode ? 'active' : ''}`}
       aria-pressed={rangeMode === mode}
       aria-label={`Select ${label} range`}
@@ -243,24 +239,14 @@ export default function OverallFeaturesChart({ serviceType }) {
             <input
               type="date"
               value={customStart ? customStart.slice(0, 10) : ''}
-              onChange={(e) => {
-                const v = e.target.value ? new Date(e.target.value).toISOString() : '';
-                // eslint-disable-next-line no-console
-                console.log('[OverallFeaturesChart] Custom start changed ->', v);
-                setCustomStart(v);
-              }}
+              onChange={(e) => setCustomStart(e.target.value ? new Date(e.target.value).toISOString() : '')}
               aria-label="Start date"
             />
             <span className="to-sep">to</span>
             <input
               type="date"
               value={customEnd ? customEnd.slice(0, 10) : ''}
-              onChange={(e) => {
-                const v = e.target.value ? new Date(e.target.value).toISOString() : '';
-                // eslint-disable-next-line no-console
-                console.log('[OverallFeaturesChart] Custom end changed ->', v);
-                setCustomEnd(v);
-              }}
+              onChange={(e) => setCustomEnd(e.target.value ? new Date(e.target.value).toISOString() : '')}
               aria-label="End date"
             />
           </div>

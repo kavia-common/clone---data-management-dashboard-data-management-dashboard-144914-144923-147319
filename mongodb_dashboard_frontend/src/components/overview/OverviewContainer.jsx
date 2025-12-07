@@ -56,10 +56,7 @@ export default function OverviewContainer() {
           <OverviewKpiCards kpis={kpis} loading={loading} />
           <OverviewTrendChart data={chartData} metric={metric} />
           <UsersByTenantChart />
-          {/* Overall Features appears under the Total Users by Tenant section */}
-          <div className="overview-section users-overall-features">
-            <OverallFeaturesChart />
-          </div>
+          {/* Overall Features chart moved to the main Overview page to avoid duplicate rendering */}
           {chartData?.length === 0 && (
             <div style={{ color: '#6B7280', fontSize: 14, textAlign: 'center' }}>
               No data available for the selected range.
