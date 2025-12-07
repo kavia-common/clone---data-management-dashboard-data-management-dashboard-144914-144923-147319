@@ -4,7 +4,9 @@ import { getSessionTracking } from "../../api/sessionTracking";
 import Card from "../common/Card";
 import LoadingState from "../common/LoadingState";
 import ErrorState from "../common/ErrorState";
+import OverviewChartFilters from "./OverviewChartFilters";
 import { useAuth } from "../../context/AuthContext";
+import { buildOverviewFilterParams } from "../../api/buildOverviewFilterParams";
 import { ResponsiveContainer, BarChart, XAxis, YAxis, Tooltip, Legend, Bar, CartesianGrid } from "recharts";
 import { getOceanTheme } from "../../theme/oceanTheme";
 import "./overview.css";
@@ -12,106 +14,116 @@ import "./overview.css";
 /**
  * PUBLIC_INTERFACE
  * OverallFeaturesChart
- * Fetches session-tracking documents and renders a feature distribution (by service_type).
- * Ensures correct GET /api/session-tracking usage with session_start filter and organization scoping.
- * Robustly handles loading, error, and empty states and applies Ocean theme styling.
+ * A responsive chart that aggregates session_tracking records by service_type (feature)
+ * within a selected date window based on session_start. It supports Daily/Weekly/Monthly/Custom
+ * filters consistent with the Users-by-Tenant chart and uses the organization_id from the
+ * logged-in user context. It handles loading/empty/error states and applies the Ocean theme.
  */
 const OverallFeaturesChart = ({ className }) => {
-  const auth = useAuth();
-  const organizationId = auth?.organizationId || auth?.tenantId || auth?.user?.organization_id || null;
+  const { user } = useAuth() || {};
+  const organizationId = user?.organization_id || user?.tenant_id || user?.tenant || null;
 
-  // Granularity for computing the session_start window
+  // Filter state mirrors Users-by-Tenant chart UX:
+  // granularity: "day" | "week" | "month" | "custom"
+  // For custom, we pass customFrom/customTo ISO strings.
   const [granularity, setGranularity] = useState("day");
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
+  const [customFrom, setCustomFrom] = useState(null);
+  const [customTo, setCustomTo] = useState(null);
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
 
-  // Compute from/to ISO strings by granularity (Daily/Weekly/Monthly/Custom)
+  // Compute ISO range based on granularity, aligned with Overview filters logic
   const { fromISO, toISO } = useMemo(() => {
     const now = new Date();
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
-    const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-    if (granularity === "custom") {
-      const from = customFrom ? new Date(customFrom) : null;
-      const to = customTo ? new Date(customTo) : null;
-      // If a date without time is provided, make 'to' inclusive end of day
-      const toAdj =
-        to && !customTo.includes("T")
-          ? new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate(), 23, 59, 59, 999))
-          : to;
-      return {
-        fromISO: from ? from.toISOString() : null,
-        toISO: toAdj ? toAdj.toISOString() : null,
-      };
-    }
-    let start = startOfDay;
+    let start;
     if (granularity === "day") {
-      start = startOfDay;
+      // last 1 day window (today)
+      start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
     } else if (granularity === "week") {
+      // last 7 days including today
+      const s = new Date(end);
+      s.setUTCDate(end.getUTCDate() - 6);
+      s.setUTCHours(0, 0, 0, 0);
+      start = s;
+    } else if (granularity === "month") {
+      // last 30 days including today
+      const s = new Date(end);
+      s.setUTCDate(end.getUTCDate() - 29);
+      s.setUTCHours(0, 0, 0, 0);
+      start = s;
+    } else if (granularity === "custom") {
+      start = customFrom ? new Date(customFrom) : null;
+      // ensure inclusive end-of-day if date only is passed
+      const t = customTo ? new Date(customTo) : null;
+      const tAdj = t ? new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate(), 23, 59, 59, 999)) : null;
+      return {
+        fromISO: start ? start.toISOString() : null,
+        toISO: tAdj ? tAdj.toISOString() : null,
+      };
+    } else {
       start = new Date(end);
       start.setUTCDate(end.getUTCDate() - 6);
-      start.setUTCHours(0, 0, 0, 0);
-    } else if (granularity === "month") {
-      start = new Date(end);
-      start.setUTCDate(end.getUTCDate() - 29);
       start.setUTCHours(0, 0, 0, 0);
     }
     return { fromISO: start.toISOString(), toISO: end.toISOString() };
   }, [granularity, customFrom, customTo]);
 
   useEffect(() => {
-    let aborted = false;
-    async function run() {
+    let ignore = false;
+    async function load() {
       if (!organizationId) {
         setError("Missing organization context.");
         return;
       }
       setLoading(true);
-      setError("");
+      setError(null);
       try {
-        // Build filter for /api/session-tracking
-        const filter = { organization_id: organizationId };
+        // Build filter for GET /api/session-tracking:
+        // filter: { organization_id, session_start: { $gte: fromISO, $lte: toISO } }
+        const filter = {};
+        if (organizationId) filter.organization_id = organizationId;
         if (fromISO || toISO) {
           filter.session_start = {};
           if (fromISO) filter.session_start.$gte = fromISO;
           if (toISO) filter.session_start.$lte = toISO;
         }
 
+        // Using client wrapper
         const params = {
-          // NOTE: baseClient preserves object values by JSON.stringify when building the query.
-          filter,
+          filter: JSON.stringify(filter),
           sort: "-session_start",
-          limit: 200,
+          limit: 200, // cap to avoid over-fetch; backend returns array when page params omitted
         };
 
         const res = await getSessionTracking(params);
         const list = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
 
-        // Aggregate by service_type
-        const counts = {};
-        for (const doc of list) {
-          const key = (doc && (doc.service_type || doc.feature || "Unknown")) || "Unknown";
-          counts[key] = (counts[key] || 0) + 1;
-        }
-        const shaped = Object.entries(counts)
-          .map(([feature, count]) => ({ feature: String(feature), count }))
+        // Group by service_type and count
+        const counts = list.reduce((acc, doc) => {
+          const key = (doc?.service_type || "Unknown").toString();
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {});
+
+        const itemsShaped = Object.entries(counts)
+          .map(([name, count]) => ({ feature: name, count }))
           .sort((a, b) => b.count - a.count);
 
-        if (!aborted) {
-          setItems(shaped);
+        if (!ignore) {
+          setItems(itemsShaped);
         }
-      } catch (err) {
-        if (!aborted) setError(err?.message || "Failed to load features usage.");
+      } catch (e) {
+        if (!ignore) setError(e?.message || "Failed to load features usage.");
       } finally {
-        if (!aborted) setLoading(false);
+        if (!ignore) setLoading(false);
       }
     }
-    run();
+    load();
     return () => {
-      aborted = true;
+      ignore = true;
     };
   }, [organizationId, fromISO, toISO]);
 
@@ -122,39 +134,6 @@ const OverallFeaturesChart = ({ className }) => {
     axis: ocean?.colors?.muted || "#6B7280",
   };
 
-  // Inline controls aligned to Overview page conventions
-  const Controls = (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-      <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <span>Range</span>
-        <select value={granularity} onChange={(e) => setGranularity(e.target.value)}>
-          <option value="day">Day</option>
-          <option value="week">Week</option>
-          <option value="month">Month</option>
-          <option value="custom">Custom</option>
-        </select>
-      </label>
-      <label style={{ display: "flex", gap: 6, alignItems: "center", opacity: 1 }}>
-        <span>From</span>
-        <input
-          type="date"
-          value={customFrom ? customFrom.slice(0, 10) : ""}
-          onChange={(e) => setCustomFrom(e.target.value ? new Date(e.target.value).toISOString() : "")}
-          disabled={granularity !== "custom"}
-        />
-      </label>
-      <label style={{ display: "flex", gap: 6, alignItems: "center", opacity: 1 }}>
-        <span>To</span>
-        <input
-          type="date"
-          value={customTo ? customTo.slice(0, 10) : ""}
-          onChange={(e) => setCustomTo(e.target.value ? new Date(e.target.value).toISOString() : "")}
-          disabled={granularity !== "custom"}
-        />
-      </label>
-    </div>
-  );
-
   return (
     <Card className={className} style={{ background: "#ffffff" }}>
       <div className="overview-card-header">
@@ -162,11 +141,19 @@ const OverallFeaturesChart = ({ className }) => {
           <h3 className="overview-card-title">Overall Features</h3>
           <p className="overview-card-subtitle">Usage distribution by feature (service_type)</p>
         </div>
-        {Controls}
+        <OverviewChartFilters
+          granularity={granularity}
+          onGranularityChange={setGranularity}
+          customFrom={customFrom}
+          customTo={customTo}
+          onCustomFromChange={setCustomFrom}
+          onCustomToChange={setCustomTo}
+          showGranularityOptions={{ day: true, week: true, month: true, custom: true }}
+        />
       </div>
 
       {loading && <LoadingState message="Loading features usage..." />}
-      {!loading && !!error && <ErrorState message={error} />}
+      {!loading && error && <ErrorState title="Unable to load" description={error} />}
       {!loading && !error && items.length === 0 && (
         <div className="overview-empty-state">
           <p>No feature usage found for the selected period.</p>
