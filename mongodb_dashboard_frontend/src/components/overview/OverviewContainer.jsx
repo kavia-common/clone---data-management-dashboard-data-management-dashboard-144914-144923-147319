@@ -56,6 +56,7 @@ export default function OverviewContainer() {
           <OverviewKpiCards kpis={kpis} loading={loading} />
           <OverviewTrendChart data={chartData} metric={metric} />
           <UsersByTenantChart />
+          {/* Overall Features appears under the Total Users by Tenant section */}
           <div className="overview-section users-overall-features">
             <OverallFeaturesChart />
           </div>

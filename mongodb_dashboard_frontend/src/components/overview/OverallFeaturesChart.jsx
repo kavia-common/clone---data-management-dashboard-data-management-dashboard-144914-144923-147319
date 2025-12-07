@@ -63,12 +63,6 @@ function parseDateSafe(value) {
   if (Number.isNaN(t)) return null;
   return new Date(t);
 }
-function inRange(date, from, to) {
-  if (!date) return false;
-  if (from && date < from) return false;
-  if (to && date > to) return false;
-  return true;
-}
 function normalizeServiceType(v) {
   if (v === null || v === undefined || v === '') return 'Unknown';
   return String(v);
@@ -97,46 +91,46 @@ function computeWindowLocal({ mode, startDate, endDate }) {
 }
 
 /**
- * Fetches /api/session-tracking pages client-side and filters strictly by session_start.
- * Respects tenant_id and paginates up to maxPages or until records are out of window.
+ * Fetches /api/session-tracking pages and relies on server-side filtering by session_start.
+ * Respects tenant_id and paginates up to maxPages or until the server returns fewer than limit.
+ * Optional serviceType filters server-side when provided.
  */
 async function fetchSessionTrackingPaged({
   tenantId,
   from,
   to,
+  serviceType,
   limit = 200,
   maxPages = 10,
   signal,
 }) {
   let page = 1;
   const all = [];
-  const sort = '-session_start'; // newest first to early-exit when below window
+  const sort = '-session_start'; // newest first
 
   while (page <= maxPages) {
     const { items } = await fetchSessionTracking(
-      { page, limit, tenant_id: tenantId, sort },
+      {
+        page,
+        limit,
+        tenant_id: tenantId,
+        sort,
+        // server-side windowing: send ISO strings (UTC)
+        start: from ? from.toISOString() : undefined,
+        end: to ? to.toISOString() : undefined,
+        // optional service type filter
+        ...(serviceType ? { filter: JSON.stringify({ service_type: serviceType }) } : {}),
+      },
       { signal }
     );
     const returned = items || [];
     all.push(...returned);
 
-    // stop if page not full
     if (returned.length < limit) break;
-
-    // early stop if we've paged past the window start
-    const last = returned[returned.length - 1];
-    const lastDate = parseDateSafe(last?.session_start);
-    if (from && lastDate && lastDate < from) break;
-
     page += 1;
   }
 
-  // Strict session_start filtering
-  const filtered = all.filter((doc) => {
-    const dt = parseDateSafe(doc?.session_start);
-    return inRange(dt, from, to);
-  });
-  return filtered;
+  return all;
 }
 
 /**
@@ -155,6 +149,7 @@ function shapeBarDataByServiceType(docs) {
 
 /**
  * Toolbar for Overall Features chart with Day/Week/Month/Custom and custom date-range.
+ * Keeps separate toolbar styling for Overall Features card.
  */
 function OverallFeaturesToolbar({ value, onChange, disabled }) {
   const v = value || {};
@@ -207,11 +202,10 @@ function OverallFeaturesToolbar({ value, onChange, disabled }) {
 }
 
 // PUBLIC_INTERFACE
-export default function OverallFeaturesChart() {
+export default function OverallFeaturesChart({ serviceType }) {
   /**
    * This public component renders the 'Overall Features' bar chart using Recharts.
-   * - Fetches GET /api/session-tracking scoped by tenant, paginated.
-   * - Filters strictly by session_start across modes (day/week/month/custom).
+   * - Fetches GET /api/session-tracking scoped by tenant, paginated, with server-side windowing.
    * - Aggregates counts by service_type -> [{ name, value }].
    * - Shows robust loading/empty/error states with retry.
    */
@@ -242,6 +236,7 @@ export default function OverallFeaturesChart() {
       tenantId,
       from,
       to,
+      serviceType,
       limit: 200,
       maxPages: 10,
       signal: ctrl.signal,
@@ -260,7 +255,7 @@ export default function OverallFeaturesChart() {
       });
 
     return () => ctrl.abort();
-  }, [tenantId, from?.getTime?.(), to?.getTime?.()]);
+  }, [tenantId, serviceType, from?.getTime?.(), to?.getTime?.()]);
 
   useEffect(() => {
     const cleanup = load();

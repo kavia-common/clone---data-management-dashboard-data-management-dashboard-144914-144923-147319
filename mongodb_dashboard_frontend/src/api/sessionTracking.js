@@ -4,7 +4,7 @@ import { buildQueryString } from './util';
 /**
  * PUBLIC_INTERFACE
  * fetchSessionTracking
- * Fetch session tracking records with pagination, sorting, and optional text search.
+ * Fetch session tracking records with pagination, sorting, optional text search and server-side time filtering.
  * Accepts optional options including AbortController signal for in-flight cancellation.
  *
  * @param {Object} params
@@ -13,14 +13,15 @@ import { buildQueryString } from './util';
  * @param {string} [params.tenant_id] Active tenant scope (alias: organization_id on server)
  * @param {string} [params.sort]
  * @param {string} [params.q] Text search query
- * @param {string} [params.start] ISO date-time lower bound (minute precision recommended)
- * @param {string} [params.end] ISO date-time upper bound (minute precision recommended)
+ * @param {string} [params.start] ISO date-time lower bound (inclusive)
+ * @param {string} [params.end] ISO date-time upper bound (inclusive)
+ * @param {string} [params.filter] JSON string for server-side filter (e.g., {"service_type":"notebook"})
  * @param {Object} [options] optional options like { signal }
  * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
  */
 export async function fetchSessionTracking(params = {}, options = {}) {
   const {
-    page, limit, tenant_id, sort, q, start, end,
+    page, limit, tenant_id, sort, q, start, end, filter,
   } = params || {};
 
   const safeParams = {};
@@ -31,6 +32,7 @@ export async function fetchSessionTracking(params = {}, options = {}) {
   if (q !== undefined) safeParams.q = q;
   if (start !== undefined) safeParams.start = start;
   if (end !== undefined) safeParams.end = end;
+  if (filter !== undefined) safeParams.filter = filter;
 
   const qs = buildQueryString(safeParams);
   const url = `/api/session-tracking${qs}`;
