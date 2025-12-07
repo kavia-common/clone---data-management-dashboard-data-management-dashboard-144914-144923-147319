@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { getSessionTracking } from "../../api/sessionTracking";
+import { fetchSessionTracking } from "../../api/sessionTracking";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
@@ -204,7 +204,7 @@ export default function Sessions() {
             ? `-${(lastSortRef.current?.key || "").toString()}`
             : (lastSortRef.current?.key || "").toString(),
         };
-        const res = await getSessionTracking(params);
+        const res = await fetchSessionTracking(params);
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
         if (arr.length < limit) break;
@@ -372,7 +372,7 @@ export default function Sessions() {
 
         if (isDev) console.info("[Sessions] fetching with params", params);
         // fetchSessionTracking uses axios instance; axios v1 supports AbortController signal via config.signal
-        const res = await getSessionTracking(params, { signal: controller.signal });
+        const res = await fetchSessionTracking(params, { signal: controller.signal });
 
         if (didCancel) return;
         if (controller.signal.aborted) {
