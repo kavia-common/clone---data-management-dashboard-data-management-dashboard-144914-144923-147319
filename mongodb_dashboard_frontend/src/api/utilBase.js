@@ -1,11 +1,12 @@
-import { getApiBaseUrl } from "./util";
-
-/**
- * PUBLIC_INTERFACE (Deprecated)
- * getApiBase
- * Deprecated shim to preserve older imports. Delegates to getApiBaseUrl().
- * Returns a base that includes '/api' suffix.
- */
 export function getApiBase() {
-  return getApiBaseUrl();
+  // Try various envs used in this project
+  const envCandidates = [
+    process.env.REACT_APP_BACKEND_URL,
+    process.env.REACT_APP_API_BASE_URL,
+    process.env.REACT_APP_API_BASE,
+    process.env.REACT_APP_FRONTEND_URL, // fallback (proxy)
+  ];
+  const base = envCandidates.find(Boolean) || '';
+  // When using CRA proxy, relative base is fine
+  return base || '';
 }

@@ -7,6 +7,7 @@ import LoadingState from '../common/LoadingState';
 import ErrorState from '../common/ErrorState';
 import './overview.css';
 import UsersByTenantChart from './UsersByTenantChart';
+import OverallFeaturesChart from './OverallFeaturesChart';
 
 // PUBLIC_INTERFACE
 export default function OverviewContainer() {
@@ -55,6 +56,9 @@ export default function OverviewContainer() {
           <OverviewKpiCards kpis={kpis} loading={loading} />
           <OverviewTrendChart data={chartData} metric={metric} />
           <UsersByTenantChart />
+          <div className="overview-section users-overall-features">
+            <OverallFeaturesChart />
+          </div>
           {chartData?.length === 0 && (
             <div style={{ color: '#6B7280', fontSize: 14, textAlign: 'center' }}>
               No data available for the selected range.
