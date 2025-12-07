@@ -1,53 +1,78 @@
-import { getApiClient } from './baseClient';
-import { buildQueryString } from './util';
+import { getApiBase } from './config';
+import { sanitizeRequestParams } from './requestSanitizer';
+
+/**
+ * PUBLIC_INTERFACE
+ * getSessionTracking
+ * GET /api/session-tracking with query params.
+ * Accepts both envelope and raw array responses; returns a normalized object { items, meta? }.
+ */
+export async function getSessionTracking(params = {}, options = {}) {
+  const base = getApiBase?.() || '';
+  const url = new URL('/api/session-tracking', base);
+  const sanitized = sanitizeRequestParams ? sanitizeRequestParams(params) : params;
+
+  Object.entries(sanitized || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') {
+      url.searchParams.set(k, String(v));
+    }
+  });
+
+  const res = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+    credentials: 'include',
+    signal: options.signal,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const error = new Error(`Session tracking request failed (${res.status}): ${text || res.statusText}`);
+    error.status = res.status;
+    error.body = text;
+    throw error;
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  let json;
+  if (contentType.includes('application/json')) {
+    json = await res.json();
+  } else {
+    try {
+      json = await res.json();
+    } catch {
+      json = null;
+    }
+  }
+
+  if (Array.isArray(json)) {
+    return { items: json, meta: null };
+  }
+  if (json && typeof json === 'object') {
+    // Support various shapes: { data, meta } or { items, total }
+    if (Array.isArray(json.data)) {
+      return { items: json.data, meta: json.meta || null };
+    }
+    if (Array.isArray(json.items)) {
+      return { items: json.items, meta: json.meta || null };
+    }
+  }
+  return { items: [], meta: null };
+}
 
 /**
  * PUBLIC_INTERFACE
  * fetchSessionTracking
- * Fetch session tracking records with pagination, sorting, and optional text search.
- * Accepts optional options including AbortController signal for in-flight cancellation.
- *
- * @param {Object} params
- * @param {number} [params.page]
- * @param {number} [params.limit]
- * @param {string} [params.tenant_id] Active tenant scope (alias: organization_id on server)
- * @param {string} [params.sort]
- * @param {string} [params.q] Text search query
- * @param {string} [params.start] ISO date-time lower bound (minute precision recommended)
- * @param {string} [params.end] ISO date-time upper bound (minute precision recommended)
- * @param {Object} [options] optional options like { signal }
- * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
+ * Thin alias to match other modules' import style.
  */
 export async function fetchSessionTracking(params = {}, options = {}) {
-  const {
-    page, limit, tenant_id, sort, q, start, end,
-  } = params || {};
-
-  const safeParams = {};
-  if (page !== undefined) safeParams.page = page;
-  if (limit !== undefined) safeParams.limit = limit;
-  if (tenant_id !== undefined) safeParams.tenant_id = tenant_id;
-  if (sort !== undefined) safeParams.sort = sort;
-  if (q !== undefined) safeParams.q = q;
-  if (start !== undefined) safeParams.start = start;
-  if (end !== undefined) safeParams.end = end;
-
-  const qs = buildQueryString(safeParams);
-  const url = `/api/session-tracking${qs}`;
-  const cfg = {};
-  if (options && options.signal) {
-    cfg.signal = options.signal;
-  }
-  const res = await getApiClient().get(url, cfg);
-  const payload = res?.data ?? res;
-
-  const items = Array.isArray(payload) ? payload : payload?.data ?? [];
-  const total =
-    (payload && payload.meta && typeof payload.meta.total === 'number' && payload.meta.total) ||
-    (Array.isArray(items) ? items.length : 0);
-  const meta = payload?.meta ?? null;
-
-  return { items, total, meta };
+  return getSessionTracking(params, options);
 }
 
-/* No default export to favor named exports (lint rule) */
+export default {
+  getSessionTracking,
+  fetchSessionTracking,
+};
