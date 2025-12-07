@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   BarChart,
   Bar,
@@ -18,6 +18,7 @@ import './overview.css';
 
 /**
  * Helpers
+ * All date calculations are normalized to local time and filtering is STRICTLY by session_start.
  */
 function startOfDay(d) {
   const x = new Date(d);
@@ -58,8 +59,9 @@ function endOfMonth(d) {
 }
 function parseDateSafe(value) {
   if (!value) return null;
-  const d = new Date(value);
-  return isNaN(d.getTime()) ? null : d;
+  const t = Date.parse(value);
+  if (Number.isNaN(t)) return null;
+  return new Date(t);
 }
 function inRange(date, from, to) {
   if (!date) return false;
@@ -71,27 +73,44 @@ function normalizeServiceType(v) {
   if (v === null || v === undefined || v === '') return 'Unknown';
   return String(v);
 }
+/**
+ * Computes date window for filter modes:
+ * - day/week/month: relative to now (can be extended to accept anchor).
+ * - custom: uses local date picker values, inclusive.
+ */
 function computeWindowLocal({ mode, startDate, endDate }) {
   const now = new Date();
   const m = (mode || 'day').toLowerCase();
-  if (m === 'day') return { from: startOfDay(now), to: endOfDay(now), g: 'day' };
-  if (m === 'week') return { from: startOfWeek(now), to: endOfWeek(now), g: 'week' };
-  if (m === 'month') return { from: startOfMonth(now), to: endOfMonth(now), g: 'month' };
+  if (m === 'day') return { from: startOfDay(now), to: endOfDay(now), granularity: 'day' };
+  if (m === 'week') return { from: startOfWeek(now), to: endOfWeek(now), granularity: 'week' };
+  if (m === 'month') return { from: startOfMonth(now), to: endOfMonth(now), granularity: 'month' };
   // custom
   const from = startDate ? startOfDay(new Date(startDate)) : null;
   const to = endDate ? endOfDay(new Date(endDate)) : null;
   if (!from && !to) {
-    // fallback: last 7 days
+    // sensible fallback: last 7 days
     const seven = new Date(now);
     seven.setDate(now.getDate() - 6);
-    return { from: startOfDay(seven), to: endOfDay(now), g: 'custom' };
+    return { from: startOfDay(seven), to: endOfDay(now), granularity: 'custom' };
   }
-  return { from, to, g: 'custom' };
+  return { from, to, granularity: 'custom' };
 }
-async function fetchSessionTrackingPaged({ tenantId, from, to, limit = 200, maxPages = 50, signal }) {
+
+/**
+ * Fetches /api/session-tracking pages client-side and filters strictly by session_start.
+ * Respects tenant_id and paginates up to maxPages or until records are out of window.
+ */
+async function fetchSessionTrackingPaged({
+  tenantId,
+  from,
+  to,
+  limit = 200,
+  maxPages = 10,
+  signal,
+}) {
   let page = 1;
   const all = [];
-  const sort = '-session_start';
+  const sort = '-session_start'; // newest first to early-exit when below window
 
   while (page <= maxPages) {
     const { items } = await fetchSessionTracking(
@@ -101,21 +120,28 @@ async function fetchSessionTrackingPaged({ tenantId, from, to, limit = 200, maxP
     const returned = items || [];
     all.push(...returned);
 
+    // stop if page not full
     if (returned.length < limit) break;
 
+    // early stop if we've paged past the window start
     const last = returned[returned.length - 1];
-    const lastDate = parseDateSafe(last?.session_start || last?.last_updated || last?.created_at);
+    const lastDate = parseDateSafe(last?.session_start);
     if (from && lastDate && lastDate < from) break;
 
     page += 1;
   }
 
+  // Strict session_start filtering
   const filtered = all.filter((doc) => {
-    const dt = parseDateSafe(doc?.session_start || doc?.last_updated || doc?.created_at);
+    const dt = parseDateSafe(doc?.session_start);
     return inRange(dt, from, to);
   });
   return filtered;
 }
+
+/**
+ * Groups results by service_type (fallback 'Unknown') and returns array for chart.
+ */
 function shapeBarDataByServiceType(docs) {
   const map = new Map();
   for (const doc of docs) {
@@ -123,20 +149,19 @@ function shapeBarDataByServiceType(docs) {
     map.set(key, (map.get(key) || 0) + 1);
   }
   return Array.from(map.entries())
-    .map(([service_type, count]) => ({ service_type, count }))
-    .sort((a, b) => b.count - a.count);
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
 }
 
 /**
- * Local toolbar component for Overall Features chart.
- * Independent from Users chart filters.
+ * Toolbar for Overall Features chart with Day/Week/Month/Custom and custom date-range.
  */
 function OverallFeaturesToolbar({ value, onChange, disabled }) {
   const v = value || {};
   const m = (v.mode || 'day').toLowerCase();
 
   return (
-    <div className="overview-card-header" style={{ marginBottom: 12 }}>
+    <div className="overview-card-header overall-features-toolbar" style={{ marginBottom: 12 }}>
       <div className="overview-card-title">Overall Features</div>
       <div className="users-by-tenant-controls">
         <div className="segmented" role="tablist" aria-label="Time range">
@@ -183,14 +208,16 @@ function OverallFeaturesToolbar({ value, onChange, disabled }) {
 
 // PUBLIC_INTERFACE
 export default function OverallFeaturesChart() {
-  /** This public component renders an 'Overall Features' bar chart using Recharts with its own toolbar.
-   * The toolbar provides Day/Week/Month/Custom options and a local Custom range (startDate,endDate).
-   * It fetches /api/session-tracking with tenant scope and pagination, filters by session_start,
-   * groups by service_type, and renders the chart.
+  /**
+   * This public component renders the 'Overall Features' bar chart using Recharts.
+   * - Fetches GET /api/session-tracking scoped by tenant, paginated.
+   * - Filters strictly by session_start across modes (day/week/month/custom).
+   * - Aggregates counts by service_type -> [{ name, value }].
+   * - Shows robust loading/empty/error states with retry.
    */
   const tenantId = getTenantId();
 
-  // Independent local toolbar/filter state (does not affect Users chart)
+  // Local filter state
   const [toolbar, setToolbar] = useState({
     mode: 'day',
     startDate: '',
@@ -200,11 +227,13 @@ export default function OverallFeaturesChart() {
   const [data, setData] = useState([]);
   const [state, setState] = useState({ loading: false, error: null });
 
-  const { from, to } = useMemo(() => {
-    return computeWindowLocal(toolbar);
-  }, [toolbar.mode, toolbar.startDate, toolbar.endDate]);
+  const { from, to } = useMemo(() => computeWindowLocal(toolbar), [
+    toolbar.mode,
+    toolbar.startDate,
+    toolbar.endDate,
+  ]);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!tenantId) return;
     const ctrl = new AbortController();
     setState({ loading: true, error: null });
@@ -214,7 +243,7 @@ export default function OverallFeaturesChart() {
       from,
       to,
       limit: 200,
-      maxPages: 50,
+      maxPages: 10,
       signal: ctrl.signal,
     })
       .then((docs) => {
@@ -233,6 +262,13 @@ export default function OverallFeaturesChart() {
     return () => ctrl.abort();
   }, [tenantId, from?.getTime?.(), to?.getTime?.()]);
 
+  useEffect(() => {
+    const cleanup = load();
+    return () => {
+      if (typeof cleanup === 'function') cleanup();
+    };
+  }, [load]);
+
   const theme = {
     primary: '#2563EB',
     secondary: '#F59E0B',
@@ -244,21 +280,18 @@ export default function OverallFeaturesChart() {
 
   return (
     <Card>
-      {/* Toolbar with loading/disabled consideration */}
-      <OverallFeaturesToolbar
-        value={toolbar}
-        onChange={setToolbar}
-        disabled={state.loading}
-      />
+      <OverallFeaturesToolbar value={toolbar} onChange={setToolbar} disabled={state.loading} />
 
       {state.loading && <LoadingState message="Loading Overall Features..." />}
-      {!state.loading && state.error && <ErrorState message={state.error} />}
+      {!state.loading && state.error && (
+        <ErrorState message={state.error} onRetry={load} />
+      )}
 
       {!state.loading && !state.error && (
         <>
           {data.length === 0 ? (
             <div className="overview-empty-state">
-              <p>No feature usage found in the selected period.</p>
+              <p>No sessions for selected range</p>
             </div>
           ) : (
             <div
@@ -269,7 +302,7 @@ export default function OverallFeaturesChart() {
                 <BarChart data={data} margin={{ top: 16, right: 24, left: 0, bottom: 24 }}>
                   <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" />
                   <XAxis
-                    dataKey="service_type"
+                    dataKey="name"
                     stroke={theme.text}
                     tick={{ fontSize: 12 }}
                     interval={0}
@@ -281,7 +314,7 @@ export default function OverallFeaturesChart() {
                   <Tooltip />
                   <Legend />
                   <Bar
-                    dataKey="count"
+                    dataKey="value"
                     name="Count"
                     fill={theme.primary}
                     stroke={theme.primary}

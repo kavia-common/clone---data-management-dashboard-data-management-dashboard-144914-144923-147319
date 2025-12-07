@@ -160,6 +160,14 @@
   padding: 24px;
   color: #6b7280;
 }
+.overall-features-toolbar .segmented .seg-btn {
+  min-width: 64px;
+}
+.overall-features-toolbar .custom-range input[type="date"] {
+  padding: 4px 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
 
 .overview-section.users-overall-features {
   margin-top: 16px;
