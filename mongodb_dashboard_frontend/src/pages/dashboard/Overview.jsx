@@ -3,6 +3,7 @@ import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
 import UsersByTenantOverviewChart from "../../components/overview/UsersByTenantOverviewChart";
+import ServiceTypeOverviewSummary from "../../components/overview/ServiceTypeOverviewSummary.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -117,6 +118,11 @@ export default function Overview() {
       {/* Users by Tenant chart block */}
       <div className="block-full" style={{ gridColumn: "1 / -1" }}>
         <UsersByTenantOverviewChart />
+      </div>
+
+      {/* Service types summary (sample from /api/session-tracking?limit=5&tenant_id=b2c) */}
+      <div className="block-full" style={{ gridColumn: "1 / -1" }}>
+        <ServiceTypeOverviewSummary tenantId="b2c" limit={5} title="Service Types (sample from latest sessions)" />
       </div>
     </div>
   );
