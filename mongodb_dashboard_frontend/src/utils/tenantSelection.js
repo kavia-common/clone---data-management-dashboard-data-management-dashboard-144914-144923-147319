@@ -1,25 +1,19 @@
-import { getActiveTenantId } from '../context/DataContext' // if available in context; fallback to existing util
-// Some parts of the codebase also provide helpers under utils/tenantClient.js; we re-export the common getTenantId.
-
+/**
+ * PUBLIC_INTERFACE
+ * getTenantId utility
+ * Resolves current tenant from the shared tenantClient helper.
+ * Avoids importing DataContext (no getActiveTenantId is exported there).
+ */
 export function getTenantId() {
   try {
-    if (typeof getActiveTenantId === 'function') {
-      const id = getActiveTenantId();
-      if (id) return id;
-    }
-  } catch (e) {
-    // ignore and fallback
-  }
-  try {
-    // fallback to tenantClient util if available
-    // dynamic import to avoid circular deps in some bundlers
+    // dynamic require to avoid circular deps if any
     // eslint-disable-next-line global-require
     const { getTenantId: getFromClient } = require('./tenantClient');
     if (typeof getFromClient === 'function') {
       return getFromClient();
     }
   } catch (e) {
-    // ignore
+    // ignore and fall through
   }
   return null;
 }

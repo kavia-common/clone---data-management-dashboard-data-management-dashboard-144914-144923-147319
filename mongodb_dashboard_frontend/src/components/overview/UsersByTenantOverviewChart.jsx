@@ -6,6 +6,7 @@ import LoadingState from '../common/LoadingState';
 import ErrorState from '../common/ErrorState';
 import OverviewEmptyState from './OverviewEmptyState';
 import UsersByTenantChart from '../charts/UsersByTenantChart';
+import OverallFeaturesChart from './OverallFeaturesChart';
 import './overview.css';
 import { listUsersServerFiltered } from '../../services/usersService';
 
@@ -162,15 +163,33 @@ function UsersByTenantOverviewChart({ className }) {
       {!loading && !error && byTenant.length === 0 && (
         <OverviewEmptyState title="No users found in the selected period." />
       )}
-      {!loading && !error && byTenant.length > 0 && (
-        <div className="overview-chart-container">
-          {/* Note: server endpoint /api/users/tenant-summary was intentionally removed.
-              We now fetch /api/users with created_at $gte/$lte and organization_id and aggregate client-side. */}
-          <UsersByTenantChart
-            data={byTenant.map((d) => ({ label: d.tenant_name || d.tenant_id, value: d.count, tenant_id: d.tenant_id }))}
-            ariaLabel="Users by Tenant"
-          />
-        </div>
+      {!loading && !error && (
+        <>
+          {byTenant.length > 0 ? (
+            <div className="overview-chart-container">
+              {/* Note: server endpoint /api/users/tenant-summary was intentionally removed.
+                  We now fetch /api/users with created_at $gte/$lte and organization_id and aggregate client-side. */}
+              <UsersByTenantChart
+                data={byTenant.map((d) => ({
+                  label: d.tenant_name || d.tenant_id,
+                  value: d.count,
+                  tenant_id: d.tenant_id,
+                }))}
+                ariaLabel="Users by Tenant"
+              />
+            </div>
+          ) : (
+            <OverviewEmptyState title="No users found in the selected period." />
+          )}
+
+          {/* Overall Features chart follows below */}
+          <div className="overview-section users-overall-features" style={{ marginTop: 16 }}>
+            <OverallFeaturesChart />
+            <div className="overview-footer-note">
+              <span className="kpi-pill" aria-hidden="true">Overview • Features</span>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
