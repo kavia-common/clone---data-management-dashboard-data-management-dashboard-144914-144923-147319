@@ -3,8 +3,6 @@ import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
 import UsersByTenantOverviewChart from "../../components/overview/UsersByTenantOverviewChart";
-import OverallFeaturesChart from "../../components/overview/OverallFeaturesChart.jsx";
-// Removed any alternative/summary components to avoid duplicate charts on page
 
 /**
  * PUBLIC_INTERFACE
@@ -119,11 +117,6 @@ export default function Overview() {
       {/* Users by Tenant chart block */}
       <div className="block-full" style={{ gridColumn: "1 / -1" }}>
         <UsersByTenantOverviewChart />
-      </div>
-
-      {/* Overall Features – Session counts grouped by service type */}
-      <div className="block-full" style={{ gridColumn: "1 / -1" }}>
-        <OverallFeaturesChart />
       </div>
     </div>
   );

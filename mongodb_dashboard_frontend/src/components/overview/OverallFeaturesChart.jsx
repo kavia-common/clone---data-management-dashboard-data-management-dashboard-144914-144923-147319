@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   BarChart,
   Bar,
@@ -9,199 +9,260 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { getTenantId } from '../../utils/tenantSelection';
+import { fetchSessionTracking } from '../../api/sessionTracking';
 import Card from '../common/Card';
 import LoadingState from '../common/LoadingState';
 import ErrorState from '../common/ErrorState';
 import './overview.css';
-import { useOverviewFilters } from '../../hooks/useOverviewFilters';
-import { getSessionTracking } from '../../api/sessionTracking';
 
 /**
- * PUBLIC_INTERFACE
- * OverallFeaturesChart
- * Single render path. Fetches session-tracking with dynamic tenant + date range and
- * aggregates counts by service_type using session_start within the selected window.
- *
- * API usage (unchanged shape, only query params):
- *   GET /api/session-tracking?tenant_id=<id>&from=<ISO>&to=<ISO>&date_field=session_start&sort=-session_start
+ * Helpers
+ * All date calculations are normalized to local time and filtering is STRICTLY by session_start.
  */
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfDay(d) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+function startOfWeek(d) {
+  const x = new Date(d);
+  const day = x.getDay(); // 0 Sun..6 Sat
+  const diff = (day + 6) % 7; // Monday start
+  x.setDate(x.getDate() - diff);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfWeek(d) {
+  const s = startOfWeek(d);
+  const x = new Date(s);
+  x.setDate(s.getDate() + 6);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+function startOfMonth(d) {
+  const x = new Date(d);
+  x.setDate(1);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfMonth(d) {
+  const x = new Date(d);
+  x.setMonth(x.getMonth() + 1, 0);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+function parseDateSafe(value) {
+  if (!value) return null;
+  const t = Date.parse(value);
+  if (Number.isNaN(t)) return null;
+  return new Date(t);
+}
+function normalizeServiceType(v) {
+  if (v === null || v === undefined || v === '') return 'Unknown';
+  return String(v);
+}
+/**
+ * Computes date window for filter modes:
+ * - day/week/month: relative to now (can be extended to accept anchor).
+ * - custom: uses local date picker values, inclusive.
+ */
+function computeWindowLocal({ mode, startDate, endDate }) {
+  const now = new Date();
+  const m = (mode || 'day').toLowerCase();
+  if (m === 'day') return { from: startOfDay(now), to: endOfDay(now), granularity: 'day' };
+  if (m === 'week') return { from: startOfWeek(now), to: endOfWeek(now), granularity: 'week' };
+  if (m === 'month') return { from: startOfMonth(now), to: endOfMonth(now), granularity: 'month' };
+  // custom
+  const from = startDate ? startOfDay(new Date(startDate)) : null;
+  const to = endDate ? endOfDay(new Date(endDate)) : null;
+  if (!from && !to) {
+    // sensible fallback: last 7 days
+    const seven = new Date(now);
+    seven.setDate(now.getDate() - 6);
+    return { from: startOfDay(seven), to: endOfDay(now), granularity: 'custom' };
+  }
+  return { from, to, granularity: 'custom' };
+}
+
+/**
+ * Fetches /api/session-tracking pages and relies on server-side filtering by session_start.
+ * Respects tenant_id and paginates up to maxPages or until the server returns fewer than limit.
+ * Optional serviceType filters server-side when provided.
+ */
+async function fetchSessionTrackingPaged({
+  tenantId,
+  from,
+  to,
+  serviceType,
+  limit = 200,
+  maxPages = 10,
+  signal,
+}) {
+  let page = 1;
+  const all = [];
+  const sort = '-session_start'; // newest first
+
+  while (page <= maxPages) {
+    const { items } = await fetchSessionTracking(
+      {
+        page,
+        limit,
+        tenant_id: tenantId,
+        sort,
+        // server-side windowing: send ISO strings (UTC)
+        start: from ? from.toISOString() : undefined,
+        end: to ? to.toISOString() : undefined,
+        // optional service type filter
+        ...(serviceType ? { filter: JSON.stringify({ service_type: serviceType }) } : {}),
+      },
+      { signal }
+    );
+    const returned = items || [];
+    all.push(...returned);
+
+    if (returned.length < limit) break;
+    page += 1;
+  }
+
+  return all;
+}
+
+/**
+ * Groups results by service_type (fallback 'Unknown') and returns array for chart.
+ */
+function shapeBarDataByServiceType(docs) {
+  const map = new Map();
+  for (const doc of docs) {
+    const key = normalizeServiceType(doc?.service_type);
+    map.set(key, (map.get(key) || 0) + 1);
+  }
+  return Array.from(map.entries())
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
+}
+
+/**
+ * Toolbar for Overall Features chart with Day/Week/Month/Custom and custom date-range.
+ * Keeps separate toolbar styling for Overall Features card.
+ */
+function OverallFeaturesToolbar({ value, onChange, disabled }) {
+  const v = value || {};
+  const m = (v.mode || 'day').toLowerCase();
+
+  return (
+    <div className="overview-card-header overall-features-toolbar" style={{ marginBottom: 12 }}>
+      <div className="overview-card-title">Overall Features</div>
+      <div className="users-by-tenant-controls">
+        <div className="segmented" role="tablist" aria-label="Time range">
+          {['day', 'week', 'month', 'custom'].map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              className={`seg-btn ${m === opt ? 'active' : ''}`}
+              aria-pressed={m === opt}
+              onClick={() => onChange?.({ ...v, mode: opt })}
+              disabled={disabled}
+            >
+              {opt[0].toUpperCase() + opt.slice(1)}
+            </button>
+          ))}
+        </div>
+        {m === 'custom' && (
+          <div className="custom-range" aria-live="polite">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>From</span>
+              <input
+                type="date"
+                value={v.startDate ? v.startDate : ''}
+                onChange={(e) => onChange?.({ ...v, startDate: e.target.value || '' })}
+                disabled={disabled}
+              />
+            </label>
+            <span className="to-sep">to</span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>To</span>
+              <input
+                type="date"
+                value={v.endDate ? v.endDate : ''}
+                onChange={(e) => onChange?.({ ...v, endDate: e.target.value || '' })}
+                disabled={disabled}
+              />
+            </label>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// PUBLIC_INTERFACE
 export default function OverallFeaturesChart({ serviceType }) {
-  // Pull shared filters (if provided via DataContext). Safe optional usage.
-  const { tenantId, timeRange, granularity, lastEventId } = (useOverviewFilters?.() || {});
+  /**
+   * This public component renders the 'Overall Features' bar chart using Recharts.
+   * - Fetches GET /api/session-tracking scoped by tenant, paginated, with server-side windowing.
+   * - Aggregates counts by service_type -> [{ name, value }].
+   * - Shows robust loading/empty/error states with retry.
+   */
+  const tenantId = getTenantId();
 
-  // Local UI and data state
-  const [series, setSeries] = useState([]);
-  const [status, setStatus] = useState({ loading: true, error: null, empty: false });
-  const [rangeMode, setRangeMode] = useState('day'); // day|week|month|custom
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
+  // Local filter state
+  const [toolbar, setToolbar] = useState({
+    mode: 'day',
+    startDate: '',
+    endDate: '',
+  });
 
-  // Prevent duplicate calls and cancel in-flight
-  const lastParamsRef = useRef(null);
-  const abortRef = useRef(null);
+  const [data, setData] = useState([]);
+  const [state, setState] = useState({ loading: false, error: null });
 
-  // Compute effective window: prefer global timeRange, otherwise derive from local rangeMode
-  const { fromISO, toISO } = useMemo(() => {
-    const toIso = (v) => {
-      if (!v) return null;
-      const d = typeof v === 'string' ? new Date(v) : v;
-      return d instanceof Date && !isNaN(d) ? d.toISOString() : null;
-    };
-
-    if (timeRange?.start && timeRange?.end) {
-      return { fromISO: toIso(timeRange.start), toISO: toIso(timeRange.end) };
-    }
-
-    const now = new Date();
-    const end = now;
-    const start = new Date(now);
-    switch (rangeMode) {
-      case 'day':
-        start.setDate(now.getDate() - 1);
-        break;
-      case 'week':
-        start.setDate(now.getDate() - 6);
-        break;
-      case 'month':
-        start.setMonth(now.getMonth() - 1);
-        break;
-      case 'custom': {
-        const s = customStart ? new Date(customStart) : null;
-        const e = customEnd ? new Date(customEnd) : null;
-        return {
-          fromISO: s && !isNaN(s) ? s.toISOString() : null,
-          toISO: e && !isNaN(e) ? e.toISOString() : null,
-        };
-      }
-      default:
-        break;
-    }
-    return { fromISO: start.toISOString(), toISO: end.toISOString() };
-  }, [timeRange?.start, timeRange?.end, rangeMode, customStart, customEnd]);
-
-  const effectiveRangeLabel = useMemo(() => {
-    if (rangeMode !== 'custom') return rangeMode;
-    return customStart && customEnd ? 'custom' : 'custom-pending';
-  }, [rangeMode, customStart, customEnd]);
-
-  // Fetch and aggregate by service_type using unified API
-  const fetchAndAggregate = useCallback(async ({ tenant_id, from, to, service_type }) => {
-    if (!tenant_id || !from || !to) {
-      setSeries([]);
-      setStatus({ loading: false, error: null, empty: true });
-      return;
-    }
-
-    const key = JSON.stringify({ tenant_id, from, to, service_type });
-    if (lastParamsRef.current === key) return;
-    lastParamsRef.current = key;
-
-    if (abortRef.current) abortRef.current.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    try {
-      setStatus({ loading: true, error: null, empty: false });
-
-      const filter = service_type ? JSON.stringify({ service_type }) : undefined;
-      const query = {
-        tenant_id,
-        from,
-        to,
-        date_field: 'session_start',
-        ...(filter ? { filter } : {}),
-        sort: '-session_start',
-      };
-
-      const res = await getSessionTracking(query, { signal: controller.signal });
-      const data = Array.isArray(res)
-        ? res
-        : Array.isArray(res?.data)
-        ? res.data
-        : Array.isArray(res?.items)
-        ? res.items
-        : [];
-
-      // Aggregate counts by service_type (ensuring range via session_start)
-      const fromT = new Date(from).getTime();
-      const toT = new Date(to).getTime();
-
-      const byType = data.reduce((acc, item) => {
-        const ts = item?.session_start ? new Date(item.session_start).getTime() : NaN;
-        if (!isNaN(ts) && !isNaN(fromT) && !isNaN(toT)) {
-          if (ts < fromT || ts > toT) return acc;
-        }
-        const k = item?.service_type || 'unknown';
-        acc[k] = (acc[k] || 0) + 1;
-        return acc;
-      }, {});
-
-      const shaped = Object.entries(byType)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value);
-
-      setSeries(shaped);
-      setStatus({ loading: false, error: null, empty: shaped.length === 0 });
-    } catch (err) {
-      if (err?.name === 'AbortError') return;
-      setSeries([]);
-      setStatus({ loading: false, error: err?.message || 'Failed to load', empty: false });
-    }
-  }, []);
-
-  // Effect: trigger on relevant changes and avoid duplicates
-  useEffect(() => {
-    // Dynamic tenant: prefer DataContext, else attempt URL param (?tenant_id), else fallback 'b2c'
-    let finalTenant = tenantId;
-    if (!finalTenant) {
-      try {
-        const url = new URL(window.location.href);
-        finalTenant = url.searchParams.get('tenant_id') || url.searchParams.get('organization_id') || undefined;
-      } catch {
-        // noop
-      }
-    }
-    finalTenant = finalTenant || 'b2c';
-
-    const from = fromISO;
-    const to = toISO;
-    const stype = serviceType || null;
-
-    // For local custom, fetch only when both are selected (when not using global timeRange)
-    if (!timeRange?.start && rangeMode === 'custom' && (!customStart || !customEnd)) {
-      setSeries([]);
-      setStatus({ loading: false, error: null, empty: true });
-      return;
-    }
-
-    if (!finalTenant || !from || !to) {
-      setSeries([]);
-      setStatus({ loading: false, error: null, empty: true });
-      return;
-    }
-
-    fetchAndAggregate({ tenant_id: finalTenant, from, to, service_type: stype });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    tenantId,
-    fromISO,
-    toISO,
-    serviceType,
-    lastEventId,
-    granularity,
-    rangeMode,
-    customStart,
-    customEnd,
-    timeRange?.start,
-    timeRange?.end,
+  const { from, to } = useMemo(() => computeWindowLocal(toolbar), [
+    toolbar.mode,
+    toolbar.startDate,
+    toolbar.endDate,
   ]);
 
-  // Cleanup in-flight fetch
+  const load = useCallback(() => {
+    if (!tenantId) return;
+    const ctrl = new AbortController();
+    setState({ loading: true, error: null });
+
+    fetchSessionTrackingPaged({
+      tenantId,
+      from,
+      to,
+      serviceType,
+      limit: 200,
+      maxPages: 10,
+      signal: ctrl.signal,
+    })
+      .then((docs) => {
+        const shaped = shapeBarDataByServiceType(docs);
+        setData(shaped);
+        setState({ loading: false, error: null });
+      })
+      .catch((err) => {
+        if (ctrl.signal.aborted) return;
+        setState({
+          loading: false,
+          error: err?.message || 'Failed to load Overall Features',
+        });
+      });
+
+    return () => ctrl.abort();
+  }, [tenantId, serviceType, from?.getTime?.(), to?.getTime?.()]);
+
   useEffect(() => {
+    const cleanup = load();
     return () => {
-      if (abortRef.current) abortRef.current.abort();
+      if (typeof cleanup === 'function') cleanup();
     };
-  }, []);
+  }, [load]);
 
   const theme = {
     primary: '#2563EB',
@@ -212,52 +273,18 @@ export default function OverallFeaturesChart({ serviceType }) {
     grid: '#E5E7EB',
   };
 
-  const RangeButton = ({ mode, label }) => (
-    <button
-      type="button"
-      onClick={() => setRangeMode(mode)}
-      className={`seg-btn ${rangeMode === mode ? 'active' : ''}`}
-      aria-pressed={rangeMode === mode}
-      aria-label={`Select ${label} range`}
-    >
-      {label}
-    </button>
-  );
-
   return (
-    <Card title="Overall Features" subtitle="Session counts grouped by service type">
-      <div className="overall-features-toolbar">
-        <div className="segmented" role="tablist" aria-label="Time range filters">
-          <RangeButton mode="day" label="Day" />
-          <RangeButton mode="week" label="Week" />
-          <RangeButton mode="month" label="Month" />
-          <RangeButton mode="custom" label="Custom" />
-        </div>
+    <Card>
+      <OverallFeaturesToolbar value={toolbar} onChange={setToolbar} disabled={state.loading} />
 
-        {rangeMode === 'custom' && (
-          <div className="custom-range" aria-label="Custom date range">
-            <input
-              type="date"
-              value={customStart ? customStart.slice(0, 10) : ''}
-              onChange={(e) => setCustomStart(e.target.value ? new Date(e.target.value).toISOString() : '')}
-              aria-label="Start date"
-            />
-            <span className="to-sep">to</span>
-            <input
-              type="date"
-              value={customEnd ? customEnd.slice(0, 10) : ''}
-              onChange={(e) => setCustomEnd(e.target.value ? new Date(e.target.value).toISOString() : '')}
-              aria-label="End date"
-            />
-          </div>
-        )}
-      </div>
+      {state.loading && <LoadingState message="Loading Overall Features..." />}
+      {!state.loading && state.error && (
+        <ErrorState message={state.error} onRetry={load} />
+      )}
 
-      {status.loading && <LoadingState message="Loading Overall Features..." />}
-      {!status.loading && status.error && <ErrorState message={status.error} />}
-      {!status.loading && !status.error && (
+      {!state.loading && !state.error && (
         <>
-          {status.empty ? (
+          {data.length === 0 ? (
             <div className="overview-empty-state">
               <p>No sessions for selected range</p>
             </div>
@@ -267,7 +294,7 @@ export default function OverallFeaturesChart({ serviceType }) {
               style={{ width: '100%', height: 360, background: theme.surface, borderRadius: 8 }}
             >
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={series} margin={{ top: 16, right: 24, left: 0, bottom: 24 }}>
+                <BarChart data={data} margin={{ top: 16, right: 24, left: 0, bottom: 24 }}>
                   <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" />
                   <XAxis
                     dataKey="name"
@@ -294,9 +321,6 @@ export default function OverallFeaturesChart({ serviceType }) {
           )}
         </>
       )}
-      <div className="overview-footer-note" aria-hidden>
-        <span className="kpi-pill">Range: {effectiveRangeLabel}</span>
-      </div>
     </Card>
   );
 }

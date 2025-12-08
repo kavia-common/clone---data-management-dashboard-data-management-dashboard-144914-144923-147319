@@ -22,7 +22,7 @@
   margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
-  color: #111827;
+  color: #FFFFFF;
 }
 
 .overview-section.users-by-tenant .overview-chart-container {
@@ -57,7 +57,7 @@
 .overview-card-title {
   margin: 0;
   font-size: 1.1rem;
-  color: #111827;
+  color: #FFFFFF;
 }
 
 .overview-card-subtitle {
@@ -171,7 +171,6 @@
 
 .overview-section.users-overall-features {
   margin-top: 16px;
-  /* Ensure only one Overall Features section is styled; do not duplicate containers */
 }
 
 .overall-features-card {

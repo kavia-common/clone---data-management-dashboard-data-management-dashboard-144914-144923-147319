@@ -1,68 +1,55 @@
-import client from './client';
+import { getApiClient } from './baseClient';
+import { buildQueryString } from './util';
 
 /**
  * PUBLIC_INTERFACE
- * getSessionTracking
- * Fetches session tracking records. Accepts query object and optional fetch options.
- * - query: { page?, limit?, sort?, filter?, q?, pageSize?, tenant_id?, from?, to?, date_field? }
- * - options: { signal? }
- * Notes:
- * - Backend supports raw array response when page/limit not provided, else envelope.
- * - Use from/to and explicitly set date_field=session_start to ensure correct filtering.
+ * fetchSessionTracking
+ * Fetch session tracking records with pagination, sorting, optional text search and server-side time filtering.
+ * Accepts optional options including AbortController signal for in-flight cancellation.
+ *
+ * @param {Object} params
+ * @param {number} [params.page]
+ * @param {number} [params.limit]
+ * @param {string} [params.tenant_id] Active tenant scope (alias: organization_id on server)
+ * @param {string} [params.sort]
+ * @param {string} [params.q] Text search query
+ * @param {string} [params.start] ISO date-time lower bound (inclusive)
+ * @param {string} [params.end] ISO date-time upper bound (inclusive)
+ * @param {string} [params.filter] JSON string for server-side filter (e.g., {"service_type":"notebook"})
+ * @param {Object} [options] optional options like { signal }
+ * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
  */
-// PUBLIC_INTERFACE
-export async function getSessionTracking(query = {}, options = {}) {
-  const params = new URLSearchParams();
-
-  // Map and sanitize params to match backend expectations
+export async function fetchSessionTracking(params = {}, options = {}) {
   const {
-    start,
-    end,
-    from,
-    to,
-    tenant_id,
-    organization_id, // ignored for session-tracking root (tenant_id used instead)
-    filter,
-    q,
-    page,
-    limit,
-    pageSize,
-    sort,
-    date_field,
-    ...rest
-  } = query || {};
+    page, limit, tenant_id, sort, q, start, end, filter,
+  } = params || {};
 
-  const effectiveFrom = from || start;
-  const effectiveTo = to || end;
+  const safeParams = {};
+  if (page !== undefined) safeParams.page = page;
+  if (limit !== undefined) safeParams.limit = limit;
+  if (tenant_id !== undefined) safeParams.tenant_id = tenant_id;
+  if (sort !== undefined) safeParams.sort = sort;
+  if (q !== undefined) safeParams.q = q;
+  if (start !== undefined) safeParams.start = start;
+  if (end !== undefined) safeParams.end = end;
+  if (filter !== undefined) safeParams.filter = filter;
 
-  // Required/commonly used params
-  if (tenant_id) params.append('tenant_id', tenant_id);
-  if (effectiveFrom) params.append('from', effectiveFrom);
-  if (effectiveTo) params.append('to', effectiveTo);
+  const qs = buildQueryString(safeParams);
+  const url = `/api/session-tracking${qs}`;
+  const cfg = {};
+  if (options && options.signal) {
+    cfg.signal = options.signal;
+  }
+  const res = await getApiClient().get(url, cfg);
+  const payload = res?.data ?? res;
 
-  // Explicitly set date_field to session_start unless caller overrides
-  params.append('date_field', date_field || 'session_start');
+  const items = Array.isArray(payload) ? payload : payload?.data ?? [];
+  const total =
+    (payload && payload.meta && typeof payload.meta.total === 'number' && payload.meta.total) ||
+    (Array.isArray(items) ? items.length : 0);
+  const meta = payload?.meta ?? null;
 
-  if (filter) params.append('filter', filter);
-  if (q) params.append('q', q);
-  if (page) params.append('page', page);
-  if (limit) params.append('limit', limit);
-  if (pageSize) params.append('pageSize', pageSize);
-  if (sort) params.append('sort', sort);
-
-  // Append any remaining simple scalars
-  Object.entries(rest).forEach(([k, v]) => {
-    if (v === undefined || v === null || v === '') return;
-    params.append(k, v);
-  });
-
-  const res = await client.get(`/api/session-tracking?${params.toString()}`, {
-    signal: options.signal,
-  });
-  // Client wrapper returns { data } for fetch; axios-like clients also expose data
-  return res?.data ?? res;
+  return { items, total, meta };
 }
 
-// PUBLIC_INTERFACE
-// Backward-compatibility alias to avoid build breaks if any old import remains
-export const fetchSessionTracking = getSessionTracking;
+/* No default export to favor named exports (lint rule) */

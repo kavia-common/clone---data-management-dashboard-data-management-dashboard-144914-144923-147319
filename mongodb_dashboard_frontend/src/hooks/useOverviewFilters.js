@@ -4,24 +4,16 @@ import { DataContext } from '../context/DataContext';
 /**
  * PUBLIC_INTERFACE
  * useOverviewFilters
- * Returns shared Overview filter state from DataContext.
- * Expected structure:
- *   {
- *     tenantId?: string,
- *     timeRange?: { mode?: 'day'|'week'|'month'|'custom', start?: Date|ISO, end?: Date|ISO },
- *     granularity?: 'day'|'week'|'month',
- *     lastEventId?: number
- *   }
+ * Returns global overview filters from DataContext if provided. Otherwise returns an empty object to avoid crashes.
  */
-export default function useOverviewFilters() {
+export function useOverviewFilters() {
   try {
-    const ctx = useContext(DataContext) || {};
-    // common shapes used in repo: ctx.overviewFilters or ctx.filters
-    return ctx.overviewFilters || ctx.filters || {};
+    const ctx = useContext(DataContext);
+    // Many pages store filters on ctx.filters or ctx.overviewFilters; use either and fallback.
+    return (ctx && (ctx.overviewFilters || ctx.filters)) || {};
   } catch {
     return {};
   }
 }
 
-// Re-export as named for convenience without re-declaring identifier
-export { default as useOverviewFilters } from './useOverviewFilters';
+export default useOverviewFilters;
