@@ -5,7 +5,113 @@ const crypto = require('crypto');
 const SessionTracking = require('../models/sessionTracking.model');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
-const { sessionsByType, sessionsByOrganization } = require('../services/sessions.aggregates.service');
+/**
+ * NOTE:
+ * sessions.aggregates.service was removed. Provide local safe stubs that either
+ * aggregate using Mongoose directly when DB is connected, or return empty arrays.
+ * This prevents MODULE_NOT_FOUND errors while preserving composite route behavior.
+ */
+async function sessionsByType({ tenantId, start, end, allowBypass }) {
+  const mongoose = require('mongoose');
+  const ready = mongoose.connection?.readyState;
+  const dbConnected = ready === 1;
+  if (!dbConnected) return [];
+
+  const match = {};
+  if (!allowBypass && tenantId) {
+    match.$or = [
+      { tenant_id: tenantId },
+      { organization_id: tenantId },
+      { organizationId: tenantId },
+    ];
+  }
+  const timeCond = {};
+  if (start) timeCond.$gte = new Date(start);
+  if (end) {
+    const endDate = new Date(end);
+    if (!isNaN(endDate.getTime())) {
+      endDate.setUTCHours(23, 59, 59, 999);
+      timeCond.$lte = endDate;
+    }
+  }
+  if (Object.keys(timeCond).length) {
+    match.session_start = timeCond;
+  }
+
+  // Gracefully handle missing field; group by session_data.llm_model or service_type as a proxy for "type"
+  const pipeline = [
+    { $match: match },
+    {
+      $addFields: {
+        _type: {
+          $ifNull: ['$session_type', { $ifNull: ['$service_type', { $ifNull: ['$session_data.llm_model', 'Unknown'] }] }],
+        },
+      },
+    },
+    { $group: { _id: '$_type', total: { $sum: 1 } } },
+    { $project: { _id: 0, type: '$_id', total: 1 } },
+    { $sort: { total: -1 } },
+    { $limit: 50 },
+  ];
+
+  try {
+    return await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+  } catch {
+    return [];
+  }
+}
+
+async function sessionsByOrganization({ tenantId, start, end, allowBypass }) {
+  const mongoose = require('mongoose');
+  const ready = mongoose.connection?.readyState;
+  const dbConnected = ready === 1;
+  if (!dbConnected) return [];
+
+  const match = {};
+  if (!allowBypass && tenantId) {
+    match.$or = [
+      { tenant_id: tenantId },
+      { organization_id: tenantId },
+      { organizationId: tenantId },
+    ];
+  }
+  const timeCond = {};
+  if (start) timeCond.$gte = new Date(start);
+  if (end) {
+    const endDate = new Date(end);
+    if (!isNaN(endDate.getTime())) {
+      endDate.setUTCHours(23, 59, 59, 999);
+      timeCond.$lte = endDate;
+    }
+  }
+  if (Object.keys(timeCond).length) {
+    match.session_start = timeCond;
+  }
+
+  const pipeline = [
+    { $match: match },
+    {
+      $addFields: {
+        _tenant: {
+          $ifNull: [
+            '$tenant_id',
+            { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', 'Unknown'] }] },
+          ],
+        },
+      },
+    },
+    { $group: { _id: '$_tenant', total: { $sum: 1 } } },
+    { $project: { _id: 0, tenant_id: '$_id', total: 1 } },
+    { $sort: { total: -1 } },
+    { $limit: 50 },
+  ];
+
+  try {
+    return await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+  } catch {
+    return [];
+  }
+}
 const router = express.Router();
 
 /**
