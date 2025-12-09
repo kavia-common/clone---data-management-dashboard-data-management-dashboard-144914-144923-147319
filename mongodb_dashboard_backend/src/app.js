@@ -150,7 +150,7 @@ safeUse('/api/session-tracking/composite', require('./routes/sessionTracking.com
 safeUse('/api/session-tracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
-safeUse('/api/analytics', require('./routes/analytics.overview.routes'));
+
 safeUse('/api/analytics', require('./routes/analytics'));
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
