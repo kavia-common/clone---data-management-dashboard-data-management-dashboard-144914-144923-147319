@@ -131,30 +131,7 @@ safeUse('/', baseRouter);
 
 safeUse('/api/dev', require('./routes/dev.routes'));
 safeUse('/api/users', require('./routes/users.routes'));
-safeUse('/api/users', require('./routes/users.analytics.summary.routes'));
 
-const { getUsersTenantSummary } = require('./controllers/users.analytics.summary.controller');
-app.get('/api/users/tenant-summary', async (req, res) => {
-  try {
-    const fakeRes = {
-      _status: 200,
-      _sent: false,
-      status(code) { this._status = code; return this; },
-      json(payload) { this._sent = true; this._payload = payload; return this; },
-    };
-    await getUsersTenantSummary(req, fakeRes);
-    if (!fakeRes._sent) {return res.status(500).json({ success: false, message: 'Controller did not respond' });}
-    if (fakeRes._status !== 200) {return res.status(fakeRes._status).json(fakeRes._payload);}
-    const items = Array.isArray(fakeRes._payload?.items) ? fakeRes._payload.items : [];
-    const mapped = items.map((it) => ({
-      tenant: it.tenant_name || it.tenant_id || '',
-      count: typeof it.user_count === 'number' ? it.user_count : 0,
-    }));
-    return res.status(200).json(mapped);
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Internal Server Error' });
-  }
-});
 
  // ---------------------------------------------
  // Protected routes (with auth + tenant)
@@ -172,7 +149,7 @@ safeUse('/api/session-tracking/composite', require('./routes/sessionTracking.com
 safeUse('/api/session-tracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
-safeUse('/api/analytics', require('./routes/analytics.overview.routes'));
+
 safeUse('/api/analytics', require('./routes/analytics'));
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));

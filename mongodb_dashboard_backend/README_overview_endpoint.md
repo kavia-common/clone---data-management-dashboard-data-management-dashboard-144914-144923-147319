@@ -1,12 +1,13 @@
-# Overview Costs Endpoint Notes
+# Overview Module Notes
 
-The legacy analytics endpoint for LLM costs over-time has been removed:
-- Removed: GET /api/analytics/llm-costs/over-time
+The following overview charts and their API endpoints were removed as part of cleanup:
+- Sessions Trend
+- Users over time
+- Overall Features
 
-Overview charts should use stable helpers or alternative analytics endpoints that remain supported (e.g., dashboard overview metrics or users active trend). If a costs-over-time visualization is still desired, implement it on the frontend using available list endpoints (/api/llm-costs) or add a new backend aggregation in the future under a different, stable contract.
+Unrelated analytics remain available, such as:
+- GET /api/analytics/llm-cost-by-agent
+- Dashboard metrics: GET /api/dashboard/overview/metrics
+- LLM Costs listing and hierarchy endpoints
 
-Example: retrieving recent LLM cost records (tenant-scoped)
-```
-GET /api/llm-costs?limit=50&sort=-timestamp
-Header: x-organization-id: <tenantId> (when JWT is not used)
-```
+If a future requirement reintroduces any of the above charts, implement them under a new stable contract and update the OpenAPI specification accordingly.

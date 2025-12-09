@@ -1,75 +1,53 @@
-'use strict';
-
 const express = require('express');
-const { asyncHandler } = require('../utils/http');
-const { newUsersOverTime } = require('../controllers/analytics.controller');
-const { getLlmCostByAgentController } = require('../controllers/llmCost.controller');
-
-const { getUsersActiveTrendController } = require('../controllers/users.activeTrend.controller');
-const { verifyAuth } = require('../middleware/verifyAuth');
-const { requireTenant } = require('../middleware/requireTenant');
-
-const analyticsRouter = express.Router();
+const router = express.Router();
 
 /**
  * PUBLIC_INTERFACE
- * Analytics Router
- * Protected by verifyAuth + requireTenant on all endpoints.
+ * GET /api/analytics/llm-cost-by-agent
+ * Aggregates LLM costs by agent from llmCosts service to preserve analytics unrelated to removed charts.
  */
+const llmCostsAggregate = require('../services/llmCost.service');
 
-// Health/reachability
-analyticsRouter.head('/llm-cost-by-agent', (req, res) => {
-  res
-    .set('X-Endpoint', 'analytics-llm-cost-by-agent')
-    .set('Cache-Control', 'no-store')
-    .status(204)
-    .end();
-});
-analyticsRouter.options('/llm-cost-by-agent', (req, res) => res.sendStatus(204));
-
-// Cost by agent
-analyticsRouter.use((req, res, next) => {
+router.get('/llm-cost-by-agent', async (req, res, next) => {
   try {
-    const hdr = (req.headers?.['x-organization-id'] || '').toString();
-    const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
-    const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
-    const requestedTenant = hdr || qOrg || authTenant || '';
-    const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
-    if (isT0000) {
-      req.tenantScopeDisabled = true;
-      req.allTenants = true;
-      req.analyticsAllTenantsBypass = true;
-      try { res.set('X-All-Tenants', 'true'); } catch (_) {}
+    // Delegate to llmCost.service when a helper exists, otherwise implement a minimal aggregation.
+    if (typeof llmCostsAggregate.aggregateCostByAgent === 'function') {
+      const result = await llmCostsAggregate.aggregateCostByAgent(req, res);
+      if (!res.headersSent) return res.json(result);
+      return;
     }
-    console.log('[analytics.routes] bypass check', { path: req.path, requestedTenant, isT0000, bypassApplied: !!isT0000 });
-  } catch (_) {}
-  next();
+
+    // Fallback: inline simple aggregation via Mongo if service function isn't available.
+    const { getDb } = require('../config/db');
+    const dbo = await getDb();
+    const col = dbo.collection('llm_costs');
+    const pipeline = [
+      {
+        $unwind: {
+          path: '$Agents',
+          preserveNullAndEmptyArrays: false
+        }
+      },
+      {
+        $group: {
+          _id: '$Agents.Agent Name',
+          total_cost: {
+            $sum: {
+              $toDouble: {
+                $replaceAll: { input: { $ifNull: ['$Agents.Total Cost', '0'] }, find: '$', replacement: '' }
+              }
+            }
+          }
+        }
+      },
+      { $project: { agent: '$_id', total_cost: 1, _id: 0 } },
+      { $sort: { total_cost: -1 } }
+    ];
+    const items = await col.aggregate(pipeline).toArray();
+    return res.json(items);
+  } catch (err) {
+    return next(err);
+  }
 });
 
-analyticsRouter.get(
-  '/llm-cost-by-agent',
-  verifyAuth,
-  requireTenant,
-  // CORS-safe: allow OPTIONS preflight and set no-store
-  (req, res, next) => { try { res.set('Cache-Control', 'no-store'); res.set('Access-Control-Allow-Origin', '*'); } catch(_) {} next(); },
-  asyncHandler(getLlmCostByAgentController)
-);
-
-
-
-/**
- * Users active trend (replacement for legacy /api/users/active-trend-from-users)
- * GET /api/analytics/users/active-trend
- */
-analyticsRouter.get(
-  '/users/active-trend',
-  verifyAuth,
-  requireTenant,
-  (req, res, next) => { try { res.set('Cache-Control', 'no-store'); res.set('Access-Control-Allow-Origin', '*'); } catch(_) {} next(); },
-  asyncHandler(getUsersActiveTrendController)
-);
-
-// New users over time (unchanged)
-analyticsRouter.get('/users/new-over-time', verifyAuth, requireTenant, asyncHandler(newUsersOverTime));
-
-module.exports = analyticsRouter;
+module.exports = router;

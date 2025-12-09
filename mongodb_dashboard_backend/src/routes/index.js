@@ -17,7 +17,7 @@ const appDeploymentsRoutes = require('./appDeployments.routes');
 const dashboardRoutes = require('./dashboard.routes');
 const dashboardModulesRoutes = require('./dashboard.modules.routes');
 const countsRoutes = require('./counts.routes');
-const { analyticsOverviewRouter } = require('./analytics.overview.routes');
+
 
 const router = express.Router();
 
@@ -64,11 +64,7 @@ router.use('/app-deployments', verifyAuth, requireTenant, appDeploymentsRoutes);
 router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardRoutes);
 router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardModulesRoutes);
 
-/**
- * Analytics overview routes protected here as well
- * This guarantees verifyAuth + requireTenant are always enforced.
- */
-router.use('/analytics', verifyAuth, requireTenant, analyticsOverviewRouter);
+
 
 /**
  * Counts endpoints (these are lightweight; keep public if they are used for landing)
@@ -84,4 +80,6 @@ router.use('/', require('./tenantSample.routes'));
 /**
  * Exports the API router for mounting under /api in the main app.
  */
+const analyticsRoutes = require('./analytics');
+router.use('/analytics', analyticsRoutes);
 module.exports = router;
