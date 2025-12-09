@@ -1459,6 +1459,79 @@
         }
       }
     },
+    "/api/users/summary": {
+      "get": {
+        "summary": "Users created summary (time buckets)",
+        "description": "Aggregates the users collection by created_at grouped by day/week/month. For range=custom, use start_date and end_date (YYYY-MM-DD). Results are filtered by organization_id (tenant scope). When range is missing, defaults to daily for today.",
+        "tags": ["Users"],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "organization_id",
+            "schema": { "type": "string" },
+            "description": "Tenant (organization) ID. Alias: tenant_id. Required unless super-admin bypass is active."
+          },
+          {
+            "in": "query",
+            "name": "tenant_id",
+            "schema": { "type": "string" },
+            "description": "Alias for organization_id"
+          },
+          {
+            "in": "query",
+            "name": "range",
+            "schema": {
+              "type": "string",
+              "enum": ["daily","weekly","monthly","custom"],
+              "default": "daily"
+            },
+            "description": "Time bucket size. For custom, provide start_date and end_date."
+          },
+          {
+            "in": "query",
+            "name": "start_date",
+            "schema": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+            "description": "Start date (YYYY-MM-DD). Required when range=custom."
+          },
+          {
+            "in": "query",
+            "name": "end_date",
+            "schema": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+            "description": "End date (YYYY-MM-DD). Required when range=custom."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bucketed users summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "buckets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": { "type": "string", "description": "Bucket key (e.g., YYYY-MM-DD, YYYY-WW, or YYYY-MM)" },
+                          "label": { "type": "string", "description": "Short label for display" },
+                          "count": { "type": "integer", "description": "Number of users in this bucket" }
+                        }
+                      }
+                    },
+                    "range": { "type": "string" },
+                    "start_date": { "type": "string" },
+                    "end_date": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid parameters" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
     "/api/users": {
       "get": {
         "summary": "List users",

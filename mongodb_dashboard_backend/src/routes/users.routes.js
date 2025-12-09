@@ -78,6 +78,176 @@ router.get(
 );
 const controller = buildCrudController(User, '-created_at');
 
+// ====== USERS SUMMARY (time-bucketed by created_at) ======
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/summary
+ * Aggregates users collection by created_at grouped by day|week|month, with optional custom date range.
+ * Query:
+ *  - organization_id: required tenant scope (alias: tenant_id) unless super admin bypass is active
+ *  - range: daily|weekly|monthly|custom (default: daily)
+ *  - start_date: YYYY-MM-DD (required when range=custom)
+ *  - end_date: YYYY-MM-DD (required when range=custom)
+ * Behavior:
+ *  - If range missing, defaults to daily for today
+ *  - Returns: { buckets: [{ key, label, count }], range, start_date?, end_date? }
+ */
+router.get(
+  '/summary',
+  // Enforce organization scope for normal users; super admins may bypass via existing mechanisms
+  extractOrganization(),
+  asyncHandler(async (req, res) => {
+    // Resolve tenant scope; if bypass flags are set, organizationId may be undefined and we will skip tenant filter
+    const tenantId = req.organizationId;
+    const { range = 'daily' } = req.query;
+    const normalizedRange = String(range || 'daily').toLowerCase();
+
+    // Date utilities
+    const { formatYYYYMMDD, startOfDayUTC, addDaysUTC } = require('../utils/date');
+
+    // Build start/end bounds
+    let startDate = null;
+    let endDate = null;
+
+    const todayUTC = startOfDayUTC(new Date());
+    if (normalizedRange === 'custom') {
+      const s = (req.query.start_date || '').trim();
+      const e = (req.query.end_date || '').trim();
+      // Validate format YYYY-MM-DD using simple regex and Date
+      const re = /^\d{4}-\d{2}-\d{2}$/;
+      if (!re.test(s) || !re.test(e)) {
+        return res.status(400).json({ success: false, message: 'Invalid or missing start_date/end_date. Expected YYYY-MM-DD.' });
+      }
+      startDate = new Date(`${s}T00:00:00.000Z`);
+      endDate = new Date(`${e}T23:59:59.999Z`);
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid start_date or end_date value.' });
+      }
+      if (startDate.getTime() > endDate.getTime()) {
+        return res.status(400).json({ success: false, message: 'start_date must be before or equal to end_date.' });
+      }
+    } else {
+      // Default to daily for today if no range
+      if (normalizedRange === 'daily') {
+        startDate = new Date(todayUTC);
+        endDate = new Date(addDaysUTC(todayUTC, 1).getTime() - 1);
+      } else if (normalizedRange === 'weekly') {
+        // ISO week: start from Monday (UTC)
+        const d = new Date(todayUTC);
+        const day = d.getUTCDay() || 7; // Sunday=0 -> 7
+        const monday = new Date(d);
+        monday.setUTCDate(d.getUTCDate() - (day - 1));
+        startDate = startOfDayUTC(monday);
+        endDate = new Date(addDaysUTC(startDate, 7).getTime() - 1);
+      } else if (normalizedRange === 'monthly') {
+        const d = new Date(todayUTC);
+        const monthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
+        startDate = monthStart;
+        const nextMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+        endDate = new Date(nextMonth.getTime() - 1);
+      } else {
+        return res.status(400).json({ success: false, message: 'Invalid range. Use daily|weekly|monthly|custom.' });
+      }
+    }
+
+    // Build Mongo match
+    const match = {
+      created_at: { $gte: startDate, $lte: endDate },
+    };
+    if (tenantId) {
+      // Normalize tenant field aliases for user documents
+      match.$or = [
+        { tenant_id: tenantId },
+        { organization_id: tenantId },
+        { organizationId: tenantId },
+        { orgId: tenantId },
+        { tenantId: tenantId },
+        { 'tenant.tenant_id': tenantId },
+      ];
+    }
+
+    // Determine date format and key generator
+    let dateFormat;
+    let labelStrategy; // function(dateKey) -> string
+    let keyStrategy;   // function(dateVal) -> key string
+
+    switch (normalizedRange) {
+      case 'daily':
+      case 'custom':
+        // Day buckets for daily and custom by default
+        dateFormat = '%Y-%m-%d';
+        keyStrategy = (val) => String(val);
+        labelStrategy = (key) => key; // same as YYYY-MM-DD
+        break;
+      case 'weekly':
+        // Week number within year; use Year-WeekNumber
+        dateFormat = '%Y-%U';
+        keyStrategy = (val) => String(val); // e.g., 2025-03 (week 3)
+        labelStrategy = (key) => `W${key.split('-')[1]} ${key.split('-')[0]}`;
+        break;
+      case 'monthly':
+        dateFormat = '%Y-%m';
+        keyStrategy = (val) => String(val);
+        labelStrategy = (key) => {
+          const [y, m] = key.split('-');
+          return `${y}-${m}`;
+        };
+        break;
+      default:
+        dateFormat = '%Y-%m-%d';
+        keyStrategy = (val) => String(val);
+        labelStrategy = (key) => key;
+    }
+
+    // Build aggregation pipeline
+    const pipeline = [
+      { $match: match },
+      {
+        $group: {
+          _id: {
+            bucket: { $dateToString: { format: dateFormat, date: '$created_at' } },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          key: '$_id.bucket',
+          count: 1,
+          _id: 0,
+        },
+      },
+      { $sort: { key: 1 } },
+    ];
+
+    // Execute aggregation with allowDiskUse to avoid memory pressure for large collections
+    let raw = [];
+    try {
+      raw = await User.aggregate(pipeline).allowDiskUse(true);
+    } catch (err) {
+      console.error('[users.summary] aggregation error:', err?.message || err);
+      return res.status(500).json({ success: false, message: 'Aggregation failed' });
+    }
+
+    // Map to buckets with labels
+    const buckets = raw.map((r) => ({
+      key: keyStrategy(r.key),
+      label: labelStrategy(r.key),
+      count: Number(r.count || 0),
+    }));
+
+    const response = {
+      buckets,
+      range: normalizedRange,
+      start_date: formatYYYYMMDD(startDate),
+      end_date: formatYYYYMMDD(endDate),
+    };
+
+    // Echo range-only behavior: if request had no explicit range and not custom, still include computed dates
+    return res.status(200).json(response);
+  })
+);
+
 /**
  * Early bypass detector for GET /api/users
  * Applies T0000 or SuperAdmin bypass before any organization/tenant extraction for this route only.
