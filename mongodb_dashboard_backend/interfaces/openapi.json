@@ -1800,7 +1800,48 @@
         }
       }
     },
-
+    "/api/users/{userId}/projects": {
+      "get": {
+        "summary": "Get projects associated with a user (from session tracking)",
+        "description": "Returns distinct projects the user has activity in, based on the session_tracking collection. Optional time range can be provided using \"from\" and \"to\" query parameters. Note: This endpoint excludes cost aggregation.",
+        "tags": ["Users"],
+        "parameters": [
+          { "in": "path", "name": "userId", "required": true, "schema": { "type": "string" }, "description": "User identifier (normalized to string for matching)" },
+          { "in": "query", "name": "organization_id", "required": true, "schema": { "type": "string" }, "description": "Tenant (organization) ID. Alias: tenant_id" },
+          { "in": "query", "name": "tenant_id", "required": false, "schema": { "type": "string" }, "description": "Alias for tenant (organization) id" },
+          { "in": "query", "name": "from", "schema": { "type": "string", "format": "date-time" }, "description": "Optional ISO date-time lower bound" },
+          { "in": "query", "name": "to", "schema": { "type": "string", "format": "date-time" }, "description": "Optional ISO date-time upper bound" }
+        ],
+        "responses": {
+          "200": {
+            "description": "User projects list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user_id": { "type": "string" },
+                    "tenant_id": { "type": "string" },
+                    "projects": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "project_id": { "type": "string" },
+                          "project_name": { "type": "string", "nullable": true },
+                          "last_activity": { "type": "string", "format": "date-time", "nullable": true }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing required parameters or invalid input" }
+        }
+      }
+    },
     "/api/users/referral-sources": {
       "get": {
         "summary": "Top referral sources",
