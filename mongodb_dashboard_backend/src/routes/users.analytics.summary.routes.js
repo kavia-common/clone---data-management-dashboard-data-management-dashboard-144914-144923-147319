@@ -1,123 +1,20 @@
 'use strict';
 
+/**
+ * This legacy route file previously depended on ../controllers/users.analytics.summary.controller
+ * which has been removed. To avoid MODULE_NOT_FOUND on startup, we expose a minimal no-op router.
+ * The canonical implementation for /api/users/tenant-summary now lives in src/routes/users.routes.js.
+ */
+
 const express = require('express');
 const router = express.Router();
-const { getUsersTenantSummary } = require('../controllers/users.analytics.summary.controller');
-const { extractOrganization } = require('../middleware/extractOrganization');
 
-/**
- * Minimal async handler to catch errors in async route handlers and forward to Express error middleware.
- * This avoids introducing new dependencies and keeps behavior consistent across routes.
- */
-function asyncHandler(fn) {
-  return function wrappedAsyncHandler(req, res, next) {
-    Promise.resolve(fn(req, res, next)).catch(next);
-  };
-}
+// PUBLIC_INTERFACE
+router.get('/tenant-summary', (req, res) => {
+  /** This placeholder exists to maintain compatibility if mounted inadvertently elsewhere.
+   * Prefer: src/routes/users.routes.js which implements the real aggregation.
+   */
+  return res.status(200).json({ items: [], total: 0, note: 'Placeholder handler; use /api/users/tenant-summary from users.routes.js' });
+});
 
-/**
- * PUBLIC_INTERFACE
- * GET /api/users/tenant-summary
- * Returns aggregated user counts by tenant with optional filters.
- *
- * Swagger:
- * @swagger
- * /api/users/tenant-summary:
- *   get:
- *     summary: Users by tenant (summary)
- *     description: Aggregates users grouped by tenant_id/organization_id with optional date range and status filters. Optionally excludes inactive tenants.
- *     tags:
- *       - Analytics
- *     parameters:
- *       - in: query
- *         name: from
- *         schema:
- *           type: string
- *           format: date-time
- *         description: ISO start datetime (inclusive)
- *       - in: query
- *         name: to
- *         schema:
- *           type: string
- *           format: date-time
- *         description: ISO end datetime (inclusive)
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *         description: Pipe-delimited statuses to include (e.g., "active|completed")
- *       - in: query
- *         name: includeInactive
- *         schema:
- *           type: boolean
- *           default: false
- *         description: Include tenants with inactive status
- *     responses:
- *       200:
- *         description: Aggregated users by tenant
- *       400:
- *         description: Invalid parameters
- *       503:
- *         description: Database not connected
- *       500:
- *         description: Internal server error
- */
-router.get('/tenant-summary', extractOrganization(), asyncHandler(async (req, res) => {
-  // Early T0000 bypass detector at route level
-  try {
-    const hdr = (req.headers?.['x-organization-id'] || '').toString();
-    const qOrg = (req.query?.organization_id || req.query?.tenant_id || '').toString();
-    const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
-    const requestedTenant = hdr || qOrg || authTenant || '';
-    const isT0000 = requestedTenant && requestedTenant.toUpperCase() === 'T0000';
-    if (isT0000) {
-      req.tenantScopeDisabled = true;
-      req.allTenants = true;
-      req.usersSummaryAllTenantsBypass = true;
-      try { res.set('X-All-Tenants', 'true'); } catch (_) {}
-    }
-    console.log('[users.analytics.summary.routes] bypass check', { requestedTenant, isT0000, bypassApplied: !!isT0000 });
-  } catch (_) {}
-  const debugEnabled = String(req.query.debug || 'false') === 'true';
-
-  // Call controller to compute items, then map to array for frontend compatibility
-  const fakeRes = {
-    _status: 200,
-    _sent: false,
-    status(code) { this._status = code; return this; },
-    json(payload) { this._sent = true; this._payload = payload; return this; }
-  };
-  // Inject organization scope hint for controller (if it reads req.organizationId)
-  req.scopedTenantId = req.organizationId;
-
-  await getUsersTenantSummary(req, fakeRes);
-  // Reduce payload strictly to the same organization to prevent cross-org leaks
-  if (fakeRes._status === 200 && fakeRes._payload && Array.isArray(fakeRes._payload.items)) {
-    fakeRes._payload.items = fakeRes._payload.items.filter((it) => String(it.tenant_id) === String(req.organizationId));
-  }
-  if (!fakeRes._sent) {
-    return res.status(500).json({ success: false, message: 'Controller did not respond' });
-  }
-  if (fakeRes._status !== 200) {
-    return res.status(fakeRes._status).json(fakeRes._payload);
-  }
-  const items = Array.isArray(fakeRes._payload.items) ? fakeRes._payload.items : [];
-  const mapped = items.map(it => ({
-    tenant: it.tenant_name || it.tenant_id || '',
-    count: typeof it.user_count === 'number' ? it.user_count : 0,
-  }));
-
-  if (debugEnabled) {
-    res.setHeader('X-Debug-Tenant-Filter', JSON.stringify({ tenant_id: req.organizationId }));
-  }
-  return res.status(200).json({
-    items: mapped,
-    total: mapped.length,
-    meta: debugEnabled ? { debug: { tenant_id: req.organizationId } } : undefined,
-  });
-}));
-
-
-
-/** Explicit router export for clarity */
 module.exports = router;
