@@ -60,8 +60,10 @@ router.use('/session', verifyAuth, requireTenant, sessionRoutes);
 router.use('/session-tracking', verifyAuth, requireTenant, sessionTrackingRoutes);
 router.use('/app-deployments', verifyAuth, requireTenant, appDeploymentsRoutes);
 
-// Dashboard overview routes (protected)
-router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardRoutes);
+/**
+ * Dashboard overview module routes (protected)
+ * Note: dashboard.routes (metrics) depended on a removed controller; do not mount it.
+ */
 router.use('/dashboard/overview', verifyAuth, requireTenant, dashboardModulesRoutes);
 
 

@@ -159,7 +159,6 @@ safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
 safeUse('/api/session', require('./routes/session.routes'));
-safeUse('/api/dashboard', require('./routes/dashboard.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
 safeUse('/api/auth', require('./routes/auth.routes'));
 

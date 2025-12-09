@@ -1,8 +1,6 @@
 'use strict';
 
 const express = require('express');
-const { asyncHandler } = require('../utils/http');
-const controller = require('../controllers/analytics.overview.controller');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 
@@ -38,6 +36,9 @@ router.use((req, res, next) => {
  */
 
 // PUBLIC_INTERFACE
-router.get('/metrics', asyncHandler(controller.overviewMetrics));
+router.get('/metrics', (req, res) => {
+  // Controller was removed along with Overview charts; keep endpoint to avoid breaking clients/tests.
+  return res.status(404).json({ success: false, message: 'Overview metrics endpoint removed' });
+});
 
 module.exports = router;
