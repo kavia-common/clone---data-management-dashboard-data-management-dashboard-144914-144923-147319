@@ -8,9 +8,9 @@ const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
 const compression = require('compression');
- 
+
 const app = express();
- 
+
 // ---------------------------------------------
 // Middleware
 // ---------------------------------------------
@@ -20,7 +20,7 @@ app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
 app.options('/api/*', cors());
 app.use(rateLimiter());
- 
+
 // Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION
 const ENABLE_RESPONSE_COMPRESSION = String(process.env.ENABLE_RESPONSE_COMPRESSION || 'true').toLowerCase() === 'true';
 if (ENABLE_RESPONSE_COMPRESSION) {
@@ -38,10 +38,10 @@ if (ENABLE_RESPONSE_COMPRESSION) {
     })
   );
 }
- 
+
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
- 
+
 // ---------------------------------------------
 // Swagger setup
 // ---------------------------------------------
@@ -70,7 +70,7 @@ const buildDynamicSpec = (req) => {
     // Use same-origin server so Swagger calls hit this backend instance
     url: `${protocol}://${fullHost}`,
     // servers: [
- 
+
     //   {
     //     url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
     //     description: 'Predefined dev server',
@@ -78,12 +78,12 @@ const buildDynamicSpec = (req) => {
     // ],
   };
 };
- 
- 
+
+
 app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
 app.get('/api/docs.json', (req, res) => res.json(buildDynamicSpec(req)));
- 
+
 const swaggerUiHandler = swaggerUi.setup(null, {
   swaggerOptions: {
     url: '/api-docs.json',
@@ -94,11 +94,11 @@ const swaggerUiHandler = swaggerUi.setup(null, {
   customCss:
     '.topbar-wrapper .link:after { content: " | Authorize with Bearer token; tenant is implicit (organization_id). If no token, use x-organization-id header."; font-size: 12px; color: #666; }',
 });
- 
+
 app.use('/api/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/docs', swaggerUi.serve, swaggerUiHandler);
 app.use('/api-docs', swaggerUi.serve, swaggerUiHandler);
- 
+
 // ---------------------------------------------
 // Health endpoints
 // ---------------------------------------------
@@ -118,25 +118,42 @@ try {
   // eslint-disable-next-line no-console
   console.log('[routes] Health endpoints registered at: /health, /api/health, /healthz, /ready, /live');
 } catch {}
- 
+
+// ---------------------------------------------
+// Root path handler (landing)
+// ---------------------------------------------
+// PUBLIC_INTERFACE
+// Minimal root path handler that returns a simple JSON landing without interfering
+// with API routes or any static asset serving (none configured here).
+app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json({
+    success: true,
+    message: 'Dashboard API backend. Visit /api-docs for Swagger UI or /api/health for health.',
+    docs: '/api-docs',
+    health: '/api/health',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // ---------------------------------------------
 // Routers
 // ---------------------------------------------
 const safeUse = (path, router) => {
   if (router && typeof router === 'function') {app.use(path, router);}
 };
- 
+
 const baseRouter = require('./routes');
 // Mount base routes under '/api' so that '/api/users' and related paths resolve correctly.
 // Previously this was mounted at '/', which made users routes available at '/users' (missing '/api' prefix)
 // and caused 404 when clients requested '/api/users'.
 safeUse('/api', baseRouter);
- 
+
 safeUse('/api/dev', require('./routes/dev.routes'));
 // Do NOT mount '/api/users' here; baseRouter ('/'), via src/routes/index.js, already mounts
 // users.summary before users.routes to ensure '/summary' resolves prior to '/:id'.
 // Mounting again here could change precedence or duplicate handlers.
- 
+
 // ---------------------------------------------
 // Protected routes (with auth + tenant)
 // ---------------------------------------------
@@ -148,7 +165,7 @@ app.use((req, res, next) => {
   }
   next();
 });
- 
+
 safeUse('/api/session-tracking/composite', require('./routes/sessionTracking.composite.routes'));
 safeUse('/api/session-tracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
@@ -166,7 +183,7 @@ safeUse('/api/session', require('./routes/session.routes'));
 safeUse('/api/dashboard', require('./routes/dashboard.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
 safeUse('/api/auth', require('./routes/auth.routes'));
- 
+
 // ---------------------------------------------
 // 404 + Error handler
 // ---------------------------------------------
@@ -178,7 +195,7 @@ app.use((req, res) => {
   });
 });
 app.use(errorHandler);
- 
+
 // ---------------------------------------------
 // MongoDB Connection
 // ---------------------------------------------
@@ -205,5 +222,5 @@ if (process.env.NODE_ENV !== 'test') {
 } else {
   try { mongoose.set('bufferCommands', false); } catch { }
 }
- 
+
 module.exports = app;
