@@ -2,24 +2,21 @@
 
 const { getDb } = require('../config/db');
 
-/* PUBLIC_INTERFACE */
-/**
- * listLlmCosts
- * Handler: GET /api/llm-costs
- * Purpose: Return { success, data, meta } with pagination and diagnostics headers and correct tenant filtering.
- * Requirements implemented:
- * 1) Queries the exact deployment via env-driven mongoose connection; database forced to 'test' in config/db.js and collection 'llm-costs' only.
- * 2) STRICT tenant filter only unless filter explicitly passed: { $or: [ { organization_id:'T0015' }, { tenant_id:'T0015' }, { org_id:'T0015' } ] }
- * 3) No ObjectId coercion for tenant; all string matching.
- * 4) Ensure path is not pointing to different collection: primary model maps to 'llm-costs'; fallback uses 'llm-costs' only unless explicitly overridden by env.
- * 5) Return { success, data, meta } and include headers: x-llm-filter, x-effective-tenant, x-llm-total-count (plus ancillary diagnostics).
- * 6) Supports GET /api/llm-costs?organization_id=T0015 (non-empty if data is present).
- */
+/*
+  PUBLIC_INTERFACE
+  listLlmCosts
+  Handler: GET /api/llm-costs
+  Implements:
+  - Exact tenant filter (string match) across organization_id, tenant_id, org_id.
+  - No hidden filters (date/model/user/project) unless provided via query params.
+  - Uses the 'llm-costs' collection (or explicit env override) and prevents ObjectId coercion.
+  - Always returns envelope { success, data, meta } and adds diagnostics headers.
+*/
 async function listLlmCosts(req, res) {
-  const startedAt = Date.now();
+  const t0 = Date.now();
 
   try {
-    // Resolve tenant: JWT overrides; otherwise header or query
+    // Tenant resolution with strict enforcement when JWT is present.
     const jwtTenant = req?.auth?.tenantId;
     const headerOrQueryTenant =
       req.headers['x-organization-id'] ||
@@ -29,17 +26,11 @@ async function listLlmCosts(req, res) {
     let resolvedTenant = null;
     if (jwtTenant) {
       resolvedTenant = String(jwtTenant);
-      if (
-        headerOrQueryTenant &&
-        String(headerOrQueryTenant) !== resolvedTenant
-      ) {
-        return res
-          .status(403)
-          .json({
-            success: false,
-            message:
-              'Forbidden: tenant scope mismatch with JWT tenant.',
-          });
+      if (headerOrQueryTenant && String(headerOrQueryTenant) !== resolvedTenant) {
+        return res.status(403).json({
+          success: false,
+          message: 'Forbidden: tenant scope mismatch with JWT tenant',
+        });
       }
     } else {
       resolvedTenant = headerOrQueryTenant ? String(headerOrQueryTenant) : null;
@@ -49,11 +40,11 @@ async function listLlmCosts(req, res) {
       return res.status(400).json({
         success: false,
         message:
-          'Missing tenant (Authorization with tenant or x-organization-id / ?tenant_id / ?organization_id).',
+          'Missing tenant. Provide Authorization with tenant, x-organization-id header, or ?tenant_id / ?organization_id query',
       });
     }
 
-    // Pagination
+    // Pagination (envelope is always used for this endpoint)
     const defaultLimit = process.env.DEFAULT_PAGE_LIMIT
       ? parseInt(process.env.DEFAULT_PAGE_LIMIT, 10)
       : 50;
@@ -68,64 +59,55 @@ async function listLlmCosts(req, res) {
         .json({ success: false, message: `limit must be <= ${maxLimit}` });
     }
 
-    // Sort default by most recent timestamp
+    // Sort: respect provided sort; default to -timestamp. No hidden sort overrides.
     const sortStr = (req.query.sort || '-timestamp').trim();
-    let sort = {};
+    const sort = {};
     if (sortStr) {
       sortStr
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
         .forEach((s) => {
-          if (s.startsWith('-')) {
-            sort[s.substring(1)] = -1;
-          } else {
-            sort[s] = 1;
-          }
+          if (s.startsWith('-')) sort[s.substring(1)] = -1;
+          else sort[s] = 1;
         });
     }
 
-    // Only apply date filter if explicitly provided
-    const now = new Date();
+    // Optional date window only when provided; apply to 'timestamp' only.
     const maxDays = process.env.MAX_DAYS_WINDOW
       ? parseInt(process.env.MAX_DAYS_WINDOW, 10)
       : 90;
-
-    let to = null;
+    const now = new Date();
     let from = null;
-    let applied = null;
+    let to = null;
+    let windowApplied = null;
 
     if (req.query.from || req.query.to) {
       to = req.query.to ? new Date(req.query.to) : now;
       from = req.query.from
         ? new Date(req.query.from)
         : new Date(to.getTime() - maxDays * 24 * 60 * 60 * 1000);
-      applied = 'default';
+      windowApplied = 'default';
 
       if (req.query.from && req.query.to) {
-        const ms = Math.abs(to.getTime() - from.getTime());
-        const days = ms / (24 * 60 * 60 * 1000);
-        if (days > maxDays) {
+        const ms = Math.abs(to - from);
+        if (ms / (24 * 60 * 60 * 1000) > maxDays) {
           return res.status(400).json({
             success: false,
             message: `Requested window exceeds MAX_DAYS_WINDOW=${maxDays} days`,
           });
         }
-        applied = null;
+        windowApplied = null;
       } else if (req.query.from && !req.query.to) {
         const maxTo = new Date(from.getTime() + maxDays * 24 * 60 * 60 * 1000);
-        if (to > maxTo) {
-          applied = 'clamped_to';
-        }
+        if (to > maxTo) windowApplied = 'clamped_to';
       } else if (!req.query.from && req.query.to) {
         const maxFrom = new Date(to.getTime() - maxDays * 24 * 60 * 60 * 1000);
-        if (from < maxFrom) {
-          applied = 'clamped_from';
-        }
+        if (from < maxFrom) windowApplied = 'clamped_from';
       }
     }
 
-    // Whitelist for optional explicit filters
+    // Optional extra filters (whitelisted only)
     const allowed = [
       'status',
       'provider',
@@ -143,26 +125,21 @@ async function listLlmCosts(req, res) {
           Object.entries(parsed).filter(([k]) => allowed.includes(k))
         );
       } catch {
-        return res.status(400).json({ success: false, message: 'Invalid filter JSON' });
+        return res
+          .status(400)
+          .json({ success: false, message: 'Invalid filter JSON' });
       }
     }
 
-    // Strict tenant filter (string based)
+    // Exact tenant filter (string match only, no ObjectId coercion)
     const tenantStr = String(resolvedTenant);
-    const tenantOrs = [
-      { organization_id: tenantStr },
-      { tenant_id: tenantStr },
-      { org_id: tenantStr },
-    ];
+    const tenantOr = [{ organization_id: tenantStr }, { tenant_id: tenantStr }, { org_id: tenantStr }];
+    const ands = [{ $or: tenantOr }];
 
-    const ands = [{ $or: tenantOrs }];
-
-    // add user-provided whitelisted filters
+    // Merge optional filters only if provided
     if (Object.keys(extraFilter).length) {
       ands.push(extraFilter);
     }
-
-    // add date on 'timestamp' ONLY when explicitly provided
     if (from && to) {
       ands.push({ timestamp: { $gte: from, $lte: to } });
     } else if (from && !to) {
@@ -173,7 +150,7 @@ async function listLlmCosts(req, res) {
 
     const filter = { $and: ands };
 
-    // Projection suitable for table
+    // Projection for tabular response
     const projection = {
       request_id: 1,
       session_id: 1,
@@ -194,73 +171,71 @@ async function listLlmCosts(req, res) {
       details: 1,
     };
 
-    // Strongly discourage caches
+    // Prevent caches
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
     try {
       res.set('ETag', '');
-    } catch {}
+    } catch (_) {}
 
-    // Primary: if the app provides a Mongoose model for 'llm-costs' collection
+    // Try Mongoose model first if registered (must map to 'llm-costs' via model config)
     let items = [];
     let total = 0;
     let primaryUsed = false;
     try {
       const LlmCost = req?.app?.locals?.models?.LlmCost || null;
       if (LlmCost) {
-        const cursor = LlmCost.find(filter, projection)
+        items = await LlmCost.find(filter, projection)
           .sort(sort)
           .skip((page - 1) * limit)
           .limit(limit)
           .lean();
-        items = await cursor;
         total = await LlmCost.countDocuments(filter);
         primaryUsed = true;
       }
-    } catch (e) {
-      // intentionally silent; fallback will handle
+    } catch (_) {
+      // Fall through to native
     }
 
-    // Fallback: direct native collection access, explicitly prefer 'llm-costs'
+    // Fallback: Native collection, prioritizing 'llm-costs'
     let fallbackCollection = null;
     if (!primaryUsed) {
       try {
         const db = await getDb();
+        const explicit =
+          (process.env.LLMCOSTS_COLLECTION_NAME ||
+            process.env.LLM_COSTS_COLLECTION_NAME ||
+            '').trim();
+        const candidates = (explicit ? [explicit] : ['llm-costs']).filter(
+          (v, i, a) => v && a.indexOf(v) === i
+        );
 
-        // Default hard preference is 'llm-costs'. If env explicitly sets LLMCOSTS_COLLECTION_NAME, consider that first.
-        const explicit = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION_NAME || '').trim();
-        const candidates = (explicit
-          ? [explicit]
-          : ['llm-costs']
-        ).filter((v, idx, arr) => v && arr.indexOf(v) === idx);
-
-        // First probe with tenant-only filter to ensure correct collection
-        const tenantOnly = { $or: tenantOrs };
+        const tenantOnly = { $or: tenantOr };
 
         for (const name of candidates) {
           try {
             const coll = db.collection(name);
-            const tenantCount = await coll.countDocuments(tenantOnly).catch(() => 0);
-            if (tenantCount === 0) continue;
+            const tenantCount = await coll
+              .countDocuments(tenantOnly)
+              .catch(() => 0);
+            if (!tenantCount) continue;
 
-            const t = await coll.countDocuments(filter).catch(() => 0);
-            const found = await coll
+            total = await coll.countDocuments(filter).catch(() => 0);
+            items = await coll
               .find(filter, { projection })
               .sort(sort)
               .skip((page - 1) * limit)
               .limit(limit)
               .toArray();
 
-            items = Array.isArray(found) ? found : [];
-            total = Number.isFinite(t) ? t : 0;
             fallbackCollection = name;
             break;
-          } catch {
-            continue;
+          } catch (_) {
+            // try next
           }
         }
-      } catch (e) {
-        // ignore; results remain as defaults
+      } catch (_) {
+        // ignore: empty results will be returned
       }
     }
 
@@ -275,9 +250,8 @@ async function listLlmCosts(req, res) {
     if (from || to) {
       res.set('x-llm-window-from', from ? from.toISOString() : '');
       res.set('x-llm-window-to', to ? to.toISOString() : '');
-      res.set('x-llm-window-applied', applied || 'default');
+      res.set('x-llm-window-applied', windowApplied || 'default');
     } else {
-      // Explicitly clear any previous window diagnostics in proxies by setting empty strings
       res.set('x-llm-window-from', '');
       res.set('x-llm-window-to', '');
       res.set('x-llm-window-applied', '');
@@ -287,27 +261,30 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-fallback-collection', fallbackCollection);
     }
 
-    // Response envelope
+    // Envelope response
     return res.json({
       success: true,
-      data: items,
+      data: Array.isArray(items) ? items : [],
       meta: {
         page,
         limit,
-        total,
+        total: Number.isFinite(total) ? total : 0,
         sort: sortStr,
         window: {
           from: from ? from.toISOString() : null,
           to: to ? to.toISOString() : null,
-          applied: from || to ? applied || 'default' : null,
+          applied: from || to ? windowApplied || 'default' : null,
         },
         diagnostics: { headers: req.headers },
+        timings: { parsed_ms: Date.now() - t0 },
       },
     });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('GET /api/llm-costs error', err);
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    return res
+      .status(500)
+      .json({ success: false, message: 'Internal server error' });
   }
 }
 
