@@ -25,6 +25,9 @@ const router = express.Router();
  */
 router.get('/summary', async (req, res) => {
   try {
+    // Minimal logging to confirm the route is hit and params parsed
+    try { console.info('[users.summary] hit', { query: req.query }); } catch {}
+
     let { range = 'daily', start_date, end_date } = req.query || {};
     range = String(range || 'daily').toLowerCase();
     const ALLOWED = new Set(['daily', 'weekly', 'monthly', 'custom']);
@@ -38,7 +41,14 @@ router.get('/summary', async (req, res) => {
       (req.user && (req.user.tenantId || req.user.organization_id || req.user.organizationId)) ||
       null;
 
-    const headerTenant = typeof req.headers['x-organization-id'] === 'string' ? req.headers['x-organization-id'].trim() : '';
+    // Accept multiple header aliases and normalize
+    const headerTenantRaw =
+      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id']) ||
+      (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id']) ||
+      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id']) ||
+      (typeof req.headers['x-tenant'] === 'string' && req.headers['x-tenant']) ||
+      '';
+    const headerTenant = String(headerTenantRaw || '').trim();
     const queryTenant = (req.query.organization_id || req.query.tenant_id || '').toString().trim();
 
     let effectiveTenant = authTenant || headerTenant || queryTenant || '';
@@ -114,7 +124,7 @@ router.get('/summary', async (req, res) => {
       ];
     }
 
-    // Bucketing key
+    // Bucketing key (ensure _id is a STRING; use dateToString/concat)
     let groupIdExpr;
     if (range === 'daily' || range === 'custom') {
       groupIdExpr = { $dateToString: { format: '%Y-%m-%d', date: '$created_at', timezone: 'UTC' } };
@@ -137,7 +147,7 @@ router.get('/summary', async (req, res) => {
       groupIdExpr = { $dateToString: { format: '%Y-%m', date: '$created_at', timezone: 'UTC' } };
     }
 
-    // Use db connection if set on app; else fallback to mongoose model if available
+    // Prefer db handle on app, fallback to mongoose
     const db = req.app.get('db');
     let aggregate;
     if (db && typeof db.collection === 'function') {
@@ -155,7 +165,6 @@ router.get('/summary', async (req, res) => {
           )
           .toArray();
     } else {
-      // Fallback via mongoose model if available within project structure
       try {
         const User = require('../models/user.model');
         aggregate = async () =>
@@ -172,12 +181,15 @@ router.get('/summary', async (req, res) => {
 
     const results = await aggregate();
 
-    // Map to response buckets
+    // Map to response buckets with human-friendly labels (for week/month keep same for now)
     const buckets = results.map((r) => ({
       key: r.key,
       label: r.key,
       count: Number(r.count || 0),
     }));
+
+    // Ascending sort by key (string sort works for YYYY-MM and YYYY-MM-DD; weeks too)
+    buckets.sort((a, b) => (a.key > b.key ? 1 : a.key < b.key ? -1 : 0));
 
     return res.status(200).json({
       buckets,
