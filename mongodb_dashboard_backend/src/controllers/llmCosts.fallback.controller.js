@@ -29,7 +29,7 @@ async function listLlmCosts(req, res) {
       if (headerOrQueryTenant && String(headerOrQueryTenant) !== resolvedTenant) {
         // Disable caching for error as well
         res.set('Cache-Control', 'no-store');
-        res.removeHeader('ETag');
+        try { res.removeHeader('ETag'); } catch (_) {}
         return res.status(403).json({
           success: false,
           data: [],
@@ -43,7 +43,7 @@ async function listLlmCosts(req, res) {
 
     if (!resolvedTenant) {
       res.set('Cache-Control', 'no-store');
-      res.removeHeader('ETag');
+      try { res.removeHeader('ETag'); } catch (_) {}
       return res.status(400).json({
         success: false,
         data: [],
@@ -64,7 +64,7 @@ async function listLlmCosts(req, res) {
       !Number.isFinite(limitRaw) || limitRaw <= 0 ? defaultLimit : limitRaw;
     if (limit > maxLimit) {
       res.set('Cache-Control', 'no-store');
-      res.removeHeader('ETag');
+      try { res.removeHeader('ETag'); } catch (_) {}
       return res
         .status(400)
         .json({ success: false, data: [], meta: { page, limit: 0, total: 0 }, message: `limit must be <= ${maxLimit}` });
@@ -104,7 +104,7 @@ async function listLlmCosts(req, res) {
         const ms = Math.abs(to - from);
         if (ms / (24 * 60 * 60 * 1000) > maxDays) {
           res.set('Cache-Control', 'no-store');
-          res.removeHeader('ETag');
+          try { res.removeHeader('ETag'); } catch (_) {}
           return res.status(400).json({
             success: false,
             data: [],
@@ -141,7 +141,7 @@ async function listLlmCosts(req, res) {
         );
       } catch {
         res.set('Cache-Control', 'no-store');
-        res.removeHeader('ETag');
+        try { res.removeHeader('ETag'); } catch (_) {}
         return res
           .status(400)
           .json({ success: false, data: [], meta: { page, limit, total: 0 }, message: 'Invalid filter JSON' });
@@ -189,11 +189,8 @@ async function listLlmCosts(req, res) {
     };
 
     // Disable caching for this endpoint
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    res.set('Pragma', 'no-cache');
-    try {
-      res.removeHeader('ETag');
-    } catch (_) {}
+    res.set('Cache-Control', 'no-store');
+    try { res.removeHeader('ETag'); } catch (_) {}
 
     // Try Mongoose model first if registered (must map to 'llm-costs' via model config)
     let items = [];
