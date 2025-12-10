@@ -1,5 +1,21 @@
 # Backend
 
+## Root and docs
+
+- Root `/` returns 200 OK with a minimal JSON:
+  {
+    "success": true,
+    "status": "ok",
+    "db": "connected|connecting|disconnected",
+    "docs": "/api-docs",
+    "health": "/api/health",
+    "timestamp": "ISO",
+    "message": "Welcome to the Dashboard API. See /api-docs for the full OpenAPI."
+  }
+- Health endpoints: `/api/health` (also `/health`, `/healthz`, `/ready`, `/live`)
+- Swagger UI: http://localhost:3001/api/docs (aliases: http://localhost:3001/api-docs and http://localhost:3001/docs)
+- OpenAPI JSON: http://localhost:3001/api/docs.json (aliases: http://localhost:3001/openapi.json and http://localhost:3001/api-docs.json)
+
 ## Dev stability flags
 
 - DISABLE_WATCH=1 to avoid file watching in constrained CI/containers.
@@ -25,7 +41,7 @@ DEBUG_LLMCOSTS_EXPLAIN=1 npm run dev
   - Listening on http://HOST:PORT
   Use these to detect readiness in CI/preview runners.
 - Docs (Swagger UI): http://localhost:3001/api/docs (aliases: http://localhost:3001/api-docs and http://localhost:3001/docs)
-- OpenAPI JSON: http://localhost:3001/api/docs.json (aliases: http://localhost:3001/openapi.json and http://localhost:1/api-docs.json)
+- OpenAPI JSON: http://localhost:3001/api/docs.json (aliases: http://localhost:3001/openapi.json and http://localhost:3001/api-docs.json)
 
 No dev proxy/self-proxy
 - This backend is standalone; it does not proxy to itself or to a React dev server. Ensure any frontend proxy is configured to point to this backend URL directly, not vice-versa.

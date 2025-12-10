@@ -1,17 +1,23 @@
-# Overview Module Notes
+# Root endpoint behavior and CORS
 
-The following overview charts and their API endpoints were removed as part of cleanup:
-- Sessions Trend
-- Users over time
-- Overall Features
+- Root path `/` now returns `200 OK` with a lightweight JSON payload:
+  {
+    "success": true,
+    "status": "ok",
+    "db": "connected|connecting|disconnected",
+    "docs": "/api-docs",
+    "health": "/api/health",
+    "timestamp": "ISO string",
+    "message": "Welcome to the Dashboard API. See /api-docs for the full OpenAPI."
+  }
 
-Unrelated analytics remain available, such as:
-- GET /api/analytics/llm-cost-by-agent
-- Dashboard metrics: GET /api/dashboard/overview/metrics
-- LLM Costs listing and hierarchy endpoints
+- Canonical health check is available at `/api/health` (also `/health`, `/healthz`, `/ready`, `/live`).
 
-Important:
-- The backend root path GET / has been explicitly disabled and returns 404. Clients must not call / with organization_id or tenant_id.
-- Use only documented /api/* routes. See Swagger UI at /api-docs or JSON at /api-docs.json.
+- Swagger UI is served at `/api-docs` (and `/docs`, `/api/docs`) with dynamic server URL.
 
-If a future requirement reintroduces any of the above charts, implement them under a new stable contract and update the OpenAPI specification accordingly.
+- CORS:
+  - `/api/*` routes are served with permissive, non-credentialed CORS via `permissiveCorsMiddleware`:
+    - `Access-Control-Allow-Origin: *`
+    - Allowed methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+    - Reflects requested headers or uses a safe default.
+  - If the frontend requires credentialed CORS, configure a separate middleware with explicit allowed origins and credentials.
