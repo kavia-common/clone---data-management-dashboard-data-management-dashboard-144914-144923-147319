@@ -12,7 +12,6 @@ const router = express.Router();
 // Mount the summary sub-router FIRST so /api/users/summary is matched before any dynamic '/:id'
 const usersSummaryRoutes = require('./users.summary');
 router.use('/users', usersSummaryRoutes);
-
 // Mount the main users router AFTER summary so that '/:id' does not capture '/summary'
 try {
   const usersRoutes = require('./users.routes');
