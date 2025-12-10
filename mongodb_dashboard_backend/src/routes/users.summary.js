@@ -14,10 +14,11 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  * - range: 'daily' | 'weekly' | 'monthly' | 'custom' (default: 'daily')
  * - start_date, end_date (YYYY-MM-DD) required when range='custom'
  *
- * Defaults when start/end not provided:
- * - daily: last 30 days
- * - weekly: last 12 weeks
- * - monthly: last 12 months
+ * Date range semantics:
+ * - daily: today only
+ * - weekly: today and previous 6 days (7 days total)
+ * - monthly: today and previous 29 days (30 days total)
+ * - custom: inclusive start_date to end_date (YYYY-MM-DD), grouped by day
  *
  * Returns 200 JSON:
  * {
@@ -29,7 +30,7 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  */
 router.get('/summary', extractOrganization(), async (req, res) => {
   try {
-    let { range = 'daily', start_date, end_date } = req.query || {};
+    let { range = 'daily', start_date, end_date, organization_id, tenant_id } = req.query || {};
     range = String(range || 'daily').toLowerCase();
     const ALLOWED = new Set(['daily', 'weekly', 'monthly', 'custom']);
     if (!ALLOWED.has(range)) {
@@ -47,7 +48,11 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     // - Super admin/global bypass is supported by extractOrganization (req.tenantScopeDisabled/allTenants)
     // - For normal users, extractOrganization ensures req.organizationId is present or 400.
     const isGlobal = !!req.tenantScopeDisabled || !!req.allTenants;
-    const effectiveTenant = req.organizationId || req.tenantId || null;
+    // accept explicit query aliases as fallback if middleware didn't resolve
+    const effectiveTenant = req.organizationId || req.tenantId || organization_id || tenant_id || null;
+    if (!isGlobal && !effectiveTenant) {
+      return res.status(400).json({ message: "Missing organization_id/tenant_id." });
+    }
 
     // Date helpers (UTC)
     const pad = (n) => String(n).padStart(2, '0');
@@ -86,24 +91,17 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         return res.status(400).json({ message: 'start_date must be before or equal to end_date.' });
       }
     } else if (range === 'daily') {
-      // Default to last 30 days ending today
-      const end = endOfUTCDate(today);
-      const start = startOfUTCDate(addDays(today, -29));
-      windowStart = start; windowEnd = end;
+      // today only
+      windowStart = startOfUTCDate(today);
+      windowEnd = endOfUTCDate(today);
     } else if (range === 'weekly') {
-      // Last 12 ISO weeks ending with the current week
-      const dow = today.getUTCDay() || 7; // Monday=1..Sunday=7
-      const currentWeekStart = addDays(today, -(dow - 1)); // Monday
-      const start = startOfUTCDate(addWeeks(currentWeekStart, -11)); // 12 weeks window
-      const end = endOfUTCDate(addDays(currentWeekStart, 6)); // end of current week (Sunday)
-      windowStart = start; windowEnd = end;
+      // today through last 6 days (7-day window), grouped by day
+      windowStart = startOfUTCDate(addDays(today, -6));
+      windowEnd = endOfUTCDate(today);
     } else if (range === 'monthly') {
-      // Last 12 months including this month
-      const currentMonthStart = startOfUTCMonth(today);
-      const start = startOfUTCMonth(addMonths(currentMonthStart, -11));
-      // End is end of current day in current month to avoid needing days-in-month calc
-      const end = endOfUTCDate(today);
-      windowStart = start; windowEnd = end;
+      // today through last 29 days (30-day window), grouped by day
+      windowStart = startOfUTCDate(addDays(today, -29));
+      windowEnd = endOfUTCDate(today);
     }
 
     // Build match with tenant scoping; normalize tenant fields in users collection
@@ -120,17 +118,8 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       ];
     }
 
-    // Bucketing expressions
-    let bucketBoundaryExpr;
-    if (range === 'daily' || range === 'custom') {
-      // Truncate to day
-      bucketBoundaryExpr = { $dateTrunc: { date: '$created_at', unit: 'day', timezone: 'UTC' } };
-    } else if (range === 'weekly') {
-      // Truncate to ISO week
-      bucketBoundaryExpr = { $dateTrunc: { date: '$created_at', unit: 'week', timezone: 'UTC' } };
-    } else if (range === 'monthly') {
-      bucketBoundaryExpr = { $dateTrunc: { date: '$created_at', unit: 'month', timezone: 'UTC' } };
-    }
+    // Bucketing expressions (always day-level to satisfy chart requirement)
+    const bucketBoundaryExpr = { $dateTrunc: { date: '$created_at', unit: 'day', timezone: 'UTC' } };
 
     // Prefer native driver db handle if available
     const db = req.app.get('db');
@@ -154,39 +143,12 @@ router.get('/summary', extractOrganization(), async (req, res) => {
           start: '$_id',
           end: {
             $dateSubtract: {
-              startDate: {
-                $dateAdd: {
-                  startDate: '$_id',
-                  unit: range === 'weekly' ? 'week' : (range === 'monthly' ? 'month' : 'day'),
-                  amount: 1
-                }
-              },
+              startDate: { $dateAdd: { startDate: '$_id', unit: 'day', amount: 1 } },
               unit: 'millisecond',
               amount: 1
             }
           },
-          label: (function () {
-            // Build the label expression without using $let user variables.
-            if (range === 'weekly') {
-              return {
-                $concat: [
-                  { $toString: { $isoWeekYear: '$_id' } },
-                  '-W',
-                  {
-                    $cond: [
-                      { $lt: [{ $isoWeek: '$_id' }, 10] },
-                      { $concat: ['0', { $toString: { $isoWeek: '$_id' } }] },
-                      { $toString: { $isoWeek: '$_id' } }
-                    ]
-                  }
-                ]
-              };
-            } else if (range === 'monthly') {
-              return { $dateToString: { format: '%Y-%m', date: '$_id', timezone: 'UTC' } };
-            }
-            // daily/custom
-            return { $dateToString: { format: '%Y-%m-%d', date: '$_id', timezone: 'UTC' } };
-          })(),
+          label: { $dateToString: { format: '%Y-%m-%d', date: '$_id', timezone: 'UTC' } },
           count: 1
         }
       }
@@ -204,27 +166,13 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     // Build boundary ticks in app to fill gaps
     const ticks = [];
     const pushTick = (d) => ticks.push(new Date(d));
-    if (range === 'daily' || range === 'custom') {
+    {
+      // Always produce contiguous daily ticks from windowStart..windowEnd inclusive
       let d = startOfUTCDate(windowStart);
-      while (d.getTime() <= startOfUTCDate(windowEnd).getTime()) {
+      const endDay = startOfUTCDate(windowEnd);
+      while (d.getTime() <= endDay.getTime()) {
         pushTick(d);
         d = addDays(d, 1);
-      }
-    } else if (range === 'weekly') {
-      // align to Monday
-      const dow = windowStart.getUTCDay() || 7;
-      let d = startOfUTCDate(addDays(windowStart, -(dow - 1)));
-      const endAligned = startOfUTCDate(addDays(windowEnd, 0));
-      while (d.getTime() <= endAligned.getTime()) {
-        pushTick(d);
-        d = addWeeks(d, 1);
-      }
-    } else if (range === 'monthly') {
-      let d = startOfUTCMonth(windowStart);
-      const endMonth = startOfUTCMonth(windowEnd);
-      while (d.getTime() <= endMonth.getTime()) {
-        pushTick(d);
-        d = startOfUTCMonth(addMonths(d, 1));
       }
     }
 
@@ -236,42 +184,18 @@ router.get('/summary', extractOrganization(), async (req, res) => {
 
     const buckets = ticks.map((t) => {
       const start = new Date(t);
-      const unit = range === 'weekly' ? 'week' : (range === 'monthly' ? 'month' : 'day');
-      let end;
-      if (unit === 'day') {
-        end = endOfUTCDate(start);
-      } else if (unit === 'week') {
-        end = endOfUTCDate(addDays(start, 6));
-      } else {
-        // monthly: compute end as one month minus 1ms
-        const next = startOfUTCMonth(addMonths(start, 1));
-        end = new Date(next.getTime() - 1);
-      }
+      const end = endOfUTCDate(start);
       const isoKey = start.toISOString();
       const found = map.get(isoKey);
-      const label =
-        range === 'weekly'
-          ? `${start.getUTCFullYear()}-W${String(getISOWeek(start)).padStart(2, '0')}`
-          : (range === 'monthly' ? `${start.getUTCFullYear()}-${pad(start.getUTCMonth() + 1)}`
-                                 : toYMD(start));
       return {
-        label,
-        count: Number(found?.count || 0),
+        label: toYMD(start),
         start: start.toISOString(),
-        end: end.toISOString()
+        end: end.toISOString(),
+        count: Number(found?.count || 0)
       };
     });
 
-    // helper for ISO week number for labeling
-    function getISOWeek(date) {
-      const tmp = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-      // Thursday in current week decides the year
-      tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
-      // First week of year starts with the week that contains Jan 4th
-      const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
-      const weekNo = Math.ceil(((tmp - yearStart) / 86400000 + 1) / 7);
-      return weekNo;
-    }
+
 
     return res.status(200).json({
       buckets,
