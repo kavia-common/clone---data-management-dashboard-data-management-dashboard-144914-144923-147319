@@ -16,10 +16,12 @@ async function listLlmCosts(req, res) {
   const startParsed = Date.now();
 
   try {
-    // Resolve tenantId: prioritize JWT-derived req.auth.tenantId (if present)
+    // Resolve tenantId: prioritize JWT-derived req.auth.tenantId (if present), else header, then query.
     const jwtTenant = req?.auth?.tenantId;
     const headerTenant =
       req.headers['x-organization-id'] ||
+      req.headers['x-tenant-id'] ||
+      req.headers['x-tenant'] ||
       req.query.organization_id ||
       req.query.tenant_id;
 
@@ -27,6 +29,12 @@ async function listLlmCosts(req, res) {
     if (jwtTenant) {
       resolvedTenant = String(jwtTenant);
       if (headerTenant && String(headerTenant) !== resolvedTenant) {
+        // Log and enforce 403 when a conflicting tenant is provided alongside JWT tenant.
+        if (process.env.NODE_ENV !== 'production') {
+          try {
+            console.info('[llm-costs] JWT tenant mismatch', { jwtTenant, headerTenant });
+          } catch {}
+        }
         return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch with JWT tenant.' });
       }
     } else {
@@ -34,6 +42,11 @@ async function listLlmCosts(req, res) {
     }
 
     if (!resolvedTenant) {
+      if (process.env.NODE_ENV !== 'production') {
+        try {
+          console.info('[llm-costs] missing tenant; require header x-organization-id or ?tenant_id/?organization_id');
+        } catch {}
+      }
       return res.status(400).json({ success: false, message: 'Missing tenant (Authorization with tenant or x-organization-id / ?tenant_id / ?organization_id).' });
     }
 
@@ -45,6 +58,11 @@ async function listLlmCosts(req, res) {
     const limit = !Number.isFinite(limitRaw) || limitRaw <= 0 ? defaultLimit : limitRaw;
     if (limit > maxLimit) {
       return res.status(400).json({ success: false, message: `limit must be <= ${maxLimit}` });
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        console.info('[llm-costs] paging', { page, limit, defaultLimit });
+      } catch {}
     }
 
     // Sort parsing: default '-timestamp' -> { timestamp: -1 }, supports 'field' or '-field'
@@ -82,6 +100,11 @@ async function listLlmCosts(req, res) {
       const maxFrom = new Date(to.getTime() - maxDays * 24 * 60 * 60 * 1000);
       if (from < maxFrom) { applied = 'clamped_from'; }
     }
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        console.info('[llm-costs] effective window', { from: from.toISOString(), to: to.toISOString(), applied, maxDays });
+      } catch {}
+    }
 
     // Whitelist filter fields
     const allowed = ['status', 'provider', 'llm_model', 'user_id', 'session_id', 'project_id', 'request_id'];
@@ -112,6 +135,18 @@ async function listLlmCosts(req, res) {
         Object.keys(extraFilter).length ? extraFilter : null
       ].filter(Boolean)
     };
+
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        console.info('[llm-costs] effective filter', {
+          tenant: resolvedTenant,
+          filter,
+          sort,
+          page,
+          limit,
+        });
+      } catch {}
+    }
 
     // Projection: lean tabular set
     const projection = {
@@ -167,6 +202,7 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-page', String(page));
       res.set('x-llm-limit', String(limit));
       res.set('x-llm-timing-parsed-ms', String(Date.now() - startParsed));
+      res.set('x-llm-timing-built-ms', '0');
       res.set('x-llm-timing-exec-ms', String(primaryTookMs));
       res.set('x-llm-window-from', from.toISOString());
       res.set('x-llm-window-to', to.toISOString());
@@ -253,6 +289,7 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-page', String(page));
       res.set('x-llm-limit', String(limit));
       res.set('x-llm-timing-parsed-ms', String(Date.now() - startParsed));
+      res.set('x-llm-timing-built-ms', '0');
       res.set('x-llm-window-from', from.toISOString());
       res.set('x-llm-window-to', to.toISOString());
       res.set('x-llm-window-applied', applied || 'default');
@@ -287,6 +324,7 @@ async function listLlmCosts(req, res) {
     res.set('x-llm-page', String(page));
     res.set('x-llm-limit', String(limit));
     res.set('x-llm-timing-parsed-ms', String(Date.now() - startParsed));
+    res.set('x-llm-timing-built-ms', '0');
     res.set('x-llm-window-from', from.toISOString());
     res.set('x-llm-window-to', to.toISOString());
     res.set('x-llm-window-applied', applied || 'default');

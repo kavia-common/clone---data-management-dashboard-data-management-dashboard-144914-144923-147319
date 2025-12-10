@@ -11,8 +11,9 @@ const router = express.Router();
  *  - Authorization JWT (preferred; cannot be overridden)
  *  - x-organization-id header
  *  - query ?tenant_id or ?organization_id
- * No unnecessary filters are applied. When no date range is provided, a default MAX_DAYS_WINDOW (90) ending at now is used.
- * Always returns { success, data, meta }.
+ * No hidden filters (e.g., model/project/user) are applied unless explicitly provided via ?filter=.
+ * When no date range is provided, a default MAX_DAYS_WINDOW (90) ending at now is used.
+ * Always returns { success, data, meta } and emits x-llm-* diagnostics headers in dev.
  */
 router.get('/', asyncHandler(listLlmCosts));
 

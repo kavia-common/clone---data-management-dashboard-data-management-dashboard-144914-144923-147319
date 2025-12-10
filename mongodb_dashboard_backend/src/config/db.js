@@ -89,6 +89,9 @@ async function connectDB() {
   });
 
   await mongoose.connect(uri, options);
+  try {
+    console.log('[db] connectDB invoked, readyState=', mongoose.connection.readyState);
+  } catch {}
   return mongoose.connection;
 }
 
