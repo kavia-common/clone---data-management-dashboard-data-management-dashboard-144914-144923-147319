@@ -8,10 +8,10 @@ const { getDb } = require('../config/db');
  * Handler: GET /api/llm-costs
  * Purpose: Return { success, data, meta } with pagination and diagnostics headers and correct tenant filtering.
  * Requirements implemented:
- * 1) Queries the exact deployment via env-driven mongoose connection; database forced to 'test' in config/db.js and collection 'llm-costs' only (fallback will still probe 'llm_costs' if explicitly configured via env, but default is 'llm-costs').
+ * 1) Queries the exact deployment via env-driven mongoose connection; database forced to 'test' in config/db.js and collection 'llm-costs' only.
  * 2) STRICT tenant filter only unless filter explicitly passed: { $or: [ { organization_id:'T0015' }, { tenant_id:'T0015' }, { org_id:'T0015' } ] }
  * 3) No ObjectId coercion for tenant; all string matching.
- * 4) Ensure path is not pointing to different collection: primary model should map to 'llm-costs'; fallback probes 'llm-costs' first then 'llm_costs'.
+ * 4) Ensure path is not pointing to different collection: primary model maps to 'llm-costs'; fallback uses 'llm-costs' only unless explicitly overridden by env.
  * 5) Return { success, data, meta } and include headers: x-llm-filter, x-effective-tenant, x-llm-total-count (plus ancillary diagnostics).
  * 6) Supports GET /api/llm-costs?organization_id=T0015 (non-empty if data is present).
  */
@@ -230,8 +230,8 @@ async function listLlmCosts(req, res) {
         // Default hard preference is 'llm-costs'. If env explicitly sets LLMCOSTS_COLLECTION_NAME, consider that first.
         const explicit = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION_NAME || '').trim();
         const candidates = (explicit
-          ? [explicit, 'llm-costs', 'llm_costs']
-          : ['llm-costs', 'llm_costs']
+          ? [explicit]
+          : ['llm-costs']
         ).filter((v, idx, arr) => v && arr.indexOf(v) === idx);
 
         // First probe with tenant-only filter to ensure correct collection

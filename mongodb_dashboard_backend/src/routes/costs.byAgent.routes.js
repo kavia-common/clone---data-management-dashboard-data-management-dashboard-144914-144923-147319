@@ -150,9 +150,8 @@ router.get(
       { $limit: limit }
     );
 
-    // Resolve collection name: prefer 'llm-costs' then fallback to 'llm_costs'
-    // const collection = await getCollection(['llm-costs', 'llm_costs']);
-     const collection = await getCollection(['llm-costs']);
+    // Resolve collection name: enforce exact collection name 'llm-costs'
+    const collection = await getCollection(['llm-costs']);
     const items = await collection.aggregate(pipeline, { allowDiskUse: true }).toArray();
 
     return res.status(200).json({ items, total: items.length, limit });

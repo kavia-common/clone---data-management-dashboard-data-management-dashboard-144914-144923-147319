@@ -489,7 +489,7 @@ router.get('/verify', asyncHandler(async (req, res) => {
 /**
  * PUBLIC_INTERFACE
  * GET /api/dev/seed-llm-costs
- * When the llm_costs collection is empty, seeds 90 days of entries for at least 3 models.
+ * When the llm-costs collection is empty, seeds 90 days of entries for at least 3 models.
  * Returns: { success, before, inserted, after, sample }
  */
 router.get(

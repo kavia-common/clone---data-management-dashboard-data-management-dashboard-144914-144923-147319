@@ -10,10 +10,11 @@ const mongoose = require('mongoose');
  *
  * Collection mapping:
  * - By default, this model maps to the hyphenated collection name 'llm-costs' to match current deployments (preferred).
- * - For legacy deployments where the collection is named with underscores ('llm_costs'), you can set either:
+ * - Canonical collection name is 'llm-costs'. For legacy deployments that still use underscores ('llm_costs'),
+ *   you may set one of:
  *     process.env.LLMCOSTS_COLLECTION_NAME=llm_costs
- *   or process.env.LLM_COSTS_COLLECTION_NAME=llm_costs
- *   at runtime to switch the model's collection name without code changes.
+ *     process.env.LLM_COSTS_COLLECTION_NAME=llm_costs
+ *   at runtime to temporarily point the model at the legacy collection (migration recommended).
  *
  * Tenant scoping:
  * - Tenant isolation is enforced in controllers/middleware; this model only defines the schema and indexes.

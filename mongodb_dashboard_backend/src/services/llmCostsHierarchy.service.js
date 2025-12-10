@@ -9,7 +9,7 @@ const { getDb } = require('../config/db');
 const { usdToCredits } = require('../utils/credits');
 
 /**
- * Normalize potential field variants present in llm_costs collection.
+ * Normalize potential field variants present in llm-costs collection.
  * We derive:
  * - user_id: user_id | userId | user | user_uuid | user_uuid_str
  * - project_id: project_id | projectId | project | project_code

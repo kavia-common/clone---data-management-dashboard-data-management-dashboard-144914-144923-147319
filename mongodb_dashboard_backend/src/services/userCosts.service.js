@@ -4,7 +4,7 @@ const LLMCost = require('../models/llmCosts.model');
 /**
  * PUBLIC_INTERFACE
  * getUserCosts
- * Aggregates total cost for a user from llm_costs with breakdowns by agent_name and type (if present).
+ * Aggregates total cost for a user from llm-costs with breakdowns by agent_name and type (if present).
  *
  * Note: The llm_costs schema is permissive. We project possible alias fields into normalized keys:
  * - agent_name: from agent_name | agent | metadata.agent_name

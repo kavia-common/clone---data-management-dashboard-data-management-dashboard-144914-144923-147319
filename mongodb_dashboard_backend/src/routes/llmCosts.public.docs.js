@@ -4,7 +4,7 @@
  *   get:
  *     summary: List all LLM cost records
  *     description: >
- *       Returns all documents from the llm_costs collection for the resolved tenant.
+ *       Returns all documents from the llm-costs collection for the resolved tenant.
  *       If explicit pagination (page/limit) is provided, response is wrapped with { success, data, meta }.
  *       Otherwise a raw array is returned. All fields present in the database are returned (no projection).
  *       Tenant scoping is enforced from the required header `x-organization-id`. Query aliases (?tenant_id or ?organization_id) are optional and ignored when the header is present.
