@@ -45,7 +45,8 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  // Force database selection as 'test' per deployment alignment unless explicitly overridden
+  // Force database selection as 'test' for this service per requirements
+  // Note: We intentionally do not read MONGODB_DB here to avoid accidental drift.
   const dbName = 'test';
 
   const options = {

@@ -27,8 +27,13 @@ async function listLlmCosts(req, res) {
     if (jwtTenant) {
       resolvedTenant = String(jwtTenant);
       if (headerOrQueryTenant && String(headerOrQueryTenant) !== resolvedTenant) {
+        // Disable caching for error as well
+        res.set('Cache-Control', 'no-store');
+        res.removeHeader('ETag');
         return res.status(403).json({
           success: false,
+          data: [],
+          meta: { page: 1, limit: 0, total: 0 },
           message: 'Forbidden: tenant scope mismatch with JWT tenant',
         });
       }
@@ -37,8 +42,12 @@ async function listLlmCosts(req, res) {
     }
 
     if (!resolvedTenant) {
+      res.set('Cache-Control', 'no-store');
+      res.removeHeader('ETag');
       return res.status(400).json({
         success: false,
+        data: [],
+        meta: { page: 1, limit: 0, total: 0 },
         message:
           'Missing tenant. Provide Authorization with tenant, x-organization-id header, or ?tenant_id / ?organization_id query',
       });
@@ -54,9 +63,11 @@ async function listLlmCosts(req, res) {
     const limit =
       !Number.isFinite(limitRaw) || limitRaw <= 0 ? defaultLimit : limitRaw;
     if (limit > maxLimit) {
+      res.set('Cache-Control', 'no-store');
+      res.removeHeader('ETag');
       return res
         .status(400)
-        .json({ success: false, message: `limit must be <= ${maxLimit}` });
+        .json({ success: false, data: [], meta: { page, limit: 0, total: 0 }, message: `limit must be <= ${maxLimit}` });
     }
 
     // Sort: respect provided sort; default to -timestamp. No hidden sort overrides.
@@ -92,8 +103,12 @@ async function listLlmCosts(req, res) {
       if (req.query.from && req.query.to) {
         const ms = Math.abs(to - from);
         if (ms / (24 * 60 * 60 * 1000) > maxDays) {
+          res.set('Cache-Control', 'no-store');
+          res.removeHeader('ETag');
           return res.status(400).json({
             success: false,
+            data: [],
+            meta: { page, limit, total: 0 },
             message: `Requested window exceeds MAX_DAYS_WINDOW=${maxDays} days`,
           });
         }
@@ -125,9 +140,11 @@ async function listLlmCosts(req, res) {
           Object.entries(parsed).filter(([k]) => allowed.includes(k))
         );
       } catch {
+        res.set('Cache-Control', 'no-store');
+        res.removeHeader('ETag');
         return res
           .status(400)
-          .json({ success: false, message: 'Invalid filter JSON' });
+          .json({ success: false, data: [], meta: { page, limit, total: 0 }, message: 'Invalid filter JSON' });
       }
     }
 
@@ -171,11 +188,11 @@ async function listLlmCosts(req, res) {
       details: 1,
     };
 
-    // Prevent caches
+    // Disable caching for this endpoint
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.set('Pragma', 'no-cache');
     try {
-      res.set('ETag', '');
+      res.removeHeader('ETag');
     } catch (_) {}
 
     // Try Mongoose model first if registered (must map to 'llm-costs' via model config)
@@ -239,14 +256,16 @@ async function listLlmCosts(req, res) {
       }
     }
 
-    // Diagnostics headers
+    // Diagnostics headers (required)
     res.set('x-effective-tenant', tenantStr);
     res.set('x-llm-filter', JSON.stringify(filter));
+    res.set('x-llm-total-count', String(total));
+
+    // Optional extra diagnostics for parity with docs
     res.set('x-llm-projection', JSON.stringify(projection));
     res.set('x-llm-sort', JSON.stringify(sort));
     res.set('x-llm-page', String(page));
     res.set('x-llm-limit', String(limit));
-    res.set('x-llm-total-count', String(total));
     if (from || to) {
       res.set('x-llm-window-from', from ? from.toISOString() : '');
       res.set('x-llm-window-to', to ? to.toISOString() : '');
@@ -264,7 +283,7 @@ async function listLlmCosts(req, res) {
     // Envelope response
     return res.json({
       success: true,
-      data: Array.isArray(items) ? items : [],
+      data: Array.isArray(items) && items.length ? items : [],
       meta: {
         page,
         limit,
@@ -282,9 +301,11 @@ async function listLlmCosts(req, res) {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('GET /api/llm-costs error', err);
+    res.set('Cache-Control', 'no-store');
+    res.removeHeader('ETag');
     return res
       .status(500)
-      .json({ success: false, message: 'Internal server error' });
+      .json({ success: false, data: [], meta: { page: 1, limit: 0, total: 0 }, message: 'Internal server error' });
   }
 }
 

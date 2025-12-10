@@ -12,6 +12,14 @@ const { listLlmCosts } = require('../controllers/llmCosts.fallback.controller');
  */
 const router = express.Router();
 
+// Disable caching explicitly at route level to prevent proxies from caching
+router.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  try { res.removeHeader('ETag'); } catch (_){}
+  next();
+});
+
 // GET /api/llm-costs
 router.get('/', asyncHandler(listLlmCosts));
 
