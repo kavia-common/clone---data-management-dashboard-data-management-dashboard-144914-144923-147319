@@ -27,6 +27,7 @@ router.get('/summary', async (req, res) => {
   try {
     // Minimal logging to confirm the route is hit and params parsed
     try {
+      // eslint-disable-next-line no-console
       console.info('[users.summary] handler-enter', {
         method: req.method,
         originalUrl: req.originalUrl,

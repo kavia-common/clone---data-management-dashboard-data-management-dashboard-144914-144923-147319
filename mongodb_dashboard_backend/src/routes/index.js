@@ -2,6 +2,13 @@ const express = require('express');
 const mongoose = require('mongoose');
 const router = express.Router();
 
+/**
+ * PUBLIC_INTERFACE
+ * Users routes mounting
+ * Summary sub-router is mounted BEFORE the main users router so that the static path
+ * '/summary' resolves correctly and is not captured by the dynamic '/:id' route.
+ * Do not remount '/api/users' elsewhere (e.g., in app.js) to preserve this order.
+ */
 // Mount the summary sub-router FIRST so /api/users/summary is matched before any dynamic '/:id'
 const usersSummaryRoutes = require('./users.summary');
 router.use('/users', usersSummaryRoutes);
