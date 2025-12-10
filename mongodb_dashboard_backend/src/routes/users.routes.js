@@ -507,9 +507,33 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
  * IMPORTANT: Keep static subpaths (e.g., '/summary' mounted via users.summary.js) registered BEFORE this dynamic ':id'
  * to avoid collisions such as '/api/users/summary' being treated as ':id'.
  */
-router.get('/:id', controller.getById);
+/**
+ * Guard: validate MongoDB ObjectId to avoid casting errors when static paths like 'summary' slip through.
+ * Returns 404 when id is not a valid ObjectId, preventing CastError.
+ */
+router.get('/:id', (req, res, next) => {
+  const id = req.params.id;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    // Treat invalid ids as not found to avoid leaking internal errors and to prevent casting attempts.
+    return res.status(404).json({ success: false, message: 'Not found' });
+  }
+  return controller.getById(req, res, next);
+});
+
 router.post('/', controller.create);
-router.put('/:id', controller.update);
-router.delete('/:id', controller.remove);
+router.put('/:id', (req, res, next) => {
+  const id = req.params.id;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ success: false, message: 'Invalid id' });
+  }
+  return controller.update(req, res, next);
+});
+router.delete('/:id', (req, res, next) => {
+  const id = req.params.id;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ success: false, message: 'Invalid id' });
+  }
+  return controller.remove(req, res, next);
+});
 
 module.exports = router;

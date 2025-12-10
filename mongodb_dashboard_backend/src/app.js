@@ -130,9 +130,9 @@ const baseRouter = require('./routes');
 safeUse('/', baseRouter);
  
 safeUse('/api/dev', require('./routes/dev.routes'));
-safeUse('/api/users', require('./routes/users.routes'));
-// Removed legacy users.analytics.summary.routes mount to avoid referencing deleted controller.
-// The canonical /api/users/tenant-summary is implemented in routes/users.routes.js.
+// Do NOT mount '/api/users' here; baseRouter ('/'), via src/routes/index.js, already mounts
+// users.summary before users.routes to ensure '/summary' resolves prior to '/:id'.
+// Mounting again here could change precedence or duplicate handlers.
  
 // ---------------------------------------------
 // Protected routes (with auth + tenant)

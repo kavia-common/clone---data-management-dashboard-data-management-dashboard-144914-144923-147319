@@ -26,7 +26,15 @@ const router = express.Router();
 router.get('/summary', async (req, res) => {
   try {
     // Minimal logging to confirm the route is hit and params parsed
-    try { console.info('[users.summary] hit', { path: req.originalUrl, query: req.query }); } catch {}
+    try {
+      console.info('[users.summary] handler-enter', {
+        method: req.method,
+        originalUrl: req.originalUrl,
+        baseUrl: req.baseUrl,
+        path: req.path,
+        query: req.query
+      });
+    } catch {}
 
     let { range = 'daily', start_date, end_date } = req.query || {};
     range = String(range || 'daily').toLowerCase();
