@@ -45,7 +45,8 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'test'; // Optional; if not set, Mongo will use the URI/path default
+  // Force database selection as 'test' per deployment alignment unless explicitly overridden
+  const dbName = 'test';
 
   const options = {
     autoIndex,

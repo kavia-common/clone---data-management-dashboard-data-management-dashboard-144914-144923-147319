@@ -14,7 +14,8 @@ const app = express();
 // Mount public LLM costs routes (header/query-based tenant allowed without JWT)
 try {
   const llmCostsPublicRoutes = require('./routes/llmCosts.public.routes');
-  // Place before other '/api/llm-costs' protected mounts so this path is reachable without JWT in dev/demo
+  // Place before other '/api/llm-costs' protected mounts so this path is reachable without JWT in dev/demo.
+  // This handler enforces strict tenant filter and targets collection 'llm-costs' on DB 'test'.
   app.use('/api/llm-costs', llmCostsPublicRoutes);
 } catch (e) {
   // eslint-disable-next-line no-console
