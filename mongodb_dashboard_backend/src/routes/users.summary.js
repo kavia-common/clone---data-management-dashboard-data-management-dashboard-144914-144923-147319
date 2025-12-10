@@ -44,12 +44,13 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       res.setHeader('x-users-summary-note', 'start_date/end_date ignored unless range=custom');
     }
 
-    // Determine effective tenant:
-    // - Super admin/global bypass is supported by extractOrganization (req.tenantScopeDisabled/allTenants)
-    // - For normal users, extractOrganization ensures req.organizationId is present or 400.
+    // Determine effective tenant and global aggregation flag
     const isGlobal = !!req.tenantScopeDisabled || !!req.allTenants;
-    // accept explicit query aliases as fallback if middleware didn't resolve
     const effectiveTenant = req.organizationId || req.tenantId || organization_id || tenant_id || null;
+
+    // Special organization_id=T0000 triggers all-org aggregation (without requiring super admin)
+    const isT0000 = String(effectiveTenant || '').trim().toUpperCase() === 'T0000';
+
     if (!isGlobal && !effectiveTenant) {
       return res.status(400).json({ message: "Missing organization_id/tenant_id." });
     }
@@ -59,18 +60,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     const toYMD = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const startOfUTCDate = (d) => new Date(`${toYMD(d)}T00:00:00.000Z`);
     const endOfUTCDate = (d) => new Date(`${toYMD(d)}T23:59:59.999Z`);
-    const startOfUTCMonth = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
-    const addDays = (d, days) => {
-      const out = new Date(d);
-      out.setUTCDate(out.getUTCDate() + days);
-      return out;
-    };
-    const addWeeks = (d, weeks) => addDays(d, weeks * 7);
-    const addMonths = (d, months) => {
-      const out = new Date(d);
-      out.setUTCMonth(out.getUTCMonth() + months);
-      return out;
-    };
+    const addDays = (d, days) => { const out = new Date(d); out.setUTCDate(out.getUTCDate() + days); return out; };
 
     const today = startOfUTCDate(new Date());
     let windowStart;
@@ -91,23 +81,21 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         return res.status(400).json({ message: 'start_date must be before or equal to end_date.' });
       }
     } else if (range === 'daily') {
-      // today only
       windowStart = startOfUTCDate(today);
       windowEnd = endOfUTCDate(today);
     } else if (range === 'weekly') {
-      // today through last 6 days (7-day window), grouped by day
       windowStart = startOfUTCDate(addDays(today, -6));
       windowEnd = endOfUTCDate(today);
     } else if (range === 'monthly') {
-      // today through last 29 days (30-day window), grouped by day
       windowStart = startOfUTCDate(addDays(today, -29));
       windowEnd = endOfUTCDate(today);
     }
 
-    // Build match with tenant scoping; normalize tenant fields in users collection
     const createdAtFilter = { $gte: windowStart, $lte: windowEnd };
     const match = { created_at: createdAtFilter };
-    if (!isGlobal && effectiveTenant) {
+
+    // For normal orgs → apply tenant filter; For T0000 or super-admin global → no tenant filter
+    if (!isGlobal && !isT0000 && effectiveTenant) {
       match.$or = [
         { tenant_id: effectiveTenant },
         { organization_id: effectiveTenant },
@@ -118,24 +106,17 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       ];
     }
 
-    // Bucketing expressions (always day-level to satisfy chart requirement)
+    // Bucketing expressions (always day-level)
     const bucketBoundaryExpr = { $dateTrunc: { date: '$created_at', unit: 'day', timezone: 'UTC' } };
 
     // Prefer native driver db handle if available
     const db = req.app.get('db');
-    const pipeline = [
+
+    // Base pipeline for bucketed counts
+    const basePipeline = [
       { $match: match },
-      {
-        $set: {
-          _bucketStart: bucketBoundaryExpr
-        }
-      },
-      {
-        $group: {
-          _id: '$_bucketStart',
-          count: { $sum: 1 }
-        }
-      },
+      { $set: { _bucketStart: bucketBoundaryExpr } },
+      { $group: { _id: '$_bucketStart', count: { $sum: 1 } } },
       { $sort: { _id: 1 } },
       {
         $project: {
@@ -154,30 +135,46 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       }
     ];
 
-    let results;
+    // Optional per-organization breakdown when all-org view is active (T0000)
+    const perOrgPipeline = [
+      { $match: match },
+      { $set: { _bucketStart: bucketBoundaryExpr } },
+      {
+        $group: {
+          _id: { bucket: '$_bucketStart', org: { $ifNull: ['$tenant_id', { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', '$tenantId'] }] }] } },
+          count: { $sum: 1 },
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          bucket: '$_id.bucket',
+          org: { $ifNull: ['$_id.org', 'unknown'] },
+          count: 1
+        }
+      },
+      { $sort: { bucket: 1, org: 1 } }
+    ];
+
+    // Execute aggregations
+    let bucketResults;
     if (db && typeof db.collection === 'function') {
-      results = await db.collection('users').aggregate(pipeline, { allowDiskUse: true }).toArray();
+      bucketResults = await db.collection('users').aggregate(basePipeline, { allowDiskUse: true }).toArray();
     } else {
-      // use mongoose aggregation
-      results = await User.aggregate(pipeline).allowDiskUse(true);
+      bucketResults = await User.aggregate(basePipeline).allowDiskUse(true);
     }
 
-    // Ensure coverage for empty intervals: generate bins with zero counts
-    // Build boundary ticks in app to fill gaps
+    // Ensure contiguous buckets with zero fill
     const ticks = [];
-    const pushTick = (d) => ticks.push(new Date(d));
-    {
-      // Always produce contiguous daily ticks from windowStart..windowEnd inclusive
-      let d = startOfUTCDate(windowStart);
-      const endDay = startOfUTCDate(windowEnd);
-      while (d.getTime() <= endDay.getTime()) {
-        pushTick(d);
-        d = addDays(d, 1);
-      }
+    let d = startOfUTCDate(windowStart);
+    const endDay = startOfUTCDate(windowEnd);
+    while (d.getTime() <= endDay.getTime()) {
+      ticks.push(new Date(d));
+      d = addDays(d, 1);
     }
 
     const map = new Map();
-    for (const r of results) {
+    for (const r of bucketResults) {
       const key = (new Date(r.start)).toISOString();
       map.set(key, r);
     }
@@ -195,14 +192,62 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       };
     });
 
+    // If T0000, also compute per-organization series for UI when needed
+    let orgBuckets = undefined;
+    if (isT0000) {
+      let perOrgRaw;
+      if (db && typeof db.collection === 'function') {
+        perOrgRaw = await db.collection('users').aggregate(perOrgPipeline, { allowDiskUse: true }).toArray();
+      } else {
+        perOrgRaw = await User.aggregate(perOrgPipeline).allowDiskUse(true);
+      }
 
+      // Group by org with per-day buckets; also compute org-level totals for convenience
+      const orgMap = new Map(); // org -> Map(dateLabel -> count)
+      const orgTotals = new Map(); // org -> total count
+      for (const row of perOrgRaw) {
+        const dateLabel = typeof row.bucket === 'string'
+          ? row.bucket
+          : new Date(row.bucket).toISOString().slice(0, 10);
+        const org = String(row.org || 'unknown');
+        const c = Number(row.count || 0);
+        if (!orgMap.has(org)) orgMap.set(org, new Map());
+        orgMap.get(org).set(dateLabel, (orgMap.get(org).get(dateLabel) || 0) + c);
+        orgTotals.set(org, (orgTotals.get(org) || 0) + c);
+      }
 
-    return res.status(200).json({
+      // For each org, produce a daily array aligned to ticks
+      orgBuckets = Array.from(orgMap.entries()).map(([org, dateMap]) => {
+        const series = ticks.map((t) => {
+          const lbl = toYMD(t);
+          return { label: lbl, count: Number(dateMap.get(lbl) || 0) };
+        });
+        return {
+          organization_id: org,
+          total: Number(orgTotals.get(org) || 0),
+          buckets: series
+        };
+      });
+
+      // Sort orgs descending by total for deterministic rendering
+      orgBuckets.sort((a, b) => b.total - a.total);
+
+      // Add response hint header
+      try { res.setHeader('x-users-summary-org-buckets', String(orgBuckets.length)); } catch {}
+    }
+
+    const response = {
       buckets,
       range,
       start_date: toYMD(windowStart),
-      end_date: toYMD(windowEnd)
-    });
+      end_date: toYMD(windowEnd),
+    };
+    if (isT0000) {
+      response.orgBuckets = orgBuckets || [];
+      try { res.setHeader('x-users-summary-mode', 'all_orgs'); } catch {}
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[users.summary] error:', err);
