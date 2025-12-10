@@ -503,6 +503,10 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
   }
 }));
 
+/**
+ * IMPORTANT: Keep static subpaths (e.g., '/summary' mounted via users.summary.js) registered BEFORE this dynamic ':id'
+ * to avoid collisions such as '/api/users/summary' being treated as ':id'.
+ */
 router.get('/:id', controller.getById);
 router.post('/', controller.create);
 router.put('/:id', controller.update);
