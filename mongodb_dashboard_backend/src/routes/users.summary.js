@@ -4,10 +4,15 @@ const mongoose = require('mongoose');
 const User = require('../models/user.model');
 const { extractOrganization } = require('../middleware/extractOrganization');
 
-// PUBLIC_INTERFACE
+ // PUBLIC_INTERFACE
 /**
  * GET /api/users/summary
  * Users created summary grouped by time buckets with tenant scoping.
+ *
+ * Special case:
+ * - When organization_id === 'T0000' (case-insensitive), return an all-organizations view:
+ *   - buckets: daily totals across ALL orgs
+ *   - orgBuckets: array per organization_id with aligned daily counts for stacked charting
  *
  * Query params:
  * - organization_id (alias tenant_id): required unless super-admin/global bypass is active
@@ -23,6 +28,11 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  * Returns 200 JSON:
  * {
  *   buckets: [{ label, count, start, end }],
+ *   orgBuckets?: [{
+ *     organization_id: string,
+ *     total: number,
+ *     buckets: [{ label: string, count: number }]
+ *   }],
  *   range,
  *   start_date,
  *   end_date
