@@ -24,6 +24,16 @@ router.use(requireTenant, tenantScopeEnforcer());
 router.get(
   '/',
   asyncHandler(async (req, res) => {
+    // Enforce a safe default pagination to avoid returning massive payload when client forgets params.
+    // Defaults can be overridden by query ?page and ?limit.
+    const q = req.query || {};
+    if (!q.page && !q.limit) {
+      req.query.page = '1';
+      // Respect DEFAULT_PAGE_LIMIT if set; else use 20
+      const def = parseInt(process.env.DEFAULT_PAGE_LIMIT || '20', 10);
+      req.query.limit = String(Number.isFinite(def) ? Math.max(1, Math.min(def, 200)) : 20);
+    }
+
     // Clear client-provided filter to avoid tenant bypass; CRUD will merge with enforced tenant anyway
     const rawFilter = req.query.filter;
     // Allow non-tenant filters but remove client-tenant keys if present

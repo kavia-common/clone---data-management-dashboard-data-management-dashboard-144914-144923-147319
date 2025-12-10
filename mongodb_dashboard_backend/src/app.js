@@ -11,6 +11,16 @@ const compression = require('compression');
 
 const app = express();
 
+// Mount public LLM costs routes (header/query-based tenant allowed without JWT)
+try {
+  const llmCostsPublicRoutes = require('./routes/llmCosts.public.routes');
+  // Place before other '/api/llm-costs' protected mounts so this path is reachable without JWT in dev/demo
+  app.use('/api/llm-costs', llmCostsPublicRoutes);
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.warn('[startup] llmCosts.public.routes not available:', e?.message || e);
+}
+
 // ---------------------------------------------
 // Middleware
 // ---------------------------------------------
@@ -177,7 +187,11 @@ safeUse('/api/analytics', require('./routes/analytics'));
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
-safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
+/**
+ * Note: The public llm-costs list is already mounted above to allow header/query tenant when JWT is absent.
+ * Avoid re-mounting the protected version to prevent duplicate handlers.
+ */
+// safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
