@@ -93,7 +93,7 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
       last_activity: g.last_activity ? new Date(g.last_activity).toISOString() : undefined,
     }));
   // If no projects, return an empty array (not null/undefined) to guarantee stable client behavior.
-   console.log("DATA--------------->",projects)
+   // console.debug('[users.service] projects output sample:', projects.slice(0, 2));
   return {
     user_id: userIdString,
     tenant_id: tenantId,

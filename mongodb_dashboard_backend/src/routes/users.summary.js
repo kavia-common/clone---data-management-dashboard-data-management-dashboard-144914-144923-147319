@@ -33,7 +33,14 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     range = String(range || 'daily').toLowerCase();
     const ALLOWED = new Set(['daily', 'weekly', 'monthly', 'custom']);
     if (!ALLOWED.has(range)) {
-      return res.status(400).json({ message: "Invalid 'range'. Use daily|weekly|monthly|custom." });
+      return res.status(400).json({
+        message: "Invalid 'range'. Allowed values: daily|weekly|monthly|custom.",
+        hint: "For range=custom, provide start_date and end_date in YYYY-MM-DD."
+      });
+    }
+    if (range !== 'custom' && (start_date || end_date)) {
+      // If user passes dates with non-custom, we allow but ignore; add header note for transparency
+      res.setHeader('x-users-summary-note', 'start_date/end_date ignored unless range=custom');
     }
 
     // Determine effective tenant:
@@ -115,31 +122,14 @@ router.get('/summary', extractOrganization(), async (req, res) => {
 
     // Bucketing expressions
     let bucketBoundaryExpr;
-    let labelProject;
     if (range === 'daily' || range === 'custom') {
       // Truncate to day
       bucketBoundaryExpr = { $dateTrunc: { date: '$created_at', unit: 'day', timezone: 'UTC' } };
-      labelProject = { $dateToString: { format: '%Y-%m-%d', date: '$$BOUNDARY', timezone: 'UTC' } };
     } else if (range === 'weekly') {
       // Truncate to ISO week
-      // $dateTrunc unit: 'week' uses ISO 8601 weeks since MongoDB 5.0+; timezone UTC
       bucketBoundaryExpr = { $dateTrunc: { date: '$created_at', unit: 'week', timezone: 'UTC' } };
-      labelProject = {
-        // label as YYYY-WW (ISO)
-        $concat: [
-          { $toString: { $isoWeekYear: '$$BOUNDARY' } },
-          '-W',
-          {
-            $let: {
-              vars: { w: { $isoWeek: '$$BOUNDARY' } },
-              in: { $cond: [{ $lt: ['$$w', 10] }, { $concat: ['0', { $toString: '$$w' }] }, { $toString: '$$w' }] }
-            }
-          }
-        ]
-      };
     } else if (range === 'monthly') {
       bucketBoundaryExpr = { $dateTrunc: { date: '$created_at', unit: 'month', timezone: 'UTC' } };
-      labelProject = { $dateToString: { format: '%Y-%m', date: '$$BOUNDARY', timezone: 'UTC' } };
     }
 
     // Prefer native driver db handle if available
@@ -175,12 +165,28 @@ router.get('/summary', extractOrganization(), async (req, res) => {
               amount: 1
             }
           },
-          label: {
-            $let: {
-              vars: { BOUNDARY: '$_id' },
-              in: labelProject
+          label: (function () {
+            // Build the label expression without using $let user variables.
+            if (range === 'weekly') {
+              return {
+                $concat: [
+                  { $toString: { $isoWeekYear: '$_id' } },
+                  '-W',
+                  {
+                    $cond: [
+                      { $lt: [{ $isoWeek: '$_id' }, 10] },
+                      { $concat: ['0', { $toString: { $isoWeek: '$_id' } }] },
+                      { $toString: { $isoWeek: '$_id' } }
+                    ]
+                  }
+                ]
+              };
+            } else if (range === 'monthly') {
+              return { $dateToString: { format: '%Y-%m', date: '$_id', timezone: 'UTC' } };
             }
-          },
+            // daily/custom
+            return { $dateToString: { format: '%Y-%m-%d', date: '$_id', timezone: 'UTC' } };
+          })(),
           count: 1
         }
       }
