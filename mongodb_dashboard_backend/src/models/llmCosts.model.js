@@ -9,9 +9,10 @@ const mongoose = require('mongoose');
  * - The schema is permissive to accommodate varied records from different providers/agents.
  *
  * Collection mapping:
- * - By default, this model maps to the hyphenated collection name 'llm-costs' to match current deployments.
- * - For legacy deployments where the collection is named with underscores ('llm_costs'), you can set:
+ * - By default, this model maps to the hyphenated collection name 'llm-costs' to match current deployments (preferred).
+ * - For legacy deployments where the collection is named with underscores ('llm_costs'), you can set either:
  *     process.env.LLMCOSTS_COLLECTION_NAME=llm_costs
+ *   or process.env.LLM_COSTS_COLLECTION_NAME=llm_costs
  *   at runtime to switch the model's collection name without code changes.
  *
  * Tenant scoping:

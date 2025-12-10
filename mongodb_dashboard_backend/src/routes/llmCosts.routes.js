@@ -93,7 +93,7 @@ router.use(requireTenant, tenantScopeEnforcer());
  *       400:
  *         description: Missing tenant (x-organization-id) or invalid filter
  */
-router.get('/', asyncHandler(listLlmCosts));
+router.get('/', asyncHandler(listLlmCosts)); // In app.js, the public list is mounted first for demo/non-JWT; this remains compatible.
 
 /**
  * @swagger

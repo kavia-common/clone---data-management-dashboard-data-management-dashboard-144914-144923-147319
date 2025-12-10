@@ -8,7 +8,7 @@ const { getDb } = require('../config/db');
  * Handler: GET /api/llm-costs
  * Purpose: Return { success, data, meta } with pagination and diagnostics headers and correct tenant filtering.
  * Requirements implemented:
- * 1) Queries the exact deployment via env-driven mongoose connection; database forced to 'test' in config/db.js and collection 'llm-costs' (fallback also probes 'llm_costs' but prefers 'llm-costs').
+ * 1) Queries the exact deployment via env-driven mongoose connection; database forced to 'test' in config/db.js and collection 'llm-costs' only (fallback will still probe 'llm_costs' if explicitly configured via env, but default is 'llm-costs').
  * 2) STRICT tenant filter only unless filter explicitly passed: { $or: [ { organization_id:'T0015' }, { tenant_id:'T0015' }, { org_id:'T0015' } ] }
  * 3) No ObjectId coercion for tenant; all string matching.
  * 4) Ensure path is not pointing to different collection: primary model should map to 'llm-costs'; fallback probes 'llm-costs' first then 'llm_costs'.
@@ -221,15 +221,18 @@ async function listLlmCosts(req, res) {
       // intentionally silent; fallback will handle
     }
 
-    // Fallback: direct native collection access, prefer 'llm-costs' then 'llm_costs'
+    // Fallback: direct native collection access, explicitly prefer 'llm-costs'
     let fallbackCollection = null;
     if (!primaryUsed) {
       try {
         const db = await getDb();
-        const candidates = [
-          process.env.LLMCOSTS_COLLECTION_NAME || 'llm-costs',
-          'llm_costs',
-        ].filter((v, idx, arr) => arr.indexOf(v) === idx);
+
+        // Default hard preference is 'llm-costs'. If env explicitly sets LLMCOSTS_COLLECTION_NAME, consider that first.
+        const explicit = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION_NAME || '').trim();
+        const candidates = (explicit
+          ? [explicit, 'llm-costs', 'llm_costs']
+          : ['llm-costs', 'llm_costs']
+        ).filter((v, idx, arr) => v && arr.indexOf(v) === idx);
 
         // First probe with tenant-only filter to ensure correct collection
         const tenantOnly = { $or: tenantOrs };
@@ -248,8 +251,8 @@ async function listLlmCosts(req, res) {
               .limit(limit)
               .toArray();
 
-            items = found || [];
-            total = t || 0;
+            items = Array.isArray(found) ? found : [];
+            total = Number.isFinite(t) ? t : 0;
             fallbackCollection = name;
             break;
           } catch {
@@ -273,6 +276,11 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-window-from', from ? from.toISOString() : '');
       res.set('x-llm-window-to', to ? to.toISOString() : '');
       res.set('x-llm-window-applied', applied || 'default');
+    } else {
+      // Explicitly clear any previous window diagnostics in proxies by setting empty strings
+      res.set('x-llm-window-from', '');
+      res.set('x-llm-window-to', '');
+      res.set('x-llm-window-applied', '');
     }
     if (fallbackCollection) {
       res.set('x-llm-fallback', 'native');
