@@ -2,7 +2,20 @@
 
 const { getDb } = require('../config/db');
 
-// PUBLIC_INTERFACE
+/* PUBLIC_INTERFACE */
+/**
+ * listLlmCosts
+ * Handler: GET /api/llm-costs
+ * Purpose: Return { success, data, meta } with pagination, diagnostics headers and correct tenant filtering.
+ * Tenant filter is built as:
+ *   { $or: [{ organization_id: tid }, { org_id: tid }, { tenant_id: tid }, { tenantId: tid }, { organizationId: tid }, { 'tenant.tenant_id': tid }, { 'details.tenant_id': tid }, { 'metadata.tenant_id': tid }] }
+ * Notes:
+ * - organization_id is treated as string; never coerced to ObjectId.
+ * - No default date window is applied; timestamp range is added only when from/to provided.
+ * - Primary path uses the Mongoose model for the collection; fallback probes native collection names.
+ * Diagnostics headers:
+ *   - x-effective-tenant, x-llm-filter, x-llm-total-count, x-llm-projection, x-llm-sort, x-llm-page, x-llm-limit
+ */
 async function listLlmCosts(req, res) {
   /**
    * Handler: GET /api/llm-costs
@@ -254,7 +267,10 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-limit', String(limit));
       res.set('x-llm-timing-parsed-ms', String(Date.now() - startParsed));
       res.set('x-llm-timing-built-ms', '0');
+    res.set('x-llm-total-count', '0');
+      res.set('x-llm-total-count', String(fallbackTotal));
       res.set('x-llm-timing-exec-ms', String(primaryTookMs));
+      res.set('x-llm-total-count', String(primaryTotal));
       if (from || to) {
         res.set('x-llm-window-from', from ? from.toISOString() : '');
         res.set('x-llm-window-to', to ? to.toISOString() : '');
@@ -270,9 +286,9 @@ async function listLlmCosts(req, res) {
           total: primaryTotal,
           sort: sortStr,
           window: {
-            from: from.toISOString(),
-            to: to.toISOString(),
-            applied: applied || 'default'
+            from: from ? from.toISOString() : null,
+            to: to ? to.toISOString() : null,
+            applied: from || to ? (applied || 'default') : null
           },
           diagnostics: { headers: req.headers }
         }
@@ -372,9 +388,9 @@ async function listLlmCosts(req, res) {
           total: fallbackTotal,
           sort: sortStr,
           window: {
-            from: from.toISOString(),
-            to: to.toISOString(),
-            applied: applied || 'default'
+            from: from ? from.toISOString() : null,
+            to: to ? to.toISOString() : null,
+            applied: from || to ? (applied || 'default') : null
           },
           diagnostics: { headers: req.headers },
           debug: {
@@ -412,9 +428,9 @@ async function listLlmCosts(req, res) {
         total: 0,
         sort: sortStr,
         window: {
-          from: from.toISOString(),
-          to: to.toISOString(),
-          applied: applied || 'default'
+          from: from ? from.toISOString() : null,
+          to: to ? to.toISOString() : null,
+          applied: from || to ? (applied || 'default') : null
         },
         diagnostics: { headers: req.headers }
       }

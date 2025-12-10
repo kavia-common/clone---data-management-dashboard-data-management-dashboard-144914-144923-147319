@@ -6,6 +6,7 @@ const { buildCrudController } = require('../controllers/crudFactory');
 const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
+const { listLlmCosts } = require('../controllers/llmCosts.fallback.controller');
 
 /**
  * PUBLIC_INTERFACE
@@ -92,7 +93,7 @@ router.use(requireTenant, tenantScopeEnforcer());
  *       400:
  *         description: Missing tenant (x-organization-id) or invalid filter
  */
-router.get('/', asyncHandler(controller.list));
+router.get('/', asyncHandler(listLlmCosts));
 
 /**
  * @swagger
