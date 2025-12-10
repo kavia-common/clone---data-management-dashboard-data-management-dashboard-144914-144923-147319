@@ -23,6 +23,21 @@ try {
 
 /**
  * PUBLIC_INTERFACE
+ * Session Tracking routes
+ * Keep existing list/CRUD at /api/session-tracking (from sessionTracking.routes.js)
+ * and mount aggregation endpoint at the same base path so GET /api/session-tracking
+ * resolves to the aggregate version without altering other route files.
+ */
+try {
+  const sessionAggregate = require('./sessionTracking.aggregate.routes');
+  router.use('/session-tracking', sessionAggregate);
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.warn('[routes/index] sessionTracking.aggregate.routes not mounted:', err?.message || err);
+}
+
+/**
+ * PUBLIC_INTERFACE
  * GET /
  * Basic service status for root path. Returns 200 OK with health summary and pointers
  * to documentation. This is intentionally lightweight and unauthenticated so that
