@@ -9,21 +9,42 @@ const { isValidISODate, parseISODateSafe, startOfDayUTC, addDaysUTC, formatYYYYM
  * PUBLIC_INTERFACE
  * GET /api/overview/projects
  * Aggregates "Total Projects" by joining session_tracking with app_deployments on project_id.
- * Supports timeframe=daily|weekly|monthly|custom and optional start_date/end_date (ISO or YYYY-MM-DD).
- * Applies date filter on created_at/timestamp fields in BOTH collections (session_tracking and app_deployments).
- * Only includes projects where both created_at fall within the selected range.
+ * Returns DAILY buckets (YYYY-MM-DD) with fields:
+ *  - date: ISO day string (YYYY-MM-DD)
+ *  - bucket_start: alias of date (stable)
+ *  - count: total for that day
+ *  - by_user: [{ user_name, count }] breakdown for that day
+ *  - by_project (optional): [{ project_name, count }] when resolvable for that day
+ *
+ * Timeframe handling:
+ *  - timeframe=daily|weekly|monthly buckets are still per-day, but meta.bucket_kind carries 'daily'|'weekly'|'monthly' and
+ *    meta.bucket_start is a stable ISO date for the bucket (start-of-day UTC). Weekly/monthly pick a wider window (7/30 days)
+ *    but daily aggregation remains per calendar day.
+ *  - timeframe=custom strictly uses created_at from BOTH collections (session_tracking/app_deployments) and joins on project_id.
+ *    The inclusive end_date is implemented by adding +1 day to upper bound.
  *
  * Query:
  * - timeframe: 'daily' | 'weekly' | 'monthly' | 'custom' (default 'daily')
- * - start_date: ISO or YYYY-MM-DD when timeframe=custom (inclusive)
- * - end_date: ISO or YYYY-MM-DD when timeframe=custom (inclusive)
+ * - start_date: YYYY-MM-DD or ISO when timeframe=custom (inclusive)
+ * - end_date:   YYYY-MM-DD or ISO when timeframe=custom (inclusive)
  *
- * Returns:
+ * Response:
  * {
- *  buckets: [{ label, key, count }],
- *  total: number,
- *  byUser: [{ user_name, count }],
- *  projects: [{ project_id, project_name, user_name, created_at_session, created_at_deployment }]
+ *   buckets: [
+ *     {
+ *       date: 'YYYY-MM-DD',
+ *       bucket_start: 'YYYY-MM-DD',
+ *       count: 12,
+ *       by_user: [{ user_name: 'alice', count: 7 }, { user_name: 'bob', count: 5 }],
+ *       by_project: [{ project_name: 'App A', count: 8 }, { project_name: 'App B', count: 4 }]
+ *     }
+ *   ],
+ *   total: 123,
+ *   meta: {
+ *     timeframe: 'daily'|'weekly'|'monthly'|'custom',
+ *     bucket_kind: 'day',
+ *     window: { from: ISO, to: ISO }
+ *   }
  * }
  */
 router.get('/projects', async (req, res, next) => {
@@ -32,21 +53,19 @@ router.get('/projects', async (req, res, next) => {
     const customStart = req.query.start_date || req.query.from;
     const customEnd = req.query.end_date || req.query.to;
 
-    // Resolve date window
+    // Always aggregate by day (UTC). timeframe only adjusts the window length.
     const now = new Date();
-    let from, to, granularity;
+    let from, to;
     const startOfToday = startOfDayUTC(now);
 
     if (timeframe === 'weekly') {
-      // last 7 days (inclusive of today)
+      // last 7 days inclusive (UTC)
       from = addDaysUTC(startOfToday, -6);
       to = addDaysUTC(startOfToday, 1);
-      granularity = 'day';
     } else if (timeframe === 'monthly') {
-      // last 30 days
+      // last 30 days inclusive (UTC)
       from = addDaysUTC(startOfToday, -29);
       to = addDaysUTC(startOfToday, 1);
-      granularity = 'day';
     } else if (timeframe === 'custom') {
       if (!customStart || !customEnd) {
         return res.status(400).json({ success: false, message: 'start_date and end_date required when timeframe=custom' });
@@ -61,45 +80,38 @@ router.get('/projects', async (req, res, next) => {
         from = startOfDayUTC(s);
         to = addDaysUTC(startOfDayUTC(e), 1); // inclusive end-date => +1 day
       }
-      // Determine granularity based on approximate span
-      const spanDays = Math.max(1, Math.ceil((to - from) / (24 * 3600 * 1000)));
-      granularity = spanDays <= 31 ? 'day' : spanDays <= 120 ? 'week' : 'month';
     } else {
-      // default daily => today
+      // default daily => today only
       from = startOfDayUTC(now);
       to = addDaysUTC(from, 1);
-      granularity = 'day';
     }
 
     const dbo = await getDb();
-
-    // Prefer fields:
-    // session side date: session_tracking.created_at || session_start || last_updated || timestamp
-    // deployment side date: app_deployments.created_at || updated_at
-    // We'll map them during aggregation
     const sessionCol = dbo.collection('session_tracking');
+
+    // Build aggregation:
+    // 1) Normalize dates from both collections
+    // 2) Enforce project_id existence
+    // 3) Match date windows on BOTH sides: _sessionCreatedAt and _deployCreatedAt
+    // 4) Group by YYYY-MM-DD (UTC) from sessionCreatedAt as canonical day for counting
+    // 5) For each day, compute per-user breakdown and optional per-project breakdown
     const pipeline = [
-      // Project normalized session date
+      // Normalize session-side createdAt
       {
         $addFields: {
           _sessionCreatedAt: {
-            $ifNull: ['$created_at',
-              { $ifNull: ['$session_start',
-                { $ifNull: ['$last_updated', '$timestamp'] }
-              ] }
+            $ifNull: [
+              '$created_at',
+              { $ifNull: ['$session_start', { $ifNull: ['$last_updated', '$timestamp'] }] }
             ]
           }
         }
       },
-      // Keep only those with a project_id available
+      // Must have project_id to join
       { $match: { project_id: { $exists: true, $ne: null, $ne: '' } } },
-      // Date filter on session side
-      {
-        $match: {
-          _sessionCreatedAt: { $gte: from, $lt: to }
-        }
-      },
-      // Join deployments by project_id
+      // Session date window
+      { $match: { _sessionCreatedAt: { $gte: from, $lt: to } } },
+      // Join deployments
       {
         $lookup: {
           from: 'app_deployments',
@@ -109,7 +121,7 @@ router.get('/projects', async (req, res, next) => {
         }
       },
       { $unwind: { path: '$deploys', preserveNullAndEmptyArrays: false } },
-      // Normalize deployment createdAt
+      // Normalize deploy createdAt
       {
         $addFields: {
           _deployCreatedAt: {
@@ -117,101 +129,71 @@ router.get('/projects', async (req, res, next) => {
           }
         }
       },
-      // Date filter on deployment side
-      {
-        $match: {
-          _deployCreatedAt: { $gte: from, $lt: to }
-        }
-      },
-      // Build bucket key based on granularity
+      // Deployment date window
+      { $match: { _deployCreatedAt: { $gte: from, $lt: to } } },
+      // Create daily bucket based on session date (UTC)
       {
         $addFields: {
-          bucketKey: granularity === 'month'
-            ? { $dateToString: { format: '%Y-%m', date: '$_sessionCreatedAt' } }
-            : granularity === 'week'
-              ? { $concat: [
-                    { $dateToString: { format: '%G', date: '$_sessionCreatedAt' } }, '-W',
-                    { $dateToString: { format: '%V', date: '$_sessionCreatedAt' } }
-                ] }
-              : { $dateToString: { format: '%Y-%m-%d', date: '$_sessionCreatedAt' } }
+          _bucketDay: { $dateToString: { format: '%Y-%m-%d', date: '$_sessionCreatedAt' } },
+          _projectNameResolved: {
+            $ifNull: ['$deploys.project_name', { $ifNull: ['$deploys.project.name', null] }]
+          }
         }
       },
-      // Group to build buckets and byUser and detail list
+      // Group all details for the day to compute breakdowns
       {
         $group: {
-          _id: '$bucketKey',
+          _id: '$_bucketDay',
           count: { $sum: 1 },
-          details: {
-            $push: {
-              project_id: '$project_id',
-              user_name: '$user_name',
-              project_name: {
-                $ifNull: [
-                  '$deploys.project_name',
-                  { $ifNull: ['$deploys.project.name', null] }
-                ]
-              },
-              created_at_session: '$_sessionCreatedAt',
-              created_at_deployment: '$_deployCreatedAt'
-            }
-          },
-          byUserMap: { $push: '$user_name' }
+          users: { $push: '$user_name' },
+          projects: { $push: '$_projectNameResolved' }
         }
       },
-      // Sort by bucket ascending
       { $sort: { _id: 1 } }
     ];
 
-    const bucketDocs = await sessionCol.aggregate(pipeline, { allowDiskUse: true }).toArray();
+    const rows = await sessionCol.aggregate(pipeline, { allowDiskUse: true }).toArray();
 
-    // Transform results
-    const buckets = bucketDocs.map((b) => ({
-      key: b._id,
-      label: b._id,
-      count: b.count
-    }));
-    const total = buckets.reduce((acc, b) => acc + (b.count || 0), 0);
-
-    // Collect byUser across all buckets
-    const userCounts = new Map();
-    for (const b of bucketDocs) {
-      const users = Array.isArray(b.byUserMap) ? b.byUserMap : [];
-      for (const u of users) {
+    // Build per-day user/project breakdown in JS for readability and stability
+    const buckets = rows.map((r) => {
+      const userCounts = new Map();
+      for (const u of (r.users || [])) {
         const key = String(u || 'unknown');
         userCounts.set(key, (userCounts.get(key) || 0) + 1);
       }
-    }
-    const byUser = Array.from(userCounts.entries())
-      .map(([user_name, count]) => ({ user_name, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 20);
+      const by_user = Array.from(userCounts.entries())
+        .map(([user_name, count]) => ({ user_name, count }))
+        .sort((a, b) => b.count - a.count);
 
-    // Flatten details across buckets, with a reasonable cap to avoid huge payloads
-    const projects = [];
-    for (const b of bucketDocs) {
-      for (const d of (b.details || [])) {
-        projects.push({
-          project_id: d.project_id,
-          project_name: d.project_name,
-          user_name: d.user_name,
-          created_at_session: d.created_at_session,
-          created_at_deployment: d.created_at_deployment
-        });
-        if (projects.length >= 2000) break;
+      const projCounts = new Map();
+      for (const p of (r.projects || [])) {
+        const key = p || 'unknown';
+        projCounts.set(key, (projCounts.get(key) || 0) + 1);
       }
-      if (projects.length >= 2000) break;
-    }
+      const by_project = Array.from(projCounts.entries())
+        .map(([project_name, count]) => ({ project_name, count }))
+        .sort((a, b) => b.count - a.count);
+
+      return {
+        date: r._id,
+        bucket_start: r._id,
+        count: r.count,
+        by_user,
+        by_project
+      };
+    });
+
+    // Sum totals
+    const total = buckets.reduce((acc, b) => acc + (b.count || 0), 0);
 
     // Response
     res.set('Cache-Control', 'no-store');
     return res.status(200).json({
       buckets,
       total,
-      byUser,
-      projects,
       meta: {
         timeframe,
-        granularity,
+        bucket_kind: 'day',
         window: { from: from.toISOString(), to: to.toISOString() }
       }
     });
