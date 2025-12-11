@@ -6,24 +6,24 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const Project = require('../models/project.model');
+const SessionTracking = require('../models/sessionTracking.model');
 const { extractOrganization } = require('../middleware/extractOrganization');
 
 /**
  * PUBLIC_INTERFACE
  * GET /api/projects/summary
- * Summary: Aggregates project counts grouped by created_at with support for daily, weekly, monthly, and custom ranges.
+ * Summary: Aggregates project counts grouped by activity date from session_tracking with support for daily, weekly, monthly, and custom ranges.
  * Description:
- *   - Determines organization/tenant scope from header x-organization-id (preferred) or query (?organization_id or ?tenant_id).
- *   - Super admin may access all tenants (global) when verified upstream.
- *   - Defaults: daily (today); custom requires start_date and end_date (YYYY-MM-DD).
+ *   - Resolves tenant from x-organization-id header or ?organization_id/?tenant_id query (aliases). Maps organization_id -> tenant_id consistently.
+ *   - Uses session_tracking collection; date source prefers last_updated, then session_start, then timestamp.
+ *   - Date range is inclusive: start_date 00:00:00.000Z to end_date 23:59:59.999Z (UTC).
  *   - Returns only buckets with count > 0. Sorted ascending by bucket date.
  * Parameters:
  *   - Headers: x-organization-id (optional when superadmin; otherwise required)
  *   - Query: organization_id (alias), tenant_id (alias), range, start_date, end_date
  * Responses:
  *   - 200: { range, start_date, end_date, buckets: [ { key, label, count } ] }
- *   - 400: Missing or invalid parameters (including missing organization_id when not superadmin)
+ *   - 400: Missing tenant (when not superadmin) or invalid parameters
  */
 router.get('/summary', extractOrganization(), async (req, res) => {
   try {
@@ -65,14 +65,15 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     // Diagnostics for verification
     try {
       console.log(
-        `[projects.summary] parsed tenant -> organizationId=${req.organizationId || 'n/a'} tenantId=${req.tenantId || 'n/a'} header=${headerTenant || 'n/a'} query=${queryTenant || 'n/a'} effective=${effectiveTenant || 'n/a'}`
+        `[projects.summary] tenant resolution -> org=${req.organizationId || 'n/a'} tenant=${req.tenantId || 'n/a'} header=${headerTenant || 'n/a'} query=${queryTenant || 'n/a'} effective=${effectiveTenant || 'n/a'}`
       );
     } catch {}
 
     if (!isGlobal && !effectiveTenant) {
+      // 400 when tenant missing (non-admin)
       return res.status(400).json({
         message:
-          'organization_id is required (send header x-organization-id or query ?organization_id / ?tenant_id).',
+          'Missing tenant: provide x-organization-id header or ?organization_id / ?tenant_id. Super admin may omit.',
       });
     }
 
@@ -119,31 +120,71 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       windowEnd = endOfUTCDate(today);
     }
 
-    // Build match with tenant scope
-    const createdAtFilter = { $gte: windowStart, $lte: windowEnd };
-    const match = { created_at: createdAtFilter };
-    if (!isGlobal && effectiveTenant) {
-      effectiveTenant = String(effectiveTenant);
-      match.$or = [
-        { tenant_id: effectiveTenant },
-        { organization_id: effectiveTenant },
-        { organizationId: effectiveTenant },
-        { tenantId: effectiveTenant },
-        { orgId: effectiveTenant },
-        { 'tenant.tenant_id': effectiveTenant },
-      ];
-    }
+    // Build match with tenant scope on session_tracking activity date
+    // Prefer last_updated, then session_start, then timestamp. We materialize a derived field 'activity_date'.
+    const dateBounds = { $gte: windowStart, $lte: windowEnd };
+    const tenantFilter = (!isGlobal && effectiveTenant)
+      ? {
+          $or: [
+            { tenant_id: String(effectiveTenant) },
+            { organization_id: String(effectiveTenant) },
+            { organizationId: String(effectiveTenant) },
+            { tenantId: String(effectiveTenant) },
+            { orgId: String(effectiveTenant) },
+            { 'tenant.tenant_id': String(effectiveTenant) },
+          ],
+        }
+      : {};
 
-    // Aggregation pipeline - daily buckets via dateTrunc
-    const bucketExpr = { $dateTrunc: { date: '$created_at', unit: 'day', timezone: 'UTC' } };
-
+    // Aggregation pipeline on session_tracking
     const pipeline = [
-      { $match: match },
-      { $set: { _bucketStart: bucketExpr } },
-      { $group: { _id: '$_bucketStart', count: { $sum: 1 } } },
-      // Only positive counts
+      // Stage 1: project a unified activity_date for correct time filtering and bucketing
+      {
+        $addFields: {
+          activity_date: {
+            $ifNull: [
+              '$last_updated',
+              { $ifNull: ['$session_start', '$timestamp'] },
+            ],
+          },
+        },
+      },
+      // Stage 2: Date range match (inclusive)
+      {
+        $match: {
+          activity_date: dateBounds,
+          ...tenantFilter,
+        },
+      },
+      // Stage 3: Ensure project_id exists for counting "projects"
+      {
+        $match: {
+          project_id: { $type: 'string', $ne: '' },
+        },
+      },
+      // Stage 4: Bucket by day using dateTrunc on activity_date
+      {
+        $set: { _bucketStart: { $dateTrunc: { date: '$activity_date', unit: 'day', timezone: 'UTC' } } },
+      },
+      // Stage 5: Group by bucket, counting distinct projects in the bucket
+      {
+        $group: {
+          _id: '$_bucketStart',
+          projects: { $addToSet: '$project_id' },
+        },
+      },
+      // Stage 6: Transform set size to count
+      {
+        $project: {
+          _id: 1,
+          count: { $size: '$projects' },
+        },
+      },
+      // Stage 7: Only positive counts
       { $match: { count: { $gt: 0 } } },
+      // Stage 8: Sort ascending
       { $sort: { _id: 1 } },
+      // Stage 9: Final shape
       {
         $project: {
           _id: 0,
@@ -154,13 +195,13 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       },
     ];
 
-    const db = req.app.get('db');
-
+    // Prefer direct mongoose model; connection set by app
     let results = [];
-    if (db && typeof db.collection === 'function') {
-      results = await db.collection('projects').aggregate(pipeline, { allowDiskUse: true }).toArray();
-    } else {
-      results = await Project.aggregate(pipeline).allowDiskUse(true);
+    try {
+      results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+    } catch (errAgg) {
+      console.error('[projects.summary] aggregation error on session_tracking:', errAgg?.message || errAgg);
+      return res.status(500).json({ message: 'Internal server error' });
     }
 
     // Response
@@ -173,7 +214,6 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     try {
       res.set('Cache-Control', 'no-store');
       if (effectiveTenant) res.set('x-effective-tenant', String(effectiveTenant));
-      // Diagnostics headers to verify org resolution in clients and CORS scenarios
       const dbg = {
         header: headerTenant || null,
         query: queryTenant || null,
@@ -181,6 +221,8 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         range,
         start_date: toYMD(windowStart),
         end_date: toYMD(windowEnd),
+        collection: 'session_tracking',
+        dateField: 'activity_date(last_updated|session_start|timestamp)',
       };
       res.set('x-projects-tenant-dbg', JSON.stringify(dbg));
     } catch {}
@@ -188,7 +230,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     return res.status(200).json(response);
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error('[projects.summary] error:', err);
+    console.error('[projects.summary] fatal error:', err);
     return res.status(500).json({ message: 'Internal server error' });
   }
 });
