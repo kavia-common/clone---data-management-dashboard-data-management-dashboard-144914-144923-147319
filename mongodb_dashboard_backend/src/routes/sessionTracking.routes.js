@@ -497,8 +497,50 @@ router.get(
 );
 
 // Hook CRUD operations to invalidate short-lived cache safely
-router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async (req, res) => { try { invalidateAllSessionTrackingCache(); } catch {} });
-router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async (req, res) => { try { invalidateAllSessionTrackingCache(); } catch {} });
+router.post(
+  '/',
+  asyncHandler(async (req, res, next) => {
+    try {
+      if (req.body && typeof req.body === 'object') {
+        // Normalize project_id to string consistently
+        if (req.body.project_id != null) {
+          req.body.project_id = String(req.body.project_id);
+        } else if (req.body.projectId != null) {
+          req.body.project_id = String(req.body.projectId);
+        } else if (req.body?.session_data?.projectId != null) {
+          req.body.project_id = String(req.body.session_data.projectId);
+        } else if (req.body?.session_data?.project_id != null) {
+          req.body.project_id = String(req.body.session_data.project_id);
+        }
+      }
+    } catch {}
+    next();
+  }),
+  asyncHandler(controller.create),
+  async (_req, _res) => { try { invalidateAllSessionTrackingCache(); } catch {} }
+);
+
+router.put(
+  '/:id',
+  asyncHandler(async (req, res, next) => {
+    try {
+      if (req.body && typeof req.body === 'object') {
+        if (req.body.project_id != null) {
+          req.body.project_id = String(req.body.project_id);
+        } else if (req.body.projectId != null) {
+          req.body.project_id = String(req.body.projectId);
+        } else if (req.body?.session_data?.projectId != null) {
+          req.body.project_id = String(req.body.session_data.projectId);
+        } else if (req.body?.session_data?.project_id != null) {
+          req.body.project_id = String(req.body.session_data.project_id);
+        }
+      }
+    } catch {}
+    next();
+  }),
+  asyncHandler(controller.update),
+  async (_req, _res) => { try { invalidateAllSessionTrackingCache(); } catch {} }
+);
 router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async (req, res) => { try { invalidateAllSessionTrackingCache(); } catch {} });
 
 // Keep ID read unchanged

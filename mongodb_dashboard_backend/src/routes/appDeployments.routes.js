@@ -320,10 +320,13 @@ router.post(
       return res.status(400).json({ success: false, message: 'Bad request: payload must be an object' });
     }
     // strip any client-provided tenant_id and let controller stamp it
-    if ('tenant_id' in req.body) {delete req.body.tenant_id;}
+    if ('tenant_id' in req.body) { delete req.body.tenant_id; }
 
+    // Normalize project id and mirror to both projectId and project_id for downstream compatibility
     const pid = extractNormalizedProjectId(req.body);
     if (pid) {
+      req.body.projectId = pid;
+      req.body.project_id = pid;
       projectNameCache.delete(pid);
     }
     return controller.create(req, res);
@@ -363,10 +366,13 @@ router.put(
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
       return res.status(400).json({ success: false, message: 'Bad request: payload must be an object' });
     }
-    if ('tenant_id' in req.body) {delete req.body.tenant_id;}
+    if ('tenant_id' in req.body) { delete req.body.tenant_id; }
 
     const pidFromBody = extractNormalizedProjectId(req.body);
     if (pidFromBody) {
+      // normalize/mirror fields
+      req.body.projectId = pidFromBody;
+      req.body.project_id = pidFromBody;
       projectNameCache.delete(pidFromBody);
     } else {
       const existing = await AppDeployment.findById(req.params.id, {
@@ -376,7 +382,7 @@ router.put(
         'project.id': 1,
       }).lean();
       const inferred = extractNormalizedProjectId(existing || {});
-      if (inferred) {projectNameCache.delete(inferred);}
+      if (inferred) { projectNameCache.delete(inferred); }
     }
     return controller.update(req, res);
   })
