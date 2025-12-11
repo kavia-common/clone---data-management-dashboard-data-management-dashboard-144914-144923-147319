@@ -17,10 +17,12 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
+// Apply our permissive echo-origin CORS for all /api paths (after security cors for broad handling)
 app.use('/api', permissiveCorsMiddleware);
-// Explicit preflight handling for all /api paths
+// Explicit preflight handling for all /api paths (including summary)
 app.options('/api', cors());
 app.options('/api/*', cors());
+app.options('/api/projects/summary', cors());
 app.use(rateLimiter());
 
 // Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION

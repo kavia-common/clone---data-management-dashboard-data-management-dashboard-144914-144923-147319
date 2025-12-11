@@ -37,12 +37,42 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       });
     }
 
-    // Resolve tenant
+    // Resolve tenant from multiple sources (header and query aliases), case-insensitive
+    const headerTenant =
+      (typeof req.get === 'function' && (req.get('x-organization-id') || req.get('X-Organization-Id'))) ||
+      req.headers['x-organization-id'] ||
+      req.headers['x-org-id'] ||
+      req.headers['x-tenant-id'] ||
+      req.headers['x-tenant'] ||
+      req.headers['organization_id'] ||
+      '';
+    const queryTenant =
+      (typeof req.query?.organization_id === 'string' && req.query.organization_id.trim()) ||
+      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id.trim()) ||
+      (typeof req.query?.organizationId === 'string' && req.query.organizationId.trim()) ||
+      (typeof req.query?.tenantId === 'string' && req.query.tenantId.trim()) ||
+      '';
+    // Prefer extractOrganization() derived values if present, otherwise header > query
+    let effectiveTenant =
+      req.organizationId ||
+      req.tenantId ||
+      headerTenant ||
+      queryTenant ||
+      '';
+
     const isGlobal = !!req.tenantScopeDisabled || !!req.allTenants;
-    const effectiveTenant = req.organizationId || req.tenantId;
+
+    // Diagnostics for verification
+    try {
+      console.log(
+        `[projects.summary] parsed tenant -> organizationId=${req.organizationId || 'n/a'} tenantId=${req.tenantId || 'n/a'} header=${headerTenant || 'n/a'} query=${queryTenant || 'n/a'} effective=${effectiveTenant || 'n/a'}`
+      );
+    } catch {}
+
     if (!isGlobal && !effectiveTenant) {
       return res.status(400).json({
-        message: 'organization_id is required (use header x-organization-id or ?organization_id=...)',
+        message:
+          'organization_id is required (send header x-organization-id or query ?organization_id / ?tenant_id).',
       });
     }
 
@@ -93,13 +123,14 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     const createdAtFilter = { $gte: windowStart, $lte: windowEnd };
     const match = { created_at: createdAtFilter };
     if (!isGlobal && effectiveTenant) {
+      effectiveTenant = String(effectiveTenant);
       match.$or = [
-        { tenant_id: String(effectiveTenant) },
-        { organization_id: String(effectiveTenant) },
-        { organizationId: String(effectiveTenant) },
-        { tenantId: String(effectiveTenant) },
-        { orgId: String(effectiveTenant) },
-        { 'tenant.tenant_id': String(effectiveTenant) },
+        { tenant_id: effectiveTenant },
+        { organization_id: effectiveTenant },
+        { organizationId: effectiveTenant },
+        { tenantId: effectiveTenant },
+        { orgId: effectiveTenant },
+        { 'tenant.tenant_id': effectiveTenant },
       ];
     }
 
@@ -131,7 +162,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     } else {
       results = await Project.aggregate(pipeline).allowDiskUse(true);
     }
-    console.log("results",results)
+
     // Response
     const response = {
       range,
