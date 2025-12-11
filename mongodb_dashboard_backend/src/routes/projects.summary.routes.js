@@ -124,7 +124,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     } else {
       results = await Project.aggregate(pipeline).allowDiskUse(true);
     }
-
+    console.log("results",results)
     // Response
     const response = {
       range,
