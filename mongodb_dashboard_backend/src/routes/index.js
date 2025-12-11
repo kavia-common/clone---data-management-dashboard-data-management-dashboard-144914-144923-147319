@@ -21,6 +21,15 @@ try {
   console.warn('[routes/index] users.routes not mounted due to error:', err?.message || err);
 }
 
+// Mount single-user projects route under /api/users
+try {
+  const usersProjectsSingle = require('./users.projects.single.routes');
+  router.use('/users', usersProjectsSingle);
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.warn('[routes/index] users.projects.single not mounted:', err?.message || err);
+}
+
 /**
  * PUBLIC_INTERFACE
  * GET /
