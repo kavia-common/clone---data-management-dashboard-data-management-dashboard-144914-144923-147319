@@ -34,7 +34,7 @@ function parseDateSafe(val) {
 function log(...args) {
   if ((process.env.REACT_APP_LOG_LEVEL || 'info') !== 'silent') {
     // eslint-disable-next-line no-console
-    console.log('[users.projects.single]', ...args);
+    console.log('[users.projects]', ...args);
   }
 }
 
@@ -181,6 +181,19 @@ router.get('/:userId/projects', async (req, res, next) => {
     ];
 
     const coll = db.collection('session_tracking');
+
+    // Pre-aggregation: capture distinct project_ids quickly for debug (scoped to user+tenant+window)
+    const distinctIds = await coll.distinct('project_id', match);
+    const distinctProjectIds = (distinctIds || [])
+      .map(normalizeStringId)
+      .filter(Boolean);
+    console.debug('[users.projects] context', {
+      userId,
+      tenant: String(tenant),
+      distinctProjects: distinctProjectIds.slice(0, 50), // cap to avoid noisy logs
+      distinctCount: distinctProjectIds.length,
+    });
+
     const result = await coll.aggregate(pipeline, { allowDiskUse: true }).toArray();
 
     const payload = result && result[0]
@@ -194,6 +207,19 @@ router.get('/:userId/projects', async (req, res, next) => {
           })),
         }
       : { user_id: userId, tenant_id: String(tenant), projects: [] };
+
+    // Final mapped output preview (trim to first N for log)
+    const preview = (payload.projects || []).slice(0, 20).map(p => ({
+      project_id: p.project_id,
+      project_name: p.project_name ?? null,
+      last_activity: p.last_activity ? new Date(p.last_activity).toISOString() : null,
+    }));
+    console.debug('[users.projects] mapped', {
+      userId,
+      tenant: String(tenant),
+      count: payload.projects.length,
+      sample: preview,
+    });
 
     log('single projects', { userId, tenant, count: payload.projects.length });
 
