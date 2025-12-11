@@ -173,6 +173,16 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     try {
       res.set('Cache-Control', 'no-store');
       if (effectiveTenant) res.set('x-effective-tenant', String(effectiveTenant));
+      // Diagnostics headers to verify org resolution in clients and CORS scenarios
+      const dbg = {
+        header: headerTenant || null,
+        query: queryTenant || null,
+        effective: effectiveTenant || null,
+        range,
+        start_date: toYMD(windowStart),
+        end_date: toYMD(windowEnd),
+      };
+      res.set('x-projects-tenant-dbg', JSON.stringify(dbg));
     } catch {}
 
     return res.status(200).json(response);
