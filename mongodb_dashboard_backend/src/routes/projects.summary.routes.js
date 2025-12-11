@@ -14,56 +14,13 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  * GET /api/projects/summary
  * Summary: Aggregates project counts grouped by created_at with support for daily, weekly, monthly, and custom ranges.
  * Description:
- *   - Determines organization/tenant scope from:
- *       1) Auth context (if middleware sets req.organizationId/tenantId),
- *       2) Header x-organization-id,
- *       3) Query ?organization_id or ?tenant_id
- *     Super Admin may have global (all-tenant) scope; in such case, no tenant filter is applied.
- *
- *   - For range:
- *       daily   -> today only (UTC)
- *       weekly  -> last 7 days including today (UTC)
- *       monthly -> last 30 days including today (UTC)
- *       custom  -> requires start_date and end_date (YYYY-MM-DD), inclusive
- *
- *   - Buckets are returned sorted ascending and include:
- *       { key, label, count }
- *     Where key is the normalized date string 'YYYY-MM-DD' for day buckets.
- *
- * Query parameters:
- *   - range: 'daily' | 'weekly' | 'monthly' | 'custom' (default: 'daily')
- *   - start_date: YYYY-MM-DD (required when range=custom)
- *   - end_date: YYYY-MM-DD (required when range=custom)
- *   - organization_id: string (alias tenant_id). Used only when not authenticated; header takes precedence.
- *
- * Response 200:
- *   {
- *     range: 'daily'|'weekly'|'monthly'|'custom',
- *     start_date: 'YYYY-MM-DD',
- *     end_date: 'YYYY-MM-DD',
- *     buckets: [{ key: 'YYYY-MM-DD', label: 'YYYY-MM-DD', count: number }]
- *   }
+ *   - Determines organization/tenant scope from header/query or auth context.
+ *   - Defaults: daily (today); custom requires start_date and end_date (YYYY-MM-DD).
+ *   - Returns only buckets with count > 0. Sorted ascending by bucket date.
  */
-/**
- * PUBLIC_INTERFACE
- * GET /api/projects/health
- * Lightweight health route for the projects router to verify mounting and basic status.
- * Returns { status: 'ok', router: 'projects', timestamp }.
- */
-router.get('/health', (req, res) => {
-  try {
-    res.set('Cache-Control', 'no-store');
-  } catch {}
-  return res.status(200).json({
-    status: 'ok',
-    router: 'projects',
-    timestamp: new Date().toISOString(),
-  });
-});
-
 router.get('/summary', extractOrganization(), async (req, res) => {
   try {
-    // Parse query params
+    // Parse input
     let { range = 'daily', start_date, end_date } = req.query || {};
     range = String(range || 'daily').toLowerCase();
     const ALLOWED = new Set(['daily', 'weekly', 'monthly', 'custom']);
@@ -73,18 +30,16 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       });
     }
 
-    // Determine tenant scope
+    // Resolve tenant
     const isGlobal = !!req.tenantScopeDisabled || !!req.allTenants;
     const effectiveTenant = req.organizationId || req.tenantId;
-
     if (!isGlobal && !effectiveTenant) {
       return res.status(400).json({
-        message:
-          'organization_id is required (use header x-organization-id or ?organization_id=...)',
+        message: 'organization_id is required (use header x-organization-id or ?organization_id=...)',
       });
     }
 
-    // Date helpers (UTC normalized)
+    // Date helpers (UTC)
     const pad = (n) => String(n).padStart(2, '0');
     const toYMD = (d) =>
       `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
@@ -105,8 +60,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     if (range === 'custom') {
       if (!start_date || !end_date || !reDate.test(start_date) || !reDate.test(end_date)) {
         return res.status(400).json({
-          message:
-            "For range=custom, 'start_date' and 'end_date' are required in YYYY-MM-DD.",
+          message: "For range=custom, 'start_date' and 'end_date' are required in YYYY-MM-DD.",
         });
       }
       windowStart = new Date(`${start_date}T00:00:00.000Z`);
@@ -142,62 +96,41 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       ];
     }
 
-    // Build aggregation - prefer $dateTrunc for day buckets
+    // Aggregation pipeline - daily buckets via dateTrunc
     const bucketExpr = { $dateTrunc: { date: '$created_at', unit: 'day', timezone: 'UTC' } };
 
-    const basePipeline = [
+    const pipeline = [
       { $match: match },
       { $set: { _bucketStart: bucketExpr } },
       { $group: { _id: '$_bucketStart', count: { $sum: 1 } } },
+      // Only positive counts
+      { $match: { count: { $gt: 0 } } },
       { $sort: { _id: 1 } },
       {
         $project: {
           _id: 0,
-          start: '$_id',
+          key: { $dateToString: { format: '%Y-%m-%d', date: '$_id', timezone: 'UTC' } },
           label: { $dateToString: { format: '%Y-%m-%d', date: '$_id', timezone: 'UTC' } },
           count: 1,
         },
       },
     ];
 
-    // Use native db if available (set in config/db), else Mongoose aggregate
     const db = req.app.get('db');
 
     let results = [];
     if (db && typeof db.collection === 'function') {
-      results = await db.collection('projects').aggregate(basePipeline, { allowDiskUse: true }).toArray();
+      results = await db.collection('projects').aggregate(pipeline, { allowDiskUse: true }).toArray();
     } else {
-      results = await Project.aggregate(basePipeline).allowDiskUse(true);
+      results = await Project.aggregate(pipeline).allowDiskUse(true);
     }
 
-    // Create complete contiguous daily buckets and zero-fill
-    const ticks = [];
-    let d = startOfUTCDate(windowStart);
-    const endDay = startOfUTCDate(windowEnd);
-    while (d.getTime() <= endDay.getTime()) {
-      ticks.push(new Date(d));
-      d = addDays(d, 1);
-    }
-    const map = new Map();
-    for (const r of results) {
-      const k = typeof r.label === 'string' ? r.label : toYMD(new Date(r.start));
-      map.set(k, Number(r.count || 0));
-    }
-    const buckets = ticks.map((t) => {
-      const label = toYMD(t);
-      return {
-        key: label,
-        label,
-        count: Number(map.get(label) || 0),
-      };
-    });
-
-    // Build response
+    // Response
     const response = {
       range,
       start_date: toYMD(windowStart),
       end_date: toYMD(windowEnd),
-      buckets,
+      buckets: results,
     };
     try {
       res.set('Cache-Control', 'no-store');
