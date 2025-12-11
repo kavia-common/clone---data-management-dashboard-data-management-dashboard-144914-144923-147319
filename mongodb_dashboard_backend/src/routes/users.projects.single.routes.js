@@ -19,19 +19,18 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const router = express.Router();
-const { getDb } = require('../config/db'); // existing db helper if available
+const { getDb } = require('../config/db'); // DB helper if available
 
+// Minimal helpers
 function normalizeStringId(v) {
   if (v == null) return null;
   try { return String(v); } catch { return null; }
 }
-
 function parseDateSafe(val) {
   if (!val) return null;
   const d = new Date(val);
-  return isNaN(d.getTime()) ? null : d;
+  return Number.isNaN(d.getTime()) ? null : d;
 }
-
 function log(...args) {
   if ((process.env.REACT_APP_LOG_LEVEL || 'info') !== 'silent') {
     // eslint-disable-next-line no-console
@@ -39,6 +38,15 @@ function log(...args) {
   }
 }
 
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/:userId/projects
+ * MongoDB aggregation:
+ *  - Filter session_tracking by tenant and userId (dates optional)
+ *  - Group distinct project_id with last_activity
+ *  - $lookup app_deployments on project_id (scoped to tenant)
+ *  - Project fields: project_id, project_name (or null), last_activity
+ */
 router.get('/:userId/projects', async (req, res, next) => {
   try {
     const userId = normalizeStringId(req.params.userId);
@@ -55,26 +63,25 @@ router.get('/:userId/projects', async (req, res, next) => {
     const db = getDb ? getDb() : mongoose.connection.db;
     if (!db) return res.status(503).json({ error: 'Database not connected' });
 
-    // Build match similar to batch
-    const userIds = [userId];
-
+    // Match user + tenant, and optional time window on last_updated or session_start
     const baseAnd = [
-      { $or: [{ tenant_id: tenant }, { organization_id: tenant }] },
-      { $expr: { $in: [{ $toString: '$user_id' }, userIds] } },
+      { $or: [{ tenant_id: String(tenant) }, { organization_id: String(tenant) }] },
+      { $expr: { $eq: [{ $toString: '$user_id' }, userId] } },
     ];
 
-    let timeOr = null;
     if (fromDate || toDate) {
       const range = {};
       if (fromDate) range.$gte = fromDate;
       if (toDate) range.$lte = toDate;
-      timeOr = [
-        { $and: [{ last_updated: { $type: 'date' } }, { last_updated: range }] },
-        { $and: [{ $or: [{ last_updated: { $exists: false } }, { last_updated: null }] }, { session_start: range }] },
-      ];
+      baseAnd.push({
+        $or: [
+          { $and: [{ last_updated: { $type: 'date' } }, { last_updated: range }] },
+          { $and: [{ $or: [{ last_updated: { $exists: false } }, { last_updated: null }] }, { session_start: range }] },
+        ],
+      });
     }
 
-    const match = timeOr ? { $and: [...baseAnd, { $or: timeOr }] } : { $and: baseAnd };
+    const match = { $and: baseAnd };
 
     const pipeline = [
       { $match: match },
@@ -82,13 +89,17 @@ router.get('/:userId/projects', async (req, res, next) => {
         $project: {
           user_id: { $toString: '$user_id' },
           project_id: { $ifNull: [{ $toString: '$project_id' }, null] },
-          // keep any session-level project_name, but will be overridden by app_deployments when present
           project_name_session: { $ifNull: ['$project_name', null] },
-          activity_time: { $ifNull: ['$last_updated', '$session_start'] },
+          activity_time: {
+            $ifNull: [
+              '$last_updated',
+              { $ifNull: ['$session_end', { $ifNull: ['$timestamp', '$session_start'] }] },
+            ],
+          },
         },
       },
       { $match: { project_id: { $ne: null } } },
-      // Join with app_deployments to resolve canonical project_name by project_id (scoped to tenant if present)
+      // Lookup to app_deployments (no external HTTP calls)
       {
         $lookup: {
           from: 'app_deployments',
@@ -106,13 +117,12 @@ router.get('/:userId/projects', async (req, res, next) => {
                         { $eq: [{ $toString: '$project.id' }, '$$pid'] },
                       ],
                     },
-                    // tenant/organization scoping if present on the outer query
                     {
                       $or: [
                         { $eq: ['$tenant_id', String(tenant)] },
                         { $eq: ['$organization_id', String(tenant)] },
-                        { $eq: ['$orgId', String(tenant)] },
                         { $eq: ['$tenantId', String(tenant)] },
+                        { $eq: ['$orgId', String(tenant)] },
                       ],
                     },
                   ],
@@ -130,12 +140,7 @@ router.get('/:userId/projects', async (req, res, next) => {
                     {
                       $ifNull: [
                         '$projectName',
-                        {
-                          $ifNull: [
-                            '$project.name',
-                            null,
-                          ],
-                        },
+                        { $ifNull: ['$project.name', null] },
                       ],
                     },
                   ],
@@ -184,7 +189,7 @@ router.get('/:userId/projects', async (req, res, next) => {
           tenant_id: String(tenant),
           projects: (result[0].projects || []).map((p) => ({
             project_id: normalizeStringId(p.project_id),
-            project_name: p.project_name || null,
+            project_name: p.project_name ?? null,
             last_activity: p.last_activity ? new Date(p.last_activity) : null,
           })),
         }
@@ -192,6 +197,7 @@ router.get('/:userId/projects', async (req, res, next) => {
 
     log('single projects', { userId, tenant, count: payload.projects.length });
 
+    // Ensure exact field names: project_id, project_name
     return res.status(200).json(payload);
   } catch (err) {
     // eslint-disable-next-line no-console
