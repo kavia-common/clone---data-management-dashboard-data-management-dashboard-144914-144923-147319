@@ -28,7 +28,7 @@ function permissiveCorsMiddleware(req, res, next) {
   // Reflect requested headers for preflight; otherwise, provide a permissive default superset
   const requested = req.headers['access-control-request-headers'];
   const defaultAllowed =
-    'Content-Type,Authorization,Accept,x-tenant-id,x-tenant,Origin,User-Agent,Cache-Control,Pragma';
+    'Content-Type,Authorization,Accept,x-organization-id,x-org-id,x-tenant-id,x-tenant,Origin,User-Agent,Cache-Control,Pragma';
   res.setHeader(
     'Access-Control-Allow-Headers',
     requested && typeof requested === 'string' && requested.trim() !== ''

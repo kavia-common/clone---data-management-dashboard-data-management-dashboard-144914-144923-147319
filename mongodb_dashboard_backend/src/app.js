@@ -18,6 +18,8 @@ app.set('trust proxy', 1);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
 app.use('/api', permissiveCorsMiddleware);
+// Explicit preflight handling for all /api paths
+app.options('/api', cors());
 app.options('/api/*', cors());
 app.use(rateLimiter());
 

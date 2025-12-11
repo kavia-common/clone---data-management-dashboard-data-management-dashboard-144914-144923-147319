@@ -14,9 +14,16 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  * GET /api/projects/summary
  * Summary: Aggregates project counts grouped by created_at with support for daily, weekly, monthly, and custom ranges.
  * Description:
- *   - Determines organization/tenant scope from header/query or auth context.
+ *   - Determines organization/tenant scope from header x-organization-id (preferred) or query (?organization_id or ?tenant_id).
+ *   - Super admin may access all tenants (global) when verified upstream.
  *   - Defaults: daily (today); custom requires start_date and end_date (YYYY-MM-DD).
  *   - Returns only buckets with count > 0. Sorted ascending by bucket date.
+ * Parameters:
+ *   - Headers: x-organization-id (optional when superadmin; otherwise required)
+ *   - Query: organization_id (alias), tenant_id (alias), range, start_date, end_date
+ * Responses:
+ *   - 200: { range, start_date, end_date, buckets: [ { key, label, count } ] }
+ *   - 400: Missing or invalid parameters (including missing organization_id when not superadmin)
  */
 router.get('/summary', extractOrganization(), async (req, res) => {
   try {
