@@ -123,6 +123,21 @@ router.get('/:userId/projects', async (req, res, next) => {
         }
       : { user_id: userId, tenant_id: String(tenant), projects: [] };
 
+    // Opportunistically resolve missing names for robustness
+    const missing = (payload.projects || []).filter(p => !p.project_name).map(p => p.project_id);
+    if (missing.length > 0) {
+      try {
+        const { resolveProjectNames } = require('../services/projects.service');
+        const map = await resolveProjectNames(missing);
+        payload.projects = (payload.projects || []).map(p => ({
+          ...p,
+          project_name: p.project_name || (map.has(p.project_id) ? map.get(p.project_id) : null),
+        }));
+      } catch {
+        // ignore resolution errors; return as-is
+      }
+    }
+
     log('single projects', { userId, tenant, count: payload.projects.length });
 
     return res.status(200).json(payload);

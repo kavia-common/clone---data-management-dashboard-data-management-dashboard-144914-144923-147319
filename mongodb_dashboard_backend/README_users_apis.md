@@ -56,3 +56,21 @@ Output shape:
   "start_date": "2025-01-01",
   "end_date": "2025-01-31"
 }
+
+## User Project Details
+
+GET /api/users/:userId/project-details
+
+- Returns distinct projects the user has activity in (from session_tracking) and resolves a friendly project_name via the projects service.
+- Query:
+  - organization_id (alias tenant_id) — required
+  - from, to — optional ISO date-time window (applied to last_updated or session_start)
+- Response:
+{
+  "userId": "u123",
+  "projects": [
+    { "project_id": "p1", "project_name": "Customer Portal" },
+    { "project_id": "p2", "project_name": null }
+  ]
+}
+- Empty states return { projects: [] } with 200 status.
