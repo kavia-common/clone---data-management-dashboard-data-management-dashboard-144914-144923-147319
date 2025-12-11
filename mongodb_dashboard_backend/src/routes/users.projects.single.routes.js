@@ -5,7 +5,8 @@
  * Users Projects Single Route
  *
  * GET /api/users/:userId/projects
- * Returns distinct projects for a single user with last_activity.
+ * Returns distinct projects for a single user with last_activity and resolves project_name
+ * by joining app_deployments on project_id (preserving tenant scoping when provided).
  * Query:
  *  - organization_id (required) | tenant_id alias
  *  - from?: ISO datetime
@@ -87,7 +88,7 @@ router.get('/:userId/projects', async (req, res, next) => {
         },
       },
       { $match: { project_id: { $ne: null } } },
-      // Join with app_deployments to resolve canonical project_name by project_id
+      // Join with app_deployments to resolve canonical project_name by project_id (scoped to tenant if present)
       {
         $lookup: {
           from: 'app_deployments',
@@ -96,11 +97,24 @@ router.get('/:userId/projects', async (req, res, next) => {
             {
               $match: {
                 $expr: {
-                  $or: [
-                    { $eq: [{ $toString: '$project_id' }, '$$pid'] },
-                    { $eq: [{ $toString: '$projectId' }, '$$pid'] },
-                    { $eq: [{ $toString: '$metadata.projectId' }, '$$pid'] },
-                    { $eq: [{ $toString: '$project.id' }, '$$pid'] },
+                  $and: [
+                    {
+                      $or: [
+                        { $eq: [{ $toString: '$project_id' }, '$$pid'] },
+                        { $eq: [{ $toString: '$projectId' }, '$$pid'] },
+                        { $eq: [{ $toString: '$metadata.projectId' }, '$$pid'] },
+                        { $eq: [{ $toString: '$project.id' }, '$$pid'] },
+                      ],
+                    },
+                    // tenant/organization scoping if present on the outer query
+                    {
+                      $or: [
+                        { $eq: ['$tenant_id', String(tenant)] },
+                        { $eq: ['$organization_id', String(tenant)] },
+                        { $eq: ['$orgId', String(tenant)] },
+                        { $eq: ['$tenantId', String(tenant)] },
+                      ],
+                    },
                   ],
                 },
               },
