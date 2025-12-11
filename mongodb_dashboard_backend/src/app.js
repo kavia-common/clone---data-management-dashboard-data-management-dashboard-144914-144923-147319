@@ -144,9 +144,11 @@ const safeUse = (path, router) => {
 };
 
 const baseRouter = require('./routes');
-// Mount base routes under '/api' so that '/api/users' and related paths resolve correctly.
-// Previously this was mounted at '/', which made users routes available at '/users' (missing '/api' prefix)
-// and caused 404 when clients requested '/api/users'.
+/**
+ * Ensure exactly-one '/api' prefix:
+ * - baseRouter mounts '/users' etc. relative to here, so effective paths are '/api/users/...'
+ * - Do NOT mount baseRouter at both '/' and '/api' or you'll create dupes like '/api/api/...'
+ */
 safeUse('/api', baseRouter);
 
 safeUse('/api/dev', require('./routes/dev.routes'));
