@@ -14,7 +14,8 @@ const { isValidISODate, parseISODateSafe, startOfDayUTC, addDaysUTC } = require(
  *  - Maintains organization_id/tenant_id filtering if provided (header x-organization-id has precedence).
  *  - Groups primarily by project_id (string normalized) and counts sessions.
  *  - Performs $lookup to app_deployments using $toString on both sides to handle ObjectId vs string for project_id.
- *  - If timeframe=daily or custom, also returns per-day breakdown per project (YYYY-MM-DD counts) in an optional 'days' array.
+ *  - If timeframe=daily or custom, returns per-day breakdown per project (YYYY-MM-DD counts) in 'days'.
+ *  - If timeframe=monthly, returns per-month breakdown per project (YYYY-MM counts) in 'months'.
  *  - Results sorted by count desc.
  * Query Parameters:
  *  - timeframe|range: daily|weekly|monthly|custom (default daily)
@@ -27,7 +28,8 @@ const { isValidISODate, parseISODateSafe, startOfDayUTC, addDaysUTC } = require(
  *       "project_id": "p1",
  *       "project_name": "My App",
  *       "count": 42,
- *       "days": [ { "date": "2025-01-02", "count": 3 }, ... ] // only for daily/custom ranges
+ *       "days": [ { "date": "2025-01-02", "count": 3 }, ... ] // for daily/custom
+ *       "months": [ { "month": "2025-01", "count": 12 }, ... ] // for monthly
  *     }
  *   ],
  *   "meta": { "timeframe": "daily", "window": { "from": "ISO", "to": "ISO" } }
@@ -53,9 +55,11 @@ router.get('/projects', async (req, res, next) => {
     const startToday = startOfDayUTC(now);
     let from, to;
     if (timeframe === 'weekly') {
+      // past 7 days including today
       from = addDaysUTC(startToday, -6);
       to = addDaysUTC(startToday, 1);
     } else if (timeframe === 'monthly') {
+      // past 30 days including today
       from = addDaysUTC(startToday, -29);
       to = addDaysUTC(startToday, 1);
     } else if (timeframe === 'custom') {
@@ -83,10 +87,9 @@ router.get('/projects', async (req, res, next) => {
     const dbo = await getDb();
     const sessionCol = dbo.collection('session_tracking');
 
-    // Build session match and normalization
+    // Normalize and filter sessions: build match first for time + tenant (project filter is handled after computing _projectIdStr)
     const sessionMatch = {
       _sessionCreatedAt: { $gte: from, $lt: to },
-      _projectIdStr: { $exists: true, $ne: null, $ne: '' },
     };
     if (organizationId) {
       sessionMatch.$or = [
@@ -94,6 +97,25 @@ router.get('/projects', async (req, res, next) => {
         { tenant_id: organizationId },
       ];
     }
+
+    // Dynamic fields based on timeframe
+    const bucketAddFields =
+      timeframe === 'monthly'
+        ? {
+            // Monthly bucket key as YYYY-MM
+            _bucketMonth: {
+              $dateToString: {
+                format: '%Y-%m',
+                date: { $dateTrunc: { date: '$_sessionCreatedAt', unit: 'month' } },
+              },
+            },
+          }
+        : {
+            // Daily bucket key as YYYY-MM-DD
+            _bucketDay: {
+              $dateToString: { format: '%Y-%m-%d', date: '$_sessionCreatedAt' },
+            },
+          };
 
     // Aggregation pipeline
     const pipeline = [
@@ -107,40 +129,65 @@ router.get('/projects', async (req, res, next) => {
             ]
           },
           _projectIdStr: {
-            $cond: [
-              { $eq: [{ $type: '$project_id' }, 'string'] },
-              '$project_id',
-              { $toString: '$project_id' }
-            ]
+            $switch: {
+              branches: [
+                {
+                  case: { $eq: [{ $type: '$project_id' }, 'string'] },
+                  then: '$project_id',
+                },
+                {
+                  case: { $in: [{ $type: '$project_id' }, ['objectId', 'int', 'long', 'decimal', 'double']] },
+                  then: { $toString: '$project_id' },
+                },
+              ],
+              default: null,
+            }
           },
         }
       },
       // 2) Time window and tenant filter
       { $match: sessionMatch },
-      // 3) Day key for daily breakdown
-      {
-        $addFields: {
-          _bucketDay: {
-            $dateToString: { format: '%Y-%m-%d', date: '$_sessionCreatedAt' }
-          }
-        }
-      },
-      // 4) Group by project+day for breakdown
-      {
-        $group: {
-          _id: { project_id: '$_projectIdStr', day: '$_bucketDay' },
-          count: { $sum: 1 },
-        }
-      },
-      // 5) Roll up to project with days[]
-      {
-        $group: {
-          _id: '$_id.project_id',
-          count: { $sum: '$count' },
-          days: { $push: { date: '$_id.day', count: '$count' } },
-        }
-      },
-      // 6) Lookup deployments for project_name; normalize project_id types
+      // 2b) Ensure we only include docs with a usable project id string; avoid nulls/empties
+      { $match: { _projectIdStr: { $ne: null, $ne: '' } } },
+      // 3) Add bucket key (day or month)
+      { $addFields: bucketAddFields },
+      // 4) Group with breakdown depending on timeframe
+      ...(timeframe === 'monthly'
+        ? [
+            // group by project_id + month
+            {
+              $group: {
+                _id: { project_id: '$_projectIdStr', month: '$_bucketMonth' },
+                count: { $sum: 1 },
+              }
+            },
+            // roll up to project with months[]
+            {
+              $group: {
+                _id: '$_id.project_id',
+                count: { $sum: '$count' },
+                months: { $push: { month: '$_id.month', count: '$count' } },
+              }
+            },
+          ]
+        : [
+            // group by project_id + day
+            {
+              $group: {
+                _id: { project_id: '$_projectIdStr', day: '$_bucketDay' },
+                count: { $sum: 1 },
+              }
+            },
+            // roll up to project with days[]
+            {
+              $group: {
+                _id: '$_id.project_id',
+                count: { $sum: '$count' },
+                days: { $push: { date: '$_id.day', count: '$count' } },
+              }
+            },
+          ]),
+      // 5) Lookup deployments for project_name; normalize project_id types and filter by tenant if provided
       {
         $lookup: {
           from: 'app_deployments',
@@ -149,11 +196,16 @@ router.get('/projects', async (req, res, next) => {
             {
               $addFields: {
                 _projectIdStr: {
-                  $cond: [
-                    { $eq: [{ $type: '$project_id' }, 'string'] },
-                    '$project_id',
-                    { $toString: '$project_id' }
-                  ]
+                  $switch: {
+                    branches: [
+                      { case: { $eq: [{ $type: '$project_id' }, 'string'] }, then: '$project_id' },
+                      {
+                        case: { $in: [{ $type: '$project_id' }, ['objectId', 'int', 'long', 'decimal', 'double']] },
+                        then: { $toString: '$project_id' },
+                      },
+                    ],
+                    default: null,
+                  }
                 }
               }
             },
@@ -186,19 +238,22 @@ router.get('/projects', async (req, res, next) => {
           as: 'deploys'
         }
       },
-      // 7) Shape fields
+      // 6) Shape fields
       {
         $addFields: {
           project_id: '$_id',
           project_name: {
-            $ifNull: [
-              { $arrayElemAt: ['$deploys.project_name', 0] },
-              { $arrayElemAt: ['$deploys.project.name', 0] }
-            ]
+            $let: {
+              vars: {
+                p1: { $arrayElemAt: ['$deploys.project_name', 0] },
+                p2: { $arrayElemAt: ['$deploys.project.name', 0] },
+              },
+              in: { $ifNull: ['$$p1', '$$p2'] }
+            }
           }
         }
       },
-      // 8) Hide _id and remove days when not needed (keep here and drop later in code if needed)
+      // 7) Final projection including days or months depending on timeframe
       {
         $project: {
           _id: 0,
@@ -206,18 +261,46 @@ router.get('/projects', async (req, res, next) => {
           project_id: 1,
           project_name: 1,
           count: 1,
-          days: 1
+          days: timeframe === 'monthly' ? 0 : 1,
+          months: timeframe === 'monthly' ? 1 : 0,
         }
       },
-      // 9) Sort by count desc
+      // 8) Sort by count desc
       { $sort: { count: -1 } },
     ];
 
     const rows = await sessionCol.aggregate(pipeline, { allowDiskUse: true }).toArray();
 
-    // Optionally remove days[] for non-daily ranges
-    const includeDays = timeframe === 'daily' || timeframe === 'custom';
-    const buckets = includeDays ? rows : rows.map(({ days, ...rest }) => rest);
+    // Shape response buckets for stable ordering in nested arrays
+    let buckets;
+    if (timeframe === 'monthly') {
+      buckets = rows.map((r) => {
+        const months = Array.isArray(r.months)
+          ? [...r.months].filter(m => m && m.month).sort((a, b) => String(a.month).localeCompare(String(b.month)))
+          : [];
+        return {
+          project_id: r.project_id || r.projectId || r._id || null,
+          project_name: r.project_name || null,
+          count: r.count || 0,
+          months,
+        };
+      });
+    } else {
+      const includeDays = timeframe === 'daily' || timeframe === 'custom';
+      buckets = rows.map((r) => {
+        const out = {
+          project_id: r.project_id || r.projectId || r._id || null,
+          project_name: r.project_name || null,
+          count: r.count || 0,
+        };
+        if (includeDays) {
+          out.days = Array.isArray(r.days)
+            ? [...r.days].filter(d => d && d.date).sort((a, b) => String(a.date).localeCompare(String(b.date)))
+            : [];
+        }
+        return out;
+      });
+    }
 
     res.set('Cache-Control', 'no-store');
     return res.status(200).json({
@@ -228,6 +311,7 @@ router.get('/projects', async (req, res, next) => {
       }
     });
   } catch (err) {
+    // Robust error handling; delegate to global error handler
     return next(err);
   }
 });
