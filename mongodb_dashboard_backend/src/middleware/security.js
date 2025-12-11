@@ -75,7 +75,7 @@ function corsMiddleware() {
   whitelist.add('https://localhost:3000');
 
   // Explicitly allow VSCode internal preview origin used by frontend (from work item)
-  whitelist.add('https://vscode-internal-41952-beta.beta01.cloud.kavia.ai:3000');
+  whitelist.add('https://vscode-internal-39929-beta.beta01.cloud.kavia.ai:3000');
 
   const allowCredentials =
     String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
