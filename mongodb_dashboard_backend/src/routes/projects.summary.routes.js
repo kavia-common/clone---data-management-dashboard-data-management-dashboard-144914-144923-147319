@@ -44,6 +44,23 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  *     buckets: [{ key: 'YYYY-MM-DD', label: 'YYYY-MM-DD', count: number }]
  *   }
  */
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/projects/health
+ * Lightweight health route for the projects router to verify mounting and basic status.
+ * Returns { status: 'ok', router: 'projects', timestamp }.
+ */
+router.get('/health', (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+  } catch {}
+  return res.status(200).json({
+    status: 'ok',
+    router: 'projects',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 router.get('/summary', extractOrganization(), async (req, res) => {
   try {
     // Parse query params
