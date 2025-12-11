@@ -68,14 +68,14 @@ const buildDynamicSpec = (req) => {
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
     // Use same-origin server so Swagger calls hit this backend instance
-    // url: `${protocol}://${fullHost}`,
-    servers: [
+    url: `${protocol}://${fullHost}`,
+    // servers: [
 
-      {
-        url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-        description: 'Predefined dev server',
-      },
-    ],
+    //   {
+    //     url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //     description: 'Predefined dev server',
+    //   },
+    // ],
   };
 };
 
@@ -182,6 +182,7 @@ safeUse('/api/projects', require('./routes/projects.routes'));
 safeUse('/api/session', require('./routes/session.routes'));
 safeUse('/api/dashboard', require('./routes/dashboard.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
+safeUse('/api/overview', require('./routes/overview.projects.routes'));
 safeUse('/api/auth', require('./routes/auth.routes'));
 
 // ---------------------------------------------
