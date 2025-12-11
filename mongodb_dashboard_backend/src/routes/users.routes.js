@@ -454,6 +454,7 @@ router.get(
  */
 router.get('/:userId/projects', asyncHandler(async (req, res) => {
   const userId = req.params.userId;
+  console.log("userId",userId);
   // Accept both organization_id and tenant_id; prefer organization_id
   const tenantId = (req.query.organization_id || req.query.tenant_id || req.organizationId || req.tenantId || '').toString().trim();
 
