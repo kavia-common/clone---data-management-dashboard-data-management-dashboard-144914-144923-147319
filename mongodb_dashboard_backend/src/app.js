@@ -182,6 +182,10 @@ safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/projects', require('./routes/projects.summary.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
+try {
+  // eslint-disable-next-line no-console
+  console.log('[routes] Projects routes registered at: GET /api/projects/summary and /api/projects/*');
+} catch {}
 safeUse('/api/session', require('./routes/session.routes'));
 safeUse('/api/dashboard', require('./routes/dashboard.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));

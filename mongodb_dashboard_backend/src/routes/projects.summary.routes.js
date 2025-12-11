@@ -1,5 +1,8 @@
 'use strict';
 
+// Ensure this file exports an Express.Router instance as module.exports = router;
+// Mounted at app level as: app.use('/api/projects', projectsSummaryRouter)
+// So the effective summary endpoint is: GET /api/projects/summary
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
