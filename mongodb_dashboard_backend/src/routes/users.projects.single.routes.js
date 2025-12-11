@@ -40,7 +40,6 @@ function log(...args) {
 
 router.get('/:userId/projects', async (req, res, next) => {
   try {
-    console.log("123121321")
     const userId = normalizeStringId(req.params.userId);
     const tenant = req.query.organization_id || req.query.tenant_id || req.headers['x-organization-id'];
     const fromDate = parseDateSafe(req.query.from);
