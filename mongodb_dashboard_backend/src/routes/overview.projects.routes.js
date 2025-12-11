@@ -8,43 +8,28 @@ const { isValidISODate, parseISODateSafe, startOfDayUTC, addDaysUTC, formatYYYYM
 /**
  * PUBLIC_INTERFACE
  * GET /api/overview/projects
- * Aggregates "Total Projects" by joining session_tracking with app_deployments on project_id.
- * Returns DAILY buckets (YYYY-MM-DD) with fields:
- *  - date: ISO day string (YYYY-MM-DD)
- *  - bucket_start: alias of date (stable)
- *  - count: total for that day
- *  - by_user: [{ user_name, count }] breakdown for that day
- *  - by_project (optional): [{ project_name, count }] when resolvable for that day
- *
- * Timeframe handling:
- *  - timeframe=daily|weekly|monthly buckets are still per-day, but meta.bucket_kind carries 'daily'|'weekly'|'monthly' and
- *    meta.bucket_start is a stable ISO date for the bucket (start-of-day UTC). Weekly/monthly pick a wider window (7/30 days)
- *    but daily aggregation remains per calendar day.
- *  - timeframe=custom strictly uses created_at from BOTH collections (session_tracking/app_deployments) and joins on project_id.
- *    The inclusive end_date is implemented by adding +1 day to upper bound.
- *
- * Query:
- * - timeframe: 'daily' | 'weekly' | 'monthly' | 'custom' (default 'daily')
- * - start_date: YYYY-MM-DD or ISO when timeframe=custom (inclusive)
- * - end_date:   YYYY-MM-DD or ISO when timeframe=custom (inclusive)
- *
- * Response:
+ * Summary: Time-bucketed (day) counts of projects derived by joining session_tracking and app_deployments on project_id.
+ * Description:
+ *  - Applies UTC date range window to both collections (created_at/updated_at normalization).
+ *  - Groups by YYYY-MM-DD (UTC) using session-side dates.
+ *  - Returns stable fields: { date, bucket_start, count, by_user, by_project } sorted by bucket_start ascending.
+ *  - Adds guards for missing user_name/project_name as 'unknown'.
+ * Query Parameters:
+ *  - timeframe: daily|weekly|monthly|custom (default daily)
+ *  - start_date: YYYY-MM-DD or ISO (required when timeframe=custom; inclusive)
+ *  - end_date: YYYY-MM-DD or ISO (required when timeframe=custom; inclusive)
+ *  - organization_id|tenant_id (optional): tenant scoping filter applied consistently across both collections
+ * Success Response (200):
  * {
- *   buckets: [
- *     {
- *       date: 'YYYY-MM-DD',
- *       bucket_start: 'YYYY-MM-DD',
- *       count: 12,
- *       by_user: [{ user_name: 'alice', count: 7 }, { user_name: 'bob', count: 5 }],
- *       by_project: [{ project_name: 'App A', count: 8 }, { project_name: 'App B', count: 4 }]
+ *   "buckets": [
+ *     { "date": "YYYY-MM-DD", "bucket_start": "YYYY-MM-DD", "count": 12,
+ *       "by_user": [{ "user_name": "alice", "count": 7 }],
+ *       "by_project": [{ "project_name": "App A", "count": 8 }]
  *     }
  *   ],
- *   total: 123,
- *   meta: {
- *     timeframe: 'daily'|'weekly'|'monthly'|'custom',
- *     bucket_kind: 'day',
- *     window: { from: ISO, to: ISO }
- *   }
+ *   "total": 123,
+ *   "meta": { "timeframe": "daily|weekly|monthly|custom", "bucket_kind": "day",
+ *     "window": { "from": "ISO", "to": "ISO" } }
  * }
  */
 router.get('/projects', async (req, res, next) => {
@@ -52,6 +37,14 @@ router.get('/projects', async (req, res, next) => {
     const timeframe = String(req.query.timeframe || req.query.range || 'daily').toLowerCase();
     const customStart = req.query.start_date || req.query.from;
     const customEnd = req.query.end_date || req.query.to;
+
+    // Organization/tenant filter: use header first, then query aliases
+    const organizationId =
+      req.headers['x-organization-id'] ||
+      req.query.organization_id ||
+      req.query.tenant_id ||
+      req.query.org_id ||
+      req.query.org;
 
     // Always aggregate by day (UTC). timeframe only adjusts the window length.
     const now = new Date();
@@ -89,14 +82,68 @@ router.get('/projects', async (req, res, next) => {
     const dbo = await getDb();
     const sessionCol = dbo.collection('session_tracking');
 
+    // Build deployment match for $lookup with pipeline to ensure matching types and tenant scope
+    // Normalize project_id to string for join and ensure tenant/organization filters apply consistently
+    const deploymentLookup = {
+      from: 'app_deployments',
+      let: { joinProjectId: { $toString: '$project_id' } },
+      pipeline: [
+        {
+          $addFields: {
+            _projectIdStr: {
+              $cond: [
+                { $eq: [{ $type: '$project_id' }, 'string'] },
+                '$project_id',
+                { $toString: '$project_id' }
+              ]
+            },
+            _deployCreatedAt: { $ifNull: ['$created_at', '$updated_at'] }
+          }
+        },
+        {
+          $match: {
+            $expr: {
+              $and: [
+                { $eq: ['$_projectIdStr', '$$joinProjectId'] },
+                { $gte: ['$_deployCreatedAt', from] },
+                { $lt: ['$_deployCreatedAt', to] },
+                // Tenant/organization filter if provided
+                ...(organizationId
+                  ? [
+                      {
+                        $or: [
+                          { $eq: ['$organization_id', organizationId] },
+                          { $eq: ['$tenant_id', organizationId] }
+                        ]
+                      }
+                    ]
+                  : [])
+              ]
+            }
+          }
+        },
+        {
+          $project: {
+            project_name: 1,
+            'project.name': 1,
+            _deployCreatedAt: 1,
+            organization_id: 1,
+            tenant_id: 1,
+            project_id: 1
+          }
+        }
+      ],
+      as: 'deploys'
+    };
+
     // Build aggregation:
-    // 1) Normalize dates from both collections
-    // 2) Enforce project_id existence
-    // 3) Match date windows on BOTH sides: _sessionCreatedAt and _deployCreatedAt
-    // 4) Group by YYYY-MM-DD (UTC) from sessionCreatedAt as canonical day for counting
-    // 5) For each day, compute per-user breakdown and optional per-project breakdown
+    // 1) Normalize dates from session_tracking
+    // 2) Enforce project_id existence and normalize to string
+    // 3) Match date window on session side
+    // 4) Apply tenant filter on session side as well
+    // 5) Join app_deployments with pipeline ensuring matching types and date window
+    // 6) Create UTC daily bucket and compute breakdowns
     const pipeline = [
-      // Normalize session-side createdAt
       {
         $addFields: {
           _sessionCreatedAt: {
@@ -104,40 +151,46 @@ router.get('/projects', async (req, res, next) => {
               '$created_at',
               { $ifNull: ['$session_start', { $ifNull: ['$last_updated', '$timestamp'] }] }
             ]
+          },
+          _projectIdStr: {
+            $cond: [
+              { $eq: [{ $type: '$project_id' }, 'string'] },
+              '$project_id',
+              { $toString: '$project_id' }
+            ]
           }
         }
       },
-      // Must have project_id to join
-      { $match: { project_id: { $exists: true, $ne: null, $ne: '' } } },
-      // Session date window
       { $match: { _sessionCreatedAt: { $gte: from, $lt: to } } },
-      // Join deployments
-      {
-        $lookup: {
-          from: 'app_deployments',
-          localField: 'project_id',
-          foreignField: 'project_id',
-          as: 'deploys'
-        }
-      },
+      // Must have project_id to join
+      { $match: { _projectIdStr: { $exists: true, $ne: null, $ne: '' } } },
+      // Tenant/organization filter on session side when provided
+      ...(organizationId
+        ? [
+            {
+              $match: {
+                $or: [
+                  { organization_id: organizationId },
+                  { tenant_id: organizationId }
+                ]
+              }
+            }
+          ]
+        : []),
+      // Lookup deployments with date window and tenant match
+      { $lookup: deploymentLookup },
+      // keep only those with at least one matching deployment within window (inner join behavior)
       { $unwind: { path: '$deploys', preserveNullAndEmptyArrays: false } },
-      // Normalize deploy createdAt
+      // Bucket day based on session date (UTC)
       {
         $addFields: {
-          _deployCreatedAt: {
-            $ifNull: ['$deploys.created_at', '$deploys.updated_at']
-          }
-        }
-      },
-      // Deployment date window
-      { $match: { _deployCreatedAt: { $gte: from, $lt: to } } },
-      // Create daily bucket based on session date (UTC)
-      {
-        $addFields: {
-          _bucketDay: { $dateToString: { format: '%Y-%m-%d', date: '$_sessionCreatedAt' } },
+          _bucketDay: {
+            $dateToString: { format: '%Y-%m-%d', date: '$_sessionCreatedAt' }
+          },
           _projectNameResolved: {
-            $ifNull: ['$deploys.project_name', { $ifNull: ['$deploys.project.name', null] }]
-          }
+            $ifNull: ['$deploys.project_name', { $ifNull: ['$deploys.project.name', 'unknown'] }]
+          },
+          _userNameResolved: { $ifNull: ['$user_name', 'unknown'] }
         }
       },
       // Group all details for the day to compute breakdowns
@@ -145,7 +198,7 @@ router.get('/projects', async (req, res, next) => {
         $group: {
           _id: '$_bucketDay',
           count: { $sum: 1 },
-          users: { $push: '$user_name' },
+          users: { $push: '$_userNameResolved' },
           projects: { $push: '$_projectNameResolved' }
         }
       },
