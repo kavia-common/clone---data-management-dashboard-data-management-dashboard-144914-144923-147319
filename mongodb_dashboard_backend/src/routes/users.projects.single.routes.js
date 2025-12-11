@@ -81,11 +81,64 @@ router.get('/:userId/projects', async (req, res, next) => {
         $project: {
           user_id: { $toString: '$user_id' },
           project_id: { $ifNull: [{ $toString: '$project_id' }, null] },
-          project_name: { $ifNull: ['$project_name', null] },
+          // keep any session-level project_name, but will be overridden by app_deployments when present
+          project_name_session: { $ifNull: ['$project_name', null] },
           activity_time: { $ifNull: ['$last_updated', '$session_start'] },
         },
       },
       { $match: { project_id: { $ne: null } } },
+      // Join with app_deployments to resolve canonical project_name by project_id
+      {
+        $lookup: {
+          from: 'app_deployments',
+          let: { pid: '$project_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $or: [
+                    { $eq: [{ $toString: '$project_id' }, '$$pid'] },
+                    { $eq: [{ $toString: '$projectId' }, '$$pid'] },
+                    { $eq: [{ $toString: '$metadata.projectId' }, '$$pid'] },
+                    { $eq: [{ $toString: '$project.id' }, '$$pid'] },
+                  ],
+                },
+              },
+            },
+            { $sort: { updated_at: -1, created_at: -1, _id: -1 } },
+            { $limit: 1 },
+            {
+              $project: {
+                _id: 0,
+                project_name: {
+                  $ifNull: [
+                    '$project_name',
+                    {
+                      $ifNull: [
+                        '$projectName',
+                        {
+                          $ifNull: [
+                            '$project.name',
+                            null,
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+          as: 'deployment',
+        },
+      },
+      {
+        $addFields: {
+          project_name: {
+            $ifNull: [{ $arrayElemAt: ['$deployment.project_name', 0] }, '$project_name_session'],
+          },
+        },
+      },
       {
         $group: {
           _id: { user_id: '$user_id', project_id: '$project_id' },
