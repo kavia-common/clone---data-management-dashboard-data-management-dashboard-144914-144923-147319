@@ -17,8 +17,12 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
+// Apply our permissive echo-origin CORS for all /api paths (after security cors for broad handling)
 app.use('/api', permissiveCorsMiddleware);
+// Explicit preflight handling for all /api paths (including summary)
+app.options('/api', cors());
 app.options('/api/*', cors());
+app.options('/api/projects/summary', cors());
 app.use(rateLimiter());
 
 // Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION
@@ -143,9 +147,11 @@ const safeUse = (path, router) => {
 };
 
 const baseRouter = require('./routes');
-// Mount base routes under '/api' so that '/api/users' and related paths resolve correctly.
-// Previously this was mounted at '/', which made users routes available at '/users' (missing '/api' prefix)
-// and caused 404 when clients requested '/api/users'.
+/**
+ * Ensure exactly-one '/api' prefix:
+ * - baseRouter mounts '/users' etc. relative to here, so effective paths are '/api/users/...'
+ * - Do NOT mount baseRouter at both '/' and '/api' or you'll create dupes like '/api/api/...'
+ */
 safeUse('/api', baseRouter);
 
 safeUse('/api/dev', require('./routes/dev.routes'));
@@ -177,7 +183,12 @@ safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
+safeUse('/api/projects', require('./routes/projects.summary.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
+try {
+  // eslint-disable-next-line no-console
+  console.log('[routes] Projects routes registered at: GET /api/projects/summary and /api/projects/*');
+} catch {}
 safeUse('/api/session', require('./routes/session.routes'));
 safeUse('/api/dashboard', require('./routes/dashboard.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));

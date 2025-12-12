@@ -3,21 +3,34 @@
 /**
  * PUBLIC_INTERFACE
  * permissiveCorsMiddleware
- * Strictly permissive, non-credentialed CORS for /api/*:
- * - Access-Control-Allow-Origin: *
+ * Permissive, non-credentialed CORS for /api/* that echoes request Origin and supports robust preflight:
+ * - Access-Control-Allow-Origin: <request Origin> (or "*\" as fallback)
  * - Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
  * - Access-Control-Allow-Headers: Echoes Access-Control-Request-Headers or defaults to a safe superset
- * - No Access-Control-Allow-Credentials (must stay absent when ACAO='*')
+ * - No Access-Control-Allow-Credentials (must stay absent when ACAO='*' or echo mode without credentials)
+ * - Adds Vary: Origin for cache correctness
  * - Preflight OPTIONS returns 204 immediately
  * - Always sets CORS headers for all responses (including 4xx/5xx)
  *
- * Also logs Origin and Access-Control-Request-Headers in non-production for diagnostics when DEBUG=true.
+ * Logs origin/headers in non-production for diagnostics when DEBUG=true.
  */
 function permissiveCorsMiddleware(req, res, next) {
-  // Always set ACAO "*" for /api/* requests
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  // IMPORTANT: Do NOT set Access-Control-Allow-Credentials when using '*'
-  // res.removeHeader('Access-Control-Allow-Credentials'); // ensure it's not present
+  const origin = req.headers.origin;
+  const debug =
+    process.env.NODE_ENV !== 'production' ||
+    String(process.env.DEBUG || '').toLowerCase() === 'true';
+
+  // Echo request origin if present, otherwise fallback to *
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    // Ensure caches consider Origin in response variance
+    res.setHeader('Vary', 'Origin');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+
+  // IMPORTANT: Do NOT set Access-Control-Allow-Credentials for non-credentialed flows
+  // res.removeHeader('Access-Control-Allow-Credentials');
 
   // Consolidated allow methods
   res.setHeader(
@@ -27,8 +40,24 @@ function permissiveCorsMiddleware(req, res, next) {
 
   // Reflect requested headers for preflight; otherwise, provide a permissive default superset
   const requested = req.headers['access-control-request-headers'];
-  const defaultAllowed =
-    'Content-Type,Authorization,Accept,x-tenant-id,x-tenant,Origin,User-Agent,Cache-Control,Pragma';
+  const defaultAllowed = [
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'Origin',
+    'Referer',
+    'User-Agent',
+    'Cache-Control',
+    'Pragma',
+    'x-organization-id',
+    'x-org-id',
+    'x-tenant-id',
+    'x-tenant',
+    'sec-ch-ua',
+    'sec-ch-ua-mobile',
+    'sec-ch-ua-platform',
+  ].join(',');
+
   res.setHeader(
     'Access-Control-Allow-Headers',
     requested && typeof requested === 'string' && requested.trim() !== ''
@@ -37,24 +66,25 @@ function permissiveCorsMiddleware(req, res, next) {
   );
 
   // Expose some common headers (safe)
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Type,Content-Length');
+  res.setHeader(
+    'Access-Control-Expose-Headers',
+    'Content-Type,Content-Length,x-effective-tenant'
+  );
 
   // Cache preflight result briefly (optional, conservative)
   res.setHeader('Access-Control-Max-Age', '600');
 
-  // Debug logging for /api/users diagnostics in non-production or DEBUG=true
-  const debug =
-    process.env.NODE_ENV !== 'production' ||
-    String(process.env.DEBUG || '').toLowerCase() === 'true';
+  // Endpoint-focused debug logging to help diagnose CORS
   if (debug && req.path) {
-    if (req.path === '/api/users' || req.path.startsWith('/api/users')) {
+    if (
+      req.path === '/api/users' ||
+      req.path.startsWith('/api/users') ||
+      req.path === '/api/llm-costs' ||
+      req.path.startsWith('/api/llm-costs') ||
+      req.path === '/api/projects/summary'
+    ) {
       console.log(
-        `[CORS][users] origin=${req.headers.origin || 'n/a'} ACRH=${requested || 'n/a'} method=${req.method}`
-      );
-    }
-    if (req.path === '/api/llm-costs' || req.path.startsWith('/api/llm-costs')) {
-      console.log(
-        `[CORS][llm-costs] origin=${req.headers.origin || 'n/a'} ACRH=${requested || 'n/a'} method=${req.method}`
+        `[CORS] path=${req.path} origin=${origin || 'n/a'} method=${req.method} ACRH=${requested || 'n/a'}`
       );
     }
   }

@@ -1,15 +1,12 @@
 'use strict';
 
 const SessionTracking = require('../models/sessionTracking.model');
-// Prefer resolving names via app_deployments through the shared projects.service
-const { resolveProjectNames } = require('./projects.service');
+const Project = require('../models/project.model');
 
 /**
  * PUBLIC_INTERFACE
  * getUserProjectsFromSessions
  * Aggregates distinct projects for a given user within a tenant using session_tracking data.
- * Guarantees project_name is populated when resolvable from app_deployments (via projects.service),
- * else returns empty string (not null) for defensive handling.
  */
 async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = undefined }) {
   const userIdString = String(userId);
@@ -21,8 +18,8 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
   if (fromDate || toDate) {
     const makeRange = (field) => {
       const r = {};
-      if (fromDate) { r.$gte = fromDate; }
-      if (toDate) { r.$lte = toDate; }
+      if (fromDate) {r.$gte = fromDate;}
+      if (toDate) {r.$lte = toDate;}
       return { [field]: r };
     };
     timeClauses.push(makeRange('timestamp'));
@@ -44,7 +41,7 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
           $or: timeClauses.map((clause) => {
             const key = Object.keys(clause)[0];
             const cond = clause[key];
-            if (!cond.$gte && !cond.$lte) { return { [key]: { $exists: true } }; }
+            if (!cond.$gte && !cond.$lte) {return { [key]: { $exists: true } };}
             return clause;
           }),
         }
@@ -76,31 +73,27 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
 
   const grouped = await SessionTracking.aggregate(pipeline);
 
-  // Collect projectIds and resolve names in batch via projects.service (uses app_deployments first)
-  const projectIds = grouped.map((g) => g.project_id).filter(Boolean).map(String);
-  let namesMap = new Map();
+  const projectIds = grouped.map((g) => g.project_id).filter(Boolean);
+  let projectNamesMap = {};
   if (projectIds.length > 0) {
-    try {
-      namesMap = await resolveProjectNames(projectIds);
-    } catch (e) {
-      // Keep namesMap empty on failure; downstream will default to empty string
-      namesMap = new Map();
-    }
+    const projects = await Project.find({ project_id: { $in: projectIds } }, { project_id: 1, project_name: 1 }).lean();
+    projectNamesMap = projects.reduce((acc, p) => {
+      acc[p.project_id] = p.project_name || null;
+      return acc;
+    }, {});
   }
 
   const projects = grouped
     .filter((g) => !!g.project_id)
-    .map((g) => {
-      const pid = String(g.project_id);
-      const resolved = namesMap.has(pid) ? namesMap.get(pid) : null;
-      return {
-        project_id: pid,
-        // Ensure string; empty string when not found per requirement
-        project_name: resolved ? String(resolved) : '',
-        last_activity: g.last_activity ? new Date(g.last_activity).toISOString() : undefined,
-      };
-    });
-
+    .map((g) => ({
+      project_id: g.project_id,
+      project_name: Object.prototype.hasOwnProperty.call(projectNamesMap, g.project_id)
+        ? projectNamesMap[g.project_id]
+        : undefined,
+      last_activity: g.last_activity ? new Date(g.last_activity).toISOString() : undefined,
+    }));
+  // If no projects, return an empty array (not null/undefined) to guarantee stable client behavior.
+   // console.debug('[users.service] projects output sample:', projects.slice(0, 2));
   return {
     user_id: userIdString,
     tenant_id: tenantId,
