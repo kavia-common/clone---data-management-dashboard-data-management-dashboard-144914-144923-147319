@@ -1,23 +1,44 @@
-# CORS Notes (Projects Summary)
+# CORS Notes (Projects & Users Summary)
 
-- Allowed origins include:
+- Allowed origins (explicit allowlist):
   - https://vscode-internal-36447-beta.beta01.cloud.kavia.ai:3000
   - http://localhost:3000
   - https://localhost:3000
-- If using credentials (cookies/Authorization), ensure CORS_CREDENTIALS=true (default).
-- CORS is applied before routes; permissive echo CORS runs after strict CORS for diagnostics without overriding credentials.
+- Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+- Access-Control-Allow-Headers includes (lowercase plus canonicalized forms):
+  - x-organization-id, content-type, authorization, accept, sec-ch-ua, sec-ch-ua-mobile, sec-ch-ua-platform, referer, user-agent
+- Access-Control-Allow-Credentials: true (no "*" anywhere when credentials are used)
+- CORS middleware order:
+  1) Strict apiCors (with credentials) applied at app.use('/api', apiCors)
+  2) Explicit OPTIONS handlers for /api/projects/summary and /api/users/summary
+  3) Permissive echo CORS AFTER strict (for diagnostics only; does not override credentials)
+  4) Routes mounted under /api
+- Route handlers do not short-circuit responses without CORS; headers are already set by upstream middleware.
 
-Quick checks:
+Quick verification:
 
-Preflight:
+Preflight (projects):
 curl -i -X OPTIONS \
   -H "Origin: https://vscode-internal-36447-beta.beta01.cloud.kavia.ai:3000" \
   -H "Access-Control-Request-Method: GET" \
   -H "Access-Control-Request-Headers: x-organization-id, content-type, authorization, accept, sec-ch-ua, sec-ch-ua-mobile, sec-ch-ua-platform, referer, user-agent" \
-  "http://localhost:8080/api/projects/summary?range=daily"
+  "http://localhost:8080/api/projects/summary?range=daily&organization_id=b2c"
 
-GET:
+GET (projects):
 curl -i \
   -H "Origin: https://vscode-internal-36447-beta.beta01.cloud.kavia.ai:3000" \
-  -H "x-organization-id: demo-tenant" \
-  "http://localhost:8080/api/projects/summary?range=daily"
+  -H "x-organization-id: b2c" \
+  "http://localhost:8080/api/projects/summary?range=daily&organization_id=b2c"
+
+Preflight (users):
+curl -i -X OPTIONS \
+  -H "Origin: https://vscode-internal-36447-beta.beta01.cloud.kavia.ai:3000" \
+  -H "Access-Control-Request-Method: GET" \
+  -H "Access-Control-Request-Headers: x-organization-id, content-type, authorization, accept, sec-ch-ua, sec-ch-ua-mobile, sec-ch-ua-platform, referer, user-agent" \
+  "http://localhost:8080/api/users/summary?range=daily&organization_id=b2c"
+
+GET (users):
+curl -i \
+  -H "Origin: https://vscode-internal-36447-beta.beta01.cloud.kavia.ai:3000" \
+  -H "x-organization-id: b2c" \
+  "http://localhost:8080/api/users/summary?range=daily&organization_id=b2c"

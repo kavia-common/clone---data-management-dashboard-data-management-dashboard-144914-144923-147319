@@ -39,6 +39,14 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  * }
  */
 router.get('/summary', extractOrganization(), async (req, res) => {
+  // CORS diagnostics for GET
+  try {
+    const origin = req.headers?.origin || 'n/a';
+    const acao = res.getHeader('Access-Control-Allow-Origin') || 'n/a';
+    const acc = res.getHeader('Access-Control-Allow-Credentials') || 'n/a';
+    // eslint-disable-next-line no-console
+    console.log(`[CORS][GET users.summary] origin=${origin} ACAO=${acao} ACC=${acc}`);
+  } catch {}
   try {
     let { range = 'daily', start_date, end_date, organization_id, tenant_id } = req.query || {};
     range = String(range || 'daily').toLowerCase();

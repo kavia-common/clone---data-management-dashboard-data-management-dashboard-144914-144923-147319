@@ -59,13 +59,20 @@ const apiCors = cors({
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
+    // lowercase variants (as requested)
     'x-organization-id',
-    'Content-Type',
-    'Authorization',
-    'Accept',
+    'content-type',
+    'authorization',
+    'accept',
     'sec-ch-ua',
     'sec-ch-ua-mobile',
     'sec-ch-ua-platform',
+    'referer',
+    'user-agent',
+    // common canonicalized forms some clients emit
+    'Content-Type',
+    'Authorization',
+    'Accept',
     'Referer',
     'User-Agent',
     'Origin',
@@ -110,7 +117,33 @@ app.options('/api/projects/summary', (req, res, next) => {
     const acao = res.getHeader('Access-Control-Allow-Origin');
     const acc = res.getHeader('Access-Control-Allow-Credentials');
     // eslint-disable-next-line no-console
-    console.log(`[CORS][preflight-summary] ACAO=${acao || 'n/a'} ACC=${acc || 'n/a'}`);
+    console.log(`[CORS][preflight-summary-projects] ACAO=${acao || 'n/a'} ACC=${acc || 'n/a'}`);
+  } catch {}
+  return apiCors(req, res, () => res.sendStatus(204));
+});
+
+// Add explicit OPTIONS for /api/users/summary with the exact required headers
+app.options('/api/users/summary', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    [
+      'x-organization-id',
+      'content-type',
+      'authorization',
+      'accept',
+      'sec-ch-ua',
+      'sec-ch-ua-mobile',
+      'sec-ch-ua-platform',
+      'referer',
+      'user-agent',
+    ].join(',')
+  );
+  try {
+    const acao = res.getHeader('Access-Control-Allow-Origin');
+    const acc = res.getHeader('Access-Control-Allow-Credentials');
+    // eslint-disable-next-line no-console
+    console.log(`[CORS][preflight-summary-users] ACAO=${acao || 'n/a'} ACC=${acc || 'n/a'}`);
   } catch {}
   return apiCors(req, res, () => res.sendStatus(204));
 });
