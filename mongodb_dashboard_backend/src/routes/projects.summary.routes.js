@@ -40,7 +40,58 @@ const cors = require('cors');
  *   end_date
  * }
  */
-router.options('/summary', cors()); // Preflight handler for /api/projects/summary
+/**
+ * Explicit preflight handler for /api/projects/summary
+ * - Responds with 204 and required CORS headers
+ * - Echoes requesting Origin
+ * - Allows headers used by the frontend and previews
+ * - Allows GET, OPTIONS methods
+ * Adds debug logging to confirm preflight path is hit.
+ */
+router.options('/summary', (req, res) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  // Ensure allowed methods are advertised
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+
+  // Normalize and reflect requested headers or provide a safe superset
+  const requested = req.headers['access-control-request-headers'];
+  const defaultAllowed = [
+    'x-organization-id',
+    'Accept',
+    'Content-Type',
+    'Referer',
+    'sec-ch-ua',
+    'sec-ch-ua-mobile',
+    'sec-ch-ua-platform',
+    'Authorization',
+    'Origin',
+  ].join(',');
+
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    requested && typeof requested === 'string' && requested.trim() !== ''
+      ? requested
+      : defaultAllowed
+  );
+  res.setHeader('Access-Control-Max-Age', '600');
+
+  try {
+    // eslint-disable-next-line no-console
+    console.log('[CORS][projects.summary] OPTIONS preflight hit for /api/projects/summary', {
+      origin: origin || 'n/a',
+      requested,
+      path: req.originalUrl || req.path,
+    });
+  } catch {}
+  return res.status(204).send();
+});
+
 router.get('/summary', extractOrganization(), async (req, res) => {
   try {
     let { range = 'daily', start_date, end_date, organization_id, tenant_id } = req.query || {};

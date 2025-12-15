@@ -182,6 +182,11 @@ function verifyAuth(req, res, next) {
   try {
     // Public endpoints bypass
     const p = req.path || req.originalUrl || '';
+    // Always allow CORS preflight to pass through without auth
+    if (req.method === 'OPTIONS') {
+      return next();
+    }
+
     if (
       p === '/' ||
       p.startsWith('/health') ||

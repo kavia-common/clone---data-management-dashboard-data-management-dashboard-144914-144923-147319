@@ -35,32 +35,22 @@ function permissiveCorsMiddleware(req, res, next) {
   // Consolidated allow methods
   res.setHeader(
     'Access-Control-Allow-Methods',
-    'GET,POST,PUT,PATCH,DELETE,OPTIONS'
+    'GET,OPTIONS,POST,PUT,PATCH,DELETE'
   );
 
-  // Reflect requested headers for preflight; otherwise, provide a permissive default superset
+  // Reflect requested headers for preflight; otherwise, provide a permissive default superset.
+  // Normalize casing of custom headers we expect.
   const requested = req.headers['access-control-request-headers'];
   const defaultAllowed = [
+    'x-organization-id',
+    'Accept',
     'Content-Type',
     'Authorization',
-    'Accept',
     'Origin',
     'Referer',
-    'User-Agent',
-    'Cache-Control',
-    'Pragma',
-    'x-organization-id',
-    'x-org-id',
-    'x-tenant-id',
-    'x-tenant',
-    // Modern browser client hints and fetch headers frequently present in preview envs
     'sec-ch-ua',
     'sec-ch-ua-mobile',
     'sec-ch-ua-platform',
-    'sec-fetch-site',
-    'sec-fetch-mode',
-    'sec-fetch-dest',
-    'accept-language',
   ].join(',');
 
   res.setHeader(

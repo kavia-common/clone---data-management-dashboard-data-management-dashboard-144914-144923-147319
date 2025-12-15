@@ -22,7 +22,44 @@ app.use('/api', permissiveCorsMiddleware);
 // Explicit preflight handling for all /api paths (including summary)
 app.options('/api', cors());
 app.options('/api/*', cors());
-app.options('/api/projects/summary', cors());
+// Explicit exact-path preflight for /api/projects/summary to avoid any router precedence or auth interference
+app.options('/api/projects/summary', (req, res) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  const requested = req.headers['access-control-request-headers'];
+  const defaultAllowed = [
+    'x-organization-id',
+    'Accept',
+    'Content-Type',
+    'Referer',
+    'sec-ch-ua',
+    'sec-ch-ua-mobile',
+    'sec-ch-ua-platform',
+    'Authorization',
+    'Origin',
+  ].join(',');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    requested && typeof requested === 'string' && requested.trim() !== ''
+      ? requested
+      : defaultAllowed
+  );
+  res.setHeader('Access-Control-Max-Age', '600');
+  try {
+    // eslint-disable-next-line no-console
+    console.log('[CORS][app] OPTIONS hit /api/projects/summary', {
+      origin: origin || 'n/a',
+      requested,
+    });
+  } catch {}
+  return res.sendStatus(204);
+});
 app.use(rateLimiter());
 
 // Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION

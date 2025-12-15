@@ -122,8 +122,19 @@ function corsMiddleware() {
       // return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Content-Length', 'Content-Type'],
+    // Include headers used by frontend; permissive Cors later echoes as well.
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Origin',
+      'Referer',
+      'x-organization-id',
+      'sec-ch-ua',
+      'sec-ch-ua-mobile',
+      'sec-ch-ua-platform'
+    ],
+    exposedHeaders: ['Content-Length', 'Content-Type', 'x-effective-tenant'],
     credentials: allowCredentials,
     optionsSuccessStatus: 204,
   });
