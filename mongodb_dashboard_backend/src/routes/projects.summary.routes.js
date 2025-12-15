@@ -1,22 +1,39 @@
 const express = require('express');
 const router = express.Router();
-const sessionTracking = require('../models/sessionTracking.model');
+
+// Use native driver handle when available; otherwise fall back to Mongoose model
+const SessionTracking = require('../models/sessionTracking.model');
 const { extractOrganization } = require('../middleware/extractOrganization');
 
-// PUBLIC_INTERFACE
 /**
+ * PUBLIC_INTERFACE
  * GET /api/projects/summary
- * Projects created summary (derived from session_tracking) grouped by time buckets with tenant scoping.
+ * Projects created summary (derived from session_tracking) grouped by daily time buckets with tenant scoping.
  *
- * Parity with /api/users/summary:
- * - Uses session_tracking.created_at as the canonical timestamp
- * - Supports range=daily|weekly|monthly|custom with YYYY-MM-DD bounds for custom
- * - For regular orgs: applies tenant filter via aliases (tenant_id, organization_id, etc.)
- * - For orgId === 'T0000' OR super-admin global scope: bypass tenant filter and return all-tenant aggregation
- * - Adds orgBuckets (per-tenant totals and aligned daily series) only in all-tenant mode to preserve backward compatibility
+ * Behavior:
+ * - Parity with /api/users/summary semantics and shape.
+ * - Uses session_tracking.created_at as the canonical timestamp.
+ * - Supports range=daily|weekly|monthly|custom with YYYY-MM-DD bounds for custom.
+ * - For regular orgs: applies tenant filter via aliases (tenant_id, organization_id, etc.).
+ * - For orgId === 'T0000': treat as all-tenant mode (without requiring super-admin); produce:
+ *    • buckets: daily totals across ALL orgs
+ *    • orgBuckets: array per organization_id with aligned daily counts for horizontal charting
+ *
+ * Response (200):
+ * {
+ *   buckets: [{ label, count, start, end }],
+ *   orgBuckets?: [{
+ *     organization_id: string,
+ *     total: number,
+ *     buckets: [{ label: string, count: number }]
+ *   }],
+ *   range,
+ *   start_date,
+ *   end_date
+ * }
  */
 router.get('/summary', extractOrganization(), async (req, res) => {
-  // Optional CORS diagnostics
+  // Lightweight CORS diagnoser
   try {
     const origin = req.headers?.origin || 'n/a';
     const acao = res.getHeader('Access-Control-Allow-Origin') || 'n/a';
@@ -88,6 +105,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     const createdAtFilter = { $gte: windowStart, $lte: windowEnd };
     const match = { created_at: createdAtFilter };
 
+    // For normal orgs → apply tenant filter; For T0000 or super-admin global → no tenant filter
     if (!isGlobal && !isT0000 && effectiveTenant) {
       match.$or = [
         { tenant_id: effectiveTenant },
@@ -99,9 +117,13 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       ];
     }
 
+    // Bucketing expressions (always day-level)
     const bucketBoundaryExpr = { $dateTrunc: { date: '$created_at', unit: 'day', timezone: 'UTC' } };
+
+    // Prefer native driver db handle if available
     const db = req.app.get('db');
 
+    // Base pipeline for bucketed counts
     const basePipeline = [
       { $match: match },
       { $set: { _bucketStart: bucketBoundaryExpr } },
@@ -124,6 +146,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       }
     ];
 
+    // Optional per-organization breakdown when all-org view is active (T0000)
     const perOrgPipeline = [
       { $match: match },
       { $set: { _bucketStart: bucketBoundaryExpr } },
@@ -144,14 +167,15 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       { $sort: { bucket: 1, org: 1 } }
     ];
 
+    // Execute aggregations against session_tracking
     let bucketResults;
     if (db && typeof db.collection === 'function') {
       bucketResults = await db.collection('session_tracking').aggregate(basePipeline, { allowDiskUse: true }).toArray();
     } else {
-      bucketResults = await sessionTracking.aggregate(basePipeline).allowDiskUse(true);
+      bucketResults = await SessionTracking.aggregate(basePipeline).allowDiskUse(true);
     }
 
-    // Build contiguous ticks
+    // Ensure contiguous buckets with zero fill
     const ticks = [];
     let d = startOfUTCDate(windowStart);
     const endDay = startOfUTCDate(windowEnd);
@@ -160,17 +184,17 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       d = addDays(d, 1);
     }
 
-    const resMap = new Map();
+    const map = new Map();
     for (const r of bucketResults) {
       const key = (new Date(r.start)).toISOString();
-      resMap.set(key, r);
+      map.set(key, r);
     }
 
     const buckets = ticks.map((t) => {
       const start = new Date(t);
       const end = endOfUTCDate(start);
       const isoKey = start.toISOString();
-      const found = resMap.get(isoKey);
+      const found = map.get(isoKey);
       return {
         label: toYMD(start),
         start: start.toISOString(),
@@ -179,18 +203,19 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       };
     });
 
-    // orgBuckets only in all-tenant (T0000) mode
-    let orgBuckets;
+    // If T0000, also compute per-organization series for UI when needed
+    let orgBuckets = undefined;
     if (isT0000) {
       let perOrgRaw;
       if (db && typeof db.collection === 'function') {
         perOrgRaw = await db.collection('session_tracking').aggregate(perOrgPipeline, { allowDiskUse: true }).toArray();
       } else {
-        perOrgRaw = await sessionTracking.aggregate(perOrgPipeline).allowDiskUse(true);
+        perOrgRaw = await SessionTracking.aggregate(perOrgPipeline).allowDiskUse(true);
       }
 
-      const orgMap = new Map();
-      const orgTotals = new Map();
+      // Group by org with per-day buckets; compute org-level totals
+      const orgMap = new Map(); // org -> Map(dateLabel -> count)
+      const orgTotals = new Map(); // org -> total count
       for (const row of perOrgRaw) {
         const dateLabel = typeof row.bucket === 'string'
           ? row.bucket
