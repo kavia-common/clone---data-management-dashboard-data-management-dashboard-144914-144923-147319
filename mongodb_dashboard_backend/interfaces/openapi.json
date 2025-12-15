@@ -1960,6 +1960,72 @@
         }
       }
     },
+    "/api/services/summary": {
+      "get": {
+        "summary": "Service types created summary",
+        "description": "Aggregates session_tracking by service_type with overview-style date ranges. Tenant scoping via Authorization (JWT) when present; otherwise use x-organization-id header or query aliases (?organization_id or ?tenant_id). Super admin T0000 bypass allowed; when include_org_buckets=1, returns orgBuckets grouped by tenant.",
+        "tags": ["Dashboard","SessionTracking"],
+        "parameters": [
+          { "in": "header", "name": "x-organization-id", "required": false, "schema": { "type": "string" }, "description": "Tenant (organization) ID when JWT is not provided; ignored if JWT is present" },
+          { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Alias for tenant id" },
+          { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Alias for tenant id" },
+          { "in": "query", "name": "range", "schema": { "type": "string", "enum": ["daily","weekly","monthly","custom"], "default": "daily" }, "description": "Time range preset" },
+          { "in": "query", "name": "start_date", "schema": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }, "description": "Start date (YYYY-MM-DD) required when range=custom" },
+          { "in": "query", "name": "end_date", "schema": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }, "description": "End date (YYYY-MM-DD) required when range=custom" },
+          { "in": "query", "name": "include_org_buckets", "schema": { "type": "string", "enum": ["0","1","true","false"] }, "description": "When T0000, set to 1/true to include orgBuckets grouping by tenant" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Service types summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "range": { "type": "string" },
+                    "start_date": { "type": "string" },
+                    "end_date": { "type": "string" },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "service_type": { "type": "string", "nullable": true },
+                          "count": { "type": "integer" }
+                        }
+                      }
+                    },
+                    "orgBuckets": {
+                      "type": "array",
+                      "nullable": true,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tenant_id": { "type": "string" },
+                          "total": { "type": "integer" },
+                          "services": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "service_type": { "type": "string", "nullable": true },
+                                "count": { "type": "integer" }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid parameters or missing tenant" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
     "/api/users/referral-sources": {
       "get": {
         "summary": "Top referral sources",

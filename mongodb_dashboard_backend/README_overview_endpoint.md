@@ -15,6 +15,19 @@
 
 - Swagger UI is served at `/api-docs` (and `/docs`, `/api/docs`) with dynamic server URL.
 
+## Service Types Summary (Overview)
+
+- Path: `GET /api/services/summary`
+- Source: `session_tracking` collection
+- Grouping: `service_type`
+- Filters:
+  - `range`: daily|weekly|monthly|custom
+  - `start_date`, `end_date` when `range=custom`
+- Tenant scope:
+  - JWT tenant when Authorization is provided
+  - Otherwise `x-organization-id` header or `organization_id|tenant_id` query
+  - Super admin: `T0000` bypass; optional `include_org_buckets=1` to get `{ orgBuckets: [{ tenant_id, total, services: [{ service_type, count }] }] }`
+
 - CORS:
   - `/api/*` routes are served with permissive, non-credentialed CORS via `permissiveCorsMiddleware`:
     - `Access-Control-Allow-Origin: *`

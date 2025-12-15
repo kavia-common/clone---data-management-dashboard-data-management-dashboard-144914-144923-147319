@@ -45,4 +45,16 @@ router.get('/', (req, res) => {
   return res.status(200).json(payload);
 });
 
+/**
+ * Services Analytics
+ * Mount API: /api/services/summary
+ */
+try {
+  const servicesAnalyticsRoutes = require('./services.analytics.routes');
+  router.use('/', servicesAnalyticsRoutes);
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.warn('[routes/index] services.analytics.routes not mounted due to error:', err?.message || err);
+}
+
 module.exports = router;
