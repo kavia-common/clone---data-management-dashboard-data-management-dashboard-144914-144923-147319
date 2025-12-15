@@ -16,13 +16,72 @@ const app = express();
 // ---------------------------------------------
 app.set('trust proxy', 1);
 app.use(helmetMiddleware());
+
+// Baseline security CORS (existing)
+// Note: Keep existing corsMiddleware if it does other security tasks.
 app.use(corsMiddleware());
-// Apply our permissive echo-origin CORS for all /api paths (after security cors for broad handling)
+
+/**
+ * CORS configuration for API routes
+ * - Allows React dev origins (Kavia preview and localhost:3000 as fallback)
+ * - Supports credentials when needed (do NOT use '*' with credentials)
+ * - Allows required methods and headers
+ * - Handles preflight OPTIONS without blocking
+ */
+const ALLOWED_ORIGINS = [
+  'https://vscode-internal-36447-beta.beta01.cloud.kavia.ai:3000',
+  'http://localhost:3000',
+  'https://localhost:3000',
+].filter(Boolean);
+
+// Build cors options dynamically to echo allowed origins only
+const apiCors = cors({
+  origin: function (origin, callback) {
+    // Allow non-browser requests (no Origin) and same-origin
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+    // In non-production, log and still block by default
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.warn(`[cors] Blocked origin: ${origin}`);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'x-organization-id',
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'sec-ch-ua',
+    'sec-ch-ua-mobile',
+    'sec-ch-ua-platform',
+    'Referer',
+    'User-Agent',
+    'Origin',
+    'Cache-Control',
+    'Pragma',
+  ],
+  exposedHeaders: ['x-effective-tenant', 'Content-Type', 'Content-Length'],
+  credentials: true, // set when cookies/credentials are needed
+  maxAge: 600,
+});
+
+// Apply strict cors to API routes first so headers are set consistently
+app.use('/api', apiCors);
+
+// Keep permissive echo-origin CORS for broader compatibility on API if needed.
+// Note: It does NOT set Allow-Credentials and simply echoes Origin.
+// It is placed AFTER strict cors to avoid overriding credentials behavior.
 app.use('/api', permissiveCorsMiddleware);
-// Explicit preflight handling for all /api paths (including summary)
-app.options('/api', cors());
-app.options('/api/*', cors());
-app.options('/api/projects/summary', cors());
+
+// Explicit preflight handling for API paths
+app.options('/api', apiCors);
+app.options('/api/*', apiCors);
+app.options('/api/projects/summary', apiCors);
+
 app.use(rateLimiter());
 
 // Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION
