@@ -144,7 +144,18 @@ async function getServiceTypesSummary({ organizationId, range = 'daily', start_d
     { $sort: { count: -1 } }
   ];
 
-  const items = await SessionTracking.aggregate(pipeline).allowDiskUse(true).exec();
+  // Apply a maxTimeMS to avoid long-running ops stalling the request if supported by driver
+  let agg = SessionTracking.aggregate(pipeline).allowDiskUse(true);
+  try {
+    if (typeof agg.option === 'function') {
+      agg = agg.option({ maxTimeMS: 15000 });
+    } else if (typeof agg.maxTimeMS === 'function') {
+      agg = agg.maxTimeMS(15000);
+    }
+  } catch (_) {
+    // no-op; older mongoose may not expose option/maxTimeMS here
+  }
+  const items = await agg.exec();
 
   const response = {
     range,

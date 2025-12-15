@@ -47,7 +47,7 @@ router.get('/', (req, res) => {
 
 /**
  * Services Analytics
- * Mount API: /api/services/summary
+ * Mount API: /api/services-type/summary
  */
 try {
   const servicesAnalyticsRoutes = require('./services.analytics.routes');

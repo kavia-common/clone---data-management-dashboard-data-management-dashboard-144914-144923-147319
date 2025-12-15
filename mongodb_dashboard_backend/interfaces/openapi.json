@@ -1960,7 +1960,7 @@
         }
       }
     },
-    "/api/services/summary": {
+    "/api/services-type/summary": {
       "get": {
         "summary": "Service types created summary",
         "description": "Aggregates session_tracking by service_type with overview-style date ranges. Tenant scoping via Authorization (JWT) when present; otherwise use x-organization-id header or query aliases (?organization_id or ?tenant_id). Super admin T0000 bypass allowed; when include_org_buckets=1, returns orgBuckets grouped by tenant.",

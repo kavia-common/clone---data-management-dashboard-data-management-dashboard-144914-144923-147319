@@ -5,11 +5,12 @@ const { resolveOrganizationFromRequest } = require('../middleware/tenantScope') 
 
 /**
  * PUBLIC_INTERFACE
- * GET /api/services/summary
+ * GET /api/services-type/summary
  * Aggregates SessionTracking counts grouped by service_type with date filtering and tenant scoping.
  * Accepts: range=daily|weekly|monthly|custom, start_date, end_date (YYYY-MM-DD)
- * Organization scoping via Authorization JWT when present; otherwise via x-organization-id header or ?organization_id/tenant_id query.
- * Super admin bypass: if organizationId === 'T0000' allows cross-tenant; when include_org_buckets=1, returns orgBuckets.
+ * Tenant scoping: prefer x-organization-id header (or JWT tenant when present); fallback to ?organization_id or ?tenant_id.
+ * For non-T0000, applies match.tenant_id = resolved org; for T0000 bypasses tenant match.
+ * Returns: { range, start_date, end_date, items: [{ service_type, count }], orgBuckets?: [...] }
  */
 async function servicesSummaryHandler(req, res, next) {
   try {

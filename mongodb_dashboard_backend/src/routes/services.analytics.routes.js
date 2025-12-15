@@ -12,9 +12,9 @@ const { extractOrganization } = require('../middleware/extractOrganization') || 
  * and src/routes/index.js mounts this router at '/'), we must define relative paths here.
  * Using '/api/services/summary' here resulted in an effective '/api/api/services/summary' and a 404.
  *
- * Correct effective path: '/api/services/summary'
- * Therefore route here must be defined as '/services/summary'.
+ * New effective path: '/api/services-type/summary'
+ * Therefore route here must be defined as '/services-type/summary'.
  */
-router.get('/services/summary', extractOrganization || ((req, _res, next) => next()), servicesSummaryHandler);
+router.get('/services-type/summary', extractOrganization || ((req, _res, next) => next()), servicesSummaryHandler);
 
 module.exports = router;
