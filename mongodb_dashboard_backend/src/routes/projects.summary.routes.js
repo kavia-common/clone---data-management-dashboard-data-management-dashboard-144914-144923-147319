@@ -1,54 +1,34 @@
 const express = require('express');
 const router = express.Router();
-const mongoose = require('mongoose');
 const sessionTracking = require('../models/sessionTracking.model');
 const { extractOrganization } = require('../middleware/extractOrganization');
 
- // PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
 /**
- * GET /api/project/summary
- * sessionTrackings created summary grouped by time buckets with tenant scoping.
+ * GET /api/projects/summary
+ * Projects created summary (derived from session_tracking) grouped by time buckets with tenant scoping.
  *
- * Special case:
- * - When organization_id === 'T0000' (case-insensitive), return an all-organizations view:
- *   - buckets: daily totals across ALL orgs
- *   - orgBuckets: array per organization_id with aligned daily counts for stacked charting
- *
- * Query params:
- * - organization_id (alias tenant_id): required unless super-admin/global bypass is active
- * - range: 'daily' | 'weekly' | 'monthly' | 'custom' (default: 'daily')
- * - start_date, end_date (YYYY-MM-DD) required when range='custom'
- *
- * Date range semantics:
- * - daily: today only
- * - weekly: today and previous 6 days (7 days total)
- * - monthly: today and previous 29 days (30 days total)
- * - custom: inclusive start_date to end_date (YYYY-MM-DD), grouped by day
- *
- * Returns 200 JSON:
- * {
- *   buckets: [{ label, count, start, end }],
- *   orgBuckets?: [{
- *     organization_id: string,
- *     total: number,
- *     buckets: [{ label: string, count: number }]
- *   }],
- *   range,
- *   start_date,
- *   end_date
- * }
+ * Parity with /api/users/summary:
+ * - Uses session_tracking.created_at as the canonical timestamp
+ * - Supports range=daily|weekly|monthly|custom with YYYY-MM-DD bounds for custom
+ * - For regular orgs: applies tenant filter via aliases (tenant_id, organization_id, etc.)
+ * - For orgId === 'T0000' OR super-admin global scope: bypass tenant filter and return all-tenant aggregation
+ * - Adds orgBuckets (per-tenant totals and aligned daily series) only in all-tenant mode to preserve backward compatibility
  */
 router.get('/summary', extractOrganization(), async (req, res) => {
+  // Optional CORS diagnostics
   try {
     const origin = req.headers?.origin || 'n/a';
     const acao = res.getHeader('Access-Control-Allow-Origin') || 'n/a';
     const acc = res.getHeader('Access-Control-Allow-Credentials') || 'n/a';
     // eslint-disable-next-line no-console
-    console.log(`[CORS][GET summary] origin=${origin} ACAO=${acao} ACC=${acc}`);
+    console.log(`[CORS][GET projects.summary] origin=${origin} ACAO=${acao} ACC=${acc}`);
   } catch {}
+
   try {
     let { range = 'daily', start_date, end_date, organization_id, tenant_id } = req.query || {};
     range = String(range || 'daily').toLowerCase();
+
     const ALLOWED = new Set(['daily', 'weekly', 'monthly', 'custom']);
     if (!ALLOWED.has(range)) {
       return res.status(400).json({
@@ -57,14 +37,12 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       });
     }
     if (range !== 'custom' && (start_date || end_date)) {
-      res.setHeader('x-users-summary-note', 'start_date/end_date ignored unless range=custom');
+      try { res.setHeader('x-projects-summary-note', 'start_date/end_date ignored unless range=custom'); } catch {}
     }
 
     // Determine effective tenant and global aggregation flag
     const isGlobal = !!req.tenantScopeDisabled || !!req.allTenants;
     const effectiveTenant = req.organizationId || req.tenantId || organization_id || tenant_id || null;
-
-    // Special organization_id=T0000 triggers all-org aggregation (without requiring super admin)
     const isT0000 = String(effectiveTenant || '').trim().toUpperCase() === 'T0000';
 
     if (!isGlobal && !effectiveTenant) {
@@ -110,7 +88,6 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     const createdAtFilter = { $gte: windowStart, $lte: windowEnd };
     const match = { created_at: createdAtFilter };
 
-    // For normal orgs → apply tenant filter; For T0000 or super-admin global → no tenant filter
     if (!isGlobal && !isT0000 && effectiveTenant) {
       match.$or = [
         { tenant_id: effectiveTenant },
@@ -122,13 +99,9 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       ];
     }
 
-    // Bucketing expressions (always day-level)
     const bucketBoundaryExpr = { $dateTrunc: { date: '$created_at', unit: 'day', timezone: 'UTC' } };
-
-    // Prefer native driver db handle if available
     const db = req.app.get('db');
 
-    // Base pipeline for bucketed counts
     const basePipeline = [
       { $match: match },
       { $set: { _bucketStart: bucketBoundaryExpr } },
@@ -151,7 +124,6 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       }
     ];
 
-    // Optional per-organization breakdown when all-org view is active (T0000)
     const perOrgPipeline = [
       { $match: match },
       { $set: { _bucketStart: bucketBoundaryExpr } },
@@ -172,7 +144,6 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       { $sort: { bucket: 1, org: 1 } }
     ];
 
-    // Execute aggregations
     let bucketResults;
     if (db && typeof db.collection === 'function') {
       bucketResults = await db.collection('session_tracking').aggregate(basePipeline, { allowDiskUse: true }).toArray();
@@ -180,7 +151,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       bucketResults = await sessionTracking.aggregate(basePipeline).allowDiskUse(true);
     }
 
-    // Ensure contiguous buckets with zero fill
+    // Build contiguous ticks
     const ticks = [];
     let d = startOfUTCDate(windowStart);
     const endDay = startOfUTCDate(windowEnd);
@@ -189,17 +160,17 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       d = addDays(d, 1);
     }
 
-    const map = new Map();
+    const resMap = new Map();
     for (const r of bucketResults) {
       const key = (new Date(r.start)).toISOString();
-      map.set(key, r);
+      resMap.set(key, r);
     }
 
     const buckets = ticks.map((t) => {
       const start = new Date(t);
       const end = endOfUTCDate(start);
       const isoKey = start.toISOString();
-      const found = map.get(isoKey);
+      const found = resMap.get(isoKey);
       return {
         label: toYMD(start),
         start: start.toISOString(),
@@ -208,8 +179,8 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       };
     });
 
-    // If T0000, also compute per-organization series for UI when needed
-    let orgBuckets = undefined;
+    // orgBuckets only in all-tenant (T0000) mode
+    let orgBuckets;
     if (isT0000) {
       let perOrgRaw;
       if (db && typeof db.collection === 'function') {
@@ -218,9 +189,8 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         perOrgRaw = await sessionTracking.aggregate(perOrgPipeline).allowDiskUse(true);
       }
 
-      // Group by org with per-day buckets; also compute org-level totals for convenience
-      const orgMap = new Map(); // org -> Map(dateLabel -> count)
-      const orgTotals = new Map(); // org -> total count
+      const orgMap = new Map();
+      const orgTotals = new Map();
       for (const row of perOrgRaw) {
         const dateLabel = typeof row.bucket === 'string'
           ? row.bucket
@@ -232,7 +202,6 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         orgTotals.set(org, (orgTotals.get(org) || 0) + c);
       }
 
-      // For each org, produce a daily array aligned to ticks
       orgBuckets = Array.from(orgMap.entries()).map(([org, dateMap]) => {
         const series = ticks.map((t) => {
           const lbl = toYMD(t);
@@ -245,11 +214,8 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         };
       });
 
-      // Sort orgs descending by total for deterministic rendering
       orgBuckets.sort((a, b) => b.total - a.total);
-
-      // Add response hint header
-      try { res.setHeader('x-users-summary-org-buckets', String(orgBuckets.length)); } catch {}
+      try { res.setHeader('x-projects-summary-org-buckets', String(orgBuckets.length)); } catch {}
     }
 
     const response = {
@@ -260,13 +226,13 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     };
     if (isT0000) {
       response.orgBuckets = orgBuckets || [];
-      try { res.setHeader('x-users-summary-mode', 'all_orgs'); } catch {}
+      try { res.setHeader('x-projects-summary-mode', 'all_orgs'); } catch {}
     }
 
     return res.status(200).json(response);
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error('[users.summary] error:', err);
+    console.error('[projects.summary] error:', err);
     return res.status(500).json({ message: 'Internal server error' });
   }
 });
