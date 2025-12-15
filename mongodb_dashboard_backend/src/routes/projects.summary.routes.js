@@ -190,7 +190,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       map.set(key, r);
     }
 
-    const buckets = ticks.map((t) => {
+    let buckets = ticks.map((t) => {
       const start = new Date(t);
       const end = endOfUTCDate(start);
       const isoKey = start.toISOString();
@@ -202,6 +202,11 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         count: Number(found?.count || 0)
       };
     });
+
+    // For non-T0000 tenants (and when not in global/all-tenants mode), filter out zero-count buckets
+    if (!isT0000 && !isGlobal) {
+      buckets = buckets.filter(b => Number(b.count) > 0);
+    }
 
     // If T0000, also compute per-organization series for UI when needed
     let orgBuckets = undefined;
