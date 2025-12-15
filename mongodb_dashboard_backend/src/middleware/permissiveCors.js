@@ -71,6 +71,14 @@ function permissiveCorsMiddleware(req, res, next) {
     'Content-Type,Content-Length,x-effective-tenant'
   );
 
+  // Log resulting ACAO for /api/projects/summary to aid diagnosis
+  if (debug && req.path === '/api/projects/summary') {
+    try {
+      const acao = res.getHeader('Access-Control-Allow-Origin');
+      console.log(`[CORS] (permissive) summary ACAO=${acao || 'n/a'} origin=${origin || 'n/a'}`);
+    } catch {}
+  }
+
   // Cache preflight result briefly (optional, conservative)
   res.setHeader('Access-Control-Max-Age', '600');
 

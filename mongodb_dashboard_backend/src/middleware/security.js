@@ -1,4 +1,3 @@
-
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -8,37 +7,28 @@ const rateLimit = require('express-rate-limit');
  * Returns null if it cannot be interpreted as an origin.
  */
 function toOriginMaybe(urlLike) {
-  if (!urlLike) {return null;}
+  if (!urlLike) return null;
   try {
     const u = new URL(urlLike);
     return `${u.protocol}//${u.host}`;
   } catch {
-    if (/^https?:\/\/[^/]+$/i.test(urlLike)) {return urlLike;}
+    if (/^https?:\/\/[^/]+$/i.test(urlLike)) return urlLike;
     return null;
   }
 }
 
 /**
  * PUBLIC_INTERFACE
- * Build a CORS middleware with a computed whitelist derived from env configuration.
+ * Build a CORS middleware with a computed whitelist derived from env configuration
+ * and explicit support for React dev preview origins.
  *
- * Env vars supported:
- * - REACT_APP_API_BASE_URL: If set, its origin is allowed (e.g., https://api.example.com/api -> https://api.example.com).
- * - CORS_ORIGIN: A single explicit origin to allow.
- * - CORS_ORIGINS: Comma-separated list of origins to allow.
- * - FRONTEND_ORIGIN: Convenience single origin for the frontend host.
- * - CORS_CREDENTIALS: "true" to enable credentialed requests.
- *
- * Default allowances:
- * - http://localhost:3000
- * - https://localhost:3000
- * - A known preview environment origin (cloud preview).
- *
- * Behavior:
- * - Allows exact whitelisted origins.
- * - If not an exact match, allows same-host across different ports (helps dev/proxy scenarios).
- * - Returns 403 JSON on CORS rejection with a clear message.
- * - Handles OPTIONS preflight with 204 status.
+ * Ensures:
+ * - Allowed origins include the specified VSCode preview and localhost:3000.
+ * - Preflight OPTIONS responds with proper Allow-* headers.
+ * - Allowed headers include x-organization-id, content-type, authorization, accept,
+ *   sec-ch-ua, sec-ch-ua-mobile, sec-ch-ua-platform, referer, user-agent.
+ * - If credentials are enabled, no wildcard origin is used.
+ * - Logs Origin and resolved Access-Control-Allow-Origin for diagnostics.
  */
 // PUBLIC_INTERFACE
 function corsMiddleware() {
@@ -51,12 +41,13 @@ function corsMiddleware() {
     .map((o) => toOriginMaybe(o.trim()))
     .filter(Boolean);
 
+  // Build whitelist set
   const whitelist = new Set();
 
-  // Explicit values
+  // Explicit env-driven values
   listOrigins.forEach((o) => whitelist.add(o));
-  if (singleOrigin) {whitelist.add(singleOrigin);}
-  if (frontendOrigin) {whitelist.add(frontendOrigin);}
+  if (singleOrigin) whitelist.add(singleOrigin);
+  if (frontendOrigin) whitelist.add(frontendOrigin);
 
   // Infer from API base
   if (inferredFromApiBase) {
@@ -71,73 +62,100 @@ function corsMiddleware() {
     }
   }
 
-  // Localhost defaults
+  // Explicitly include required dev origins
+  whitelist.add('https://vscode-internal-36447-beta.beta01.cloud.kavia.ai:3000');
   whitelist.add('http://localhost:3000');
   whitelist.add('https://localhost:3000');
 
-  // Preview environment frontend
-  // Preview environment frontends
+  // Optional known preview
   whitelist.add('https://kavia-dashboard-kavia-dev.cloud.kavia.ai');
-  // Explicitly allow VSCode internal preview origin used by frontend
-  // whitelist.add('https://vscode-internal-17153-beta.beta01.cloud.kavia.ai:3000');
-  
 
+  // Default to credentials enabled unless explicitly disabled
+  const allowCredentials = String(process.env.CORS_CREDENTIALS || 'true').toLowerCase() === 'true';
 
+  // Allowed headers superset per requirements
+  const allowedHeaders = [
+    'x-organization-id',
+    'content-type',
+    'authorization',
+    'accept',
+    'sec-ch-ua',
+    'sec-ch-ua-mobile',
+    'sec-ch-ua-platform',
+    'referer',
+    'user-agent',
+    'origin',
+    'cache-control',
+    'pragma',
+  ];
 
-  const allowCredentials =
-    String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true';
+  // Diagnostic startup log
+  try {
+    console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
+  } catch {}
 
-   
-  console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
-
-  // Build dynamic CORS instance with robust error tolerance in dev preview environments.
   const corsInstance = cors({
     origin: (origin, callback) => {
-      if (!origin) {return callback(null, true);} // SSR / curl / same-origin
-      if (whitelist.has(origin)) {return callback(null, true);}
+      // Non-browser or same-origin (no Origin header)
+      if (!origin) {
+        return callback(null, true);
+      }
+      const isAllowed = whitelist.has(origin);
+      if (isAllowed) {
+        return callback(null, true);
+      }
 
-      // Check same hostname, different port
+      // Allow same-host with different port for dev convenience
       try {
         const o = new URL(origin);
-        if (
-          Array.from(whitelist).some((w) => {
-            try {
-              return new URL(w).hostname === o.hostname;
-            } catch {
-              return false;
-            }
-          })
-        ) {
+        const hostAllowed = Array.from(whitelist).some((w) => {
+          try {
+            return new URL(w).hostname === o.hostname;
+          } catch {
+            return false;
+          }
+        });
+        if (hostAllowed) {
           return callback(null, true);
         }
       } catch {
-        // ignore
+        // ignore parsing errors
       }
 
-      // Explicitly reject with proper CORS message
-
-      console.log('[CORS] Origin received:', origin);
-      return callback(null, true); // temporarily allow all
-
-      // return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
+      console.warn(`[CORS] Rejected Origin: ${origin}`);
+      return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Content-Length', 'Content-Type'],
+    allowedHeaders,
+    exposedHeaders: ['content-length', 'content-type', 'x-effective-tenant'],
     credentials: allowCredentials,
     optionsSuccessStatus: 204,
+    maxAge: 600,
   });
 
+  // Wrap to add logging of Origin and resolved ACAO header
   return (req, res, next) => {
+    const origin = req.headers.origin;
     corsInstance(req, res, (err) => {
       if (err) {
-         
-        console.warn(`[CORS] Blocked origin: ${req.headers.origin}`);
-        return res.status(403).json({
-          success: false,
-          message: err.message,
-        });
+        console.warn(
+          `[CORS] Blocked origin=${origin || 'n/a'} path=${req.path} method=${req.method} msg=${err.message}`
+        );
+        return res.status(403).json({ success: false, message: err.message });
       }
+
+      // After cors sets headers, log effective ACAO for diagnosis on /api/*
+      if (req.path && req.path.startsWith('/api')) {
+        try {
+          const acao = res.getHeader('Access-Control-Allow-Origin');
+          if (acao && (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true')) {
+            console.log(`[CORS] path=${req.path} origin=${origin || 'n/a'} -> ACAO=${acao} credentials=${allowCredentials}`);
+          }
+        } catch {
+          // noop
+        }
+      }
+
       if (req.method === 'OPTIONS') {
         return res.sendStatus(204);
       }
@@ -181,7 +199,7 @@ function rateLimiter() {
     legacyHeaders: false,
     skip: (req) => {
       // By default, skip throttling for GET endpoints (listing, sorting, pagination)
-      if (skipGet && req.method === 'GET') {return true;}
+      if (skipGet && req.method === 'GET') return true;
       return false;
     },
     message: { success: false, message: 'Too many requests, please try again later.' },
