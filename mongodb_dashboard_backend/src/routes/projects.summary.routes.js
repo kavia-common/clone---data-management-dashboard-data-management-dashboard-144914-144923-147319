@@ -3,6 +3,8 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const sessionTracking = require('../models/sessionTracking.model');
 const { extractOrganization } = require('../middleware/extractOrganization');
+// CORS: use the same permissive echo-origin behavior as app-level for explicit OPTIONS matching
+const cors = require('cors');
 
  // PUBLIC_INTERFACE
 /**
@@ -38,6 +40,7 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  *   end_date
  * }
  */
+router.options('/summary', cors()); // Preflight handler for /api/projects/summary
 router.get('/summary', extractOrganization(), async (req, res) => {
   try {
     let { range = 'daily', start_date, end_date, organization_id, tenant_id } = req.query || {};

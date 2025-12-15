@@ -53,9 +53,14 @@ function permissiveCorsMiddleware(req, res, next) {
     'x-org-id',
     'x-tenant-id',
     'x-tenant',
+    // Modern browser client hints and fetch headers frequently present in preview envs
     'sec-ch-ua',
     'sec-ch-ua-mobile',
     'sec-ch-ua-platform',
+    'sec-fetch-site',
+    'sec-fetch-mode',
+    'sec-fetch-dest',
+    'accept-language',
   ].join(',');
 
   res.setHeader(
@@ -81,7 +86,8 @@ function permissiveCorsMiddleware(req, res, next) {
       req.path.startsWith('/api/users') ||
       req.path === '/api/llm-costs' ||
       req.path.startsWith('/api/llm-costs') ||
-      req.path === '/api/projects/summary'
+      req.path === '/api/projects/summary' ||
+      req.path.startsWith('/api/projects/summary')
     ) {
       console.log(
         `[CORS] path=${req.path} origin=${origin || 'n/a'} method=${req.method} ACRH=${requested || 'n/a'}`
