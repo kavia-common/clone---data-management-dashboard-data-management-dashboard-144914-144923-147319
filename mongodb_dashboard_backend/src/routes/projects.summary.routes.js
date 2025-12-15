@@ -15,7 +15,7 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  * - Uses session_tracking.created_at as the canonical timestamp.
  * - Supports range=daily|weekly|monthly|custom with YYYY-MM-DD bounds for custom.
  * - For regular orgs: applies tenant filter via aliases (tenant_id, organization_id, etc.).
- * - For orgId === 'T0000': treat as all-tenant mode (without requiring super-admin); produce:
+ * - For orgId === 'T0000': treat as all-tenant mode; produce:
  *    • buckets: daily totals across ALL orgs
  *    • orgBuckets: array per organization_id with aligned daily counts for horizontal charting
  *
@@ -59,6 +59,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
 
     // Determine effective tenant and global aggregation flag
     const isGlobal = !!req.tenantScopeDisabled || !!req.allTenants;
+    // extractOrganization middleware can populate req.organizationId / req.tenantId
     const effectiveTenant = req.organizationId || req.tenantId || organization_id || tenant_id || null;
     const isT0000 = String(effectiveTenant || '').trim().toUpperCase() === 'T0000';
 
@@ -102,11 +103,13 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       windowEnd = endOfUTCDate(today);
     }
 
+    // Date range filter on session_tracking timestamp
     const createdAtFilter = { $gte: windowStart, $lte: windowEnd };
     const match = { created_at: createdAtFilter };
 
     // For normal orgs → apply tenant filter; For T0000 or super-admin global → no tenant filter
     if (!isGlobal && !isT0000 && effectiveTenant) {
+      // map organization_id aliases to tenant_id in SessionTracking
       match.$or = [
         { tenant_id: effectiveTenant },
         { organization_id: effectiveTenant },
