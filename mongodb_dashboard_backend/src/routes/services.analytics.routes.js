@@ -7,8 +7,14 @@ const { servicesSummaryHandler } = require('../controllers/servicesAnalytics.con
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer') || {};
 const { extractOrganization } = require('../middleware/extractOrganization') || {};
 
-// Summary route similar to counts/users summary; keep middleware minimal to mirror overview endpoints.
-// Note: tenantScopeEnforcer may enforce JWT tenant vs header/query consistency if available in codebase.
-router.get('/api/services/summary', extractOrganization || ((req, _res, next) => next()), servicesSummaryHandler);
+/**
+ * When this router is mounted under the base router at '/api' (see src/app.js uses baseRouter at '/api'
+ * and src/routes/index.js mounts this router at '/'), we must define relative paths here.
+ * Using '/api/services/summary' here resulted in an effective '/api/api/services/summary' and a 404.
+ *
+ * Correct effective path: '/api/services/summary'
+ * Therefore route here must be defined as '/services/summary'.
+ */
+router.get('/services/summary', extractOrganization || ((req, _res, next) => next()), servicesSummaryHandler);
 
 module.exports = router;
