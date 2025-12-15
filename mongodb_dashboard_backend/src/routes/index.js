@@ -57,4 +57,16 @@ try {
   console.warn('[routes/index] services.analytics.routes not mounted due to error:', err?.message || err);
 }
 
+/**
+ * Projects summary (overview)
+ * Mount API: /api/projects/summary
+ */
+try {
+  const projectsSummaryRoutes = require('./projects.summary.routes');
+  router.use('/projects', projectsSummaryRoutes);
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.warn('[routes/index] projects.summary.routes not mounted due to error:', err?.message || err);
+}
+
 module.exports = router;
