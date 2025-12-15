@@ -94,6 +94,58 @@ function corsMiddleware() {
     console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
   } catch {}
 
+  // Add explicit preflight handler for /api/* to guarantee required headers in responses
+  const preflightResponder = (req, res, next) => {
+    if (req.method !== 'OPTIONS' || !req.path || !req.path.startsWith('/api')) return next();
+    // Required headers per task
+    const requiredHeaders = [
+      'x-organization-id',
+      'content-type',
+      'authorization',
+      'accept',
+      'sec-ch-ua',
+      'sec-ch-ua-mobile',
+      'sec-ch-ua-platform',
+      'referer',
+      'user-agent',
+    ];
+    // If the browser sends Access-Control-Request-Headers, reflect it; else set our superset
+    const acrh = req.headers['access-control-request-headers'];
+    const allowHeaders =
+      (typeof acrh === 'string' && acrh.trim()) ? acrh : requiredHeaders.join(',');
+
+    const origin = req.headers.origin || '';
+    // Compute effective ACAO: only set origin when allowed & credentials enabled; else omit credentials
+    const isAllowed = origin && (whitelist.has(origin) || (() => {
+      try {
+        const o = new URL(origin);
+        return Array.from(whitelist).some((w) => {
+          try { return new URL(w).hostname === o.hostname; } catch { return false; }
+        });
+      } catch { return false; }
+    })());
+
+    if (isAllowed) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      if (allowCredentials) {
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
+    }
+
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', allowHeaders);
+    res.setHeader('Access-Control-Max-Age', '600');
+
+    // Diagnostics
+    try {
+      console.log(`[CORS][preflight] origin=${origin || 'n/a'} allowed=${!!isAllowed} credentials=${allowCredentials} path=${req.path}`);
+      console.log(`[CORS][preflight] allow-headers=${allowHeaders}`);
+    } catch {}
+
+    return res.status(204).send();
+  };
+
   const corsInstance = cors({
     origin: (origin, callback) => {
       // Non-browser or same-origin (no Origin header)
@@ -136,6 +188,12 @@ function corsMiddleware() {
   // Wrap to add logging of Origin and resolved ACAO header
   return (req, res, next) => {
     const origin = req.headers.origin;
+
+    // Handle /api/* preflight early with our responder (ensures headers regardless of downstream)
+    if (req.method === 'OPTIONS' && req.path && req.path.startsWith('/api')) {
+      return preflightResponder(req, res, next);
+    }
+
     corsInstance(req, res, (err) => {
       if (err) {
         console.warn(
@@ -148,17 +206,15 @@ function corsMiddleware() {
       if (req.path && req.path.startsWith('/api')) {
         try {
           const acao = res.getHeader('Access-Control-Allow-Origin');
-          if (acao && (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true')) {
-            console.log(`[CORS] path=${req.path} origin=${origin || 'n/a'} -> ACAO=${acao} credentials=${allowCredentials}`);
+          const acc = res.getHeader('Access-Control-Allow-Credentials');
+          if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+            console.log(`[CORS] path=${req.path} method=${req.method} origin=${origin || 'n/a'} -> ACAO=${acao || 'n/a'} ACC=${acc || 'n/a'} credentials=${allowCredentials}`);
           }
         } catch {
           // noop
         }
       }
 
-      if (req.method === 'OPTIONS') {
-        return res.sendStatus(204);
-      }
       return next();
     });
   };

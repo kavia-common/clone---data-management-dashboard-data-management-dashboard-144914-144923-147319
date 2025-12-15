@@ -19,6 +19,14 @@ app.use(helmetMiddleware());
 
 // Baseline security CORS (existing)
 // Note: Keep existing corsMiddleware if it does other security tasks.
+app.use((req, res, next) => {
+  if (req.path && req.path.startsWith('/api')) {
+    const origin = req.headers.origin || 'n/a';
+    // eslint-disable-next-line no-console
+    console.log(`[CORS][pre] path=${req.path} method=${req.method} origin=${origin}`);
+  }
+  next();
+});
 app.use(corsMiddleware());
 
 /**
@@ -77,10 +85,35 @@ app.use('/api', apiCors);
 // It is placed AFTER strict cors to avoid overriding credentials behavior.
 app.use('/api', permissiveCorsMiddleware);
 
-// Explicit preflight handling for API paths
+ // Explicit preflight handling for API paths
 app.options('/api', apiCors);
 app.options('/api/*', apiCors);
-app.options('/api/projects/summary', apiCors);
+app.options('/api/projects/summary', (req, res, next) => {
+  // Ensure required headers for this path
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    [
+      'x-organization-id',
+      'content-type',
+      'authorization',
+      'accept',
+      'sec-ch-ua',
+      'sec-ch-ua-mobile',
+      'sec-ch-ua-platform',
+      'referer',
+      'user-agent',
+    ].join(',')
+  );
+  // Log effective ACAO/ACC
+  try {
+    const acao = res.getHeader('Access-Control-Allow-Origin');
+    const acc = res.getHeader('Access-Control-Allow-Credentials');
+    // eslint-disable-next-line no-console
+    console.log(`[CORS][preflight-summary] ACAO=${acao || 'n/a'} ACC=${acc || 'n/a'}`);
+  } catch {}
+  return apiCors(req, res, () => res.sendStatus(204));
+});
 
 app.use(rateLimiter());
 
