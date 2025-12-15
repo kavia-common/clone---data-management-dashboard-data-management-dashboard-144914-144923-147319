@@ -16,138 +16,12 @@ const app = express();
 // ---------------------------------------------
 app.set('trust proxy', 1);
 app.use(helmetMiddleware());
-
-// Baseline security CORS (existing)
-// Note: Keep existing corsMiddleware if it does other security tasks.
-app.use((req, res, next) => {
-  if (req.path && req.path.startsWith('/api')) {
-    const origin = req.headers.origin || 'n/a';
-    // eslint-disable-next-line no-console
-    console.log(`[CORS][pre] path=${req.path} method=${req.method} origin=${origin}`);
-  }
-  next();
-});
 app.use(corsMiddleware());
-
-/**
- * CORS configuration for API routes
- * - Allows React dev origins (Kavia preview and localhost:3000 as fallback)
- * - Supports credentials when needed (do NOT use '*' with credentials)
- * - Allows required methods and headers
- * - Handles preflight OPTIONS without blocking
- */
-const ALLOWED_ORIGINS = [
-  'https://vscode-internal-36447-beta.beta01.cloud.kavia.ai:3000',
-  'http://localhost:3000',
-  'https://localhost:3000',
-].filter(Boolean);
-
-// Build cors options dynamically to echo allowed origins only
-const apiCors = cors({
-  origin: function (origin, callback) {
-    // Allow non-browser requests (no Origin) and same-origin
-    if (!origin) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) {
-      return callback(null, true);
-    }
-    // In non-production, log and still block by default
-    if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
-      console.warn(`[cors] Blocked origin: ${origin}`);
-    }
-    return callback(new Error('Not allowed by CORS'));
-  },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    // lowercase variants (as requested)
-    'x-organization-id',
-    'content-type',
-    'authorization',
-    'accept',
-    'sec-ch-ua',
-    'sec-ch-ua-mobile',
-    'sec-ch-ua-platform',
-    'referer',
-    'user-agent',
-    // common canonicalized forms some clients emit
-    'Content-Type',
-    'Authorization',
-    'Accept',
-    'Referer',
-    'User-Agent',
-    'Origin',
-    'Cache-Control',
-    'Pragma',
-  ],
-  exposedHeaders: ['x-effective-tenant', 'Content-Type', 'Content-Length'],
-  credentials: true, // set when cookies/credentials are needed
-  maxAge: 600,
-});
-
-// Apply strict cors to API routes first so headers are set consistently
-app.use('/api', apiCors);
-
-// Keep permissive echo-origin CORS for broader compatibility on API if needed.
-// Note: It does NOT set Allow-Credentials and simply echoes Origin.
-// It is placed AFTER strict cors to avoid overriding credentials behavior.
-app.use('/api', permissiveCorsMiddleware);
-
- // Explicit preflight handling for API paths
-app.options('/api', apiCors);
-app.options('/api/*', apiCors);
-app.options('/api/projects/summary', (req, res, next) => {
-  // Ensure required headers for this path
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    [
-      'x-organization-id',
-      'content-type',
-      'authorization',
-      'accept',
-      'sec-ch-ua',
-      'sec-ch-ua-mobile',
-      'sec-ch-ua-platform',
-      'referer',
-      'user-agent',
-    ].join(',')
-  );
-  // Log effective ACAO/ACC
-  try {
-    const acao = res.getHeader('Access-Control-Allow-Origin');
-    const acc = res.getHeader('Access-Control-Allow-Credentials');
-    // eslint-disable-next-line no-console
-    console.log(`[CORS][preflight-summary-projects] ACAO=${acao || 'n/a'} ACC=${acc || 'n/a'}`);
-  } catch {}
-  return apiCors(req, res, () => res.sendStatus(204));
-});
-
-// Add explicit OPTIONS for /api/users/summary with the exact required headers
-app.options('/api/users/summary', (req, res, next) => {
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    [
-      'x-organization-id',
-      'content-type',
-      'authorization',
-      'accept',
-      'sec-ch-ua',
-      'sec-ch-ua-mobile',
-      'sec-ch-ua-platform',
-      'referer',
-      'user-agent',
-    ].join(',')
-  );
-  try {
-    const acao = res.getHeader('Access-Control-Allow-Origin');
-    const acc = res.getHeader('Access-Control-Allow-Credentials');
-    // eslint-disable-next-line no-console
-    console.log(`[CORS][preflight-summary-users] ACAO=${acao || 'n/a'} ACC=${acc || 'n/a'}`);
-  } catch {}
-  return apiCors(req, res, () => res.sendStatus(204));
-});
-
+ // Apply our permissive echo-origin CORS for all /api paths (after security cors for broad handling)
+ app.use('/api', permissiveCorsMiddleware);
+ // Explicit preflight handling for all /api paths (including summary and users)
+ // Single wildcard path is sufficient; ensure it is registered early.
+ app.options('/api/*', cors());
 app.use(rateLimiter());
 
 // Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION
@@ -197,13 +71,13 @@ const buildDynamicSpec = (req) => {
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
     // Use same-origin server so Swagger calls hit this backend instance
-    // url: `${protocol}://${fullHost}`,
-    servers: [
-      {
-        url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-        description: 'Predefined dev server',
-      },
-    ],
+    url: `${protocol}://${fullHost}`,
+    // servers: [
+    //   {
+    //     url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //     description: 'Predefined dev server',
+    //   },
+    // ],
   };
 };
 

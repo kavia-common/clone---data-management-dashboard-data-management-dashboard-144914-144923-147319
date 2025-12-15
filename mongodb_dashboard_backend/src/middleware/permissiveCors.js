@@ -40,30 +40,32 @@ function permissiveCorsMiddleware(req, res, next) {
 
   // Reflect requested headers for preflight; otherwise, provide a permissive default superset
   const requested = req.headers['access-control-request-headers'];
-  const defaultAllowed = [
-    'Content-Type',
-    'Authorization',
-    'Accept',
-    'Origin',
-    'Referer',
-    'User-Agent',
-    'Cache-Control',
-    'Pragma',
+  // Ensure required headers are always present in defaults
+  const requiredAllowHeaders = [
+    // required by request spec
     'x-organization-id',
-    'x-org-id',
-    'x-tenant-id',
-    'x-tenant',
+    'content-type',
+    'authorization',
+    'accept',
     'sec-ch-ua',
     'sec-ch-ua-mobile',
     'sec-ch-ua-platform',
-  ].join(',');
+    'referer',
+    'user-agent',
+    // additional common/case variants
+    'origin',
+    'cache-control',
+    'pragma',
+    'x-org-id',
+    'x-tenant-id',
+    'x-tenant'
+  ];
+  // Use browser requested headers if provided; otherwise default to required superset
+  const allowHeaders = (requested && typeof requested === 'string' && requested.trim() !== '')
+    ? requested
+    : requiredAllowHeaders.join(',');
 
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    requested && typeof requested === 'string' && requested.trim() !== ''
-      ? requested
-      : defaultAllowed
-  );
+  res.setHeader('Access-Control-Allow-Headers', allowHeaders);
 
   // Expose some common headers (safe)
   res.setHeader(
