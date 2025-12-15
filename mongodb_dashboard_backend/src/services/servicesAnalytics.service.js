@@ -98,20 +98,23 @@ async function getServiceTypesSummary({ organizationId, range = 'daily', start_d
 
   // Build filter
   const match = {
-    // use session_start or created_at or last_updated; prefer created_at if present, fall back to session_start
+    // use any available timestamp field: created_at, session_start, last_updated, or timestamp
+    // Many datasets store only 'timestamp'; include it to avoid empty results.
     $and: [
       {
         $or: [
           { created_at: { $exists: true } },
           { session_start: { $exists: true } },
-          { last_updated: { $exists: true } }
+          { last_updated: { $exists: true } },
+          { timestamp: { $exists: true } }
         ]
       },
       {
         $or: [
           { created_at: { $gte: start, $lte: end } },
           { session_start: { $gte: start, $lte: end } },
-          { last_updated: { $gte: start, $lte: end } }
+          { last_updated: { $gte: start, $lte: end } },
+          { timestamp: { $gte: start, $lte: end } }
         ]
       }
     ]
