@@ -8,6 +8,11 @@
 const { getDb } = require('../config/db');
 const { usdToCredits } = require('../utils/credits');
 
+// Resolve collection name with env override (default to underscore)
+// Prefer LLMCOSTS_COLLECTION_NAME for consistency across codebase; fallback to legacy var
+const LLM_COSTS_COLLECTION =
+  (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim() || 'llm_costs';
+
 /**
  * Normalize potential field variants present in llm_costs collection.
  * We derive:
@@ -318,7 +323,7 @@ async function aggregateHierarchy({ filter = {}, tenantId } = {}) {
    * ]
    */
   const db = await getDb();
-  const col = db.collection('llm-costs');
+  const col = db.collection(LLM_COSTS_COLLECTION);
 
   // Build enforced filter with tenant
   const enforcedFilter = (() => {
@@ -329,14 +334,18 @@ async function aggregateHierarchy({ filter = {}, tenantId } = {}) {
     delete f.organizationId;
     delete f.orgId;
     if (tenantId) {
+      const tenantStr = String(tenantId);
       const orgFilter = {
         $or: [
-          { tenant_id: String(tenantId) },
-          { organization_id: String(tenantId) },
-          { organizationId: String(tenantId) },
-          { tenantId: String(tenantId) },
-          { orgId: String(tenantId) },
-          { 'tenant.tenant_id': String(tenantId) },
+          { tenant_id: tenantStr },
+          { organization_id: tenantStr },
+          { organizationId: tenantStr },
+          { tenantId: tenantStr },
+          { orgId: tenantStr },
+          { 'tenant.tenant_id': tenantStr },
+          // Case-insensitive fallbacks in case data casing differs
+          { organization_id: { $regex: `^${tenantStr}$`, $options: 'i' } },
+          { tenant_id: { $regex: `^${tenantStr}$`, $options: 'i' } },
         ],
       };
       return Object.keys(f).length ? { $and: [f, orgFilter] } : orgFilter;
@@ -359,6 +368,14 @@ async function aggregateHierarchy({ filter = {}, tenantId } = {}) {
   ];
 
   // Enable disk use for large aggregations that may sort/group sizeable datasets to avoid 32MB memory limit
+  // Temporary diagnostics to aid investigation of empty responses
+  try {
+    // eslint-disable-next-line no-console
+    console.log('[llm-costs.hierarchy] Using collection:', LLM_COSTS_COLLECTION);
+    // eslint-disable-next-line no-console
+    console.log('[llm-costs.hierarchy] Effective $match:', JSON.stringify(pipeline[0]?.$match || {}));
+  } catch {}
+
   const results = await col.aggregate(pipeline, { allowDiskUse: true }).toArray();
 
   // Format currency with leading $ and two decimals

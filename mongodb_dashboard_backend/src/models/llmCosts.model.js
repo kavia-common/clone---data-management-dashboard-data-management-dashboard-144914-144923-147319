@@ -18,7 +18,7 @@ const mongoose = require('mongoose');
  * - Tenant isolation is enforced in controllers/middleware; this model only defines the schema and indexes.
  */
 const LLM_COLLECTION_NAME =
-  (process.env.LLMCOSTS_COLLECTION_NAME || '').trim() || 'llm_costs';
+  (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim() || 'llm_costs';
 
 /**
  * LLM Costs model

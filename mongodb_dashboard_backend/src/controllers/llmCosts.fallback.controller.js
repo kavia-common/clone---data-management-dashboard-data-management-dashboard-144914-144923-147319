@@ -96,6 +96,7 @@ async function listLlmCosts(req, res) {
     }
 
     // Build tenant scoped filter
+    const tenantRegex = { $regex: `^${resolvedTenant}$`, $options: 'i' };
     const filter = {
       $and: [
         {
@@ -105,7 +106,9 @@ async function listLlmCosts(req, res) {
             { orgId: resolvedTenant },
             { tenantId: resolvedTenant },
             { organizationId: resolvedTenant },
-            { 'tenant.tenant_id': resolvedTenant }
+            { 'tenant.tenant_id': resolvedTenant },
+            { organization_id: tenantRegex },
+            { tenant_id: tenantRegex },
           ]
         },
         { timestamp: { $gte: from, $lte: to } },
@@ -172,6 +175,13 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-window-to', to.toISOString());
       res.set('x-llm-window-applied', applied || 'default');
 
+      // Attach debug headers when tenant is specified to trace pipeline and samples
+      if (String(resolvedTenant || '') === 'b2c') {
+        try {
+          res.set('x-llm-debug-sample', JSON.stringify(primaryItems?.[0] || null));
+        } catch {}
+      }
+
       return res.json({
         success: true,
         data: primaryItems,
@@ -196,8 +206,9 @@ async function listLlmCosts(req, res) {
     let fallbackCollection = null;
     try {
       const db = await getDb();
+      const envName = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim();
       const candidates = [
-        (process.env.LLMCOSTS_COLLECTION_NAME || '').trim() || 'llm_costs',
+        envName || 'llm_costs',
         'llm_costs'
       ].filter((v, idx, arr) => arr.indexOf(v) === idx);
 
@@ -270,6 +281,12 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-window-to', to.toISOString());
       res.set('x-llm-window-applied', applied || 'default');
 
+      if (String(resolvedTenant || '') === 'b2c') {
+        try {
+          res.set('x-llm-debug-sample', JSON.stringify(fallbackItems?.[0] || null));
+        } catch {}
+      }
+
       return res.json({
         success: true,
         data: fallbackItems,
@@ -303,6 +320,8 @@ async function listLlmCosts(req, res) {
     res.set('x-llm-window-from', from.toISOString());
     res.set('x-llm-window-to', to.toISOString());
     res.set('x-llm-window-applied', applied || 'default');
+
+    res.set('x-llm-fallback-collection', (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim() || 'llm_costs');
 
     return res.json({
       success: true,
