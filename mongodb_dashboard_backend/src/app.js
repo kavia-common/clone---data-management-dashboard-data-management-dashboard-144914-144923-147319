@@ -184,6 +184,7 @@ safeUse('/api/llm-costs', require('./routes/llmCosts.public.routes')); // list e
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
+safeUse('/api/llm_costs', require('./routes/costs.llm_costs.routes'));
 safeUse('/api/projects', require('./routes/projects.summary.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
 try {
