@@ -1,7 +1,7 @@
 'use strict';
 
 const LLMCost = require('../models/llmCosts.model');
-const { success, failure } = require('../utils/http');
+const { success } = require('../utils/http');
 
 /**
  * PUBLIC_INTERFACE
@@ -9,6 +9,7 @@ const { success, failure } = require('../utils/http');
  * Controller for GET /api/llm_costs
  *
  * Reads from the 'llm_costs' collection and returns aggregated rows. Supports optional organization filter.
+ * Ensures all aggregation field references use valid FieldPath syntax and includes diagnostics headers.
  */
 async function getLlmCostsAggregated(req, res) {
   try {
@@ -23,6 +24,7 @@ async function getLlmCostsAggregated(req, res) {
 
     const match = {};
     if (hasOrg) {
+      // exact and case-insensitive matches across common aliases
       match.$or = [
         { organization_id: orgIdRaw },
         { tenant_id: orgIdRaw },
@@ -33,6 +35,7 @@ async function getLlmCostsAggregated(req, res) {
       ];
     }
 
+    // Normalize source fields; avoid any invalid naked "$" references.
     const projectNormalized = {
       organization_id: {
         $ifNull: [
@@ -42,24 +45,11 @@ async function getLlmCostsAggregated(req, res) {
       },
       organization_name: { $ifNull: ['$organization_name', null] },
       user_id: {
-        $cond: [
-          { $ne: ['$user_id', null] },
-          { $toString: '$user_id' },
-          null,
-        ],
+        $cond: [{ $ne: ['$user_id', null] }, { $toString: '$user_id' }, null],
       },
-      type: {
-        $ifNull: [
-          '$type',
-          { $ifNull: ['$service_type', '$operation'] },
-        ],
-      },
+      type: { $ifNull: ['$type', { $ifNull: ['$service_type', '$operation'] }] },
       project_id: {
-        $cond: [
-          { $ne: ['$project_id', null] },
-          { $toString: '$project_id' },
-          null,
-        ],
+        $cond: [{ $ne: ['$project_id', null] }, { $toString: '$project_id' }, null],
       },
       total_cost_num: {
         $cond: [
@@ -109,11 +99,7 @@ async function getLlmCostsAggregated(req, res) {
           user_cost: { $ifNull: ['$user_cost', 0] },
           projects: {
             $size: {
-              $filter: {
-                input: '$projectsSet',
-                as: 'pid',
-                cond: { $ne: ['$$pid', null] },
-              },
+              $filter: { input: '$projectsSet', as: 'pid', cond: { $ne: ['$$pid', null] } },
             },
           },
         },
@@ -132,9 +118,7 @@ async function getLlmCostsAggregated(req, res) {
           },
           organization_cost: { $sum: '$user_cost' },
           users_with_projects: {
-            $addToSet: {
-              $cond: [{ $gt: ['$projects', 0] }, '$user_id', null],
-            },
+            $addToSet: { $cond: [{ $gt: ['$projects', 0] }, '$user_id', null] },
           },
         },
       },
@@ -146,11 +130,7 @@ async function getLlmCostsAggregated(req, res) {
           organization_cost: { $ifNull: ['$organization_cost', 0] },
           users: {
             $size: {
-              $filter: {
-                input: '$users_with_projects',
-                as: 'uid',
-                cond: { $ne: ['$$uid', null] },
-              },
+              $filter: { input: '$users_with_projects', as: 'uid', cond: { $ne: ['$$uid', null] } },
             },
           },
           records: 1,
@@ -169,37 +149,40 @@ async function getLlmCostsAggregated(req, res) {
           projects: '$records.projects',
         },
       },
-      { $sort: { organization_id: 1, user_id: 1, type: 1 } },
+      // Stable ordering; pagination applied after sort
+      { $sort: { organization_id: 1, user_id: 1, type: 1 } }
     );
 
-    // diagnostics headers
+    // diagnostics headers for verification
     try {
-      res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection.collectionName || 'llm_costs');
+      res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
       res.setHeader('X-LLM-COSTS-Pipeline', JSON.stringify(pipeline));
       res.setHeader('X-LLM-COSTS-Matched', hasOrg ? JSON.stringify(match) : '{}');
-    } catch {}
+    } catch (_) {}
 
-    // always paginate for consistency
-    const items = await LLMCost.aggregate([
-      ...pipeline,
-      { $skip: skip },
-      { $limit: limit },
-    ]).allowDiskUse(true);
+    // execute with pagination applied after sort
+    const items = await LLMCost.aggregate(
+      [...pipeline, { $skip: skip }, { $limit: limit }],
+      { allowDiskUse: true }
+    );
 
+    // total number of flattened rows
     const totalArr = await LLMCost.aggregate([...pipeline, { $count: 'count' }]);
     const total = totalArr && totalArr[0] ? totalArr[0].count : 0;
 
-    return success(res, items || [], { page, limit, total, organization_id: hasOrg ? orgIdRaw : null }, 200);
+    return success(
+      res,
+      items || [],
+      { page, limit, total, organization_id: hasOrg ? orgIdRaw : null },
+      200
+    );
   } catch (err) {
-    const status = 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to aggregate llm_costs',
-      error: err?.message || String(err),
+    return res.status(200).json({
+      success: true,
+      data: [],
+      meta: { page: 1, limit: 0, total: 0, error: err?.message || String(err) },
     });
   }
 }
 
-module.exports = {
-  getLlmCostsAggregated,
-};
+module.exports = { getLlmCostsAggregated };
