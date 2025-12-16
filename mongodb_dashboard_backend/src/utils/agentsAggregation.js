@@ -35,7 +35,7 @@ async function aggregateAgentsUsageAndCost(
   } = {}
 ) {
   const sessionTrackingCol = db.collection('session_tracking');
-  const llmCostsCol = db.collection('llm-costs');
+  const llmCostsCol = db.collection('llm_costs');
 
   // --- Build match filters ---
   const andConditions = [];
