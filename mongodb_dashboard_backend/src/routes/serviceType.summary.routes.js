@@ -8,20 +8,18 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  * GET /api/service-type/summary
  * Aggregates SessionTracking by date (UTC YYYY-MM-DD) and service_type for a given tenant and time window.
  *
- * Key changes:
- * - Use tenant_id as primary scope (derive from auth/middleware or query). Keep legacy aliases (organizationId/organization_id) by mapping to tenant_id.
- * - Filter strictly by created_at with inclusive bounds computed in UTC ([$gte: startOfDayZ, $lte: endOfDayZ]).
- * - Treat incoming dates as UTC; YYYY-MM-DD => 00:00:00.000Z .. 23:59:59.999Z of that same day.
- * - Group by UTC day and service_type; optionally filter service_type when provided.
- * - Preserve response shape { labels, series, table, summaryByServiceType, meta }.
- * - Zero-fill series only when ?zero_fill=true (default: false).
+ * Behavior:
+ * - Default: scope to a single tenant (from middleware/query), group by UTC day + service_type.
+ * - Special-case T0000: do NOT scope to a single tenant; aggregate across all tenants for the window.
+ *   Group by { service_type, tenant_id }. Return labels as service_types, series grouped by tenant_id
+ *   for a horizontal stacked bar. Zero-fill stacks within this special-case only.
  *
  * Query:
  * - tenant_id (preferred) OR organizationId/organization_id (legacy aliases)
  * - range: daily|weekly|monthly|custom (default: daily)
  * - startDate/endDate for custom; accepts ISO or YYYY-MM-DD (UTC semantics)
  * - service_type (optional; exact match filter)
- * - zero_fill=true|false (default: false)
+ * - zero_fill=true|false (default: false) — honored for default behavior; for T0000 we zero-fill internally.
  */
 router.get('/summary', extractOrganization(), async (req, res) => {
   try {
@@ -51,13 +49,8 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       (organization_id && String(organization_id)) ||
       null;
 
-    // Super-admin global allowed when middleware sets req.allTenants
-    if (!effectiveTenant && !req.allTenants) {
-      return res.status(400).json({ message: 'tenant_id (or organizationId alias) is required.' });
-    }
-
-    // Parse zero_fill flag (default false)
-    const zeroFill =
+    // Parse zero_fill flag (default false). Note: for T0000 special-case we always zero-fill stacks.
+    const zeroFillFlag =
       typeof zero_fill === 'string'
         ? ['1', 'true', 'yes', 'on'].includes(zero_fill.toLowerCase())
         : false;
@@ -140,30 +133,12 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       windowEnd = endOfUTCDate(today);
     }
 
-    // Build match: STRICTLY on created_at with inclusive bounds in UTC
-    const match = {
-      created_at: { $gte: windowStart, $lte: windowEnd },
-    };
-
-    // Tenant scope
-    if (!req.allTenants && effectiveTenant) {
-      match.$or = [
-        { tenant_id: effectiveTenant },
-        { organization_id: effectiveTenant },     // legacy alias
-        { organizationId: effectiveTenant },      // legacy alias camelCase
-        { tenantId: effectiveTenant },            // defensive
-        { orgId: effectiveTenant },               // defensive
-        { 'tenant.tenant_id': effectiveTenant },  // nested defensive
-      ];
-    }
-
-    // Optional service_type filter (exact match against coalesced field)
-    // We'll apply it later in $match with $expr against computed coalesced field, so capture here:
+    // Optional service_type filter value
     const serviceTypeFilterValue = typeof service_type === 'string' && service_type.trim().length > 0
       ? service_type.trim()
       : null;
 
-    // Coalesce service_type variants and compute bucketDate (truncate created_at)
+    // Coalesce service_type variants
     const coalescedServiceType = {
       $ifNull: [
         '$service_type',
@@ -176,7 +151,171 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       ],
     };
 
-    // Aggregation pipeline: group by date+service_type (date derived from created_at)
+    // -------------------------------
+    // SPECIAL-CASE: tenant_id === 'T0000'
+    // -------------------------------
+    // When tenant is T0000, we do NOT scope to a single tenant. We aggregate across all tenants
+    // within the requested window (and optional service_type), and group by { service_type, tenant_id }.
+    // Response is optimized for a horizontal stacked bar: labels = service_type[], series = per-tenant stacks.
+    const isT0000 = String(effectiveTenant || '').toUpperCase() === 'T0000';
+
+    if (isT0000) {
+      const matchAll = {
+        created_at: { $gte: windowStart, $lte: windowEnd },
+      };
+
+      const db = req.app.get('db');
+
+      // Pipeline 1: group by { service_type, tenant_id }
+      const groupPipeline = [
+        { $match: matchAll },
+        {
+          $project: {
+            tenant_id: {
+              $ifNull: [
+                '$tenant_id',
+                {
+                  $ifNull: ['$organization_id',
+                    { $ifNull: ['$organizationId', '$tenantId'] }
+                  ]
+                }
+              ]
+            },
+            service_type: { $ifNull: [coalescedServiceType, 'Unknown'] },
+          }
+        },
+        ...(serviceTypeFilterValue ? [{ $match: { service_type: serviceTypeFilterValue } }] : []),
+        {
+          $group: {
+            _id: { st: '$service_type', t: '$tenant_id' },
+            count: { $sum: 1 }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            service_type: '$_id.st',
+            tenant_id: '$_id.t',
+            count: 1
+          }
+        }
+      ];
+
+      // Execute aggregation for table and also compute summaryByServiceType across all tenants
+      let grouped = [];
+      if (db && typeof db.collection === 'function') {
+        grouped = await db.collection('session_tracking').aggregate(groupPipeline, { allowDiskUse: true }).toArray();
+      } else {
+        grouped = await sessionTracking.aggregate(groupPipeline).allowDiskUse(true);
+      }
+
+      // Build labels = service_type list (alpha for determinism)
+      const stSet = new Set(grouped.map(g => g.service_type || 'Unknown'));
+      const labels = Array.from(stSet).sort((a, b) => String(a).localeCompare(String(b)));
+
+      // Build series = per-tenant stacks aligned to labels; zero-fill to complete stacks
+      const tenants = Array.from(new Set(grouped.map(g => g.tenant_id).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)));
+
+      const labelIndex = new Map(labels.map((l, i) => [l, i]));
+      // Map: tenant -> data[]
+      const seriesMap = new Map();
+      for (const t of tenants) {
+        seriesMap.set(t, new Array(labels.length).fill(0));
+      }
+
+      // Fill values by aligning to service_type position
+      for (const row of grouped) {
+        const st = row.service_type || 'Unknown';
+        const t = row.tenant_id || 'unknown';
+        const idx = labelIndex.get(st);
+        if (idx !== undefined) {
+          if (!seriesMap.has(t)) {
+            seriesMap.set(t, new Array(labels.length).fill(0));
+          }
+          const arr = seriesMap.get(t);
+          arr[idx] = (arr[idx] || 0) + Number(row.count || 0);
+        }
+      }
+
+      // Convert to array of { name: tenant_id, data: [...] }
+      const series = tenants.map(t => ({
+        name: t,
+        data: seriesMap.get(t) || new Array(labels.length).fill(0),
+      }));
+
+      // summaryByServiceType: aggregate across tenants to maintain compatibility
+      const summaryByServiceTypeMap = new Map();
+      for (const row of grouped) {
+        const st = row.service_type || 'Unknown';
+        summaryByServiceTypeMap.set(st, (summaryByServiceTypeMap.get(st) || 0) + Number(row.count || 0));
+      }
+      const summaryByServiceType = Array.from(summaryByServiceTypeMap.entries())
+        .map(([service_type, count]) => ({ service_type, count }))
+        .sort((a, b) => a.service_type.localeCompare(b.service_type));
+
+      // table: optional flat array { service_type, tenant_id, count }
+      const table = grouped;
+
+      const payload = {
+        // For horizontal stacked bar, labels are service types
+        labels,
+        // series grouped by tenant_id, each aligns to labels
+        series,
+        table,
+        summaryByServiceType,
+        meta: {
+          specialCase: 'T0000',
+          range,
+          startDate: windowStart.toISOString(),
+          endDate: windowEnd.toISOString(),
+          organizationId: 'all-tenants',
+          tenant_id: 'all-tenants',
+          filters: {
+            service_type: serviceTypeFilterValue || null,
+            // zeroFill behavior: default false globally, but for T0000 we zero-fill internally to ensure proper stacks.
+            zero_fill: true,
+            field: 'created_at',
+          },
+        },
+      };
+
+      try {
+        res.setHeader('x-window-start', payload.meta.startDate);
+        res.setHeader('x-window-end', payload.meta.endDate);
+        res.setHeader('x-effective-tenant', 'all-tenants');
+        res.setHeader('x-filter-field', 'created_at');
+        res.setHeader('x-special-case', 'T0000');
+        if (serviceTypeFilterValue) res.setHeader('x-service-type', serviceTypeFilterValue);
+      } catch {}
+
+      return res.status(200).json(payload);
+    }
+
+    // -------------------------------
+    // DEFAULT BEHAVIOR (tenant-specific)
+    // -------------------------------
+
+    // Build match: STRICTLY on created_at with inclusive bounds in UTC
+    const match = {
+      created_at: { $gte: windowStart, $lte: windowEnd },
+    };
+
+    // Tenant scope (unchanged behavior): only when not global and tenant present
+    if (!req.allTenants && effectiveTenant) {
+      match.$or = [
+        { tenant_id: effectiveTenant },
+        { organization_id: effectiveTenant },
+        { organizationId: effectiveTenant },
+        { tenantId: effectiveTenant },
+        { orgId: effectiveTenant },
+        { 'tenant.tenant_id': effectiveTenant },
+      ];
+    } else if (!effectiveTenant && !req.allTenants) {
+      // Keep previous requirement for tenant when not global
+      return res.status(400).json({ message: 'tenant_id (or organizationId alias) is required.' });
+    }
+
+    // Aggregation pipeline: group by date+service_type for time series per service type
     const pipeline = [
       { $match: match },
       {
@@ -185,15 +324,8 @@ router.get('/summary', extractOrganization(), async (req, res) => {
           _stype: { $ifNull: [coalescedServiceType, 'Unknown'] },
         },
       },
-      ...(serviceTypeFilterValue
-        ? [{ $match: { _stype: serviceTypeFilterValue } }]
-        : []),
-      {
-        $group: {
-          _id: { date: '$_bucket', service_type: '$_stype' },
-          count: { $sum: 1 },
-        },
-      },
+      ...(serviceTypeFilterValue ? [{ $match: { _stype: serviceTypeFilterValue } }] : []),
+      { $group: { _id: { date: '$_bucket', service_type: '$_stype' }, count: { $sum: 1 } } },
       {
         $project: {
           _id: 0,
@@ -205,7 +337,6 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       { $sort: { date: 1, service_type: 1 } },
     ];
 
-    // Totals by service_type (respect same match + optional service_type)
     const totalsPipeline = [
       { $match: match },
       {
@@ -213,15 +344,8 @@ router.get('/summary', extractOrganization(), async (req, res) => {
           service_type: { $ifNull: [coalescedServiceType, 'Unknown'] },
         },
       },
-      ...(serviceTypeFilterValue
-        ? [{ $match: { service_type: serviceTypeFilterValue } }]
-        : []),
-      {
-        $group: {
-          _id: '$service_type',
-          count: { $sum: 1 },
-        },
-      },
+      ...(serviceTypeFilterValue ? [{ $match: { service_type: serviceTypeFilterValue } }] : []),
+      { $group: { _id: '$service_type', count: { $sum: 1 } } },
       { $project: { _id: 0, service_type: '$_id', count: 1 } },
       { $sort: { count: -1, service_type: 1 } },
     ];
@@ -237,10 +361,10 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       totals = await sessionTracking.aggregate(totalsPipeline).allowDiskUse(true);
     }
 
-    // Build labels list (only when zero_fill=true; otherwise derive from data)
-    const pad2 = (n) => String(n).padStart(2, '0'); // keep pad as pad
+    // Build labels list (zero-fill only when requested)
+    const pad2 = (n) => String(n).padStart(2, '0');
     const labels = [];
-    if (zeroFill) {
+    if (zeroFillFlag) {
       let d = new Date(Date.UTC(windowStart.getUTCFullYear(), windowStart.getUTCMonth(), windowStart.getUTCDate()));
       const endDay = new Date(Date.UTC(windowEnd.getUTCFullYear(), windowEnd.getUTCMonth(), windowEnd.getUTCDate()));
       while (d.getTime() <= endDay.getTime()) {
@@ -248,27 +372,23 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         d.setUTCDate(d.getUTCDate() + 1);
       }
     } else {
-      // No zero filling: labels based on actual dates present in rows (ascending unique)
       const set = new Set(rows.map(r => r.date));
       labels.push(...Array.from(set).sort());
     }
 
-    // Service types present (respect totals or rows)
     const serviceTypes = new Set((totals || []).map(t => t.service_type));
     for (const r of rows || []) {
       if (r.service_type && !serviceTypes.has(r.service_type)) serviceTypes.add(r.service_type);
       if (!r.service_type) serviceTypes.add('Unknown');
     }
 
-    // Initialize series container
     const seriesMap = {};
     const baseLen = labels.length;
     for (const st of serviceTypes) {
-      seriesMap[st] = zeroFill ? new Array(baseLen).fill(0) : [];
+      seriesMap[st] = zeroFillFlag ? new Array(baseLen).fill(0) : [];
     }
 
-    // Fill counts
-    if (zeroFill) {
+    if (zeroFillFlag) {
       const labelIndex = new Map(labels.map((l, i) => [l, i]));
       for (const r of rows || []) {
         const date = r.date;
@@ -282,8 +402,6 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         }
       }
     } else {
-      // No zero-fill: for each service type create data aligned to labels order by pushing values where date matches, otherwise skip
-      // Build per-date map for quick lookup
       const byKey = new Map();
       for (const r of rows || []) {
         const key = `${r.service_type || 'Unknown'}::${r.date}`;
@@ -292,23 +410,16 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       for (const st of serviceTypes) {
         for (const label of labels) {
           const val = byKey.get(`${st}::${label}`);
-          if (typeof val === 'number') {
-            seriesMap[st].push(val);
-          } else {
-            // leave gap -> treat as 0 to keep chart integrity since frontend expects aligned arrays
-            seriesMap[st].push(0);
-          }
+          seriesMap[st].push(typeof val === 'number' ? val : 0);
         }
       }
     }
 
-    // Shape series array
     const series = Object.keys(seriesMap).sort().map(name => ({
       name,
       data: seriesMap[name],
     }));
 
-    // Table rows already shaped
     const table = rows || [];
 
     const payload = {
@@ -320,19 +431,16 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         range,
         startDate: windowStart.toISOString(),
         endDate: windowEnd.toISOString(),
-        // Backward-compatible meta field name preserved:
         organizationId: effectiveTenant || (req.allTenants ? 'all-tenants' : null),
-        // New explicit meta for clarity:
         tenant_id: effectiveTenant || (req.allTenants ? 'all-tenants' : null),
         filters: {
           service_type: serviceTypeFilterValue || null,
-          zero_fill: zeroFill,
+          zero_fill: zeroFillFlag,
           field: 'created_at',
         },
       },
     };
 
-    // Helpful headers for diagnostics
     try {
       res.setHeader('x-window-start', payload.meta.startDate);
       res.setHeader('x-window-end', payload.meta.endDate);
