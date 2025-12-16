@@ -39,7 +39,7 @@ async function getLlmCostsAggregated(req, res) {
     };
   }
 
-  // Normalize source fields safely
+  // Normalize source fields safely. Avoid any bare "$" or invalid FieldPath.
   const projectNormalized = {
     organization_id: {
       $ifNull: [
@@ -49,11 +49,11 @@ async function getLlmCostsAggregated(req, res) {
     },
     organization_name: { $ifNull: ['$organization_name', null] },
     user_id: {
-      $cond: [{ $ne: ['$user_id', null] }, { $toString: '$user_id' }, null],
+      $cond: [{ $and: [{ $ne: ['$user_id', null] }, { $ne: [{ $type: '$user_id' }, 'missing'] }] }, { $toString: '$user_id' }, null],
     },
     type: { $ifNull: ['$type', { $ifNull: ['$service_type', '$operation'] }] },
     project_id: {
-      $cond: [{ $ne: ['$project_id', null] }, { $toString: '$project_id' }, null],
+      $cond: [{ $and: [{ $ne: ['$project_id', null] }, { $ne: [{ $type: '$project_id' }, 'missing'] }] }, { $toString: '$project_id' }, null],
     },
     total_cost_num: {
       $cond: [
@@ -77,7 +77,12 @@ async function getLlmCostsAggregated(req, res) {
     },
   };
 
-  // Core pipeline (match -> project -> group per user -> project -> group per org -> unwind -> final project -> sort)
+  // Core pipeline:
+  // - project normalized fields
+  // - group per org+user+type (user_cost + distinct projects)
+  // - compute per-org rollup: organization_cost + distinct users
+  // - unwind to emit one row per user/type with org-level fields attached
+  // - sort and paginate via $facet
   const baseStages = [
     { $project: projectNormalized },
     {
@@ -101,7 +106,13 @@ async function getLlmCostsAggregated(req, res) {
         type: { $ifNull: ['$_id.type', null] },
         user_cost: { $ifNull: ['$user_cost', 0] },
         projects: {
-          $size: { $filter: { input: '$projectsSet', as: 'pid', cond: { $ne: ['$$pid', null] } } },
+          $size: {
+            $filter: {
+              input: '$projectsSet',
+              as: 'pid',
+              cond: { $ne: ['$$pid', null] },
+            },
+          },
         },
       },
     },
@@ -119,7 +130,9 @@ async function getLlmCostsAggregated(req, res) {
         },
         organization_cost: { $sum: '$user_cost' },
         users_with_projects: {
-          $addToSet: { $cond: [{ $gt: ['$projects', 0] }, '$user_id', null] },
+          $addToSet: {
+            $cond: [{ $and: [{ $ne: ['$user_id', null] }, { $gt: ['$projects', 0] }] }, '$user_id', null],
+          },
         },
       },
     },
@@ -153,7 +166,6 @@ async function getLlmCostsAggregated(req, res) {
     { $sort: { user_cost: -1, organization_id: 1, user_id: 1, type: 1 } },
   ];
 
-  // Facet for results + total count post group/unwind
   const makeFacetPipeline = (preMatch) => {
     const stages = [];
     if (preMatch) stages.push({ $match: preMatch });

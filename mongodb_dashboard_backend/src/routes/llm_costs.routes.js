@@ -40,6 +40,7 @@ router.get(
       };
     }
 
+    // Normalize fields defensively; no bare "$" anywhere.
     const projectNormalized = {
       organization_id: {
         $ifNull: [
@@ -48,9 +49,13 @@ router.get(
         ],
       },
       organization_name: { $ifNull: ['$organization_name', null] },
-      user_id: { $cond: [{ $ne: ['$user_id', null] }, { $toString: '$user_id' }, null] },
+      user_id: {
+        $cond: [{ $and: [{ $ne: ['$user_id', null] }, { $ne: [{ $type: '$user_id' }, 'missing'] }] }, { $toString: '$user_id' }, null],
+      },
       type: { $ifNull: ['$type', { $ifNull: ['$service_type', '$operation'] }] },
-      project_id: { $cond: [{ $ne: ['$project_id', null] }, { $toString: '$project_id' }, null] },
+      project_id: {
+        $cond: [{ $and: [{ $ne: ['$project_id', null] }, { $ne: [{ $type: '$project_id' }, 'missing'] }] }, { $toString: '$project_id' }, null],
+      },
       total_cost_num: {
         $cond: [
           { $isNumber: '$total_cost' },
@@ -96,7 +101,13 @@ router.get(
           type: { $ifNull: ['$_id.type', null] },
           user_cost: { $ifNull: ['$user_cost', 0] },
           projects: {
-            $size: { $filter: { input: '$projectsSet', as: 'pid', cond: { $ne: ['$$pid', null] } } },
+            $size: {
+              $filter: {
+                input: '$projectsSet',
+                as: 'pid',
+                cond: { $ne: ['$$pid', null] },
+              },
+            },
           },
         },
       },
@@ -114,7 +125,9 @@ router.get(
           },
           organization_cost: { $sum: '$user_cost' },
           users_with_projects: {
-            $addToSet: { $cond: [{ $gt: ['$projects', 0] }, '$user_id', null] },
+            $addToSet: {
+              $cond: [{ $and: [{ $ne: ['$user_id', null] }, { $gt: ['$projects', 0] }] }, '$user_id', null],
+            },
           },
         },
       },
@@ -189,6 +202,9 @@ router.get(
       res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
       res.setHeader('X-LLM-COSTS-Matched', hasOrg ? JSON.stringify(match) : '{}');
       res.setHeader('X-LLM-COSTS-PostGroupCount', String(total));
+      if (total === 0) {
+        res.setHeader('X-LLM-COSTS-Reason', 'Empty result after aggregation.');
+      }
     } catch {}
 
     return success(res, rows || [], { page, limit, total, organization_id: hasOrg ? orgIdRaw : null }, 200);
