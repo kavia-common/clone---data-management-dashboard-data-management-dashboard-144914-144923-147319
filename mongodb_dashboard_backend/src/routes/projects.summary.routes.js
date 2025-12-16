@@ -232,7 +232,38 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         orgTotals.set(org, (orgTotals.get(org) || 0) + c);
       }
 
-      // For each org, produce a daily array aligned to ticks
+      // Build a tenant name map using tenants collection, when available
+      let tenantNameMap = new Map();
+      try {
+        if (db && typeof db.collection === 'function') {
+          const distinctOrgIds = Array.from(orgTotals.keys()).filter(Boolean);
+          if (distinctOrgIds.length > 0) {
+            const tenantDocs = await db
+              .collection('tenants')
+              .find({ $or: [
+                { tenant_id: { $in: distinctOrgIds } },
+                { organization_id: { $in: distinctOrgIds } }, // fallback if some documents use organization_id
+              ] })
+              .project({ tenant_id: 1, tenant_name: 1, organization_id: 1, name: 1 })
+              .toArray();
+
+            for (const t of tenantDocs) {
+              const ids = [];
+              if (t.tenant_id) ids.push(String(t.tenant_id));
+              if (t.organization_id) ids.push(String(t.organization_id));
+              const displayName = t.tenant_name || t.name || null;
+              for (const id of ids) {
+                if (displayName) tenantNameMap.set(id, displayName);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[projects.summary] tenants name lookup failed:', e?.message || e);
+      }
+
+      // For each org, produce a daily array aligned to ticks and attach human-readable name (fallback to id)
       orgBuckets = Array.from(orgMap.entries()).map(([org, dateMap]) => {
         const series = ticks.map((t) => {
           const lbl = toYMD(t);
@@ -240,6 +271,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         });
         return {
           organization_id: org,
+          name: tenantNameMap.get(org) || org, // add name alongside id; fallback to id
           total: Number(orgTotals.get(org) || 0),
           buckets: series
         };
