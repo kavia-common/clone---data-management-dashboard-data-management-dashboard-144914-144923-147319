@@ -325,6 +325,12 @@ async function aggregateHierarchy({ filter = {}, tenantId } = {}) {
   const db = await getDb();
   const col = db.collection(LLM_COSTS_COLLECTION);
 
+  // Diagnostics for effective collection and $match
+  try {
+    // eslint-disable-next-line no-console
+    console.log('[llm-costs.hierarchy] Using collection:', LLM_COSTS_COLLECTION);
+  } catch {}
+  
   // Build enforced filter with tenant
   const enforcedFilter = (() => {
     const f = filter && typeof filter === 'object' ? { ...filter } : {};
@@ -430,43 +436,23 @@ async function ensureLlmCostsIndexes() {
    * Ensures helpful indexes for the aggregation performance.
    */
   const db = await getDb();
-  const col = db.collection('llm-costs');
+  const col = db.collection('llm_costs'); // enforce underscore
   try {
-    await col.createIndex({ tenant_id: 1, user_id: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ tenant_id: 1, project_id: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ tenant_id: 1, agent_name: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ tenant_id: 1, date: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ user_id: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ userId: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ project_id: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ projectId: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ agent_name: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ agent: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ date: 1 });
-  } catch (e) {}
-  try {
-    await col.createIndex({ createdAt: 1 });
-  } catch (e) {}
+    // eslint-disable-next-line no-console
+    console.log('[llm-costs.hierarchy] ensure indexes on collection: llm_costs');
+  } catch {}
+  try { await col.createIndex({ tenant_id: 1, user_id: 1 }); } catch (e) {}
+  try { await col.createIndex({ tenant_id: 1, project_id: 1 }); } catch (e) {}
+  try { await col.createIndex({ tenant_id: 1, agent_name: 1 }); } catch (e) {}
+  try { await col.createIndex({ tenant_id: 1, date: 1 }); } catch (e) {}
+  try { await col.createIndex({ user_id: 1 }); } catch (e) {}
+  try { await col.createIndex({ userId: 1 }); } catch (e) {}
+  try { await col.createIndex({ project_id: 1 }); } catch (e) {}
+  try { await col.createIndex({ projectId: 1 }); } catch (e) {}
+  try { await col.createIndex({ agent_name: 1 }); } catch (e) {}
+  try { await col.createIndex({ agent: 1 }); } catch (e) {}
+  try { await col.createIndex({ date: 1 }); } catch (e) {}
+  try { await col.createIndex({ createdAt: 1 }); } catch (e) {}
 }
 
 module.exports = {

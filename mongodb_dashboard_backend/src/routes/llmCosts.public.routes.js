@@ -45,6 +45,10 @@ router.get(
       req.query.filter = '{}';
     }
 
+    // Add diagnostics: resolve effective collection name from env and add header
+    const envCollection = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim() || 'llm_costs';
+    res.set('X-LLM-COSTS-Collection', envCollection);
+
     // Use the richer fallback controller which handles model-first and native-driver fallback with diagnostics
     return listLlmCosts(req, res);
   })

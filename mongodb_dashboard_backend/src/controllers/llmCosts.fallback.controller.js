@@ -2,39 +2,51 @@
 
 const { getDb } = require('../config/db');
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * listLlmCosts
+ * Handler for GET /api/llm-costs that returns a paginated tabular list of LLM cost documents.
+ * Strategy:
+ * 1) Try primary Mongoose model (if registered) with enforced tenant filter and projection.
+ * 2) If empty, fallback to native driver with underscore collection precedence (llm_costs),
+ *    supporting env overrides LLMCOSTS_COLLECTION_NAME or LLM_COSTS_COLLECTION.
+ * Behavior:
+ * - Always enforces tenant scope from Authorization JWT (req.auth.tenantId) if present, otherwise from
+ *   x-organization-id or query aliases (?organization_id/?tenant_id).
+ * - Builds an explicit $match including case-insensitive tenant fallbacks and timestamp window.
+ * - Applies pagination ($skip/$limit) AFTER $match to ensure correct paging.
+ * - Adds diagnostics headers:
+ *    X-LLM-COSTS-Collection: effective collection used
+ *    X-LLM-COSTS-Pipeline: JSON of { match, sort, page, limit, projection }
+ *    X-LLM-COSTS-Matched: total matched documents (before pagination)
+ *    X-LLM-COSTS-Reason: present when result is empty, with terse reason
+ */
 async function listLlmCosts(req, res) {
-  /**
-   * Handler: GET /api/llm-costs
-   * Primary path uses Mongoose model if available via req.app.locals.models?.LlmCost; if primary returns zero,
-   * performs a safe, read-only fallback using native driver probing collections:
-   *   - process.env.LLMCOSTS_COLLECTION_NAME (default 'llm_costs')
-   *   - 'llm_costs'
-   * Tenant matching checks across organization_id/tenant_id/orgId/tenantId/organizationId and nested tenant.tenant_id.
-   * Returns paginated envelope with diagnostics headers.
-   */
   const startParsed = Date.now();
 
   try {
-    // Resolve tenantId: prioritize JWT-derived req.auth.tenantId (if present)
+    // Resolve tenant
     const jwtTenant = req?.auth?.tenantId;
-    const headerTenant =
-      req.headers['x-organization-id'] ||
-      req.query.organization_id ||
-      req.query.tenant_id;
+    const headerTenant = req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id;
 
     let resolvedTenant = null;
     if (jwtTenant) {
       resolvedTenant = String(jwtTenant);
       if (headerTenant && String(headerTenant) !== resolvedTenant) {
-        return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch with JWT tenant.' });
+        return res
+          .status(403)
+          .json({ success: false, message: 'Forbidden: tenant scope mismatch with JWT tenant.' });
       }
     } else {
       resolvedTenant = headerTenant ? String(headerTenant) : null;
     }
 
     if (!resolvedTenant) {
-      return res.status(400).json({ success: false, message: 'Missing tenant (Authorization with tenant or x-organization-id / ?tenant_id / ?organization_id).' });
+      return res.status(400).json({
+        success: false,
+        message:
+          'Missing tenant (Authorization with tenant or x-organization-id / ?tenant_id / ?organization_id).',
+      });
     }
 
     // Pagination and sorting
@@ -47,20 +59,24 @@ async function listLlmCosts(req, res) {
       return res.status(400).json({ success: false, message: `limit must be <= ${maxLimit}` });
     }
 
-    // Sort parsing: default '-timestamp' -> { timestamp: -1 }, supports 'field' or '-field'
+    // Sort parsing: default '-timestamp'
     const sortStr = (req.query.sort || '-timestamp').trim();
     let sort = {};
     if (sortStr) {
-      sortStr.split(',').map(s => s.trim()).filter(Boolean).forEach(s => {
-        if (s.startsWith('-')) {
-          sort[s.substring(1)] = -1;
-        } else {
-          sort[s] = 1;
-        }
-      });
+      sortStr
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((s) => {
+          if (s.startsWith('-')) {
+            sort[s.substring(1)] = -1;
+          } else {
+            sort[s] = 1;
+          }
+        });
     }
 
-    // Date window handling on canonical 'timestamp'
+    // Date window handling on 'timestamp'
     const now = new Date();
     const maxDays = process.env.MAX_DAYS_WINDOW ? parseInt(process.env.MAX_DAYS_WINDOW, 10) : 90;
     const to = req.query.to ? new Date(req.query.to) : now;
@@ -71,19 +87,24 @@ async function listLlmCosts(req, res) {
       const ms = Math.abs(to.getTime() - from.getTime());
       const days = ms / (24 * 60 * 60 * 1000);
       if (days > maxDays) {
-        return res.status(400).json({ success: false, message: `Requested window exceeds MAX_DAYS_WINDOW=${maxDays} days` });
+        return res
+          .status(400)
+          .json({ success: false, message: `Requested window exceeds MAX_DAYS_WINDOW=${maxDays} days` });
       }
       applied = null;
     } else if (req.query.from && !req.query.to) {
-      // clamp to within maxDays forward
       const maxTo = new Date(from.getTime() + maxDays * 24 * 60 * 60 * 1000);
-      if (to > maxTo) { applied = 'clamped_to'; }
+      if (to > maxTo) {
+        applied = 'clamped_to';
+      }
     } else if (!req.query.from && req.query.to) {
       const maxFrom = new Date(to.getTime() - maxDays * 24 * 60 * 60 * 1000);
-      if (from < maxFrom) { applied = 'clamped_from'; }
+      if (from < maxFrom) {
+        applied = 'clamped_from';
+      }
     }
 
-    // Whitelist filter fields
+    // Whitelist filter
     const allowed = ['status', 'provider', 'llm_model', 'user_id', 'session_id', 'project_id', 'request_id'];
     let extraFilter = {};
     if (req.query.filter) {
@@ -95,9 +116,9 @@ async function listLlmCosts(req, res) {
       }
     }
 
-    // Build tenant scoped filter
+    // Build $match including case-insensitive fallback
     const tenantRegex = { $regex: `^${resolvedTenant}$`, $options: 'i' };
-    const filter = {
+    const match = {
       $and: [
         {
           $or: [
@@ -109,11 +130,11 @@ async function listLlmCosts(req, res) {
             { 'tenant.tenant_id': resolvedTenant },
             { organization_id: tenantRegex },
             { tenant_id: tenantRegex },
-          ]
+          ],
         },
         { timestamp: { $gte: from, $lte: to } },
-        Object.keys(extraFilter).length ? extraFilter : null
-      ].filter(Boolean)
+        Object.keys(extraFilter).length ? extraFilter : null,
+      ].filter(Boolean),
     };
 
     // Projection: lean tabular set
@@ -139,32 +160,38 @@ async function listLlmCosts(req, res) {
       currency: 1,
       duration_ms: 1,
       status: 1,
-      details: 1
+      details: 1,
     };
 
-    // Primary (Mongoose) path: if LlmCost model is registered in app locals
+    // Primary (Mongoose) path
     let primaryItems = [];
     let primaryTotal = 0;
     let primaryTookMs = 0;
+    let primaryCollectionName = 'llm_costs';
     try {
       const LlmCost = req?.app?.locals?.models?.LlmCost || null;
       if (LlmCost) {
+        try {
+          primaryCollectionName = LlmCost.collection?.name || 'llm_costs';
+        } catch {}
         const startExec = Date.now();
-        const q = LlmCost.find(filter, projection).sort(sort).skip((page - 1) * limit).limit(limit).lean();
+        const q = LlmCost.find(match, projection)
+          .sort(sort)
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .lean();
         primaryItems = await q;
-        primaryTotal = await LlmCost.countDocuments(filter);
+        primaryTotal = await LlmCost.countDocuments(match);
         primaryTookMs = Date.now() - startExec;
       }
     } catch (e) {
-      // log but continue to fallback
       // eslint-disable-next-line no-console
       console.warn('[llm-costs] Primary Mongoose path errored, will try fallback:', e?.message || e);
     }
 
-    // If primary had results, return standard envelope
     if (primaryTotal > 0) {
       res.set('x-effective-tenant', resolvedTenant);
-      res.set('x-llm-filter', JSON.stringify(filter));
+      res.set('x-llm-filter', JSON.stringify(match));
       res.set('x-llm-projection', JSON.stringify(projection));
       res.set('x-llm-sort', JSON.stringify(sort));
       res.set('x-llm-page', String(page));
@@ -175,7 +202,11 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-window-to', to.toISOString());
       res.set('x-llm-window-applied', applied || 'default');
 
-      // Attach debug headers when tenant is specified to trace pipeline and samples
+      // Required diagnostics
+      res.set('X-LLM-COSTS-Collection', primaryCollectionName);
+      res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection }));
+      res.set('X-LLM-COSTS-Matched', String(primaryTotal));
+
       if (String(resolvedTenant || '') === 'b2c') {
         try {
           res.set('x-llm-debug-sample', JSON.stringify(primaryItems?.[0] || null));
@@ -193,26 +224,23 @@ async function listLlmCosts(req, res) {
           window: {
             from: from.toISOString(),
             to: to.toISOString(),
-            applied: applied || 'default'
+            applied: applied || 'default',
           },
-          diagnostics: { headers: req.headers }
-        }
+          diagnostics: { headers: req.headers },
+        },
       });
     }
 
-    // Fallback: probe native driver on llm-costs and llm_costs
+    // Fallback native driver path: underscore 'llm_costs' first, then env override
     let fallbackItems = [];
     let fallbackTotal = 0;
     let fallbackCollection = null;
     try {
       const db = await getDb();
       const envName = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim();
-      const candidates = [
-        envName || 'llm_costs',
-        'llm_costs'
-      ].filter((v, idx, arr) => arr.indexOf(v) === idx);
+      const candidates = ['llm_costs', envName || 'llm_costs'].filter((v, i, a) => v && a.indexOf(v) === i);
 
-      // detect tenant data presence ignoring window
+      // Count tenant-only presence (case-insensitive fallback included)
       const tenantOnly = {
         $or: [
           { organization_id: resolvedTenant },
@@ -220,35 +248,36 @@ async function listLlmCosts(req, res) {
           { orgId: resolvedTenant },
           { tenantId: resolvedTenant },
           { organizationId: resolvedTenant },
-          { 'tenant.tenant_id': resolvedTenant }
-        ]
+          { 'tenant.tenant_id': resolvedTenant },
+          { organization_id: { $regex: `^${resolvedTenant}$`, $options: 'i' } },
+          { tenant_id: { $regex: `^${resolvedTenant}$`, $options: 'i' } },
+        ],
       };
 
       for (const name of candidates) {
         try {
           const coll = db.collection(name);
-          const tenantCount = await coll.countDocuments(tenantOnly).catch(() => 0);
-          if (tenantCount === 0) continue;
 
-          const t = await coll.countDocuments(filter).catch(() => 0);
+          // Pre-match count before pagination
+          const preMatchCount = await coll.countDocuments({ $and: match.$and.filter(Boolean) }).catch(() => 0);
+          const tenantCount = await coll.countDocuments(tenantOnly).catch(() => 0);
+
           const items = await coll
-            .find(filter, { projection })
+            .find(match, { projection })
             .sort(sort)
             .skip((page - 1) * limit)
             .limit(limit)
             .toArray();
 
-          // Set diagnostics headers per collection candidate for better visibility
           res.set('x-llm-probed-collection', name);
           res.set('x-llm-tenant-matched', String(tenantCount));
-          res.set('x-llm-total-matched', String(t));
+          res.set('x-llm-total-matched', String(preMatchCount));
 
           fallbackItems = items || [];
-          fallbackTotal = t || 0;
+          fallbackTotal = preMatchCount || 0;
           fallbackCollection = name;
           break;
         } catch (e) {
-          // try next
           // eslint-disable-next-line no-console
           console.warn('[llm-costs] Probe collection failed:', name, e?.message || e);
           continue;
@@ -263,15 +292,18 @@ async function listLlmCosts(req, res) {
       // eslint-disable-next-line no-console
       console.warn('[llm-costs] Primary path returned zero but fallback found data', {
         tenant: resolvedTenant,
-        collection: fallbackCollection
+        collection: fallbackCollection,
       });
 
       res.set('x-llm-fallback', 'native');
       res.set('x-llm-fallback-collection', fallbackCollection);
-      res.set('x-llm-fallback-warning', 'Primary path returned 0; using native probe. Configure LLMCOSTS_COLLECTION_NAME accordingly.');
+      res.set(
+        'x-llm-fallback-warning',
+        'Primary path returned 0; using native probe. Configure LLMCOSTS_COLLECTION_NAME accordingly.'
+      );
 
       res.set('x-effective-tenant', resolvedTenant);
-      res.set('x-llm-filter', JSON.stringify(filter));
+      res.set('x-llm-filter', JSON.stringify(match));
       res.set('x-llm-projection', JSON.stringify(projection));
       res.set('x-llm-sort', JSON.stringify(sort));
       res.set('x-llm-page', String(page));
@@ -280,6 +312,11 @@ async function listLlmCosts(req, res) {
       res.set('x-llm-window-from', from.toISOString());
       res.set('x-llm-window-to', to.toISOString());
       res.set('x-llm-window-applied', applied || 'default');
+
+      // Required diagnostics
+      res.set('X-LLM-COSTS-Collection', fallbackCollection);
+      res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection }));
+      res.set('X-LLM-COSTS-Matched', String(fallbackTotal));
 
       if (String(resolvedTenant || '') === 'b2c') {
         try {
@@ -298,20 +335,22 @@ async function listLlmCosts(req, res) {
           window: {
             from: from.toISOString(),
             to: to.toISOString(),
-            applied: applied || 'default'
+            applied: applied || 'default',
           },
           diagnostics: { headers: req.headers },
           debug: {
             fallback: true,
-            collection: fallbackCollection
-          }
-        }
+            collection: fallbackCollection,
+          },
+        },
       });
     }
 
-    // No results anywhere
+    // No results
+    const effFallback = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim() || 'llm_costs';
+
     res.set('x-effective-tenant', resolvedTenant);
-    res.set('x-llm-filter', JSON.stringify(filter));
+    res.set('x-llm-filter', JSON.stringify(match));
     res.set('x-llm-projection', JSON.stringify(projection));
     res.set('x-llm-sort', JSON.stringify(sort));
     res.set('x-llm-page', String(page));
@@ -320,8 +359,13 @@ async function listLlmCosts(req, res) {
     res.set('x-llm-window-from', from.toISOString());
     res.set('x-llm-window-to', to.toISOString());
     res.set('x-llm-window-applied', applied || 'default');
+    res.set('x-llm-fallback-collection', effFallback);
 
-    res.set('x-llm-fallback-collection', (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim() || 'llm_costs');
+    // Required diagnostics when empty
+    res.set('X-LLM-COSTS-Collection', effFallback);
+    res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection }));
+    res.set('X-LLM-COSTS-Matched', '0');
+    res.set('X-LLM-COSTS-Reason', 'No documents matched tenant/time window');
 
     return res.json({
       success: true,
@@ -334,10 +378,10 @@ async function listLlmCosts(req, res) {
         window: {
           from: from.toISOString(),
           to: to.toISOString(),
-          applied: applied || 'default'
+          applied: applied || 'default',
         },
-        diagnostics: { headers: req.headers }
-      }
+        diagnostics: { headers: req.headers },
+      },
     });
   } catch (err) {
     // eslint-disable-next-line no-console

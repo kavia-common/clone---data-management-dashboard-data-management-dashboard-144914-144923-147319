@@ -12,13 +12,24 @@ const mongoose = require('mongoose');
  * - By default, this model maps to the underscore collection name 'llm_costs' (preferred).
  * - If an existing deployment uses a different collection name, set:
  *     process.env.LLMCOSTS_COLLECTION_NAME=<collection>
+ *     or process.env.LLM_COSTS_COLLECTION=<collection>
  *   at runtime to switch without code changes.
+ * - The hardcoded fallback is 'llm_costs' and is enforced consistently across services/controllers.
  *
  * Tenant scoping:
  * - Tenant isolation is enforced in controllers/middleware; this model only defines the schema and indexes.
  */
-const LLM_COLLECTION_NAME =
-  (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim() || 'llm_costs';
+const ENV_COLLECTION_RAW = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim();
+const LLM_COLLECTION_NAME = ENV_COLLECTION_RAW || 'llm_costs';
+
+// Log once at module load to aid diagnostics
+try {
+  // eslint-disable-next-line no-console
+  console.log('[llm-costs.model] Effective collection name:', LLM_COLLECTION_NAME || 'llm_costs', {
+    env_LLMCOSTS_COLLECTION_NAME: process.env.LLMCOSTS_COLLECTION_NAME ? '[set]' : '[unset]',
+    env_LLM_COSTS_COLLECTION: process.env.LLM_COSTS_COLLECTION ? '[set]' : '[unset]',
+  });
+} catch {}
 
 /**
  * LLM Costs model
@@ -54,7 +65,7 @@ const LLMCostsSchema = new mongoose.Schema(
   },
   {
     timestamps: false,
-    collection: LLM_COLLECTION_NAME,
+    collection: LLM_COLLECTION_NAME, // Enforce underscore collection
     strict: false, // allow additional fields that may exist in real documents
   }
 );
