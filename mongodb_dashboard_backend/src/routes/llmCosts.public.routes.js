@@ -4,6 +4,7 @@ const { buildCrudController } = require('../controllers/crudFactory');
 const { requireTenant } = require('../middleware/requireTenant');
 const { tenantScopeEnforcer } = require('../middleware/tenantScopeEnforcer');
 const LLMCost = require('../models/llmCosts.model');
+const { listLlmCosts } = require('../controllers/llmCosts.fallback.controller');
 
 const router = express.Router();
 // Default sort retained; list is still tenant-scoped via middleware/controller
@@ -24,9 +25,14 @@ router.use(requireTenant, tenantScopeEnforcer());
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // Clear client-provided filter to avoid tenant bypass; CRUD will merge with enforced tenant anyway
+    // Surface effective tenant headers early for diagnostics
+    const jwtTenant = req?.auth?.tenantId;
+    const headerTenant = req.headers['x-organization-id'] || req.query.organization_id || req.query.tenant_id;
+    const resolvedTenant = jwtTenant ? String(jwtTenant) : (headerTenant ? String(headerTenant) : null);
+    if (resolvedTenant) res.set('x-effective-tenant', resolvedTenant);
+
+    // Clear client-provided tenant filter keys
     const rawFilter = req.query.filter;
-    // Allow non-tenant filters but remove client-tenant keys if present
     try {
       if (rawFilter) {
         const parsed = typeof rawFilter === 'string' ? JSON.parse(rawFilter) : rawFilter;
@@ -38,7 +44,9 @@ router.get(
     } catch {
       req.query.filter = '{}';
     }
-    return controller.list(req, res);
+
+    // Use the richer fallback controller which handles model-first and native-driver fallback with diagnostics
+    return listLlmCosts(req, res);
   })
 );
 

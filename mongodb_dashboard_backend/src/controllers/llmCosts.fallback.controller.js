@@ -8,7 +8,7 @@ async function listLlmCosts(req, res) {
    * Handler: GET /api/llm-costs
    * Primary path uses Mongoose model if available via req.app.locals.models?.LlmCost; if primary returns zero,
    * performs a safe, read-only fallback using native driver probing collections:
-   *   - process.env.LLMCOSTS_COLLECTION_NAME (default 'llm-costs')
+   *   - process.env.LLMCOSTS_COLLECTION_NAME (default 'llm_costs')
    *   - 'llm_costs'
    * Tenant matching checks across organization_id/tenant_id/orgId/tenantId/organizationId and nested tenant.tenant_id.
    * Returns paginated envelope with diagnostics headers.
@@ -197,7 +197,7 @@ async function listLlmCosts(req, res) {
     try {
       const db = await getDb();
       const candidates = [
-        process.env.LLMCOSTS_COLLECTION_NAME || 'llm-costs',
+        (process.env.LLMCOSTS_COLLECTION_NAME || '').trim() || 'llm_costs',
         'llm_costs'
       ].filter((v, idx, arr) => arr.indexOf(v) === idx);
 
@@ -220,13 +220,26 @@ async function listLlmCosts(req, res) {
           if (tenantCount === 0) continue;
 
           const t = await coll.countDocuments(filter).catch(() => 0);
-          const items = await coll.find(filter, { projection }).sort(sort).skip((page - 1) * limit).limit(limit).toArray();
+          const items = await coll
+            .find(filter, { projection })
+            .sort(sort)
+            .skip((page - 1) * limit)
+            .limit(limit)
+            .toArray();
+
+          // Set diagnostics headers per collection candidate for better visibility
+          res.set('x-llm-probed-collection', name);
+          res.set('x-llm-tenant-matched', String(tenantCount));
+          res.set('x-llm-total-matched', String(t));
+
           fallbackItems = items || [];
           fallbackTotal = t || 0;
           fallbackCollection = name;
           break;
-        } catch {
+        } catch (e) {
           // try next
+          // eslint-disable-next-line no-console
+          console.warn('[llm-costs] Probe collection failed:', name, e?.message || e);
           continue;
         }
       }

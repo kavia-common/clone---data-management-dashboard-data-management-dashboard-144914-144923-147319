@@ -236,7 +236,7 @@ async function aggregateAgentsUsageAndCost(
       agent_name: s.agent_name,
       source_breakdown: {
         session_tracking: { cost: s.cost || 0, tokens: s.total_tokens || 0 },
-        'llm-costs': { cost: 0, tokens: 0 },
+        llm_costs: { cost: 0, tokens: 0 },
       },
       session_count: s.session_count || 0,
     });
@@ -248,20 +248,20 @@ async function aggregateAgentsUsageAndCost(
         agent_name: l.agent_name,
         source_breakdown: {
           session_tracking: { cost: 0, tokens: 0 },
-          'llm-costs': { cost: l.cost || 0, tokens: l.total_tokens || 0 },
+          llm_costs: { cost: l.cost || 0, tokens: l.total_tokens || 0 },
         },
         session_count: 0,
       });
     } else {
       const existing = map.get(l.agent_name);
-      existing.source_breakdown['llm-costs'].cost += l.cost || 0;
-      existing.source_breakdown['llm-costs'].tokens += l.total_tokens || 0;
+      existing.source_breakdown.llm_costs.cost += l.cost || 0;
+      existing.source_breakdown.llm_costs.tokens += l.total_tokens || 0;
     }
   }
 
   const items = Array.from(map.values()).map((x) => {
     const st = x.source_breakdown.session_tracking;
-    const lc = x.source_breakdown['llm-costs'];
+    const lc = x.source_breakdown.llm_costs;
     const total_cost = Number(((st.cost || 0) + (lc.cost || 0)).toFixed(6));
     const total_usage = Number(((st.tokens || 0) + (lc.tokens || 0)).toFixed(0));
     return {
