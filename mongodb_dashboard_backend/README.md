@@ -49,6 +49,13 @@ No dev proxy/self-proxy
 - Start commands use: node src/server.js (no watch in CI by default).
 - In CI, prefer: npm run start:lean
 
+Quick verification for service-type summary
+- Requires organizationId via query (?organizationId=...). Aliases organization_id or tenant_id are accepted.
+- Range options: daily|weekly|monthly|custom (default: daily).
+  - For custom provide startDate and endDate as ISO strings. The endpoint normalizes to full-day UTC bounds.
+- Example:
+  curl -s "http://localhost:3001/api/service-type/summary?organizationId=T0015&range=weekly" | jq
+
 Quick verification for llm-costs
 - List costs (requires tenant via header when no JWT):
   curl -i -H "x-organization-id: T0015" "http://localhost:3001/api/llm-costs?page=1&limit=10"

@@ -8,29 +8,37 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  * GET /api/service-type/summary
  * Aggregates session_tracking by service_type over a selected time window (daily|weekly|monthly|custom).
  *
- * Query params:
- * - organization_id (alias tenant_id): required unless super-admin/global bypass is active
+ * Query params (all via query):
+ * - organizationId: required (alias: organization_id or tenant_id)
  * - range: 'daily' | 'weekly' | 'monthly' | 'custom' (default: 'daily')
- * - start_date, end_date (YYYY-MM-DD) required when range='custom'
+ * - startDate, endDate (ISO strings) required when range='custom'
  *
- * Date semantics:
- * - daily: today 00:00:00Z - 23:59:59Z
- * - weekly: last 7 days including today (inclusive)
- * - monthly: last 30 days including today (inclusive)
- * - custom: [start_date..end_date] inclusive (UTC)
+ * Behavior changes in this version:
+ * - organizationId is required; request returns 400 when missing.
+ * - Date range is computed based on 'range'. For custom, use provided startDate/endDate (ISO).
+ * - Filters session_tracking by organizationId and createdAt window (prefers last_updated, then session_start, then timestamp).
+ * - Groups by service_type and returns counts. If service_type is null/absent, grouped as 'Unknown'.
+ * - When no records match, returns items: [] and buckets: [] (or zero-filled series for the date range).
  *
  * Returns 200 JSON:
  * {
  *   range,
- *   start_date,
- *   end_date,
+ *   startDate,
+ *   endDate,
  *   items: [{ service_type: string, count: number }],
- *   buckets: [{ label: 'YYYY-MM-DD', count: number }] // for completeness/consistency with similar charts
+ *   buckets: [{ label: 'YYYY-MM-DD', count: number }] // contiguous daily ticks for the window
  * }
  */
 router.get('/summary', extractOrganization(), async (req, res) => {
   try {
-    let { range = 'daily', start_date, end_date, organization_id, tenant_id } = req.query || {};
+    let {
+      range = 'daily',
+      startDate,
+      endDate,
+      organizationId,
+      organization_id,
+      tenant_id
+    } = req.query || {};
     range = String(range || 'daily').toLowerCase();
     const ALLOWED = new Set(['daily', 'weekly', 'monthly', 'custom']);
     if (!ALLOWED.has(range)) {
@@ -39,12 +47,17 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       });
     }
 
-    // Determine effective tenant and global aggregation flag
-    const isGlobal = !!req.tenantScopeDisabled || !!req.allTenants;
-    const effectiveTenant = req.organizationId || req.tenantId || organization_id || tenant_id || null;
+    // Determine and validate required organizationId
+    const effectiveTenant =
+      organizationId ||
+      req.organizationId ||
+      req.tenantId ||
+      organization_id ||
+      tenant_id ||
+      null;
 
-    if (!isGlobal && !effectiveTenant) {
-      return res.status(400).json({ message: 'Missing organization_id/tenant_id.' });
+    if (!effectiveTenant) {
+      return res.status(400).json({ message: 'organizationId is required.' });
     }
 
     // Date helpers (UTC)
@@ -62,21 +75,22 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     let windowStart;
     let windowEnd;
 
-    const reDate = /^\d{4}-\d{2}-\d{2}$/;
-
     if (range === 'custom') {
-      if (!start_date || !end_date || !reDate.test(start_date) || !reDate.test(end_date)) {
+      if (!startDate || !endDate) {
         return res.status(400).json({
-          message: "For range=custom, 'start_date' and 'end_date' are required in YYYY-MM-DD.",
+          message: "For range=custom, 'startDate' and 'endDate' are required (ISO date-time).",
         });
       }
-      windowStart = new Date(`${start_date}T00:00:00.000Z`);
-      windowEnd = new Date(`${end_date}T23:59:59.999Z`);
+      windowStart = new Date(startDate);
+      windowEnd = new Date(endDate);
       if (Number.isNaN(windowStart.getTime()) || Number.isNaN(windowEnd.getTime())) {
-        return res.status(400).json({ message: 'Invalid start_date or end_date.' });
+        return res.status(400).json({ message: 'Invalid startDate or endDate.' });
       }
+      // Normalize to full-day inclusive bounds in UTC for consistency with other ranges
+      windowStart = startOfUTCDate(windowStart);
+      windowEnd = endOfUTCDate(windowEnd);
       if (windowStart.getTime() > windowEnd.getTime()) {
-        return res.status(400).json({ message: 'start_date must be before or equal to end_date.' });
+        return res.status(400).json({ message: 'startDate must be before or equal to endDate.' });
       }
     } else if (range === 'daily') {
       windowStart = startOfUTCDate(today);
@@ -97,21 +111,19 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     ];
     const match = { $or: timeOr };
 
-    // Tenant filter (unless global)
-    if (!isGlobal && effectiveTenant) {
-      match.$and = [
-        {
-          $or: [
-            { tenant_id: effectiveTenant },
-            { organization_id: effectiveTenant },
-            { organizationId: effectiveTenant },
-            { tenantId: effectiveTenant },
-            { orgId: effectiveTenant },
-            { 'tenant.tenant_id': effectiveTenant },
-          ],
-        },
-      ];
-    }
+    // Required tenant filter
+    match.$and = [
+      {
+        $or: [
+          { tenant_id: effectiveTenant },
+          { organization_id: effectiveTenant },
+          { organizationId: effectiveTenant },
+          { tenantId: effectiveTenant },
+          { orgId: effectiveTenant },
+          { 'tenant.tenant_id': effectiveTenant },
+        ],
+      },
+    ];
 
     // service_type field can live under different shapes for flexible tracking.
     // We'll coalesce in aggregation using $ifNull and nested lookups when strict:false schema is used.
@@ -182,10 +194,10 @@ router.get('/summary', extractOrganization(), async (req, res) => {
 
     const response = {
       range,
-      start_date: toYMD(windowStart),
-      end_date: toYMD(windowEnd),
-      items,
-      buckets: ticks,
+      startDate: windowStart.toISOString(),
+      endDate: windowEnd.toISOString(),
+      items: Array.isArray(items) ? items : [],
+      buckets: Array.isArray(ticks) ? ticks : [],
     };
 
     try {
