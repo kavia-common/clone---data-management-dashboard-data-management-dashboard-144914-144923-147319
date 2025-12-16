@@ -6,29 +6,32 @@ const { extractOrganization } = require('../middleware/extractOrganization');
 /**
  * PUBLIC_INTERFACE
  * GET /api/service-type/summary
- * Aggregates SessionTracking by date (UTC YYYY-MM-DD) and service_type for a given organization and time window.
+ * Aggregates SessionTracking by date (UTC YYYY-MM-DD) and service_type for a given tenant and time window.
+ *
+ * Key changes:
+ * - Use tenant_id as primary scope (derive from auth/middleware or query). Keep legacy aliases (organizationId/organization_id) by mapping to tenant_id.
+ * - Filter strictly by created_at with inclusive bounds computed in UTC ([$gte: startOfDayZ, $lte: endOfDayZ]).
+ * - Treat incoming dates as UTC; YYYY-MM-DD => 00:00:00.000Z .. 23:59:59.999Z of that same day.
+ * - Group by UTC day and service_type; optionally filter service_type when provided.
+ * - Preserve response shape { labels, series, table, summaryByServiceType, meta }.
+ * - Zero-fill series only when ?zero_fill=true (default: false).
  *
  * Query:
- * - organizationId (required; aliases: organization_id, tenant_id)
+ * - tenant_id (preferred) OR organizationId/organization_id (legacy aliases)
  * - range: daily|weekly|monthly|custom (default: daily)
- * - startDate/endDate for custom; accepts ISO or YYYY-MM-DD
- *
- * Response shape (chart-friendly):
- * {
- *   labels: [ 'YYYY-MM-DD', ... ],                 // all dates in window ascending
- *   series: [ { name: 'service_type', data: [..] } ], // counts aligned to labels; zero-filled
- *   table: [ { date: 'YYYY-MM-DD', service_type: '...', count: 3 }, ... ], // flat rows
- *   summaryByServiceType: [ { service_type: '...', count: 10 }, ... ],     // backward-compatible totals
- *   meta: { range, startDate, endDate, organizationId }
- * }
+ * - startDate/endDate for custom; accepts ISO or YYYY-MM-DD (UTC semantics)
+ * - service_type (optional; exact match filter)
+ * - zero_fill=true|false (default: false)
  */
 router.get('/summary', extractOrganization(), async (req, res) => {
   try {
-    // Inputs and aliases
+    // Inputs and aliases, robust parsing
     let {
       range = 'daily',
       startDate, endDate, start_date, end_date, start, end,
-      organizationId, organization_id, tenant_id
+      tenant_id, organizationId, organization_id,
+      service_type,
+      zero_fill,
     } = req.query || {};
 
     // Normalize range
@@ -38,20 +41,28 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       return res.status(400).json({ message: "Invalid 'range'. Allowed: daily|weekly|monthly|custom" });
     }
 
-    // Resolve organization id
+    // Resolve tenant: prefer tenant_id then auth context; keep legacy organizationId alias
+    // Note: extractOrganization attaches req.organizationId and req.tenantId based on headers/query.
     const effectiveTenant =
-      organizationId ||
-      req.organizationId ||
+      (tenant_id && String(tenant_id)) ||
       req.tenantId ||
-      organization_id ||
-      tenant_id ||
+      req.organizationId ||
+      (organizationId && String(organizationId)) ||
+      (organization_id && String(organization_id)) ||
       null;
 
+    // Super-admin global allowed when middleware sets req.allTenants
     if (!effectiveTenant && !req.allTenants) {
-      return res.status(400).json({ message: 'organizationId (tenant) is required.' });
+      return res.status(400).json({ message: 'tenant_id (or organizationId alias) is required.' });
     }
 
-    // Date helpers (UTC)
+    // Parse zero_fill flag (default false)
+    const zeroFill =
+      typeof zero_fill === 'string'
+        ? ['1', 'true', 'yes', 'on'].includes(zero_fill.toLowerCase())
+        : false;
+
+    // Date helpers (UTC, no double-shift)
     const pad = (n) => String(n).padStart(2, '0');
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const isDateOnly = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
@@ -62,9 +73,13 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       out.setUTCDate(out.getUTCDate() + days);
       return out;
     };
+
     // PUBLIC_INTERFACE
     function parseFlexibleDate(input, which) {
-      /** Parse ISO or YYYY-MM-DD; date-only -> start-of-day for start, end-of-day for end (UTC). */
+      /**
+       * Parse ISO or YYYY-MM-DD; date-only -> start-of-day for start, end-of-day for end (UTC).
+       * Input dates are treated as UTC; we do not apply any local timezone shifts.
+       */
       if (!input || typeof input !== 'string') return null;
       const raw = input.trim();
       if (!raw) return null;
@@ -75,13 +90,14 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       }
       const d = new Date(raw);
       if (Number.isNaN(d.getTime())) return null;
+      // If raw starts with YYYY-MM-DD, normalize to respective bound in UTC
       if (/^\d{4}-\d{2}-\d{2}([ T]|$)/.test(raw)) {
         return which === 'end' ? endOfUTCDate(d) : startOfUTCDate(d);
       }
       return d;
     }
 
-    // Compute time window
+    // Compute time window in UTC with inclusive bounds
     const customStartRaw = startDate || start_date || start || '';
     const customEndRaw = endDate || end_date || end || '';
     const today = startOfUTCDate(new Date());
@@ -124,29 +140,30 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       windowEnd = endOfUTCDate(today);
     }
 
-    // Build match: time window across canonical fields
-    const timeOr = [
-      { last_updated: { $gte: windowStart, $lte: windowEnd } },
-      { session_start: { $gte: windowStart, $lte: windowEnd } },
-      { timestamp:     { $gte: windowStart, $lte: windowEnd } },
-      { createdAt:     { $gte: windowStart, $lte: windowEnd } },
-      { created_at:    { $gte: windowStart, $lte: windowEnd } },
-    ];
-    const match = { $or: timeOr };
-    if (!req.allTenants) {
-      match.$and = [{
-        $or: [
-          { tenant_id: effectiveTenant },
-          { organization_id: effectiveTenant },
-          { organizationId: effectiveTenant },
-          { tenantId: effectiveTenant },
-          { orgId: effectiveTenant },
-          { 'tenant.tenant_id': effectiveTenant },
-        ],
-      }];
+    // Build match: STRICTLY on created_at with inclusive bounds in UTC
+    const match = {
+      created_at: { $gte: windowStart, $lte: windowEnd },
+    };
+
+    // Tenant scope
+    if (!req.allTenants && effectiveTenant) {
+      match.$or = [
+        { tenant_id: effectiveTenant },
+        { organization_id: effectiveTenant },     // legacy alias
+        { organizationId: effectiveTenant },      // legacy alias camelCase
+        { tenantId: effectiveTenant },            // defensive
+        { orgId: effectiveTenant },               // defensive
+        { 'tenant.tenant_id': effectiveTenant },  // nested defensive
+      ];
     }
 
-    // Coalesce service_type variants and compute bucketDate
+    // Optional service_type filter (exact match against coalesced field)
+    // We'll apply it later in $match with $expr against computed coalesced field, so capture here:
+    const serviceTypeFilterValue = typeof service_type === 'string' && service_type.trim().length > 0
+      ? service_type.trim()
+      : null;
+
+    // Coalesce service_type variants and compute bucketDate (truncate created_at)
     const coalescedServiceType = {
       $ifNull: [
         '$service_type',
@@ -158,19 +175,19 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         },
       ],
     };
-    const pickedDate = { $ifNull: ['$last_updated', { $ifNull: ['$session_start', { $ifNull: ['$timestamp', { $ifNull: ['$createdAt', '$created_at'] }] }] }] };
 
-    // Aggregation pipeline: group by date+service_type
+    // Aggregation pipeline: group by date+service_type (date derived from created_at)
     const pipeline = [
       { $match: match },
       {
         $addFields: {
-          _bucket: {
-            $dateTrunc: { date: pickedDate, unit: 'day', timezone: 'UTC' },
-          },
+          _bucket: { $dateTrunc: { date: '$created_at', unit: 'day', timezone: 'UTC' } },
           _stype: { $ifNull: [coalescedServiceType, 'Unknown'] },
         },
       },
+      ...(serviceTypeFilterValue
+        ? [{ $match: { _stype: serviceTypeFilterValue } }]
+        : []),
       {
         $group: {
           _id: { date: '$_bucket', service_type: '$_stype' },
@@ -188,7 +205,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       { $sort: { date: 1, service_type: 1 } },
     ];
 
-    // Also compute totals by service_type (backward-compatible summary)
+    // Totals by service_type (respect same match + optional service_type)
     const totalsPipeline = [
       { $match: match },
       {
@@ -196,6 +213,9 @@ router.get('/summary', extractOrganization(), async (req, res) => {
           service_type: { $ifNull: [coalescedServiceType, 'Unknown'] },
         },
       },
+      ...(serviceTypeFilterValue
+        ? [{ $match: { service_type: serviceTypeFilterValue } }]
+        : []),
       {
         $group: {
           _id: '$service_type',
@@ -217,38 +237,68 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       totals = await sessionTracking.aggregate(totalsPipeline).allowDiskUse(true);
     }
 
-    // Build labels (all dates in window, inclusive)
+    // Build labels list (only when zero_fill=true; otherwise derive from data)
+    const pad2 = (n) => String(n).padStart(2, '0'); // keep pad as pad
     const labels = [];
-    let d = startOfUTCDate(windowStart);
-    const endDay = startOfUTCDate(windowEnd);
-    while (d.getTime() <= endDay.getTime()) {
-      labels.push(ymd(d));
-      d = addDays(d, 1);
+    if (zeroFill) {
+      let d = new Date(Date.UTC(windowStart.getUTCFullYear(), windowStart.getUTCMonth(), windowStart.getUTCDate()));
+      const endDay = new Date(Date.UTC(windowEnd.getUTCFullYear(), windowEnd.getUTCMonth(), windowEnd.getUTCDate()));
+      while (d.getTime() <= endDay.getTime()) {
+        labels.push(`${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`);
+        d.setUTCDate(d.getUTCDate() + 1);
+      }
+    } else {
+      // No zero filling: labels based on actual dates present in rows (ascending unique)
+      const set = new Set(rows.map(r => r.date));
+      labels.push(...Array.from(set).sort());
     }
 
-    // Collect service types present (from totals) to keep ordering; ensure 'Unknown' if seen in rows
+    // Service types present (respect totals or rows)
     const serviceTypes = new Set((totals || []).map(t => t.service_type));
     for (const r of rows || []) {
+      if (r.service_type && !serviceTypes.has(r.service_type)) serviceTypes.add(r.service_type);
       if (!r.service_type) serviceTypes.add('Unknown');
     }
 
-    // Initialize series map with zeros for each label
+    // Initialize series container
     const seriesMap = {};
+    const baseLen = labels.length;
     for (const st of serviceTypes) {
-      seriesMap[st] = new Array(labels.length).fill(0);
+      seriesMap[st] = zeroFill ? new Array(baseLen).fill(0) : [];
     }
-    // When no service types exist in totals/rows, return an empty series array (frontend can handle)
+
     // Fill counts
-    const labelIndex = new Map(labels.map((l, i) => [l, i]));
-    for (const r of rows || []) {
-      const date = r.date;
-      const st = r.service_type || 'Unknown';
-      if (!seriesMap[st]) {
-        seriesMap[st] = new Array(labels.length).fill(0);
+    if (zeroFill) {
+      const labelIndex = new Map(labels.map((l, i) => [l, i]));
+      for (const r of rows || []) {
+        const date = r.date;
+        const st = r.service_type || 'Unknown';
+        if (!seriesMap[st]) {
+          seriesMap[st] = new Array(labels.length).fill(0);
+        }
+        const idx = labelIndex.get(date);
+        if (idx !== undefined) {
+          seriesMap[st][idx] = (seriesMap[st][idx] || 0) + Number(r.count || 0);
+        }
       }
-      const idx = labelIndex.get(date);
-      if (idx !== undefined) {
-        seriesMap[st][idx] = (seriesMap[st][idx] || 0) + Number(r.count || 0);
+    } else {
+      // No zero-fill: for each service type create data aligned to labels order by pushing values where date matches, otherwise skip
+      // Build per-date map for quick lookup
+      const byKey = new Map();
+      for (const r of rows || []) {
+        const key = `${r.service_type || 'Unknown'}::${r.date}`;
+        byKey.set(key, (byKey.get(key) || 0) + Number(r.count || 0));
+      }
+      for (const st of serviceTypes) {
+        for (const label of labels) {
+          const val = byKey.get(`${st}::${label}`);
+          if (typeof val === 'number') {
+            seriesMap[st].push(val);
+          } else {
+            // leave gap -> treat as 0 to keep chart integrity since frontend expects aligned arrays
+            seriesMap[st].push(0);
+          }
+        }
       }
     }
 
@@ -258,7 +308,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       data: seriesMap[name],
     }));
 
-    // Table rows already in desired shape
+    // Table rows already shaped
     const table = rows || [];
 
     const payload = {
@@ -270,15 +320,25 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         range,
         startDate: windowStart.toISOString(),
         endDate: windowEnd.toISOString(),
+        // Backward-compatible meta field name preserved:
         organizationId: effectiveTenant || (req.allTenants ? 'all-tenants' : null),
+        // New explicit meta for clarity:
+        tenant_id: effectiveTenant || (req.allTenants ? 'all-tenants' : null),
+        filters: {
+          service_type: serviceTypeFilterValue || null,
+          zero_fill: zeroFill,
+          field: 'created_at',
+        },
       },
     };
 
-    // Helpful headers
+    // Helpful headers for diagnostics
     try {
       res.setHeader('x-window-start', payload.meta.startDate);
       res.setHeader('x-window-end', payload.meta.endDate);
-      res.setHeader('x-effective-tenant', String(payload.meta.organizationId || 'unknown'));
+      res.setHeader('x-effective-tenant', String(payload.meta.tenant_id || 'unknown'));
+      res.setHeader('x-filter-field', 'created_at');
+      if (serviceTypeFilterValue) res.setHeader('x-service-type', serviceTypeFilterValue);
     } catch {}
 
     return res.status(200).json(payload);
