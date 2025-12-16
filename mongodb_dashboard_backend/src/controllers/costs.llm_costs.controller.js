@@ -8,46 +8,30 @@ const { success, failure } = require('../utils/http');
  * getLlmCostsAggregated
  * Controller for GET /api/llm_costs
  *
- * Reads from the 'llm_costs' collection (configurable via env: LLMCOSTS_COLLECTION_NAME or LLM_COSTS_COLLECTION).
- * Returns aggregated rows filtered by organization_id (query param), using an aggregation pipeline:
- * - $match on organization_id, with case-insensitive fallback and common alias keys (tenant_id, org_id, tenantId)
- * - $project normalization for keys and cost parsing
- * - $group to produce per-user rollup with counts of projects and cost sum
- * - $group to compute organization totals and users count (users that created projects)
- * - $unwind + $project to flatten results, rounding costs to 6 decimals
- * Supports simple pagination with page & limit query params. If page/limit not provided, returns a raw array.
- *
- * Query params:
- * - organization_id: required string. Alias support is via pipeline $match ($or: tenant_id/org_id/tenantId).
- * - page, limit: optional pagination. Defaults only apply if provided; otherwise a raw array is returned.
+ * Reads from the 'llm_costs' collection and returns aggregated rows. Supports optional organization filter.
  */
 async function getLlmCostsAggregated(req, res) {
   try {
-    const orgId = String(req.query.organization_id || '').trim();
-    if (!orgId) {
-      return failure(res, 'organization_id query parameter is required', 400);
-    }
-
-    // optional pagination
-    const hasPage = Object.prototype.hasOwnProperty.call(req.query, 'page');
-    const hasLimit = Object.prototype.hasOwnProperty.call(req.query, 'limit');
-    const paginate = hasPage || hasLimit;
+    // pagination
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 200);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
     const skip = (page - 1) * limit;
 
-    const matchStage = {
-      $match: {
-        $or: [
-          { organization_id: orgId },
-          { tenant_id: orgId },
-          { org_id: orgId },
-          { tenantId: orgId },
-          { organization_id: { $regex: `^${orgId}$`, $options: 'i' } },
-          { tenant_id: { $regex: `^${orgId}$`, $options: 'i' } }
-        ]
-      }
-    };
+    // optional org filter
+    const orgIdRaw = (req.query.organization_id || req.query.tenant_id || '').toString().trim();
+    const hasOrg = !!orgIdRaw;
+
+    const match = {};
+    if (hasOrg) {
+      match.$or = [
+        { organization_id: orgIdRaw },
+        { tenant_id: orgIdRaw },
+        { org_id: orgIdRaw },
+        { tenantId: orgIdRaw },
+        { organization_id: { $regex: `^${orgIdRaw}$`, $options: 'i' } },
+        { tenant_id: { $regex: `^${orgIdRaw}$`, $options: 'i' } },
+      ];
+    }
 
     const projectNormalized = {
       organization_id: {
@@ -57,7 +41,13 @@ async function getLlmCostsAggregated(req, res) {
         ],
       },
       organization_name: { $ifNull: ['$organization_name', null] },
-      user_id: { $toString: '$user_id' },
+      user_id: {
+        $cond: [
+          { $ne: ['$user_id', null] },
+          { $toString: '$user_id' },
+          null,
+        ],
+      },
       type: {
         $ifNull: [
           '$type',
@@ -71,7 +61,6 @@ async function getLlmCostsAggregated(req, res) {
           null,
         ],
       },
-      // Safe cost parse: handle numbers and strings with '$' symbol
       total_cost_num: {
         $cond: [
           { $isNumber: '$total_cost' },
@@ -94,8 +83,9 @@ async function getLlmCostsAggregated(req, res) {
       },
     };
 
-    const pipeline = [
-      matchStage,
+    const pipeline = [];
+    if (hasOrg) pipeline.push({ $match: match });
+    pipeline.push(
       { $project: projectNormalized },
       {
         $group: {
@@ -180,28 +170,26 @@ async function getLlmCostsAggregated(req, res) {
         },
       },
       { $sort: { organization_id: 1, user_id: 1, type: 1 } },
-    ];
+    );
 
-    // Execute pipeline with optional pagination
-    let results;
-    if (paginate) {
-      results = await LLMCost.aggregate([
-        ...pipeline,
-        { $skip: skip },
-        { $limit: limit },
-      ]).allowDiskUse(true);
-      const totalArr = await LLMCost.aggregate([...pipeline, { $count: 'count' }]);
-      const total = totalArr && totalArr[0] ? totalArr[0].count : 0;
-      return success(res, results || [], {
-        page,
-        limit,
-        total,
-        organization_id: orgId,
-      });
-    } else {
-      results = await LLMCost.aggregate(pipeline).allowDiskUse(true);
-      return res.status(200).json(results || []);
-    }
+    // diagnostics headers
+    try {
+      res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection.collectionName || 'llm_costs');
+      res.setHeader('X-LLM-COSTS-Pipeline', JSON.stringify(pipeline));
+      res.setHeader('X-LLM-COSTS-Matched', hasOrg ? JSON.stringify(match) : '{}');
+    } catch {}
+
+    // always paginate for consistency
+    const items = await LLMCost.aggregate([
+      ...pipeline,
+      { $skip: skip },
+      { $limit: limit },
+    ]).allowDiskUse(true);
+
+    const totalArr = await LLMCost.aggregate([...pipeline, { $count: 'count' }]);
+    const total = totalArr && totalArr[0] ? totalArr[0].count : 0;
+
+    return success(res, items || [], { page, limit, total, organization_id: hasOrg ? orgIdRaw : null }, 200);
   } catch (err) {
     const status = 500;
     return res.status(status).json({
