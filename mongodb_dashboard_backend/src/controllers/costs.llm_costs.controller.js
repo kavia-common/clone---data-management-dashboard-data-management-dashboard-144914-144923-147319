@@ -8,73 +8,84 @@ const { success } = require('../utils/http');
  * getLlmCostsAggregated
  * Controller for GET /api/llm_costs
  *
- * Implements minimal nested-array aggregation per spec:
- * - Matches optional organization_id
- * - Sums users[].user_cost with numeric coercion
- * - Counts users and projects arrays safely
- * - Pagination with sane defaults and cap
- * - Diagnostics headers
+ * Implements the specified minimal, safe, nested-aware aggregation pipeline.
+ * Ensures:
+ * - No bare "$" in any path
+ * - Proper parsing of currency strings (stripping "$")
+ * - Pagination with page>=1 default 1; limit>=1 default 10 capped to 100
+ * - Diagnostics headers with pre-group match count and post-group count
  */
 async function getLlmCostsAggregated(req, res) {
   const MAX_LIMIT = 100;
+
+  // Parse pagination inputs with defaults and clamping
   const pageRaw = parseInt(req.query.page, 10);
   const limitRaw = parseInt(req.query.limit, 10);
   const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? pageRaw : 1;
-  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, MAX_LIMIT) : 10;
-  const skip = (page - 1) * limit;
+  const limit = Number.isFinite(limitRaw) && limitRaw >= 1 ? Math.min(limitRaw, MAX_LIMIT) : 10;
+  const SKIP = (page - 1) * limit;
+  const LIMIT = limit;
 
-  const organization_id = (req.query.organization_id || '').toString().trim();
-  const match = organization_id ? { organization_id } : {};
+  // Inputs
+  const organization_id = (req.query.organization_id || '').toString().trim() || undefined;
 
+  // Stage 1: matchStage per spec
+  const matchStage = organization_id ? { $match: { organization_id } } : { $match: {} };
+
+  // Build exact pipeline per instructions (no bare "$")
   const pipeline = [
-    { $match: match },
-    { $match: { users: { $type: 'array' } } },
+    matchStage,
     {
       $project: {
         organization_id: 1,
         organization_name: 1,
-        usersCount: { $size: { $ifNull: ['$users', []] } },
-        projectsCount: {
-          $cond: [{ $isArray: '$projects' }, { $size: '$projects' }, 0],
+        usersSafe: { $ifNull: ['$users', []] },
+        projectsTop: {
+          $cond: [
+            { $isArray: '$projects' },
+            { $ifNull: ['$projects', []] },
+            [],
+          ],
         },
-        usersCost: {
-          $reduce: {
-            input: { $ifNull: ['$users', []] },
-            initialValue: 0,
-            in: {
-              $add: [
-                '$$value',
-                {
-                  $cond: [
-                    { $ne: [{ $type: '$$this.user_cost' }, 'missing'] },
-                    {
-                      $cond: [
-                        { $in: [{ $type: '$$this.user_cost' }, ['double', 'int', 'long', 'decimal']] },
-                        { $toDouble: '$$this.user_cost' },
-                        {
-                          $cond: [
-                            { $eq: [{ $type: '$$this.user_cost' }, 'string'] },
-                            {
-                              $toDouble: {
-                                $replaceAll: {
-                                  input: { $trim: { input: '$$this.user_cost' } },
-                                  find: '$',
-                                  replacement: '',
-                                },
-                              },
-                            },
-                            0,
-                          ],
-                        },
-                      ],
-                    },
-                    0,
-                  ],
-                },
-              ],
+      },
+    },
+    {
+      $project: {
+        organization_id: 1,
+        organization_name: 1,
+        usersCount: { $size: '$usersSafe' },
+        projectsFromUsers: {
+          $sum: {
+            $map: {
+              input: '$usersSafe',
+              as: 'u',
+              in: { $size: { $ifNull: ['$$u.projects', []] } },
             },
           },
         },
+        usersCost: {
+          $sum: {
+            $map: {
+              input: '$usersSafe',
+              as: 'u',
+              in: {
+                $toDouble: {
+                  $replaceAll: {
+                    input: { $ifNull: ['$$u.user_cost', '0'] },
+                    find: '$',
+                    replacement: '',
+                  },
+                },
+              },
+            },
+          },
+        },
+        projectsTopCount: { $size: '$projectsTop' },
+      },
+    },
+    {
+      $addFields: {
+        projectsCount: { $add: ['$projectsFromUsers', '$projectsTopCount'] },
       },
     },
     {
@@ -90,46 +101,49 @@ async function getLlmCostsAggregated(req, res) {
         _id: 0,
         organization_id: '$_id.organization_id',
         organization_name: '$_id.organization_name',
-        organization_cost: { $round: ['$organization_cost', 6] },
+        organization_cost: 1,
         users: 1,
         projects: 1,
-        cost: { $round: ['$organization_cost', 6] },
-        _mode: { $literal: 'nested' },
+        cost: '$organization_cost',
       },
     },
     { $sort: { organization_cost: -1, organization_id: 1 } },
     {
       $facet: {
-        rows: [{ $skip: skip }, { $limit: limit }],
+        rows: [{ $skip: SKIP }, { $limit: LIMIT }],
         meta: [{ $count: 'total' }],
       },
     },
   ];
 
+  // Pre-group matched count (quick count using match only)
+  let matchedPreGroup = 0;
+  try {
+    const preMatch = matchStage.$match || {};
+    matchedPreGroup = await LLMCost.countDocuments(preMatch);
+  } catch (err) {
+    // ignore diagnostics failure
+  }
+
+  // Execute aggregation
   const [facet] = await LLMCost.aggregate(pipeline, { allowDiskUse: true });
   const rows = (facet && Array.isArray(facet.rows)) ? facet.rows : [];
   const total = (facet && Array.isArray(facet.meta) && facet.meta[0]?.total) ? facet.meta[0].total : 0;
 
+  // Diagnostics headers
   try {
     res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
-    res.setHeader('X-LLM-COSTS-Mode', 'nested');
-    res.setHeader('X-LLM-COSTS-MatchedPreGroup', JSON.stringify(match));
+    res.setHeader('X-LLM-COSTS-MatchedPreGroup', String(matchedPreGroup));
     res.setHeader('X-LLM-COSTS-PostGroupCount', String(total));
     if (rows.length === 0) {
-      res.setHeader('X-LLM-COSTS-Reason', 'No results for nested users shape or filter.');
+      res.setHeader('X-LLM-COSTS-Reason', 'No rows after aggregation facet pagination or no matching documents.');
     }
   } catch {}
 
+  // Return envelope
   return success(
     res,
-    rows.map(r => ({
-      organization_id: r.organization_id,
-      organization_name: r.organization_name ?? null,
-      organization_cost: r.organization_cost ?? 0,
-      users: r.users ?? 0,
-      projects: r.projects ?? 0,
-      cost: r.cost ?? r.organization_cost ?? 0,
-    })),
+    rows,
     { page, limit, total },
     200
   );
