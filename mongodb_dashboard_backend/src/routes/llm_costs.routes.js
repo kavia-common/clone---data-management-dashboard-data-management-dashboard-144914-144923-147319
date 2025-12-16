@@ -17,170 +17,218 @@ const router = express.Router();
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // 1) Parse query params and clamp
+    // Parse pagination with clamping
     const maxLimit = 100;
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), maxLimit);
     const skip = (page - 1) * limit;
 
+    // Optional exact organization_id filter
     const organization_id = (req.query.organization_id || '').toString().trim();
-    const preMatch = organization_id ? { organization_id } : {};
 
-    // 2) Pre-match stage
-    const pipeline = [];
-    if (organization_id) {
-      pipeline.push({ $match: { organization_id } });
-    }
+    // Build match stage
+    const matchStage = organization_id ? { $match: { organization_id } } : { $match: {} };
 
-    // 3) Facet with nested and flat branches
-    const nestedBranch = [
-      { $match: { users: { $type: 'array' } } },
+    // Helper expressions for currency parsing: safely remove "$" and coerce to double
+    const toDoubleOf = (inputExpr) => ({
+      $toDouble: {
+        $replaceAll: {
+          input: { $ifNull: [inputExpr, '0'] },
+          find: '$',
+          replacement: '',
+        },
+      },
+    });
+
+    // Single robust pipeline:
+    const pipeline = [
+      matchStage,
+
+      // Compute helper fields strictly avoiding any bare '$' paths
       {
-        $project: {
-          organization_id: 1,
-          organization_name: 1,
+        $addFields: {
+          parsedOrgCost: toDoubleOf('$organization_cost'),
+          usersArray: { $ifNull: ['$users', []] },
           usersCount: { $size: { $ifNull: ['$users', []] } },
-          projectsCount: {
-            $cond: [{ $isArray: '$projects' }, { $size: '$projects' }, 0],
-          },
+
+          // Sum over users[].user_cost
           usersCost: {
             $reduce: {
               input: { $ifNull: ['$users', []] },
               initialValue: 0,
-              in: { $add: ['$$value', { $ifNull: ['$$this.user_cost', 0] }] },
+              in: {
+                $add: [
+                  '$$value',
+                  toDoubleOf('$$this.user_cost'),
+                ],
+              },
             },
           },
-        },
-      },
-      {
-        $group: {
-          _id: { organization_id: '$organization_id', organization_name: '$organization_name' },
-          organization_cost: { $sum: '$usersCost' },
-          users: { $sum: '$usersCount' },
-          projects: { $sum: '$projectsCount' },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          organization_id: '$_id.organization_id',
-          organization_name: '$_id.organization_name',
-          organization_cost: 1,
-          users: 1,
-          projects: 1,
-          cost: '$organization_cost',
-          _mode: { $literal: 'nested' },
-        },
-      },
-    ];
 
-    const flatBranch = [
-      { $match: { users: { $exists: false } } },
-      {
-        $project: {
-          organization_id: 1,
-          organization_name: 1,
-          cost: { $ifNull: ['$cost', 0] },
-          user_id: 1,
-          project_id: 1,
-        },
-      },
-      {
-        $group: {
-          _id: { organization_id: '$organization_id', organization_name: '$organization_name' },
-          organization_cost: { $sum: '$cost' },
-          usersSet: { $addToSet: '$user_id' },
-          projectsSet: { $addToSet: '$project_id' },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          organization_id: '$_id.organization_id',
-          organization_name: '$_id.organization_name',
-          organization_cost: 1,
-          users: {
-            $size: {
-              $filter: { input: '$usersSet', as: 'u', cond: { $ne: ['$$u', null] } },
+          // users[].projects arrays -> flattened
+          usersProjectsArrays: {
+            $map: {
+              input: { $ifNull: ['$users', []] },
+              as: 'u',
+              in: { $ifNull: ['$$u.projects', []] },
             },
           },
-          projects: {
-            $size: {
-              $filter: { input: '$projectsSet', as: 'p', cond: { $ne: ['$$p', null] } },
+        },
+      },
+      {
+        $addFields: {
+          projectsFlat: {
+            $reduce: {
+              input: '$usersProjectsArrays',
+              initialValue: [],
+              in: { $concatArrays: ['$$value', '$$this'] },
             },
           },
-          cost: '$organization_cost',
-          _mode: { $literal: 'flat' },
         },
       },
-    ];
-
-    // 4) Merge branches and normalize
-    pipeline.push(
       {
-        $facet: {
-          nested: nestedBranch,
-          flat: flatBranch,
-        },
-      },
-      { $project: { combined: { $concatArrays: ['$nested', '$flat'] } } },
-      { $unwind: { path: '$combined', preserveNullAndEmptyArrays: true } },
-      { $replaceRoot: { newRoot: '$combined' } },
-      {
-        $group: {
-          _id: {
-            organization_id: '$organization_id',
-            organization_name: '$organization_name',
+        $addFields: {
+          projectsCountFromUsers: { $size: '$projectsFlat' },
+          projectsCostFromUsers: {
+            $reduce: {
+              input: '$projectsFlat',
+              initialValue: 0,
+              in: {
+                $add: [
+                  '$$value',
+                  toDoubleOf('$$this.project_cost'),
+                ],
+              },
+            },
           },
-          organization_cost: { $sum: '$organization_cost' },
-          users: { $max: '$users' },
-          projects: { $max: '$projects' },
-          modes: { $addToSet: '$_mode' },
+          agentsArrays: {
+            $map: {
+              input: '$projectsFlat',
+              as: 'p',
+              in: { $ifNull: ['$$p.agents', []] },
+            },
+          },
         },
       },
       {
-        $project: {
-          _id: 0,
-          organization_id: '$_id.organization_id',
-          organization_name: '$_id.organization_name',
-          organization_cost: 1,
-          users: 1,
-          projects: 1,
-          cost: '$organization_cost',
-          _mode: {
+        $addFields: {
+          agentsFlat: {
+            $reduce: {
+              input: '$agentsArrays',
+              initialValue: [],
+              in: { $concatArrays: ['$$value', '$$this'] },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          agentsCost: {
+            $reduce: {
+              input: '$agentsFlat',
+              initialValue: 0,
+              in: {
+                $add: [
+                  '$$value',
+                  toDoubleOf('$$this.total_cost'),
+                ],
+              },
+            },
+          },
+          topLevelProjectsCount: {
+            $cond: [{ $isArray: '$projects' }, { $size: '$projects' }, 0],
+          },
+        },
+      },
+      {
+        $addFields: {
+          // Prefer users' nested projects count if present, else top-level projects array size
+          projectsCount: {
             $cond: [
-              { $gt: [{ $size: '$modes' }, 1] },
-              'mixed',
-              { $ifNull: [{ $arrayElemAt: ['$modes', 0] }, 'flat'] },
+              { $gt: ['$projectsCountFromUsers', 0] },
+              '$projectsCountFromUsers',
+              '$topLevelProjectsCount',
+            ],
+          },
+
+          // Coalesce org cost sources in preference order
+          organization_cost_numeric: {
+            $cond: [
+              { $gt: ['$parsedOrgCost', 0] },
+              '$parsedOrgCost',
+              {
+                $cond: [
+                  { $gt: ['$usersCost', 0] },
+                  '$usersCost',
+                  {
+                    $cond: [
+                      { $gt: ['$projectsCostFromUsers', 0] },
+                      '$projectsCostFromUsers',
+                      '$agentsCost',
+                    ],
+                  },
+                ],
+              },
             ],
           },
         },
       },
+
+      // Project to a normalized per-document shape
+      {
+        $project: {
+          organization_id: 1,
+          organization_name: 1,
+          organization_cost: '$organization_cost_numeric',
+          users: '$usersCount',
+          projects: '$projectsCount',
+          cost: '$organization_cost_numeric',
+        },
+      },
+
+      // In case multiple documents exist per organization, consolidate
+      {
+        $group: {
+          _id: { organization_id: '$organization_id', organization_name: '$organization_name' },
+          organization_cost: { $sum: '$organization_cost' },
+          users: { $max: '$users' },
+          projects: { $max: '$projects' },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          organization_id: '$_id.organization_id',
+          organization_name: '$_id.organization_name',
+          organization_cost: 1,
+          users: 1,
+          projects: 1,
+          cost: '$organization_cost',
+        },
+      },
+
+      // Sort and paginate
       { $sort: { organization_cost: -1, organization_id: 1 } },
       {
         $facet: {
           rows: [{ $skip: skip }, { $limit: limit }],
           meta: [{ $count: 'total' }],
         },
-      }
-    );
+      },
+    ];
 
-    // 5) Execute pipeline safely
     const [facet] = await LLMCost.aggregate(pipeline, { allowDiskUse: true });
     const rows = (facet && Array.isArray(facet.rows)) ? facet.rows : [];
     const total = (facet && Array.isArray(facet.meta) && facet.meta[0]?.total) ? facet.meta[0].total : 0;
 
-    // 6) Diagnostics headers
+    // Diagnostics headers
     try {
       res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
-      const modes = new Set(rows.map(r => r?._mode || 'flat'));
-      const modeHeader = modes.size === 0 ? 'flat' : (modes.size === 1 ? [...modes][0] : 'mixed');
-      res.setHeader('X-LLM-COSTS-Mode', modeHeader);
-      res.setHeader('X-LLM-COSTS-MatchedPreFacet', JSON.stringify(preMatch));
+      res.setHeader('X-LLM-COSTS-Matched', JSON.stringify(matchStage.$match || {}));
       res.setHeader('X-LLM-COSTS-Total', String(total));
     } catch {}
 
-    // 7) Return envelope, empty ok
+    // Envelope response
     return success(
       res,
       rows.map(r => ({
