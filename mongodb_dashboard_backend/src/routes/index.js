@@ -21,7 +21,11 @@ try {
   console.warn('[routes/index] users.routes not mounted due to error:', err?.message || err);
 }
 
-// Mount new LLM costs aggregation (underscore path) without touching existing /api/llm-costs routes
+/**
+ * PUBLIC_INTERFACE
+ * Costs aggregation (underscore) route
+ * Exposes GET /api/llm_costs
+ */
 try {
   const llmCostsUnderscore = require('./llm_costs.routes');
   router.use('/llm_costs', llmCostsUnderscore);
