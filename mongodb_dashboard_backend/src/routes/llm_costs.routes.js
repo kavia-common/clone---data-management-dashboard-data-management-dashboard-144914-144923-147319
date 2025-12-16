@@ -17,23 +17,27 @@ const router = express.Router();
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+    const maxLimit = 100;
+    const parsedPage = parseInt(req.query.page, 10);
+    const parsedLimit = parseInt(req.query.limit, 10);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limitRaw = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 10;
+    const limit = Math.min(Math.max(limitRaw, 1), maxLimit);
     const skip = (page - 1) * limit;
 
     const orgIdRaw = (req.query.organization_id || req.query.tenant_id || '').toString().trim();
     const hasOrg = !!orgIdRaw;
 
-    const match = {};
+    let match = {};
     if (hasOrg) {
-      match.$or = [
-        { organization_id: orgIdRaw },
-        { tenant_id: orgIdRaw },
-        { org_id: orgIdRaw },
-        { tenantId: orgIdRaw },
-        { organization_id: { $regex: `^${orgIdRaw}$`, $options: 'i' } },
-        { tenant_id: { $regex: `^${orgIdRaw}$`, $options: 'i' } },
-      ];
+      match = {
+        $or: [
+          { organization_id: orgIdRaw },
+          { tenant_id: orgIdRaw },
+          { org_id: orgIdRaw },
+          { tenantId: orgIdRaw },
+        ],
+      };
     }
 
     const projectNormalized = {
@@ -69,9 +73,7 @@ router.get(
       },
     };
 
-    const pipeline = [];
-    if (hasOrg) pipeline.push({ $match: match });
-    pipeline.push(
+    const baseStages = [
       { $project: projectNormalized },
       {
         $group: {
@@ -143,20 +145,53 @@ router.get(
           projects: '$records.projects',
         },
       },
-      { $sort: { organization_id: 1, user_id: 1, type: 1 } }
-    );
+      { $sort: { user_cost: -1, organization_id: 1, user_id: 1, type: 1 } },
+    ];
+
+    const makeFacetPipeline = (preMatch) => {
+      const stages = [];
+      if (preMatch) stages.push({ $match: preMatch });
+      stages.push(...baseStages);
+      return [
+        ...stages,
+        {
+          $facet: {
+            rows: [{ $skip: skip }, { $limit: limit }],
+            totalCount: [{ $count: 'count' }],
+          },
+        },
+      ];
+    };
+
+    let aggPipeline = makeFacetPipeline(hasOrg ? match : null);
+    let [{ rows = [], totalCount = [] } = {}] = await LLMCost.aggregate(aggPipeline, { allowDiskUse: true });
+    let total = totalCount && totalCount[0] ? totalCount[0].count : 0;
+
+    // fallback to case-insensitive if org specified and no results
+    if (hasOrg && total === 0) {
+      const ciMatch = {
+        $or: [
+          { organization_id: { $regex: `^${orgIdRaw}$`, $options: 'i' } },
+          { tenant_id: { $regex: `^${orgIdRaw}$`, $options: 'i' } },
+          { org_id: { $regex: `^${orgIdRaw}$`, $options: 'i' } },
+          { tenantId: { $regex: `^${orgIdRaw}$`, $options: 'i' } },
+        ],
+      };
+      aggPipeline = makeFacetPipeline(ciMatch);
+      [{ rows = [], totalCount = [] } = {}] = await LLMCost.aggregate(aggPipeline, { allowDiskUse: true });
+      total = totalCount && totalCount[0] ? totalCount[0].count : 0;
+      if (!rows.length) {
+        res.setHeader('X-LLM-COSTS-Reason', 'No records after case-insensitive tenant match.');
+      }
+    }
 
     try {
       res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
-      res.setHeader('X-LLM-COSTS-Pipeline', JSON.stringify(pipeline));
       res.setHeader('X-LLM-COSTS-Matched', hasOrg ? JSON.stringify(match) : '{}');
-    } catch (_) {}
+      res.setHeader('X-LLM-COSTS-PostGroupCount', String(total));
+    } catch {}
 
-    const items = await LLMCost.aggregate([...pipeline, { $skip: skip }, { $limit: limit }]).allowDiskUse(true);
-    const totalArr = await LLMCost.aggregate([...pipeline, { $count: 'count' }]);
-    const total = totalArr && totalArr[0] ? totalArr[0].count : 0;
-
-    return success(res, items || [], { page, limit, total, organization_id: hasOrg ? orgIdRaw : null }, 200);
+    return success(res, rows || [], { page, limit, total, organization_id: hasOrg ? orgIdRaw : null }, 200);
   })
 );
 
