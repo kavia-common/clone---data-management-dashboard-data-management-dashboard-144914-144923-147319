@@ -9,31 +9,38 @@ const router = express.Router();
 /**
  * PUBLIC_INTERFACE
  * GET /api/llm_costs
- * Robust org-level aggregation supporting nested and flat shapes.
+ * Minimal org-level aggregation for nested users[].user_cost shape.
  * - Optional organization_id scoping
- * - Pagination (page>=1, limit<=100)
- * - Diagnostics headers for mode and matched counts
+ * - Pagination (page>=1, limit>0, capped to 100)
+ * - Diagnostics headers indicating nested mode and matched counts
  */
 router.get(
   '/',
   asyncHandler(async (req, res) => {
-    // 1) Parse query params and clamp
-    const maxLimit = 100;
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), maxLimit);
+    // Pagination with sane defaults
+    const MAX_LIMIT = 100;
+    const pageRaw = parseInt(req.query.page, 10);
+    const limitRaw = parseInt(req.query.limit, 10);
+    const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? pageRaw : 1;
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, MAX_LIMIT) : 10;
     const skip = (page - 1) * limit;
 
+    // Optional org scope
     const organization_id = (req.query.organization_id || '').toString().trim();
-    const preMatch = organization_id ? { organization_id } : {};
+    const match = organization_id ? { organization_id } : {};
 
-    // 2) Pre-match stage
-    const pipeline = [];
-    if (organization_id) {
-      pipeline.push({ $match: { organization_id } });
-    }
-
-    // 3) Facet with nested and flat branches
-    const nestedBranch = [
+    // Build minimal, safe pipeline:
+    // 1) $match by optional org
+    // 2) Only consider nested docs where users is an array
+    // 3) $project per-document:
+    //    - usersCount: size of users (safe with $ifNull)
+    //    - projectsCount: size of projects array if present
+    //    - usersCost: sum of users[].user_cost coercing string/number to double
+    // 4) $group by organization to sum across docs
+    // 5) compute cost alias and mode
+    // 6) paginate
+    const pipeline = [
+      { $match: match },
       { $match: { users: { $type: 'array' } } },
       {
         $project: {
@@ -47,7 +54,38 @@ router.get(
             $reduce: {
               input: { $ifNull: ['$users', []] },
               initialValue: 0,
-              in: { $add: ['$$value', { $ifNull: ['$$this.user_cost', 0] }] },
+              in: {
+                $add: [
+                  '$$value',
+                  {
+                    $cond: [
+                      { $ne: [{ $type: '$$this.user_cost' }, 'missing'] },
+                      {
+                        $cond: [
+                          { $in: [{ $type: '$$this.user_cost' }, ['double', 'int', 'long', 'decimal']] },
+                          { $toDouble: '$$this.user_cost' },
+                          {
+                            $cond: [
+                              { $eq: [{ $type: '$$this.user_cost' }, 'string'] },
+                              {
+                                $toDouble: {
+                                  $replaceAll: {
+                                    input: { $trim: { input: '$$this.user_cost' } },
+                                    find: '$',
+                                    replacement: '',
+                                  },
+                                },
+                              },
+                              0,
+                            ],
+                          },
+                        ],
+                      },
+                      0,
+                    ],
+                  },
+                ],
+              },
             },
           },
         },
@@ -65,95 +103,11 @@ router.get(
           _id: 0,
           organization_id: '$_id.organization_id',
           organization_name: '$_id.organization_name',
-          organization_cost: 1,
+          organization_cost: { $round: ['$organization_cost', 6] },
           users: 1,
           projects: 1,
-          cost: '$organization_cost',
+          cost: { $round: ['$organization_cost', 6] },
           _mode: { $literal: 'nested' },
-        },
-      },
-    ];
-
-    const flatBranch = [
-      { $match: { users: { $exists: false } } },
-      {
-        $project: {
-          organization_id: 1,
-          organization_name: 1,
-          cost: { $ifNull: ['$cost', 0] },
-          user_id: 1,
-          project_id: 1,
-        },
-      },
-      {
-        $group: {
-          _id: { organization_id: '$organization_id', organization_name: '$organization_name' },
-          organization_cost: { $sum: '$cost' },
-          usersSet: { $addToSet: '$user_id' },
-          projectsSet: { $addToSet: '$project_id' },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          organization_id: '$_id.organization_id',
-          organization_name: '$_id.organization_name',
-          organization_cost: 1,
-          users: {
-            $size: {
-              $filter: { input: '$usersSet', as: 'u', cond: { $ne: ['$$u', null] } },
-            },
-          },
-          projects: {
-            $size: {
-              $filter: { input: '$projectsSet', as: 'p', cond: { $ne: ['$$p', null] } },
-            },
-          },
-          cost: '$organization_cost',
-          _mode: { $literal: 'flat' },
-        },
-      },
-    ];
-
-    // 4) Merge branches and normalize
-    pipeline.push(
-      {
-        $facet: {
-          nested: nestedBranch,
-          flat: flatBranch,
-        },
-      },
-      { $project: { combined: { $concatArrays: ['$nested', '$flat'] } } },
-      { $unwind: { path: '$combined', preserveNullAndEmptyArrays: true } },
-      { $replaceRoot: { newRoot: '$combined' } },
-      {
-        $group: {
-          _id: {
-            organization_id: '$organization_id',
-            organization_name: '$organization_name',
-          },
-          organization_cost: { $sum: '$organization_cost' },
-          users: { $max: '$users' },
-          projects: { $max: '$projects' },
-          modes: { $addToSet: '$_mode' },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          organization_id: '$_id.organization_id',
-          organization_name: '$_id.organization_name',
-          organization_cost: 1,
-          users: 1,
-          projects: 1,
-          cost: '$organization_cost',
-          _mode: {
-            $cond: [
-              { $gt: [{ $size: '$modes' }, 1] },
-              'mixed',
-              { $ifNull: [{ $arrayElemAt: ['$modes', 0] }, 'flat'] },
-            ],
-          },
         },
       },
       { $sort: { organization_cost: -1, organization_id: 1 } },
@@ -162,25 +116,24 @@ router.get(
           rows: [{ $skip: skip }, { $limit: limit }],
           meta: [{ $count: 'total' }],
         },
-      }
-    );
+      },
+    ];
 
-    // 5) Execute pipeline safely
     const [facet] = await LLMCost.aggregate(pipeline, { allowDiskUse: true });
     const rows = (facet && Array.isArray(facet.rows)) ? facet.rows : [];
     const total = (facet && Array.isArray(facet.meta) && facet.meta[0]?.total) ? facet.meta[0].total : 0;
 
-    // 6) Diagnostics headers
+    // Diagnostics headers per spec
     try {
       res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
-      const modes = new Set(rows.map(r => r?._mode || 'flat'));
-      const modeHeader = modes.size === 0 ? 'flat' : (modes.size === 1 ? [...modes][0] : 'mixed');
-      res.setHeader('X-LLM-COSTS-Mode', modeHeader);
-      res.setHeader('X-LLM-COSTS-MatchedPreFacet', JSON.stringify(preMatch));
-      res.setHeader('X-LLM-COSTS-Total', String(total));
+      res.setHeader('X-LLM-COSTS-Mode', 'nested');
+      res.setHeader('X-LLM-COSTS-MatchedPreGroup', JSON.stringify(match));
+      res.setHeader('X-LLM-COSTS-PostGroupCount', String(total));
+      if (rows.length === 0) {
+        res.setHeader('X-LLM-COSTS-Reason', 'No results for nested users shape or filter.');
+      }
     } catch {}
 
-    // 7) Return envelope, empty ok
     return success(
       res,
       rows.map(r => ({
