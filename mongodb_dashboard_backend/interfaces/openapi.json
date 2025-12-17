@@ -53,6 +53,63 @@
     }
   },
   "paths": {
+    "/api/costs": {
+      "get": {
+        "summary": "List costs enriched with user_name",
+        "description": "Returns LLM costs with server-side enrichment for user_name by joining users._id to costs.user_id (normalized to string). Tenant scoping enforced via Authorization JWT or x-organization-id/tenant_id/organization_id query when JWT absent.",
+        "tags": ["LLMCosts"],
+        "parameters": [
+          { "in": "header", "name": "x-organization-id", "schema": { "type": "string" }, "required": false, "description": "Tenant (organization) ID. Required when JWT is not provided." },
+          { "in": "query", "name": "organization_id", "schema": { "type": "string" }, "description": "Alias for tenant (ignored when JWT present)." },
+          { "in": "query", "name": "tenant_id", "schema": { "type": "string" }, "description": "Alias for tenant (ignored when JWT present)." },
+          { "in": "query", "name": "page", "schema": { "type": "integer", "minimum": 1 }, "description": "Page number (default 1)" },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "minimum": 1, "maximum": 200 }, "description": "Page size (default 20, max 200)" },
+          { "in": "query", "name": "sort", "schema": { "type": "string" }, "description": "Sort string (e.g., -timestamp or user_name)" },
+          { "in": "query", "name": "filter", "schema": { "type": "string" }, "description": "JSON filter (whitelist: status, provider, llm_model, user_id, session_id, project_id, request_id, timestamp, created_at). Tenant fields ignored by server." }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope with enriched costs",
+            "headers": {
+              "x-effective-tenant": { "schema": { "type": "string" }, "description": "Resolved tenant used in filtering" },
+              "x-tenant-source": { "schema": { "type": "string" } },
+              "x-costs-sort": { "schema": { "type": "string" } },
+              "x-costs-limit": { "schema": { "type": "string" } },
+              "x-costs-page": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GenericDocument"
+                      },
+                      "description": "Each item includes user_name field"
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "page": { "type": "integer" },
+                        "limit": { "type": "integer" },
+                        "total": { "type": "integer" },
+                        "sort": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Bad request (missing tenant, invalid filter, or limit > 200)" },
+          "403": { "description": "Forbidden: tenant scope mismatch when Authorization provided" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "summary": "Service health",

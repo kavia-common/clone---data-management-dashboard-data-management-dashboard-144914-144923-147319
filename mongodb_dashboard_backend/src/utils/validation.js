@@ -1,13 +1,16 @@
 'use strict';
 
-/**
 // PUBLIC_INTERFACE
- * Validation helpers barrel file.
- * Centralize exports for validators to align with request path expectations.
- */
-const { isValidUrl, isValidEmail } = require('./validators');
+function parseJSONSafe(input, fallback = null) {
+  /** Safely parse JSON strings. Returns fallback when parsing fails or input is falsy. */
+  if (!input || typeof input !== 'string') return fallback;
+  try {
+    return JSON.parse(input);
+  } catch (_e) {
+    return fallback;
+  }
+}
 
 module.exports = {
-  isValidUrl,
-  isValidEmail,
+  parseJSONSafe
 };

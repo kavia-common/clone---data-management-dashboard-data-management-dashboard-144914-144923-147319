@@ -180,6 +180,7 @@ safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
 safeUse('/api/costs', require('./routes/costs.organization.routes'));
+safeUse('/api/costs', require('./routes/llmCosts.enriched.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.public.routes')); // list endpoint delegates to fallback controller with diagnostics
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
