@@ -42,9 +42,6 @@ router.get(
     try {
       res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
       res.setHeader('X-LLM-COSTS-Total', String(total));
-      if (total === 0) {
-        res.setHeader('X-LLM-COSTS-Reason', 'No documents matched filter; note: no aggregation performed.');
-      }
     } catch {}
 
     // Envelope with raw docs untouched

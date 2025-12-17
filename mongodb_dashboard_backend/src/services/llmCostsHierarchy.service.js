@@ -198,7 +198,7 @@ function groupAgentTotalsStage() {
         project_id: '$_id.project_id',
         agent_name: '$_id.agent_name',
       },
-      total_cost: { $sum: { $ifNull: ['$day_cost', 0] } },
+      total_cost: { $sum: '$day_cost' },
       // Build costs_by_date as object: { dateKey: cost }
       costs_by_date_arr: {
         $push: {

@@ -31,47 +31,23 @@ async function getLlmCostsAggregated(req, res) {
   const pipeline = [
     ...(organization_id ? [{ $match: { organization_id } }] : []),
 
+    // Convert organization cost to number
+    // {
+    //   $addFields: {
+    //     organization_cost_num: {
+    //       $toDouble: { $substr: ['$organization_cost', 1, -1] }
+    //     }
+    //   }
+    // },
+
     // Unwind users
     { $unwind: '$users' },
 
-    // Convert monetary strings safely for both organization and user levels.
+    // Convert user cost to number
     {
       $addFields: {
-        organization_cost_num: {
-          $convert: {
-            input: {
-              $trim: {
-                input: {
-                  $replaceAll: {
-                    input: { $toString: '$organization_cost' },
-                    find: '$',
-                    replacement: ''
-                  }
-                }
-              }
-            },
-            to: 'double',
-            onError: 0,
-            onNull: 0
-          }
-        },
         user_cost_num: {
-          $convert: {
-            input: {
-              $trim: {
-                input: {
-                  $replaceAll: {
-                    input: { $toString: '$users.user_cost' },
-                    find: '$',
-                    replacement: ''
-                  }
-                }
-              }
-            },
-            to: 'double',
-            onError: 0,
-            onNull: 0
-          }
+          $toDouble: { $substr: ['$users.user_cost', 1, -1] }
         }
       }
     },
@@ -95,7 +71,6 @@ async function getLlmCostsAggregated(req, res) {
           type: '$users.type'
         },
         user_cost: { $first: '$user_cost_num' },
-        organization_cost: { $first: '$organization_cost_num' },
         projectsSet: { $addToSet: '$users.projects.project_id' }
       }
     },
@@ -106,10 +81,11 @@ async function getLlmCostsAggregated(req, res) {
         _id: 0,
         organization_id: '$_id.organization_id',
         organization_name: '$_id.organization_name',
-        organization_cost: { $round: [{ $ifNull: ['$organization_cost', 0] }, 6] },
+        organization_cost: '$_id.organization_cost',
         user_id: '$_id.user_id',
         type: '$_id.type',
-        user_cost: { $round: [{ $ifNull: ['$user_cost', 0] }, 6] },
+        user_cost: 1,
+        // organization_cost: 1,
         projects: {
           $size: {
             $filter: {
@@ -140,7 +116,7 @@ async function getLlmCostsAggregated(req, res) {
   const rows = Array.isArray(facet.rows) ? facet.rows : [];
   const metaArr = Array.isArray(facet.meta) ? facet.meta : [];
   const orgMetaArr = Array.isArray(facet.orgMeta) ? facet.orgMeta : [];
-  const postGroupCount = metaArr[0]?.total || 0;
+  const postGroupCount = metaArr[0]?.postGroupCount || 0;
   const orgMeta = orgMetaArr[0] || null;
 
   // Enrich rows with org-level info when available
@@ -163,12 +139,8 @@ async function getLlmCostsAggregated(req, res) {
     // Matched pre-group docs requires separate count; keep lightweight by echoing filter only
     res.setHeader('X-LLM-COSTS-MatchedPreGroup', JSON.stringify(matchStage?.$match || {}));
     res.setHeader('X-LLM-COSTS-PostGroupCount', String(postGroupCount));
-    // Note: we cannot directly detect per-doc conversion errors here; set reason when empty or pagination resulted in none.
     if (!enriched.length) {
-      res.setHeader('X-LLM-COSTS-Reason', 'Empty rows after aggregation or conversion fallback applied to empty values.');
-    } else {
-      // Provide a soft hint that safe conversion with onError/onNull=0 is in effect
-      res.setHeader('X-LLM-COSTS-Reason', 'Safe currency parsing active (onError/onNull=0).');
+      res.setHeader('X-LLM-COSTS-Reason', 'Empty rows after aggregation.');
     }
   } catch { }
 

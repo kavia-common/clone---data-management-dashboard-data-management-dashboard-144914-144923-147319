@@ -142,28 +142,9 @@ async function aggregateAgentsUsageAndCost(
             { $isNumber: '$raw_cost' },
             '$raw_cost',
             {
-              $convert: {
-                input: {
-                  $trim: {
-                    input: {
-                      $replaceAll: {
-                        input: {
-                          $replaceAll: {
-                            input: { $toString: '$raw_cost' },
-                            find: '$',
-                            replacement: ''
-                          }
-                        },
-                        find: ',',
-                        replacement: ''
-                      }
-                    }
-                  }
-                },
-                to: 'double',
-                onError: 0,
-                onNull: 0
-              }
+              $toDouble: {
+                $replaceAll: { input: { $toString: '$raw_cost' }, find: '$', replacement: '' },
+              },
             },
           ],
         },
