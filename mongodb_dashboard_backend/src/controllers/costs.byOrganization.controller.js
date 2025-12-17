@@ -87,10 +87,14 @@ async function getOrganizationUserCosts(req, res) {
               {
                 $convert: {
                   input: {
-                    $replaceAll: {
-                      input: { $toString: '$total_cost' },
-                      find: '$',
-                      replacement: '',
+                    $trim: {
+                      input: {
+                        $replaceAll: {
+                          input: { $toString: '$total_cost' },
+                          find: '$',
+                          replacement: '',
+                        },
+                      },
                     },
                   },
                   to: 'double',

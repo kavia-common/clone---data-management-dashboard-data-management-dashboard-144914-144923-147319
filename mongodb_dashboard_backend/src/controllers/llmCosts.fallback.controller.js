@@ -206,6 +206,7 @@ async function listLlmCosts(req, res) {
       res.set('X-LLM-COSTS-Collection', primaryCollectionName);
       res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection }));
       res.set('X-LLM-COSTS-Matched', String(primaryTotal));
+      res.set('X-LLM-COSTS-Reason', 'Safe parsing for currency strings is enabled in aggregation endpoints.');
 
       if (String(resolvedTenant || '') === 'b2c') {
         try {
@@ -317,6 +318,7 @@ async function listLlmCosts(req, res) {
       res.set('X-LLM-COSTS-Collection', fallbackCollection);
       res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection }));
       res.set('X-LLM-COSTS-Matched', String(fallbackTotal));
+      res.set('X-LLM-COSTS-Reason', 'Safe parsing for currency strings is enabled in aggregation endpoints.');
 
       if (String(resolvedTenant || '') === 'b2c') {
         try {
@@ -365,7 +367,7 @@ async function listLlmCosts(req, res) {
     res.set('X-LLM-COSTS-Collection', effFallback);
     res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection }));
     res.set('X-LLM-COSTS-Matched', '0');
-    res.set('X-LLM-COSTS-Reason', 'No documents matched tenant/time window');
+    res.set('X-LLM-COSTS-Reason', 'No documents matched tenant/time window; safe parsing applies on aggregation endpoints.');
 
     return res.json({
       success: true,
