@@ -29,86 +29,64 @@ async function getLlmCostsAggregated(req, res) {
 
   // Build the minimal pipeline per spec
   const pipeline = [
-    ...(organization_id ? [{ $match: { organization_id } }] : []),
-
-    // Convert organization cost to number
-    // {
-    //   $addFields: {
-    //     organization_cost_num: {
-    //       $toDouble: { $substr: ['$organization_cost', 1, -1] }
-    //     }
-    //   }
-    // },
-
-    // Unwind users
-    { $unwind: '$users' },
-
-    // Convert user cost to number
+    matchStage,
     {
-      $addFields: {
-        user_cost_num: {
-          $toDouble: { $substr: ['$users.user_cost', 1, -1] }
-        }
-      }
+      $project: {
+        organization_id: 1,
+        organization_name: 1,
+        user_id: 1,
+        type: 1,
+        project_id: 1,
+        cost: 1,
+      },
     },
-
-    // Unwind projects (optional but needed for count)
-    {
-      $unwind: {
-        path: '$users.projects',
-        preserveNullAndEmptyArrays: true
-      }
-    },
-
-    // Group per USER
     {
       $group: {
         _id: {
           organization_id: '$organization_id',
           organization_name: '$organization_name',
-          organization_cost: '$organization_cost',
-          user_id: '$users.user_id',
-          type: '$users.type'
+          user_id: '$user_id',
+          type: '$type',
         },
-        user_cost: { $first: '$user_cost_num' },
-        projectsSet: { $addToSet: '$users.projects.project_id' }
-      }
+        user_cost: { $sum: { $ifNull: ['$cost', 0] } },
+        projectsSet: { $addToSet: '$project_id' },
+      },
     },
-
-    // Shape output
     {
       $project: {
         _id: 0,
         organization_id: '$_id.organization_id',
         organization_name: '$_id.organization_name',
-        organization_cost: '$_id.organization_cost',
         user_id: '$_id.user_id',
         type: '$_id.type',
         user_cost: 1,
-        // organization_cost: 1,
-        projects: {
-          $size: {
-            $filter: {
-              input: '$projectsSet',
-              as: 'p',
-              cond: { $ne: ['$$p', null] }
-            }
-          }
-        }
-      }
+        projects: { $size: '$projectsSet' },
+      },
     },
-
-    { $sort: { user_cost: -1 } },
-
-    // Pagination + meta
+    { $sort: { user_cost: -1, user_id: 1 } },
     {
       $facet: {
         rows: [{ $skip: skip }, { $limit: limit }],
-        meta: [{ $count: 'total' }]
-      }
-    }
+        meta: [{ $count: 'postGroupCount' }],
+        orgMeta: [
+          {
+            $group: {
+              _id: '$_id.organization_id',
+              organization_cost: { $sum: '$user_cost' },
+              usersSet: { $addToSet: '$_id.user_id' },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              organization_cost: 1,
+              users: { $size: '$usersSet' },
+            },
+          },
+        ],
+      },
+    },
   ];
-
 
   // Execute
   const result = await LLMCost.aggregate(pipeline, { allowDiskUse: true });
@@ -120,18 +98,16 @@ async function getLlmCostsAggregated(req, res) {
   const orgMeta = orgMetaArr[0] || null;
 
   // Enrich rows with org-level info when available
-  // const enriched = rows.map((r) => {
-  //   if (orgMeta) {
-  //     return {
-  //       ...r,
-  //       organization_cost: orgMeta.organization_cost ?? 0,
-  //       users: orgMeta.users ?? 0,
-  //     };
-  //   }
-  //   return { ...r, organization_cost: 0, users: 0 };
-  // });
-  const enriched = rows;
-
+  const enriched = rows.map((r) => {
+    if (orgMeta) {
+      return {
+        ...r,
+        organization_cost: orgMeta.organization_cost ?? 0,
+        users: orgMeta.users ?? 0,
+      };
+    }
+    return { ...r, organization_cost: 0, users: 0 };
+  });
 
   // Diagnostics headers
   try {
@@ -142,7 +118,7 @@ async function getLlmCostsAggregated(req, res) {
     if (!enriched.length) {
       res.setHeader('X-LLM-COSTS-Reason', 'Empty rows after aggregation.');
     }
-  } catch { }
+  } catch {}
 
   // Response shape with pagination meta
   return success(
