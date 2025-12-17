@@ -17,12 +17,10 @@ const SessionTracking = require('../models/sessionTracking.model');
  *
  * Response:
  * {
- *   "items": [
- *     { "project_id": "projA", "count": 12 },
- *     { "project_id": "projB", "count": 3 }
- *   ],
- *   "totalProjects": 2,
- *   "filters": { ...effective filters... }
+ *   "buckets": [
+ *     { "key": "projA", "label": "Project A", "count": 12 },
+ *     { "key": "projB", "label": "Project B", "count": 3 }
+ *   ]
  * }
  */
 async function getProjectCreateSummary(req, res) {
@@ -35,16 +33,14 @@ async function getProjectCreateSummary(req, res) {
 
     if (!orgId) {
       return res.status(400).json({
-        error: 'organizationId is required (query: organizationId | organization_id | tenant_id)',
+        error:
+          'organizationId is required (query: organizationId | organization_id | tenant_id)',
       });
     }
 
-    // Build base filter
+    // Build base filter, enforce tenant/organization
     const filter = {
-      $or: [
-        { organization_id: orgId },
-        { tenant_id: orgId },
-      ],
+      $or: [{ organization_id: orgId }, { tenant_id: orgId }],
     };
 
     // Optional status filter (pipe separated)
@@ -58,14 +54,17 @@ async function getProjectCreateSummary(req, res) {
       }
     }
 
-    // Optional time range: prefer last_updated, fallback to session_start
+    // Date filters: from/to or range (daily/weekly/monthly)
     const timeRange = {};
     let from = req.query.from ? new Date(req.query.from) : null;
     let to = req.query.to ? new Date(req.query.to) : null;
 
-    // Support range=daily|weekly|monthly when explicit from/to are absent
     const range = (req.query.range || '').toString().toLowerCase();
-    if ((!from || isNaN(from.getTime())) && (!to || isNaN(to.getTime())) && ['daily','weekly','monthly'].includes(range)) {
+    if (
+      (!from || isNaN(from.getTime())) &&
+      (!to || isNaN(to.getTime())) &&
+      ['daily', 'weekly', 'monthly'].includes(range)
+    ) {
       const now = new Date();
       const end = now;
       let days = 1;
@@ -83,55 +82,119 @@ async function getProjectCreateSummary(req, res) {
       timeRange.$lte = to;
     }
     if (Object.keys(timeRange).length > 0) {
-      // Create an $or to apply range on last_updated or session_start
+      // Apply on last_updated or session_start if present
       filter.$and = [
         {
-          $or: [
-            { last_updated: timeRange },
-            { session_start: timeRange },
-          ],
+          $or: [{ last_updated: timeRange }, { session_start: timeRange }],
         },
       ];
     }
 
-    // Aggregation: group by project_id (null-safe), count
+    // Build aggregation: group by project id from session_tracking
+    // Support either project_id or projectId (fallback) by normalizing in $project prior to grouping
     const pipeline = [
       { $match: filter },
       {
-        $group: {
-          _id: {
-            $ifNull: ['$project_id', null],
+        $project: {
+          projectIdNorm: {
+            $ifNull: ['$project_id', '$projectId'],
           },
+        },
+      },
+      {
+        $group: {
+          _id: '$projectIdNorm',
           count: { $sum: 1 },
         },
       },
-      // Sort descending by count
       { $sort: { count: -1 } },
-      // Project output shape
-      {
-        $project: {
-          _id: 0,
-          project_id: '$_id',
-          count: 1,
-        },
-      },
     ];
 
-    const items = await SessionTracking.aggregate(pipeline).allowDiskUse(true).exec();
+    // Attempt optional lookup to Projects collection for project_name.
+    // Keep minimal and resilient: if collection doesn't exist or fails, skip and return null labels.
+    let buckets = [];
+    try {
+      const items = await SessionTracking.aggregate(pipeline)
+        .allowDiskUse(true)
+        .exec();
+
+      // Default label = null or same as id when not found
+      buckets = items.map((it) => ({
+        key: it._id,
+        label: it._id ?? null,
+        count: it.count,
+      }));
+
+      // Check if Projects model/collection exists and perform minimal lookup
+      // Avoid requiring the model; use mongoose connection to list collections safely.
+      const conn = mongoose.connection;
+      if (conn && conn.db) {
+        const collections = await conn.db.listCollections().toArray();
+        const hasProjects =
+          collections.findIndex(
+            (c) =>
+              c.name === 'projects' ||
+              c.name === 'project' ||
+              c.name === 'Projects'
+          ) !== -1;
+
+        if (hasProjects && buckets.length > 0) {
+          // Fetch names for found project ids
+          const projectIds = buckets
+            .map((b) => b.key)
+            .filter((id) => id !== null && id !== undefined);
+
+          if (projectIds.length > 0) {
+            const ProjectsCol = conn.collection('projects');
+            // Prefer fields project_id + project_name; also check name/title as fallbacks
+            const projDocs = await ProjectsCol
+              .find({ project_id: { $in: projectIds } })
+              .project({
+                project_id: 1,
+                project_name: 1,
+                name: 1,
+                title: 1,
+              })
+              .toArray();
+
+            const nameById = new Map(
+              projDocs.map((d) => [
+                d.project_id,
+                d.project_name || d.name || d.title || null,
+              ])
+            );
+
+            buckets = buckets.map((b) => {
+              const label =
+                b.key == null ? null : nameById.get(b.key) ?? b.key;
+              return { ...b, label };
+            });
+          }
+        } else {
+          // If no projects collection, set label to null when key is present but unknown
+          buckets = buckets.map((b) => ({
+            ...b,
+            label: b.key == null ? null : b.key,
+          }));
+        }
+      }
+    } catch (aggErr) {
+      // Fallback on any aggregation/lookup error: return minimal info with null labels
+      console.error('Aggregation/lookup error in projectCreateSummary:', aggErr);
+      const items = await SessionTracking.aggregate(pipeline)
+        .allowDiskUse(true)
+        .exec();
+      buckets = items.map((it) => ({
+        key: it._id,
+        label: it._id ?? null,
+        count: it.count,
+      }));
+    }
 
     return res.json({
-      items,
-      totalProjects: items.length,
-      filters: {
-        organizationId: orgId,
-        status: req.query.status || null,
-        range: range || null,
-        from: from ? from.toISOString() : null,
-        to: to ? to.toISOString() : null,
-      },
+      buckets,
     });
   } catch (err) {
-    // Minimal error handling consistent with codebase style
     console.error('GET /api/project-create/summary error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
