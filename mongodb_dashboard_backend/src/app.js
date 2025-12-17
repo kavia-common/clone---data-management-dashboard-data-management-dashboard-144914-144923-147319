@@ -192,6 +192,9 @@ try {
   // eslint-disable-next-line no-console
   console.log('[routes] Projects routes registered at: GET /api/projects/summary and /api/projects/*');
 } catch {}
+// Project-create summary (group by project_id from session_tracking)
+safeUse('/api/project-create', require('./routes/projectCreate.summary.routes'));
+
 safeUse('/api/session', require('./routes/session.routes'));
 safeUse('/api/dashboard', require('./routes/dashboard.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
