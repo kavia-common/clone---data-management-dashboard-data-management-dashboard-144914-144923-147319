@@ -210,6 +210,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
 
     // If T0000, also compute per-organization series for UI when needed
     let orgBuckets = undefined;
+    let barData = undefined;
     if (isT0000) {
       let perOrgRaw;
       if (db && typeof db.collection === 'function') {
@@ -232,7 +233,57 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         orgTotals.set(org, (orgTotals.get(org) || 0) + c);
       }
 
-      // For each org, produce a daily array aligned to ticks
+      // Build a tenant name map using tenants collection, when available
+      let tenantNameMap = new Map();
+      try {
+        if (db && typeof db.collection === 'function') {
+          const distinctOrgIds = Array.from(orgTotals.keys()).filter(Boolean);
+          if (distinctOrgIds.length > 0) {
+            // prefer tenants, but also try organizations if present
+            const tenantDocs = await db
+              .collection('tenants')
+              .find({ $or: [
+                { tenant_id: { $in: distinctOrgIds } },
+                { organization_id: { $in: distinctOrgIds } },
+              ] })
+              .project({ tenant_id: 1, tenant_name: 1, organization_id: 1, name: 1 })
+              .toArray();
+
+            for (const t of tenantDocs) {
+              const ids = [];
+              if (t.tenant_id) ids.push(String(t.tenant_id));
+              if (t.organization_id) ids.push(String(t.organization_id));
+              const displayName = t.tenant_name || t.name || null;
+              for (const id of ids) {
+                if (displayName) tenantNameMap.set(id, displayName);
+              }
+            }
+
+            // Also optionally check 'organizations' collection if available
+            try {
+              const orgDocs = await db
+                .collection('organizations')
+                .find({ organization_id: { $in: distinctOrgIds } })
+                .project({ organization_id: 1, name: 1 })
+                .toArray();
+              for (const o of orgDocs) {
+                const id = String(o.organization_id);
+                const displayName = o.name || null;
+                if (displayName && !tenantNameMap.has(id)) {
+                  tenantNameMap.set(id, displayName);
+                }
+              }
+            } catch (e2) {
+              // optional collection; ignore errors
+            }
+          }
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[projects.summary] tenants/organizations name lookup failed:', e?.message || e);
+      }
+
+      // For each org, produce a daily array aligned to ticks and attach human-readable name (fallback to id)
       orgBuckets = Array.from(orgMap.entries()).map(([org, dateMap]) => {
         const series = ticks.map((t) => {
           const lbl = toYMD(t);
@@ -240,6 +291,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         });
         return {
           organization_id: org,
+          name: tenantNameMap.get(org) || org, // add name alongside id; fallback to id
           total: Number(orgTotals.get(org) || 0),
           buckets: series
         };
@@ -248,8 +300,20 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       // Sort orgs descending by total for deterministic rendering
       orgBuckets.sort((a, b) => b.total - a.total);
 
+      // Build flat barData from orgTotals using resolved names, keeping existing outputs unchanged
+      barData = Array.from(orgTotals.entries())
+        .map(([org, total]) => ({
+          organization_id: org,
+          name: tenantNameMap.get(org) || org,
+          count: Number(total || 0),
+        }))
+        .sort((a, b) => b.count - a.count);
+
       // Add response hint header
-      try { res.setHeader('x-users-summary-org-buckets', String(orgBuckets.length)); } catch {}
+      try {
+        res.setHeader('x-users-summary-org-buckets', String(orgBuckets.length));
+        res.setHeader('x-users-summary-bar-data', String(barData.length));
+      } catch {}
     }
 
     const response = {
@@ -260,6 +324,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     };
     if (isT0000) {
       response.orgBuckets = orgBuckets || [];
+      response.barData = barData || [];
       try { res.setHeader('x-users-summary-mode', 'all_orgs'); } catch {}
     }
 

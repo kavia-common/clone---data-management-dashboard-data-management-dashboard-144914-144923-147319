@@ -186,6 +186,7 @@ safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/llm_costs', require('./routes/costs.llm_costs.routes'));
 safeUse('/api/projects', require('./routes/projects.summary.routes'));
+safeUse('/api/service-type', require('./routes/serviceType.summary.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
 try {
   // eslint-disable-next-line no-console
