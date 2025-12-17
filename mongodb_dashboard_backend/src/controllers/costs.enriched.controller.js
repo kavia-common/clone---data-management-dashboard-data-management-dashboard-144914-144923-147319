@@ -211,5 +211,6 @@ async function listEnrichedCosts(req, res, next) {
 }
 
 module.exports = {
+  // Ensure this remains a function (Express handler) and not a wrapped object
   listEnrichedCosts
 };
