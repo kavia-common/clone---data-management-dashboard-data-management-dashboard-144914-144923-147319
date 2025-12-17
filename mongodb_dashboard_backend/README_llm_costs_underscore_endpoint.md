@@ -1,28 +1,24 @@
-# GET /api/llm_costs (underscore) — Full nested documents
+# /api/llm_costs (underscore) endpoint notes
 
-This endpoint now returns raw/full documents from the llm_costs collection (underscore), without any aggregation that alters the structure.
+- This endpoint returns a tabular list of raw documents from the `llm_costs` collection with optional filtering by `organization_id` and pagination.
+- It intentionally does NOT assume nested fields like `users.*` or `users.projects.*` because the canonical collection schema used by the app is flat (one document per usage/cost entry).
+- Default sort: newest first by `_id`.
+- Response envelope: `{ success, data, meta: { page, limit, total, organization_id? } }`
 
-Behavior:
-- Collection: defaults to llm_costs. Environment overrides:
-  - LLMCOSTS_COLLECTION_NAME or LLM_COSTS_COLLECTION
-- Filtering:
-  - Optional query param organization_id for exact match:
-    GET /api/llm_costs?organization_id=org_123
-- Pagination:
-  - page >= 1 (default 1)
-  - limit > 0 (default 10), clamped to max 100
-  - Response includes { meta: { page, limit, total, organization_id? } }
-- Sorting:
-  - Stable default sort by _id descending (newest first)
-- Response:
-  {
-    "success": true,
-    "data": [ <raw docs with all nested arrays/fields preserved> ],
-    "meta": { "page": 1, "limit": 10, "total": 42, "organization_id": "org_123" }
-  }
+Diagnostics:
+- `X-LLM-COSTS-Collection`: effective collection name used by the Mongoose model (defaults to `llm_costs`, overridable by env).
+- `X-LLM-COSTS-Total`: total matched documents.
+- `X-LLM-COSTS-Reason`: present when no documents matched.
 
-Notes:
-- Currency strings remain as-is (e.g., "$2.519490") — no parsing is performed server-side.
-- Minimal diagnostic headers may be included:
-  - X-LLM-COSTS-Collection: effective MongoDB collection name
-  - X-LLM-COSTS-Total: total documents matching the filter
+Environment:
+- Override collection name with either `LLMCOSTS_COLLECTION_NAME` or `LLM_COSTS_COLLECTION` if your deployment uses a non-standard name.
+
+Example:
+GET /api/llm_costs?organization_id=b2c&page=1&limit=10
+
+Returns 200 with:
+{
+  "success": true,
+  "data": [ ... ],
+  "meta": { "page": 1, "limit": 10, "total": 0, "organization_id": "b2c" }
+}
