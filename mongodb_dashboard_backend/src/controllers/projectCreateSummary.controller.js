@@ -12,6 +12,7 @@ const SessionTracking = require('../models/sessionTracking.model');
  * - organizationId (string, required): Tenant/organization identifier used to filter records. Aliases: organization_id, tenant_id.
  * - from (ISO datetime, optional): Lower bound for time filter applied to last_updated or session_start.
  * - to (ISO datetime, optional): Upper bound for time filter applied to last_updated or session_start.
+ * - range (string, optional): One of daily|weekly|monthly. When provided and from/to are not set, applies a default window of 1/7/30 days ending at now.
  * - status (string, optional): Pipe-separated status filter (e.g., "completed|active").
  *
  * Response:
@@ -59,8 +60,22 @@ async function getProjectCreateSummary(req, res) {
 
     // Optional time range: prefer last_updated, fallback to session_start
     const timeRange = {};
-    const from = req.query.from ? new Date(req.query.from) : null;
-    const to = req.query.to ? new Date(req.query.to) : null;
+    let from = req.query.from ? new Date(req.query.from) : null;
+    let to = req.query.to ? new Date(req.query.to) : null;
+
+    // Support range=daily|weekly|monthly when explicit from/to are absent
+    const range = (req.query.range || '').toString().toLowerCase();
+    if ((!from || isNaN(from.getTime())) && (!to || isNaN(to.getTime())) && ['daily','weekly','monthly'].includes(range)) {
+      const now = new Date();
+      const end = now;
+      let days = 1;
+      if (range === 'weekly') days = 7;
+      if (range === 'monthly') days = 30;
+      const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+      from = start;
+      to = end;
+    }
+
     if (from && !isNaN(from.getTime())) {
       timeRange.$gte = from;
     }
@@ -110,6 +125,7 @@ async function getProjectCreateSummary(req, res) {
       filters: {
         organizationId: orgId,
         status: req.query.status || null,
+        range: range || null,
         from: from ? from.toISOString() : null,
         to: to ? to.toISOString() : null,
       },
