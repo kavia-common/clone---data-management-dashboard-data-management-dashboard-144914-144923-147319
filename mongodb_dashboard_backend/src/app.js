@@ -194,6 +194,7 @@ try {
 } catch {}
 safeUse('/api/session', require('./routes/session.routes'));
 safeUse('/api/dashboard', require('./routes/dashboard.routes'));
+safeUse('/api/metrics/users', require('./routes/metrics.users.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
 safeUse('/api/auth', require('./routes/auth.routes'));
 
