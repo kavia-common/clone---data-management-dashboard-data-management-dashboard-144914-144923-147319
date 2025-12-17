@@ -1,6 +1,6 @@
 'use strict';
 
-const LLMCost = require('../models/llmCosts.model');
+const LLMCost = require('../models/llmCosts.model'); // corrected path two-level up not needed; file resides in src/models
 const { success } = require('../utils/http');
 
 /**
@@ -8,57 +8,127 @@ const { success } = require('../utils/http');
  * getLlmCostsAggregated
  * Controller for GET /api/llm_costs
  *
- * Purpose:
- * Provide a stable, tabular list of LLM cost records from the 'llm_costs' collection with:
- * - Optional filter by organization_id (string match)
+ * Implements a minimal, safe, and verifiable pipeline.
+ * - Optional organization_id filter (?organization_id)
  * - Pagination with defaults page=1, limit=10 (clamped to max 100)
- * - Stable default sort by _id desc
- * - Diagnostics headers with collection name and totals
- *
- * This implementation intentionally avoids assuming nested 'users' or 'projects' arrays to be
- * compatible with the canonical flat llm_costs schema used by the rest of the app.
+ * - No malformed field paths: no stage contains a field path that is just '$'
+ * - Adds diagnostics headers
  */
 async function getLlmCostsAggregated(req, res) {
-  // Pagination with sane defaults and clamped max
+  // Parse pagination with clamping
   const maxLimit = 100;
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), maxLimit);
   const skip = (page - 1) * limit;
 
-  // Optional exact filter by organization_id
+  // Optional filter
   const organization_id = (req.query.organization_id || '').toString().trim();
-  const filter = {};
-  if (organization_id) {
-    filter.organization_id = organization_id;
-  }
+  const matchStage = organization_id
+    ? { $match: { organization_id: organization_id } }
+    : { $match: {} };
 
-  // Stable default sort: newest first by _id
-  const sort = { _id: -1 };
+  // Build the minimal pipeline per spec
+  const pipeline = [
+    matchStage,
+    {
+      $project: {
+        organization_id: 1,
+        organization_name: 1,
+        user_id: 1,
+        type: 1,
+        project_id: 1,
+        cost: 1,
+      },
+    },
+    {
+      $group: {
+        _id: {
+          organization_id: '$organization_id',
+          organization_name: '$organization_name',
+          user_id: '$user_id',
+          type: '$type',
+        },
+        user_cost: { $sum: { $ifNull: ['$cost', 0] } },
+        projectsSet: { $addToSet: '$project_id' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        organization_id: '$_id.organization_id',
+        organization_name: '$_id.organization_name',
+        user_id: '$_id.user_id',
+        type: '$_id.type',
+        user_cost: 1,
+        projects: { $size: '$projectsSet' },
+      },
+    },
+    { $sort: { user_cost: -1, user_id: 1 } },
+    {
+      $facet: {
+        rows: [{ $skip: skip }, { $limit: limit }],
+        meta: [{ $count: 'postGroupCount' }],
+        orgMeta: [
+          {
+            $group: {
+              _id: '$_id.organization_id',
+              organization_cost: { $sum: '$user_cost' },
+              usersSet: { $addToSet: '$_id.user_id' },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              organization_cost: 1,
+              users: { $size: '$usersSet' },
+            },
+          },
+        ],
+      },
+    },
+  ];
 
-  // Execute count + page using Mongoose model (mapped to 'llm_costs' by default)
-  const [total, docs] = await Promise.all([
-    LLMCost.countDocuments(filter),
-    LLMCost.find(filter).sort(sort).skip(skip).limit(limit).lean().exec(),
-  ]);
+  // Execute
+  const result = await LLMCost.aggregate(pipeline, { allowDiskUse: true });
+  const facet = Array.isArray(result) && result[0] ? result[0] : { rows: [], meta: [], orgMeta: [] };
+  const rows = Array.isArray(facet.rows) ? facet.rows : [];
+  const metaArr = Array.isArray(facet.meta) ? facet.meta : [];
+  const orgMetaArr = Array.isArray(facet.orgMeta) ? facet.orgMeta : [];
+  const postGroupCount = metaArr[0]?.postGroupCount || 0;
+  const orgMeta = orgMetaArr[0] || null;
 
-  // Minimal diagnostic headers (collection name and total)
+  // Enrich rows with org-level info when available
+  const enriched = rows.map((r) => {
+    if (orgMeta) {
+      return {
+        ...r,
+        organization_cost: orgMeta.organization_cost ?? 0,
+        users: orgMeta.users ?? 0,
+      };
+    }
+    return { ...r, organization_cost: 0, users: 0 };
+  });
+
+  // Diagnostics headers
   try {
     res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
-    res.setHeader('X-LLM-COSTS-Total', String(total));
-    if (!docs?.length) {
-      res.setHeader('X-LLM-COSTS-Reason', 'No documents matched filter');
+    // Matched pre-group docs requires separate count; keep lightweight by echoing filter only
+    res.setHeader('X-LLM-COSTS-MatchedPreGroup', JSON.stringify(matchStage?.$match || {}));
+    res.setHeader('X-LLM-COSTS-PostGroupCount', String(postGroupCount));
+    if (!enriched.length) {
+      res.setHeader('X-LLM-COSTS-Reason', 'Empty rows after aggregation.');
     }
   } catch {}
 
-  // Envelope response
+  // Response shape with pagination meta
   return success(
     res,
-    Array.isArray(docs) ? docs : [],
+    enriched,
     {
       page,
       limit,
-      total,
-      ...(organization_id ? { organization_id } : {}),
+      total: postGroupCount,
+      organization_id: organization_id || null,
     },
     200
   );
