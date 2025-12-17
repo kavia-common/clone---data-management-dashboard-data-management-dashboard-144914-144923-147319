@@ -1,127 +1,133 @@
 'use strict';
 
-const mongoose = require('mongoose');
 const SessionTracking = require('../models/sessionTracking.model');
-const Project = require('../models/project.model');
 
 /**
- * PUBLIC_INTERFACE
- * getProjectCreateSummary
- * Returns aggregated SessionTracking counts grouped by project with strict tenant filtering and optional time/status filters.
- * Response:
- *   { buckets: [{ key: <projectId>, label: <projectName|null>, count: <number> }] }
- *
- * Supported filters:
- * - Required tenant: organization_id | tenant_id | x-organization-id | x-tenant-id
- * - Time: either range=daily|weekly|monthly OR from/to (ISO). If range provided, compute implicit window:
- *      daily: last 1 day; weekly: last 7 days; monthly: last 30 days.
- * - Status: via ?status=a|b or JSON filter={"status":"a|b"} (pipe-separated values)
- * - Other fields ignored except status.
+ * Helper: parse YYYY-MM-DD into UTC start-of-day and end-of-day Date objects.
  */
-async function getProjectCreateSummary(req, res) {
+function parseCustomDateWindow(startStr, endStr) {
+  if (!startStr || !endStr) {
+    return { error: 'Invalid date range: start_date and end_date are required for custom range' };
+  }
+  // Basic YYYY-MM-DD validation
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!re.test(startStr) || !re.test(endStr)) {
+    return { error: 'Invalid date format: use YYYY-MM-DD for start_date and end_date' };
+  }
+  const from = new Date(`${startStr}T00:00:00.000Z`);
+  const to = new Date(`${endStr}T23:59:59.999Z`);
+  if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+    return { error: 'Invalid date range: could not parse dates' };
+  }
+  return { from, to };
+}
+
+/**
+ * Helper: derive date window for today in UTC given a range of daily|weekly|monthly.
+ * Returns { from: Date, to: Date }
+ */
+function deriveWindowFromRange(range) {
+  const now = new Date();
+  // today at 00:00:00.000Z
+  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+
+  if (range === 'daily') {
+    return {
+      from: startOfToday,
+      to: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999)),
+    };
+  }
+
+  if (range === 'weekly') {
+    // Monday as first day of week
+    const day = startOfToday.getUTCDay(); // 0=Sun .. 6=Sat
+    const diff = (day + 6) % 7; // days since Monday
+    const from = new Date(startOfToday);
+    from.setUTCDate(from.getUTCDate() - diff);
+    const to = new Date(from);
+    to.setUTCDate(to.getUTCDate() + 6);
+    to.setUTCHours(23, 59, 59, 999);
+    return { from, to };
+  }
+
+  if (range === 'monthly') {
+    const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    // last day of current month at 23:59:59.999Z
+    const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+    return { from, to };
+  }
+
+  // Default to daily
+  return {
+    from: startOfToday,
+    to: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999)),
+  };
+}
+
+// PUBLIC_INTERFACE
+async function getProjectCreateSummary(req, res, next) {
+  /**
+   * Returns projects created summary grouped by project_id from SessionTracking.
+   * Mandatory filters:
+   *  - Tenant/organization id: accept organization_id, organizationId, or tenant_id (alias to tenant_id). Also honor x-organization-id header.
+   *  - Date range on created_at: derived from ?range=daily|weekly|monthly for today (UTC) or
+   *    when range=custom, from start_date/end_date (YYYY-MM-DD) converted to UTC start/end of day.
+   *
+   * Response shape must be exactly:
+   *   { buckets: [{ key: project_id, label: project_id, count }] }
+   *
+   * 400 when tenant missing or date range invalid (for custom when one of from/to is missing).
+   */
   try {
     const {
-      organization_id,
-      tenant_id,
-      range,
-      from,
-      to,
-      status,
-      filter,
+      range = 'daily',
+      start_date,
+      end_date,
     } = req.query;
 
-    // 1) Strict tenant scoping: organization required, otherwise 400
-    const orgId =
-      organization_id ||
-      tenant_id ||
-      req.headers['x-organization-id'] ||
-      req.headers['x-tenant-id'] ||
-      null;
+    // Accept aliases for tenant/organization id
+    const tenant =
+      req.query.tenant_id ||
+      req.query.organization_id ||
+      req.query.organizationId ||
+      req.headers['x-organization-id'];
 
-    if (!orgId) {
-      return res.status(400).json({ error: 'organization_id (or tenant_id/x-organization-id) is required' });
+    if (!tenant) {
+      return res.status(400).json({ error: 'Missing tenant/organization id' });
     }
 
-    // 2) Build base match with strict tenant filter
-    const matchStage = {
-      $or: [{ organization_id: orgId }, { tenant_id: orgId }],
-    };
+    // Determine date window
+    let windowFrom;
+    let windowTo;
 
-    // Date range resolution:
-    // - If range provided: map to default windows
-    // - Else, use explicit from/to when provided
-    let fromDate = null;
-    let toDate = null;
-
-    const now = new Date();
-    if (range && ['daily', 'weekly', 'monthly'].includes(String(range))) {
-      if (range === 'daily') {
-        fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        toDate = now;
-      } else if (range === 'weekly') {
-        fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        toDate = now;
-      } else if (range === 'monthly') {
-        fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        toDate = now;
+    if (range === 'custom') {
+      const parsed = parseCustomDateWindow(start_date, end_date);
+      if (parsed.error) {
+        return res.status(400).json({ error: parsed.error });
       }
+      windowFrom = parsed.from;
+      windowTo = parsed.to;
     } else {
-      if (from) fromDate = new Date(from);
-      if (to) toDate = new Date(to);
+      const derived = deriveWindowFromRange(range);
+      windowFrom = derived.from;
+      windowTo = derived.to;
     }
 
-    if (fromDate || toDate) {
-      const timeCond = {};
-      if (fromDate) timeCond.$gte = fromDate;
-      if (toDate) timeCond.$lte = toDate;
-      matchStage.$and = (matchStage.$and || []).concat([
-        {
-          $or: [
-            { timestamp: timeCond },
-            { last_updated: timeCond },
-            { session_start: timeCond },
-            { created_at: timeCond },
-          ],
-        },
-      ]);
-    }
-
-    // 3) Optional status filters
-    // Accept ?status=completed|active OR filter JSON with "status"
-    let statuses = null;
-    // parse from status param
-    if (typeof status === 'string' && status.trim()) {
-      statuses = status.split('|').map((s) => s.trim()).filter(Boolean);
-    }
-    // parse from filter JSON if present
-    if (filter) {
-      try {
-        const parsed = typeof filter === 'string' ? JSON.parse(filter) : filter;
-        if (parsed && typeof parsed.status === 'string' && parsed.status.trim()) {
-          statuses = (parsed.status || '')
-            .split('|')
-            .map((s) => s.trim())
-            .filter(Boolean);
-        }
-      } catch {
-        return res.status(400).json({ error: 'Invalid filter JSON' });
-      }
-    }
-    if (Array.isArray(statuses) && statuses.length) {
-      matchStage.status = { $in: statuses };
-    }
-
-    // 4) Aggregation: group by normalized project id
+    // Build aggregation pipeline as specified:
+    // 1) $match using created_at between from/to and tenant filter.
+    // 2) $group by "$project_id" with fields: _id, project_id:$first, count:$sum
+    // 3) $sort by { count: -1 }
     const pipeline = [
-      { $match: matchStage },
+      {
+        $match: {
+          tenant_id: tenant,
+          created_at: { $gte: windowFrom, $lte: windowTo },
+        },
+      },
       {
         $group: {
-          _id: {
-            $ifNull: [
-              '$project_id',
-              { $ifNull: ['$projectId', '$project.id'] },
-            ],
-          },
+          _id: '$project_id',
+          project_id: { $first: '$project_id' },
           count: { $sum: 1 },
         },
       },
@@ -130,50 +136,16 @@ async function getProjectCreateSummary(req, res) {
 
     const results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
 
-    // 5) Optional lookup for project names using Projects collection if available
-    const projectIds = results.map((r) => r._id).filter((v) => v != null);
-    let nameMap = {};
-    if (projectIds.length) {
-      try {
-        const projects = await Project.find({
-          $or: [
-            { project_id: { $in: projectIds } },
-            { projectId: { $in: projectIds } },
-            { 'project.id': { $in: projectIds } },
-            { id: { $in: projectIds } },
-          ],
-        }).select('project_id projectId project_name name title display_name project id');
-        nameMap = projects.reduce((acc, p) => {
-          const pid = p.project_id || p.projectId || (p.project && p.project.id) || p.id;
-          const label =
-            p.project_name ||
-            p.name ||
-            p.title ||
-            p.display_name ||
-            (p.project && p.project.name) ||
-            null;
-          if (pid) acc[String(pid)] = label;
-          return acc;
-        }, {});
-      } catch (e) {
-        // Optional only; proceed with null labels if lookup fails
-        try { console.warn('Project lookup skipped:', e?.message || e); } catch {}
-      }
-    }
-
-    // 6) Response shape exactly as required
-    const buckets = results.map((r) => {
-      const key = r._id == null ? null : String(r._id);
-      return {
-        key,
-        label: key ? (nameMap[key] ?? null) : null,
-        count: r.count,
-      };
-    });
+    // Keep payload exactly as requested
+    const buckets = results.map((r) => ({
+      key: r.project_id,
+      label: r.project_id,
+      count: r.count,
+    }));
 
     return res.json({ buckets });
-  } catch (error) {
-    try { console.error('Error in getProjectCreateSummary:', error); } catch {}
+  } catch (err) {
+    if (typeof next === 'function') return next(err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
