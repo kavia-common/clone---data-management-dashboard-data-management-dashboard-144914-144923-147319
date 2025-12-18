@@ -44,9 +44,11 @@ try {
   router.use('/dev/verify', devVerifyProjectCreate);
   const devVerifyProjectCreateExact = require('./dev.verify.projectCreate.exact.routes');
   router.use('/dev/verify', devVerifyProjectCreateExact);
+  const devVerifyProjectCreateMapping = require('./dev.verify.projectCreate.mapping.routes');
+  router.use('/dev/verify', devVerifyProjectCreateMapping);
 } catch (err) {
   // eslint-disable-next-line no-console
-  console.warn('[routes/index] dev.verify.projectCreate.routes not mounted:', err?.message || err);
+  console.warn('[routes/index] dev.verify.* routes not mounted:', err?.message || err);
 }
 
 /**

@@ -67,8 +67,8 @@ function deriveWindowFromRange(range) {
  * PUBLIC_INTERFACE
  * getProjectCreateSummary
  * Aggregates SessionTracking by project_id within requested window and tenant scope,
- * then looks up user names from Users collection using user_id (handles ObjectId|string).
- * Response returns user_name (string|null) as display label, includes project_id for verification,
+ * then looks up user names via a $lookup aggregation to users to avoid N+1.
+ * Response returns user_name (string|null), includes project_id for verification,
  * and preserves strict UTC date bounds, tenant_id scope, and exact project_id filtering.
  */
 async function getProjectCreateSummary(req, res, next) {
@@ -127,13 +127,121 @@ async function getProjectCreateSummary(req, res, next) {
         ...(Object.keys(projectIdFilter).length ? projectIdFilter : { project_id: { $exists: true } }),
       };
 
+      // Use an aggregation pipeline that performs $lookup to users with robust id handling.
+      // We normalize sessionTracking.user_id to string, then join on multiple possible user fields:
+      // - users._id (ObjectId): use $toObjectId when possible
+      // - users.user_id (string)
+      // - users.email (string)
       const pipeline = [
         { $match: strictMatch },
         {
+          $addFields: {
+            user_id_str: {
+              $cond: [{ $ifNull: ['$user_id', false] }, { $toString: '$user_id' }, ''],
+            },
+            project_id_str: {
+              $cond: [{ $ifNull: ['$project_id', false] }, { $toString: '$project_id' }, ''],
+            },
+          },
+        },
+        // Prepare potential objectId conversion for matching users._id
+        {
+          $addFields: {
+            user_oid_maybe: {
+              $cond: [
+                { $regexMatch: { input: '$user_id_str', regex: /^[a-fA-F0-9]{24}$/ } },
+                { $toObjectId: '$user_id_str' },
+                null,
+              ],
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: 'users',
+            let: { uid_str: '$user_id_str', uid_oid: '$user_oid_maybe' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $or: [
+                      // Match by ObjectId (_id)
+                      { $and: [{ $ne: ['$$uid_oid', null] }, { $eq: ['$_id', '$$uid_oid'] }] },
+                      // Match by user_id string
+                      { $eq: ['$user_id', '$$uid_str'] },
+                      // Sometimes user_id is email
+                      { $eq: ['$email', '$$uid_str'] },
+                    ],
+                  },
+                },
+              },
+              {
+                $project: {
+                  _id: 1,
+                  name: 1,
+                  username: 1,
+                  displayName: 1,
+                  display_name: 1,
+                  full_name: 1,
+                  fullName: 1,
+                  user_name: 1,
+                  email: 1,
+                  user_id: 1,
+                },
+              },
+            ],
+            as: 'user_res',
+          },
+        },
+        {
+          $addFields: {
+            user_display: {
+              $let: {
+                vars: { u: { $arrayElemAt: ['$user_res', 0] } },
+                in: {
+                  $ifNull: [
+                    '$$u.name',
+                    {
+                      $ifNull: [
+                        '$$u.displayName',
+                        {
+                          $ifNull: [
+                            '$$u.display_name',
+                            {
+                              $ifNull: [
+                                '$$u.full_name',
+                                {
+                                  $ifNull: [
+                                    '$$u.fullName',
+                                    {
+                                      $ifNull: [
+                                        '$$u.user_name',
+                                        {
+                                          $ifNull: ['$$u.username', null],
+                                        },
+                                      ],
+                                    },
+                                  ],
+                                },
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        {
           $group: {
-            _id: { $ifNull: [{ $toString: '$project_id' }, '' ] },
-            project_id: { $first: { $ifNull: [{ $toString: '$project_id' }, '' ] } },
-            user_id: { $first: { $ifNull: [{ $toString: '$user_id' }, '' ] } },
+            _id: '$project_id_str',
+            project_id: { $first: '$project_id_str' },
+            // Choose a representative user_id string for the bucket (first seen)
+            user_id: { $first: '$user_id_str' },
+            user_name: { $first: '$user_display' },
             count: { $sum: 1 },
           },
         },
@@ -154,72 +262,14 @@ async function getProjectCreateSummary(req, res, next) {
         });
       }
 
-      // Prepare userId list for lookup (filter out blanks)
-      const userIds = Array.from(
-        new Set(
-          (results || [])
-            .map(r => (r && r.user_id != null ? String(r.user_id) : ''))
-            .filter(v => v !== '')
-        )
-      );
-
-      // Build $or for _id and alternate keys; handle ObjectId and string forms.
-      const orClauses = [];
-      for (const uid of userIds) {
-        // Try ObjectId if valid hex; otherwise use string-based fields
-        if (mongoose.Types.ObjectId.isValid(uid)) {
-          orClauses.push({ _id: new mongoose.Types.ObjectId(uid) });
-        }
-        // Also support legacy/custom string id fields
-        orClauses.push({ user_id: uid });
-        orClauses.push({ email: uid }); // sometimes user_id may be email
-      }
-
-      let usersByKey = new Map();
-      if (orClauses.length > 0) {
-        try {
-          const userDocs = await User.find({ $or: orClauses })
-            .select('_id name username displayName display_name full_name fullName user_name email user_id')
-            .lean();
-          for (const u of userDocs) {
-            // Create multiple keys to maximize hit rate during mapping
-            const keys = [];
-            if (u._id) keys.push(String(u._id));
-            if (u.user_id) keys.push(String(u.user_id));
-            if (u.email) keys.push(String(u.email));
-            // Choose best available display name
-            const display =
-              u.name ||
-              u.displayName ||
-              u.display_name ||
-              u.full_name ||
-              u.fullName ||
-              u.user_name ||
-              u.username ||
-              null;
-            for (const k of keys) {
-              if (!usersByKey.has(k)) usersByKey.set(k, display);
-            }
-          }
-          try {
-            console.log('[project-create] users lookup: requested_ids=%d matched_docs=%d map_keys=%d',
-              userIds.length, userDocs.length, usersByKey.size);
-          } catch {}
-        } catch (e) {
-          // On lookup failure, proceed with null names deterministically
-          try { console.warn('[project-create] users lookup failed:', e?.message || e); } catch {}
-          usersByKey = new Map();
-        }
-      }
-
       // Map to response buckets replacing user_id with user_name while keeping project_id for verification
       buckets = (results || []).map((r) => {
         const rawUid = r?.user_id != null ? String(r.user_id) : '';
         const pid = r?.project_id != null ? String(r.project_id) : '';
-        const resolvedName = rawUid ? (usersByKey.get(rawUid) ?? null) : null;
+        const resolvedName = r?.user_name ?? null;
 
         return {
-          key: resolvedName ?? rawUid,           // keep key stable for display; fallback to raw id if name missing
+          key: resolvedName ?? rawUid,           // display key
           user_name: resolvedName,               // requested: return name instead of user_id
           project_id: pid,                       // include project_id for verification
           label: resolvedName ?? rawUid,         // display label
