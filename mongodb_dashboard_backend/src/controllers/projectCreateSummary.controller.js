@@ -159,12 +159,14 @@ async function getProjectCreateSummary(req, res, next) {
         });
       }
 
-      // Map to response buckets. IMPORTANT: replace project_id display with user_id per request.
+      // Map to response buckets. IMPORTANT: keep user_id as primary display, but also include project_id for verification.
       buckets = (results || []).map((r) => {
         const uid = r?.user_id != null && r.user_id !== '' ? String(r.user_id) : (r?.project_id != null ? String(r.project_id) : '');
+        const pid = r?.project_id != null ? String(r.project_id) : '';
         return {
           key: uid,
-          user_id: uid, // use user_id in the payload
+          user_id: uid, // primary display: user_id
+          project_id: pid, // added for verification alongside user_id
           label: uid,
           count: r?.count ?? 0,
         };
@@ -174,8 +176,9 @@ async function getProjectCreateSummary(req, res, next) {
     // Build payload; deterministically returns 200 JSON
     const payload = { success: true, buckets };
     if (project_id) {
-      // Replace top-level project_id with user_id as requested
+      // Keep user_id as the primary top-level display (echoed from project_id), and also include project_id for verification
       payload.user_id = String(project_id);
+      payload.project_id = String(project_id);
     }
 
     res.set('Cache-Control', 'no-store');
