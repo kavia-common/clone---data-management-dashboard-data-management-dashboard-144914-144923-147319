@@ -1,6 +1,8 @@
 'use strict';
 
 const SessionTracking = require('../models/sessionTracking.model');
+const User = require('../models/user.model'); // for name lookup
+const mongoose = require('mongoose');
 
 /**
  * Helper: parse YYYY-MM-DD into UTC start-of-day and end-of-day Date objects.
@@ -64,10 +66,10 @@ function deriveWindowFromRange(range) {
 /**
  * PUBLIC_INTERFACE
  * getProjectCreateSummary
- * Reverted to last known-good logic: only aggregates SessionTracking by project_id within the
- * requested window and tenant scope. No AppDeployment or user_name lookups are performed.
- * Response mapping is updated so the payload displays user_id instead of project_id.
- * Inputs, behavior and performance remain consistent and deterministic 200 JSON.
+ * Aggregates SessionTracking by project_id within requested window and tenant scope,
+ * then looks up user names from Users collection using user_id (handles ObjectId|string).
+ * Response returns user_name (string|null) as display label, includes project_id for verification,
+ * and preserves strict UTC date bounds, tenant_id scope, and exact project_id filtering.
  */
 async function getProjectCreateSummary(req, res, next) {
   const t0 = Date.now();
@@ -82,7 +84,7 @@ async function getProjectCreateSummary(req, res, next) {
       req.headers['x-organization-id'] ||
       null;
 
-    // Accept project_id (previous behavior) but do not use it for lookups; preserved for compatibility
+    // Accept project_id; preserved for strict exact match when provided
     const project_id =
       (req.body && (req.body.project_id ?? req.body.projectId)) ||
       req.query.project_id ||
@@ -90,12 +92,10 @@ async function getProjectCreateSummary(req, res, next) {
       null;
 
     let buckets = [];
+    let windowFrom, windowTo;
 
     if (tenant) {
       // Determine date window
-      let windowFrom;
-      let windowTo;
-
       if (range === 'custom') {
         const parsed = parseCustomDateWindow(start_date, end_date);
         if (parsed.error) {
@@ -110,16 +110,11 @@ async function getProjectCreateSummary(req, res, next) {
         windowTo = derived.to;
       }
 
-      // STRICT MATCH: only created_at in UTC window, exact tenant and exact project_id match when provided.
-      // Never broaden with $or across other date fields; use inclusive bounds [from, to].
-      // Determine effective projectId predicate based on storage type (schema shows String).
+      // STRICT MATCH: created_at in UTC window, exact tenant, and exact project_id when provided.
       const projectIdFilter = {};
       if (project_id !== null && project_id !== undefined && project_id !== '') {
-        // If project_id is numeric in DB, coerce here; else keep string.
-        // SessionTracking model defines project_id as String; however, we defensively handle numeric-only strings.
         const numMaybe = Number(project_id);
         if (!Number.isNaN(numMaybe) && String(numMaybe) === String(project_id)) {
-          // store numeric form as string as per schema
           projectIdFilter.project_id = String(numMaybe);
         } else {
           projectIdFilter.project_id = String(project_id);
@@ -155,29 +150,84 @@ async function getProjectCreateSummary(req, res, next) {
           success: true,
           buckets: [],
           diagnostics: { note: 'aggregation_failed', message: e?.message || String(e) },
-          ...(project_id ? { user_id: String(project_id) } : {}),
+          ...(project_id ? { project_id: String(project_id) } : {}),
         });
       }
 
-      // Map to response buckets. IMPORTANT: keep user_id as primary display, but also include project_id for verification.
+      // Prepare userId list for lookup (filter out blanks)
+      const userIds = Array.from(
+        new Set(
+          (results || [])
+            .map(r => (r && r.user_id != null ? String(r.user_id) : ''))
+            .filter(v => v !== '')
+        )
+      );
+
+      // Build $or for _id and alternate keys; handle ObjectId and string forms.
+      const orClauses = [];
+      for (const uid of userIds) {
+        // Try ObjectId if valid hex; otherwise use string-based fields
+        if (mongoose.Types.ObjectId.isValid(uid)) {
+          orClauses.push({ _id: new mongoose.Types.ObjectId(uid) });
+        }
+        // Also support legacy/custom string id fields
+        orClauses.push({ user_id: uid });
+        orClauses.push({ email: uid }); // sometimes user_id may be email
+      }
+
+      let usersByKey = new Map();
+      if (orClauses.length > 0) {
+        try {
+          const userDocs = await User.find({ $or: orClauses })
+            .select('_id name username displayName display_name full_name fullName user_name email user_id')
+            .lean();
+          for (const u of userDocs) {
+            // Create multiple keys to maximize hit rate during mapping
+            const keys = [];
+            if (u._id) keys.push(String(u._id));
+            if (u.user_id) keys.push(String(u.user_id));
+            if (u.email) keys.push(String(u.email));
+            // Choose best available display name
+            const display =
+              u.name ||
+              u.displayName ||
+              u.display_name ||
+              u.full_name ||
+              u.fullName ||
+              u.user_name ||
+              u.username ||
+              null;
+            for (const k of keys) {
+              if (!usersByKey.has(k)) usersByKey.set(k, display);
+            }
+          }
+        } catch (e) {
+          // On lookup failure, proceed with null names deterministically
+          try { console.warn('[project-create] users lookup failed:', e?.message || e); } catch {}
+          usersByKey = new Map();
+        }
+      }
+
+      // Map to response buckets replacing user_id with user_name while keeping project_id for verification
       buckets = (results || []).map((r) => {
-        const uid = r?.user_id != null && r.user_id !== '' ? String(r.user_id) : (r?.project_id != null ? String(r.project_id) : '');
+        const rawUid = r?.user_id != null ? String(r.user_id) : '';
         const pid = r?.project_id != null ? String(r.project_id) : '';
+        const resolvedName = rawUid ? (usersByKey.get(rawUid) ?? null) : null;
+
         return {
-          key: uid,
-          user_id: uid, // primary display: user_id
-          project_id: pid, // added for verification alongside user_id
-          label: uid,
+          key: resolvedName ?? rawUid,           // keep key stable for display; fallback to raw id if name missing
+          user_name: resolvedName,               // requested: return name instead of user_id
+          project_id: pid,                       // include project_id for verification
+          label: resolvedName ?? rawUid,         // display label
           count: r?.count ?? 0,
         };
       });
     }
 
-    // Build payload; deterministically returns 200 JSON
+    // Deterministic 200 JSON response
     const payload = { success: true, buckets };
     if (project_id) {
-      // Keep user_id as the primary top-level display (echoed from project_id), and also include project_id for verification
-      payload.user_id = String(project_id);
+      // top-level project_id for verification
       payload.project_id = String(project_id);
     }
 
