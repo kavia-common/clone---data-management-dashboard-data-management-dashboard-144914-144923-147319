@@ -171,13 +171,19 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       //  - If Model is not User but has user_id field: filter by user_id (string compare) and
       //    augment each result with computed field user_name from the matched user's name.
       // We accept either ?userId=<id> or ?user_name=<id> (back-compat).
+      // Support user_name filter:
+      // - If user_name is a valid ObjectId, treat as a user filter by _id.
+      // - Else if user_name is a non-ObjectId string and Model===User, filter by Users.name (regex, case-insensitive).
+      // - Else if Model!==User and user_name is ObjectId, filter by user_id and later augment results with user_name.
+      const rawUserNameParam = typeof req.query?.user_name === 'string' ? req.query.user_name.trim() : null;
       const rawUserIdParam =
         (typeof req.query?.userId === 'string' && req.query.userId.trim()) ||
         (typeof req.query?.user_id === 'string' && req.query.user_id.trim()) ||
-        (typeof req.query?.user_name === 'string' && req.query.user_name.trim()) ||
+        (rawUserNameParam && rawUserNameParam) ||
         null;
       let resolvedUserName = null;
       let resolvedUserId = null;
+      let userNameRegex = null;
       // list handler for generic model with tenant scoping
       // Determine effective tenant from JWT-backed middleware
       const effectiveTenant = req?.tenantId ? String(req.tenantId) : undefined;
@@ -309,13 +315,26 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         ? (filter && typeof filter === 'object' ? filter : {})
         : mergeFilterWithTenant(filter, req.tenantId);
 
-      // If user id is provided through user_name/userId, adapt filter and resolve user.name
+      // If user_name provided and is NOT a valid ObjectId and Model===User, filter by Users.name regex
+      if (rawUserNameParam && Model?.modelName === 'User') {
+        const mongoose = require('mongoose');
+        const isValidObj = mongoose.Types.ObjectId.isValid(rawUserNameParam);
+        if (!isValidObj) {
+          userNameRegex = new RegExp(rawUserNameParam, 'i');
+          const nameClause = { name: userNameRegex };
+          appliedFilter = appliedFilter && Object.keys(appliedFilter).length > 0
+            ? { $and: [appliedFilter, nameClause] }
+            : nameClause;
+        }
+      }
+
+      // If user id is provided through user_name/userId (as ObjectId), adapt filter and resolve user.name
       if (rawUserIdParam) {
         try {
           const mongoose = require('mongoose');
           const isValidObjectId = mongoose.Types.ObjectId.isValid(rawUserIdParam);
           if (!isValidObjectId) {
-            // invalid id => return 400
+            // invalid id => return 400 early
             return failure(res, 'Invalid user id in user_name/userId', 400);
           }
           resolvedUserId = String(rawUserIdParam);
@@ -323,8 +342,6 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           const UserModel = require('../models/user.model');
           const userDoc = await UserModel.findById(resolvedUserId).lean();
           if (!userDoc) {
-            // Treat as valid but not found -> no rows for non-User models, empty result quickly
-            // For Users, we will result in 0 count
             resolvedUserName = null;
           } else {
             // Normalize name same as elsewhere
@@ -347,21 +364,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           }
 
           if (Model?.modelName === 'User') {
-            // Adjust filter to _id match (respect existing filter via $and)
             const idClause = { _id: resolvedUserId };
-            if (appliedFilter && Object.keys(appliedFilter).length > 0) {
-              appliedFilter = { $and: [appliedFilter, idClause] };
-            } else {
-              appliedFilter = idClause;
-            }
+            appliedFilter = appliedFilter && Object.keys(appliedFilter).length > 0
+              ? { $and: [appliedFilter, idClause] }
+              : idClause;
           } else {
-            // Non-User: filter by user_id (string compare) so that we get rows for that user
             const userIdClause = { user_id: resolvedUserId };
-            if (appliedFilter && Object.keys(appliedFilter).length > 0) {
-              appliedFilter = { $and: [appliedFilter, userIdClause] };
-            } else {
-              appliedFilter = userIdClause;
-            }
+            appliedFilter = appliedFilter && Object.keys(appliedFilter).length > 0
+              ? { $and: [appliedFilter, userIdClause] }
+              : userIdClause;
           }
           // Expose resolved name for diagnostics
           try {
@@ -670,6 +681,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
     async create(req, res) {
       const clean = sanitizePayloadWithTenant(req);
       if (!clean) {return failure(res, 'Bad request: payload must be an object', 400);}
+      // For Users, require non-empty name after normalization
+      try {
+        if (Model?.modelName === 'User') {
+          const name = (clean.name || '').trim();
+          if (!name) {
+            return failure(res, 'Validation failed: name is required', 422);
+          }
+        }
+      } catch (_) {}
       try {
         const doc = await Model.create(clean);
         return res.status(201).json(doc);
@@ -683,6 +703,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const { id } = req.params;
       const clean = sanitizePayloadWithTenant(req);
       if (!clean) {return failure(res, 'Bad request: payload must be an object', 400);}
+      // For Users, if name is present in payload after normalization, ensure non-empty
+      try {
+        if (Model?.modelName === 'User' && Object.prototype.hasOwnProperty.call(clean, 'name')) {
+          const name = (clean.name || '').trim();
+          if (!name) {
+            return failure(res, 'Validation failed: name cannot be empty', 422);
+          }
+        }
+      } catch (_) {}
       try {
         const bypass = !!(req.tenantScopeDisabled || req.allTenants);
         const match = bypass

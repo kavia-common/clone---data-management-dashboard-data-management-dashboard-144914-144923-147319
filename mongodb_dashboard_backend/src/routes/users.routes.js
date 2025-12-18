@@ -437,15 +437,19 @@ router.get(
         allTenants: !!(req.tenantScopeDisabled || req.allTenants),
         appliedTenant: String(applied || ''),
       });
-      // If a user id is passed via user_name or userId, validate ObjectId upfront for clearer 400s.
+      // Route-level validation:
+      // If user_name looks like an ObjectId (24 hex) but is invalid per Mongoose, return 400 quickly.
+      const rawUserName = typeof req.query?.user_name === 'string' ? req.query.user_name.trim() : null;
       const rawUserIdParam =
         (typeof req.query?.userId === 'string' && req.query.userId.trim()) ||
         (typeof req.query?.user_id === 'string' && req.query.user_id.trim()) ||
-        (typeof req.query?.user_name === 'string' && req.query.user_name.trim()) ||
+        (rawUserName && rawUserName) ||
         null;
+
       if (rawUserIdParam) {
-        const isValidObjectId = mongoose.Types.ObjectId.isValid(rawUserIdParam);
-        if (!isValidObjectId) {
+        // Only enforce 400 when it is intended as ObjectId-like; otherwise, treat as regex later.
+        const looksHex24 = /^[a-fA-F0-9]{24}$/.test(rawUserIdParam);
+        if (looksHex24 && !mongoose.Types.ObjectId.isValid(rawUserIdParam)) {
           return res.status(400).json({ success: false, message: 'Invalid user id in user_name/userId' });
         }
       }
