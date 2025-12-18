@@ -201,6 +201,10 @@ async function getProjectCreateSummary(req, res, next) {
               if (!usersByKey.has(k)) usersByKey.set(k, display);
             }
           }
+          try {
+            console.log('[project-create] users lookup: requested_ids=%d matched_docs=%d map_keys=%d',
+              userIds.length, userDocs.length, usersByKey.size);
+          } catch {}
         } catch (e) {
           // On lookup failure, proceed with null names deterministically
           try { console.warn('[project-create] users lookup failed:', e?.message || e); } catch {}

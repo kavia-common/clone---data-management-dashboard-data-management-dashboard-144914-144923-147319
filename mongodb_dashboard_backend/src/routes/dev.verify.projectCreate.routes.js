@@ -8,7 +8,7 @@ const fetch = require('node-fetch');
  * PUBLIC_INTERFACE
  * GET /api/dev/verify/project-create/summary
  * Quick verification helper: proxies an internal call to /api/project-create/summary
- * and asserts that user_id is present (replacing prior project_id display).
+ * and asserts that user_name is present (ensuring users lookup works and replaces user_id display).
  *
  * Query:
  *  - project_id: string (optional, preserved for compatibility; will be echoed as user_id)
@@ -50,19 +50,34 @@ router.get('/project-create/summary', async (req, res) => {
       clearTimeout(timeout);
     }
 
-    const hasTopLevelUserId = json && Object.prototype.hasOwnProperty.call(json, 'user_id');
-    const hasInBucketsUserId = Array.isArray(json?.buckets)
-      ? json.buckets.some(b => typeof b?.user_id === 'string')
+    const hasTopLevelUserName = json && Object.prototype.hasOwnProperty.call(json, 'user_name');
+    const hasInBucketsUserName = Array.isArray(json?.buckets)
+      ? json.buckets.some(b => typeof b?.user_name === 'string' && b.user_name.length > 0)
       : false;
 
-    const ok = !!(hasTopLevelUserId || hasInBucketsUserId);
+    const ok = !!(hasTopLevelUserName || hasInBucketsUserName);
     const note = ok
-      ? 'user_id present in response (replacing project_id display)'
-      : 'user_id not found in response';
+      ? 'user_name present in response and used for display'
+      : 'user_name not found in response';
 
     res.set('Cache-Control', 'no-store');
     res.set('x-verify-route', 'dev.project-create.summary');
-    return res.status(200).json({ ok, note, received: json });
+    const diag = {
+      query: {
+        tenant_id: req.query.tenant_id || req.query.organization_id || req.header('x-organization-id') || null,
+        project_id: req.query.project_id || null,
+        range: req.query.range || null,
+        start_date: req.query.start_date || null,
+        end_date: req.query.end_date || null,
+      },
+      buckets_sample: Array.isArray(json?.buckets) ? json.buckets.slice(0, 5).map(b => ({
+        user_name: b?.user_name ?? null,
+        project_id: b?.project_id ?? null,
+        key: b?.key ?? null,
+        count: b?.count ?? null,
+      })) : [],
+    };
+    return res.status(200).json({ ok, note, diagnostics: diag, received: json });
   } catch (e) {
     return res.status(200).json({ ok: false, error: e?.message || String(e) });
   }

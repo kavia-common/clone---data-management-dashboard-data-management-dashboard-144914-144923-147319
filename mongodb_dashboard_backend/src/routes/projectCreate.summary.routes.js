@@ -7,9 +7,14 @@ const { getProjectCreateSummary } = require('../controllers/projectCreateSummary
 
 // PUBLIC_INTERFACE
 // GET /api/project-create/summary
-// Minimal route to provide bar chart data from SessionTracking grouped by project.
-// NOTE: This router is mounted at '/api/project-create' in src/routes/index.js.
-// Therefore define the path here as '/summary' (NOT '/project-create/summary').
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/project-create/summary
+ * Returns deterministic 200 with { success, buckets: [ { key, user_name, project_id, label, count } ], project_id? }.
+ * - user_name is resolved from users collection using user_id via multi-key lookup
+ * - project_id is included for verification
+ * - Strict filters enforced: created_at UTC bounds, tenant_id exact, project_id exact (when provided)
+ */
 router.get('/summary', getProjectCreateSummary);
 
 // Lightweight ping route to verify router wiring responds deterministically.
