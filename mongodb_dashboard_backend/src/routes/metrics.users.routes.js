@@ -24,19 +24,23 @@ const { requireTenant } = require('../middleware/requireTenant');
  */
 router.get('/', verifyAuth, requireTenant, async (req, res, next) => {
   try {
-    // Detect T0000 super-admin bypass (mirrors dashboard.routes behavior)
+    // Resolve requested tenant: header -> query -> auth
     let requestedTenant =
-      (req.headers?.['x-organization-id'] || '').toString() ||
+      (req.headers?.['x-organization-id'] || req.headers?.['x-tenant-id'] || '').toString() ||
       (req.query?.organization_id || '').toString() ||
       (req.query?.tenant_id || '').toString() ||
       (req.auth?.tenantId || '').toString();
 
+    // Normalize and detect super-tenant (T0000)
     const isAllTenantsBypass =
-      requestedTenant && requestedTenant.toUpperCase() === 'T0000';
+      requestedTenant && String(requestedTenant).toUpperCase() === 'T0000';
 
     const dbo = await getDb();
     const usersCol = dbo.collection('users');
 
+    // Build conditional tenant filter:
+    // - For T0000: global (no tenant filter)
+    // - Else: enforce req.tenantId scope (already validated by requireTenant)
     const tenantFilter = isAllTenantsBypass
       ? {}
       : {
@@ -50,8 +54,7 @@ router.get('/', verifyAuth, requireTenant, async (req, res, next) => {
           ],
         };
 
-    // Build active status filter; if status field is entirely missing in collection,
-    // this filter will simply match none, giving activeUsers=0 (requested fallback).
+    // Active heuristic
     const statusActiveExpr = {
       $or: [
         { status: { $in: ['active', 'ACTIVE'] } },
@@ -68,13 +71,10 @@ router.get('/', verifyAuth, requireTenant, async (req, res, next) => {
       usersCol.countDocuments({ ...tenantFilter, ...statusActiveExpr }).catch(() => 0),
     ]);
 
+    // Response headers for diagnostics
     try {
-      if (isAllTenantsBypass) {
-        res.set('X-All-Tenants', 'true');
-        res.set('X-Applied-Tenant', 'all-tenants');
-      } else if (req.tenantId) {
-        res.set('X-Applied-Tenant', String(req.tenantId));
-      }
+      res.set('X-Users-Tenant-Mode', isAllTenantsBypass ? 'all-tenants' : 'scoped');
+      res.set('X-Effective-Tenant', isAllTenantsBypass ? 'T0000' : String(req.tenantId || 'unknown'));
     } catch (_) {}
 
     return res.status(200).json({
