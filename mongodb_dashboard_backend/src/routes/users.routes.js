@@ -520,7 +520,15 @@ router.get('/:id', (req, res, next) => {
   return controller.getById(req, res, next);
 });
 
+/**
+ * POST /api/users
+ * Note: Incoming payloads may include displayName/fullName/etc.; controller.create normalizes to 'name'.
+ */
 router.post('/', controller.create);
+/**
+ * PUT /api/users/:id
+ * Validates id; update path normalizes incoming name-like fields to 'name' server-side.
+ */
 router.put('/:id', (req, res, next) => {
   const id = req.params.id;
   if (!mongoose.Types.ObjectId.isValid(id)) {

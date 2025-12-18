@@ -86,6 +86,26 @@ function sanitizePayloadWithTenant(req) {
   delete clean.organizationId;
   delete clean.orgId;
 
+  // Normalize "name" for users: map common incoming aliases to the canonical 'name'
+  try {
+    const n =
+      (typeof body.name === 'string' && body.name) ||
+      (typeof body.displayName === 'string' && body.displayName) ||
+      (typeof body.display_name === 'string' && body.display_name) ||
+      (typeof body.full_name === 'string' && body.full_name) ||
+      (typeof body.fullName === 'string' && body.fullName) ||
+      (typeof body.user_name === 'string' && body.user_name) ||
+      (typeof body.username === 'string' && body.username) ||
+      (typeof body.first_name === 'string' || typeof body.firstName === 'string' || typeof body.last_name === 'string' || typeof body.lastName === 'string'
+        ? [body.first_name ?? body.firstName, body.last_name ?? body.lastName].filter((x) => !!(x && String(x).trim())).join(' ').trim()
+        : null);
+    if (n && String(n).trim()) {
+      clean.name = String(n).trim();
+    }
+  } catch (_) {
+    // non-fatal
+  }
+
   // If bypass active (Super Admin global), do NOT stamp tenant_id on create/update
   const bypass = !!(req.tenantScopeDisabled || req.allTenants);
   if (!bypass && req.tenantId) {
@@ -394,6 +414,27 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           } else {
             items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
+
+          // Migration-safe normalization for Users: ensure 'name' is present in response
+          try {
+            if (Model?.modelName === 'User' && Array.isArray(items)) {
+              items = items.map((u) => {
+                if (u && (u.name == null || String(u.name).trim() === '')) {
+                  const derived =
+                    (u.displayName || u.display_name || u.full_name || u.fullName || u.user_name) ||
+                    ((u.first_name || u.firstName || u.last_name || u.lastName)
+                      ? [u.first_name ?? u.firstName, u.last_name ?? u.lastName].filter((x) => !!(x && String(x).trim())).join(' ').trim()
+                      : null) ||
+                    (u.email ? String(u.email).split('@')[0] : null);
+                  if (derived && String(derived).trim()) {
+                    u.name = String(derived).trim();
+                  }
+                }
+                return u;
+              });
+            }
+          } catch (_) {}
+
           const total = await Model.countDocuments(appliedFilter);
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
@@ -455,7 +496,28 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         } catch (_) {
           // Fallback to simple find if any aggregation operator unsupported
         }
-        const items = await query;
+        let items = await query;
+
+        // Migration-safe normalization for Users: ensure 'name' is present in response
+        try {
+          if (Model?.modelName === 'User' && Array.isArray(items)) {
+            items = items.map((u) => {
+              if (u && (u.name == null || String(u.name).trim() === '')) {
+                const derived =
+                  (u.displayName || u.display_name || u.full_name || u.fullName || u.user_name) ||
+                  ((u.first_name || u.firstName || u.last_name || u.lastName)
+                    ? [u.first_name ?? u.firstName, u.last_name ?? u.lastName].filter((x) => !!(x && String(x).trim())).join(' ').trim()
+                    : null) ||
+                  (u.email ? String(u.email).split('@')[0] : null);
+                if (derived && String(derived).trim()) {
+                  u.name = String(derived).trim();
+                }
+              }
+              return u;
+            });
+          }
+        } catch (_) {}
+
         return res.status(200).json(items);
       } catch (err) {
         return mapAndReplyError(res, err, 'list');
@@ -482,6 +544,22 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             };
         const doc = await Model.findOne(match).lean();
         if (!doc) {return failure(res, 'Not found', 404);}
+
+        // Normalize 'name' for Users
+        try {
+          if (Model?.modelName === 'User' && (doc.name == null || String(doc.name).trim() === '')) {
+            const derived =
+              (doc.displayName || doc.display_name || doc.full_name || doc.fullName || doc.user_name) ||
+              ((doc.first_name || doc.firstName || doc.last_name || doc.lastName)
+                ? [doc.first_name ?? doc.firstName, doc.last_name ?? doc.lastName].filter((x) => !!(x && String(x).trim())).join(' ').trim()
+                : null) ||
+              (doc.email ? String(doc.email).split('@')[0] : null);
+            if (derived && String(derived).trim()) {
+              doc.name = String(derived).trim();
+            }
+          }
+        } catch (_) {}
+
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'getById');
