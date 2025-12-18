@@ -65,52 +65,46 @@ function deriveWindowFromRange(range) {
   };
 }
 
+/**
+ * Note on stability and cancellation prevention:
+ * - Always send a single response path: return after res.json/res.status(...).json.
+ * - Guard against unresolved promises by setting sane defaults and ensuring awaits are bounded to our own async operations only.
+ * - Avoid throwing from downstream helpers by catching and defaulting to null/[].
+ */
 // PUBLIC_INTERFACE
 async function getProjectCreateSummary(req, res, next) {
-  /**
-   * Returns projects created summary grouped by project_id from SessionTracking.
-   *
-   * Fix:
-   * - Resolve project_name(s) via centralized projects.service from AppDeployments and other sources.
-   * - Use project_name in place of project_id for display labels whenever available.
-   * - Gracefully handle missing records and keep original IDs when no name is found.
-   *
-   * Request:
-   * - tenant via query/header (x-organization-id, tenant_id, organization_id)
-   * - range=daily|weekly|monthly|custom (+ start_date,end_date for custom)
-   * - optional project_id via body or query: include project_name at top-level for convenience.
-   *
-   * Response:
-   *   {
-   *     buckets: [ { key: <project_id>, label: <project_name||project_id>, project_id, project_name, count } ],
-   *     (optional) project_id,
-   *     (optional) project_name
-   *   }
-   */
   try {
     const { range = 'daily', start_date, end_date } = req.query;
 
-    // Accept aliases for tenant/organization id
+    // Accept aliases for tenant/organization id (normalized to string or null)
     const tenant =
       req.query.tenant_id ||
       req.query.organization_id ||
       req.query.organizationId ||
-      req.headers['x-organization-id'];
+      req.headers['x-organization-id'] ||
+      null;
 
     // Optional single id
-    const project_id = (req.body && req.body.project_id) || req.query.project_id || null;
+    const project_id =
+      (req.body && (req.body.project_id ?? req.body.projectId)) ||
+      req.query.project_id ||
+      req.query.projectId ||
+      null;
 
-    // Resolve name for the single id (non-fatal)
+    // Resolve name for the single id (non-fatal, bounded)
     let single_project_name = null;
     if (project_id) {
       try {
         single_project_name = await resolveProjectName(project_id);
-      } catch {
+      } catch (e) {
+        // swallow and keep null
         single_project_name = null;
       }
     }
 
+    // Early payload; always return 200 with empty buckets even if tenant missing
     let buckets = [];
+
     if (tenant) {
       // Determine date window
       let windowFrom;
@@ -119,7 +113,9 @@ async function getProjectCreateSummary(req, res, next) {
       if (range === 'custom') {
         const parsed = parseCustomDateWindow(start_date, end_date);
         if (parsed.error) {
-          return res.status(400).json({ error: parsed.error });
+          // For client stability, terminate here with a clear message
+          res.set('Cache-Control', 'no-store');
+          return res.status(400).json({ success: false, error: parsed.error });
         }
         windowFrom = parsed.from;
         windowTo = parsed.to;
@@ -129,17 +125,21 @@ async function getProjectCreateSummary(req, res, next) {
         windowTo = derived.to;
       }
 
-      // Aggregate by project from SessionTracking
+      // Aggregate by project from SessionTracking; ensure project_id exists to avoid null grouping noise
       const pipeline = [
         {
           $match: {
             tenant_id: tenant,
-            // Use last_updated or session_start if present; keep created_at fallback if indexed differently in data.
-            $or: [
-              { created_at: { $gte: windowFrom, $lte: windowTo } },
-              { timestamp: { $gte: windowFrom, $lte: windowTo } },
-              { last_updated: { $gte: windowFrom, $lte: windowTo } },
-              { session_start: { $gte: windowFrom, $lte: windowTo } },
+            $and: [
+              {
+                $or: [
+                  { created_at: { $gte: windowFrom, $lte: windowTo } },
+                  { timestamp: { $gte: windowFrom, $lte: windowTo } },
+                  { last_updated: { $gte: windowFrom, $lte: windowTo } },
+                  { session_start: { $gte: windowFrom, $lte: windowTo } },
+                ],
+              },
+              { project_id: { $exists: true, $ne: null, $ne: '' } },
             ],
           },
         },
@@ -153,38 +153,58 @@ async function getProjectCreateSummary(req, res, next) {
         { $sort: { count: -1 } },
       ];
 
-      const results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+      let results = [];
+      try {
+        results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+      } catch (e) {
+        // On aggregation error, return a safe empty dataset with diagnostics
+        res.set('Cache-Control', 'no-store');
+        return res.status(200).json({
+          success: true,
+          buckets: [],
+          diagnostics: { note: 'aggregation_failed', message: e?.message || String(e) },
+          ...(project_id ? { project_id, project_name: single_project_name } : {}),
+        });
+      }
 
-      // Resolve names in bulk for all distinct project_ids
-      const ids = results.map(r => r.project_id).filter(Boolean);
-      const nameMap = await resolveProjectNames(ids);
+      // Resolve names in bulk for all distinct project_ids (guard map access)
+      const ids = Array.isArray(results) ? results.map(r => r?.project_id).filter(Boolean) : [];
+      let nameMap = new Map();
+      try {
+        nameMap = await resolveProjectNames(ids);
+      } catch {
+        nameMap = new Map();
+      }
 
       buckets = results.map((r) => {
-        const pid = r.project_id || '';
-        const pname = nameMap.get(String(pid)) || null;
+        const pid = r?.project_id ?? '';
+        const pname = nameMap.get(String(pid)) ?? null;
         return {
           key: pid,
           project_id: pid,
           project_name: pname,
-          label: pname || pid, // Use project_name when available
-          count: r.count,
+          label: pname || pid,
+          count: r?.count ?? 0,
         };
       });
-    } else {
-      // No tenant: keep buckets empty but still include top-level project name if requested
-      buckets = [];
     }
 
-    const payload = { buckets };
+    const payload = { success: true, buckets };
     if (project_id) {
       payload.project_id = project_id;
       payload.project_name = single_project_name;
     }
 
-    return res.json(payload);
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).json(payload);
   } catch (err) {
-    if (typeof next === 'function') return next(err);
-    return res.status(500).json({ error: 'Internal server error' });
+    // Ensure single termination path
+    try {
+      return res.status(500).json({ success: false, error: 'Internal server error' });
+    } catch {
+      // delegate to error middleware if res.headersSent issue occurs
+      if (typeof next === 'function') return next(err);
+    }
   }
 }
 

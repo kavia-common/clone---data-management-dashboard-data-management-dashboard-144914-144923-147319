@@ -34,18 +34,35 @@ router.get('/project-create/summary', async (req, res) => {
     const hdrTenant = req.header('x-organization-id');
     if (hdrTenant) headers['x-organization-id'] = hdrTenant;
 
-    const r = await fetch(url.toString(), { headers });
-    const json = await r.json();
-    const hasTopLevel = Object.prototype.hasOwnProperty.call(json, 'project_name');
+    // Use a timeout to prevent hanging verification
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort('fetch-timeout'), 5000);
+
+    let json;
+    try {
+      const r = await fetch(url.toString(), { headers, signal: controller.signal });
+      const contentType = r.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        json = await r.json();
+      } else {
+        const text = await r.text();
+        json = { nonJson: true, status: r.status, body: text };
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const hasTopLevel = json && Object.prototype.hasOwnProperty.call(json, 'project_name');
     const hasInBuckets = Array.isArray(json?.buckets)
       ? json.buckets.some(b => typeof b?.project_name === 'string' || b?.project_name === null)
       : false;
 
-    const ok = hasTopLevel || hasInBuckets;
+    const ok = !!(hasTopLevel || hasInBuckets);
     const note = ok
       ? 'project_name present in response'
       : 'project_name not found; check AppDeployment data for given project_id';
 
+    res.set('Cache-Control', 'no-store');
     return res.status(200).json({ ok, note, received: json });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e?.message || String(e) });

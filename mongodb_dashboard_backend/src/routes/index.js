@@ -27,6 +27,7 @@ try {
  */
 try {
   const projectCreateSummaryRoutes = require('./projectCreate.summary.routes');
+  // Mount at /api/project-create so that GET /api/project-create/summary hits controller without interference
   router.use('/project-create', projectCreateSummaryRoutes);
 } catch (err) {
   // eslint-disable-next-line no-console
