@@ -10,77 +10,110 @@ const { requireTenant } = require('../middleware/requireTenant');
  * PUBLIC_INTERFACE
  * GET /api/metrics/users
  * Returns user metrics counts:
- *  - totalUsers: total number of user documents in scope
- *  - activeUsers: users considered active by status heuristics
+ *  - totalUsers: total DISTINCT users in scope
+ *  - activeUsers: DISTINCT users with status 'active'
  *
- * Tenant scoping:
- *  - By default, requires auth + tenant via verifyAuth + requireTenant.
- *  - If special tenant 'T0000' is provided via header x-organization-id or query (?tenant_id|organization_id),
- *    all-tenant bypass is applied (super-admin like) and scope is removed.
- *  - When Authorization is present, a conflicting tenant_id/organization_id is rejected by requireTenant middleware upstream.
- *
- * Active users heuristic (fallback if status missing -> 0 active):
- *  - status in ['active', 'ACTIVE', true, 1] or nested forms ('status.value', 'profile.status')
+ * Tenant scoping rules:
+ *  - If organization_id (or tenant_id) = 'T0000' then return counts across ALL tenants.
+ *  - Otherwise, return counts only within the resolved tenant.
  */
 router.get('/', verifyAuth, requireTenant, async (req, res, next) => {
   try {
-    // Detect T0000 super-admin bypass (mirrors dashboard.routes behavior)
-    let requestedTenant =
-      (req.headers?.['x-organization-id'] || '').toString() ||
-      (req.query?.organization_id || '').toString() ||
-      (req.query?.tenant_id || '').toString() ||
-      (req.auth?.tenantId || '').toString();
+    // Support both organization_id and tenant_id as inputs (headers take precedence)
+    const headerOrg = (req.headers?.['x-organization-id'] || req.headers?.['x-tenant-id'] || '').toString().trim();
+    const queryOrg = (req.query?.organization_id || '').toString().trim();
+    const queryTid = (req.query?.tenant_id || '').toString().trim();
+    const authTenant = (req.auth?.tenantId || '').toString().trim();
 
+    // Effective requested org (used only to detect T0000)
+    const requestedOrg = headerOrg || queryOrg || queryTid || authTenant;
+
+    // Super-admin override
     const isAllTenantsBypass =
-      requestedTenant && requestedTenant.toUpperCase() === 'T0000';
+      requestedOrg && String(requestedOrg).toUpperCase() === 'T0000';
+
+    // Resolve effective tenant
+    const effectiveTenant = isAllTenantsBypass
+      ? undefined
+      : (req.tenantId || authTenant || headerOrg || queryOrg || queryTid || '').toString().trim();
+
+    if (!isAllTenantsBypass && !effectiveTenant) {
+      return res.status(400).json({
+        success: false,
+        message: 'organization_id (tenant) is required unless using T0000 super-admin override',
+      });
+    }
 
     const dbo = await getDb();
     const usersCol = dbo.collection('users');
 
+    // Tenant filter
     const tenantFilter = isAllTenantsBypass
       ? {}
       : {
           $or: [
-            { tenant_id: req.tenantId },
-            { organization_id: req.tenantId },
-            { orgId: req.tenantId },
-            { tenantId: req.tenantId },
-            { organizationId: req.tenantId },
-            { 'tenant.tenant_id': req.tenantId },
+            { tenant_id: effectiveTenant },
+            { organization_id: effectiveTenant },
+            { organizationId: effectiveTenant },
+            { tenantId: effectiveTenant },
+            { orgId: effectiveTenant },
+            { 'tenant.tenant_id': effectiveTenant },
           ],
         };
 
-    // Build active status filter; if status field is entirely missing in collection,
-    // this filter will simply match none, giving activeUsers=0 (requested fallback).
+    // Active status filter (strict)
     const statusActiveExpr = {
       $or: [
-        { status: { $in: ['active', 'ACTIVE'] } },
-        { status: true },
-        { status: 1 },
-        { 'profile.status': { $in: ['active', 'ACTIVE'] } },
-        { 'profile.active': { $in: [true, 1] } },
-        { 'status.value': { $in: ['active', 'ACTIVE'] } },
+        { status: { $in: ['active', 'ACTIVE', 'Active'] } },
+        { 'profile.status': { $in: ['active', 'ACTIVE', 'Active'] } },
+        { 'status.value': { $in: ['active', 'ACTIVE', 'Active'] } },
       ],
     };
 
-    const [totalUsers, activeUsers] = await Promise.all([
-      usersCol.countDocuments(tenantFilter),
-      usersCol.countDocuments({ ...tenantFilter, ...statusActiveExpr }).catch(() => 0),
+    /**
+     * IMPORTANT:
+     * We count DISTINCT users, not documents.
+     * `_id` is assumed to be the unique user identifier.
+     * Change this to `email`, `user_id`, etc. if needed.
+     */
+    const USER_ID_FIELD = '_id';
+
+    const baseMatchStage = isAllTenantsBypass
+      ? []
+      : [{ $match: tenantFilter }];
+
+    const totalUsersPipeline = [
+      ...baseMatchStage,
+      { $group: { _id: `$${USER_ID_FIELD}` } },
+      { $count: 'count' },
+    ];
+
+    const activeUsersPipeline = [
+      ...baseMatchStage,
+      { $match: statusActiveExpr },
+      { $group: { _id: `$${USER_ID_FIELD}` } },
+      { $count: 'count' },
+    ];
+
+    const [totalAgg, activeAgg] = await Promise.all([
+      usersCol.aggregate(totalUsersPipeline).toArray(),
+      usersCol.aggregate(activeUsersPipeline).toArray(),
     ]);
 
+    const totalUsers = totalAgg[0]?.count || 0;
+    const activeUsers = activeAgg[0]?.count || 0;
+
+    // Diagnostics headers
     try {
-      if (isAllTenantsBypass) {
-        res.set('X-All-Tenants', 'true');
-        res.set('X-Applied-Tenant', 'all-tenants');
-      } else if (req.tenantId) {
-        res.set('X-Applied-Tenant', String(req.tenantId));
-      }
-    } catch (_) {}
+      res.set('X-Users-Tenant-Mode', isAllTenantsBypass ? 'all-tenants' : 'scoped');
+      res.set('X-Effective-Tenant', isAllTenantsBypass ? 'T0000' : String(effectiveTenant));
+      res.set('X-Users-Count-Mode', 'distinct');
+    } catch {}
 
     return res.status(200).json({
       success: true,
       totalUsers,
-      activeUsers: Number.isFinite(activeUsers) ? activeUsers : 0,
+      activeUsers,
     });
   } catch (err) {
     return next(err);
