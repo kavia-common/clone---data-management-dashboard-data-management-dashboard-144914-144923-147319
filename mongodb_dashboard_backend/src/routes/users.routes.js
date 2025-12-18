@@ -437,6 +437,18 @@ router.get(
         allTenants: !!(req.tenantScopeDisabled || req.allTenants),
         appliedTenant: String(applied || ''),
       });
+      // If a user id is passed via user_name or userId, validate ObjectId upfront for clearer 400s.
+      const rawUserIdParam =
+        (typeof req.query?.userId === 'string' && req.query.userId.trim()) ||
+        (typeof req.query?.user_id === 'string' && req.query.user_id.trim()) ||
+        (typeof req.query?.user_name === 'string' && req.query.user_name.trim()) ||
+        null;
+      if (rawUserIdParam) {
+        const isValidObjectId = mongoose.Types.ObjectId.isValid(rawUserIdParam);
+        if (!isValidObjectId) {
+          return res.status(400).json({ success: false, message: 'Invalid user id in user_name/userId' });
+        }
+      }
     } catch {}
     return controller.list(req, res, next);
   }

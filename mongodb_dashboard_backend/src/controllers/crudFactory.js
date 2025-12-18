@@ -165,6 +165,19 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
   return {
     // PUBLIC_INTERFACE
     async list(req, res) {
+      // Special handling: if client passes user_name or userId as a user identifier,
+      // we will resolve it to the user's name and:
+      //  - If Model is User: filter by _id (ObjectId) and return that record (with normalized name).
+      //  - If Model is not User but has user_id field: filter by user_id (string compare) and
+      //    augment each result with computed field user_name from the matched user's name.
+      // We accept either ?userId=<id> or ?user_name=<id> (back-compat).
+      const rawUserIdParam =
+        (typeof req.query?.userId === 'string' && req.query.userId.trim()) ||
+        (typeof req.query?.user_id === 'string' && req.query.user_id.trim()) ||
+        (typeof req.query?.user_name === 'string' && req.query.user_name.trim()) ||
+        null;
+      let resolvedUserName = null;
+      let resolvedUserId = null;
       // list handler for generic model with tenant scoping
       // Determine effective tenant from JWT-backed middleware
       const effectiveTenant = req?.tenantId ? String(req.tenantId) : undefined;
@@ -292,7 +305,73 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       }
 
       // Build final applied filter with robust tenant alias removal and normalized OR across aliases
-      const appliedFilter = (req.tenantScopeDisabled || req.allTenants) ? (filter && typeof filter === 'object' ? filter : {}) : mergeFilterWithTenant(filter, req.tenantId);
+      let appliedFilter = (req.tenantScopeDisabled || req.allTenants)
+        ? (filter && typeof filter === 'object' ? filter : {})
+        : mergeFilterWithTenant(filter, req.tenantId);
+
+      // If user id is provided through user_name/userId, adapt filter and resolve user.name
+      if (rawUserIdParam) {
+        try {
+          const mongoose = require('mongoose');
+          const isValidObjectId = mongoose.Types.ObjectId.isValid(rawUserIdParam);
+          if (!isValidObjectId) {
+            // invalid id => return 400
+            return failure(res, 'Invalid user id in user_name/userId', 400);
+          }
+          resolvedUserId = String(rawUserIdParam);
+          // Lazy import to avoid cyclic deps
+          const UserModel = require('../models/user.model');
+          const userDoc = await UserModel.findById(resolvedUserId).lean();
+          if (!userDoc) {
+            // Treat as valid but not found -> no rows for non-User models, empty result quickly
+            // For Users, we will result in 0 count
+            resolvedUserName = null;
+          } else {
+            // Normalize name same as elsewhere
+            let name = userDoc.name;
+            if (!name || String(name).trim() === '') {
+              const derived =
+                (userDoc.displayName || userDoc.display_name || userDoc.full_name || userDoc.fullName || userDoc.user_name) ||
+                ((userDoc.first_name || userDoc.firstName || userDoc.last_name || userDoc.lastName)
+                  ? [userDoc.first_name ?? userDoc.firstName, userDoc.last_name ?? userDoc.lastName]
+                      .filter((x) => !!(x && String(x).trim()))
+                      .join(' ')
+                      .trim()
+                  : null) ||
+                (userDoc.email ? String(userDoc.email).split('@')[0] : null);
+              if (derived && String(derived).trim()) {
+                name = String(derived).trim();
+              }
+            }
+            resolvedUserName = name || null;
+          }
+
+          if (Model?.modelName === 'User') {
+            // Adjust filter to _id match (respect existing filter via $and)
+            const idClause = { _id: resolvedUserId };
+            if (appliedFilter && Object.keys(appliedFilter).length > 0) {
+              appliedFilter = { $and: [appliedFilter, idClause] };
+            } else {
+              appliedFilter = idClause;
+            }
+          } else {
+            // Non-User: filter by user_id (string compare) so that we get rows for that user
+            const userIdClause = { user_id: resolvedUserId };
+            if (appliedFilter && Object.keys(appliedFilter).length > 0) {
+              appliedFilter = { $and: [appliedFilter, userIdClause] };
+            } else {
+              appliedFilter = userIdClause;
+            }
+          }
+          // Expose resolved name for diagnostics
+          try {
+            res.set('X-Resolved-User-Id', String(resolvedUserId));
+            if (resolvedUserName != null) res.set('X-Resolved-User-Name', String(resolvedUserName));
+          } catch (_) {}
+        } catch (e) {
+          return failure(res, 'Failed to resolve user from provided user id', 400);
+        }
+      }
 
       // Expose applied filter, model collection and quick existence probe for diagnostics
       try {
@@ -437,6 +516,17 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             }
           } catch (_) {}
 
+          // If we are not listing Users but a foreign collection that references user_id,
+          // and a user id was provided, attach computed user_name to each row for UI mapping.
+          if (Model?.modelName !== 'User' && Array.isArray(items) && resolvedUserId) {
+            // Avoid extra DB call if already resolved above
+            if (resolvedUserName != null) {
+              items = items.map((it) => ({ ...it, user_name: resolvedUserName, user: { ...(it.user || {}), name: resolvedUserName } }));
+            } else {
+              // Best-effort: still include user field structure
+              items = items.map((it) => ({ ...it, user_name: null, user: { ...(it.user || {}), name: null } }));
+            }
+          }
           const total = await Model.countDocuments(appliedFilter);
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
@@ -473,7 +563,15 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
             ];
             const items = await Model.aggregate(pipeline).allowDiskUse(true);
-            return res.status(200).json(items);
+            // Augment for non-User models when userId/user_name provided
+        if (Model?.modelName !== 'User' && Array.isArray(items) && resolvedUserId) {
+          if (resolvedUserName != null) {
+            items = items.map((it) => ({ ...it, user_name: resolvedUserName, user: { ...(it.user || {}), name: resolvedUserName } }));
+          } else {
+            items = items.map((it) => ({ ...it, user_name: null, user: { ...(it.user || {}), name: null } }));
+          }
+        }
+        return res.status(200).json(items);
           }
           if (isAppDeployment) {
             const pipeline = [
