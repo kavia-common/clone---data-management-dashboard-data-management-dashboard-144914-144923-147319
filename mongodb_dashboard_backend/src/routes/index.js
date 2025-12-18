@@ -42,6 +42,8 @@ try {
 try {
   const devVerifyProjectCreate = require('./dev.verify.projectCreate.routes');
   router.use('/dev/verify', devVerifyProjectCreate);
+  const devVerifyProjectCreateExact = require('./dev.verify.projectCreate.exact.routes');
+  router.use('/dev/verify', devVerifyProjectCreateExact);
 } catch (err) {
   // eslint-disable-next-line no-console
   console.warn('[routes/index] dev.verify.projectCreate.routes not mounted:', err?.message || err);

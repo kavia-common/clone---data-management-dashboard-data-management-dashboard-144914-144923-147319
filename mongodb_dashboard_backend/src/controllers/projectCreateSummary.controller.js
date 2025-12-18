@@ -110,28 +110,35 @@ async function getProjectCreateSummary(req, res, next) {
         windowTo = derived.to;
       }
 
-      // Last known-good: aggregate by project_id and count sessions within window and tenant
+      // STRICT MATCH: only created_at in UTC window, exact tenant and exact project_id match when provided.
+      // Never broaden with $or across other date fields; use inclusive bounds [from, to].
+      // Determine effective projectId predicate based on storage type (schema shows String).
+      const projectIdFilter = {};
+      if (project_id !== null && project_id !== undefined && project_id !== '') {
+        // If project_id is numeric in DB, coerce here; else keep string.
+        // SessionTracking model defines project_id as String; however, we defensively handle numeric-only strings.
+        const numMaybe = Number(project_id);
+        if (!Number.isNaN(numMaybe) && String(numMaybe) === String(project_id)) {
+          // store numeric form as string as per schema
+          projectIdFilter.project_id = String(numMaybe);
+        } else {
+          projectIdFilter.project_id = String(project_id);
+        }
+      }
+
+      const strictMatch = {
+        tenant_id: String(tenant),
+        created_at: { $gte: windowFrom, $lte: windowTo },
+        ...(Object.keys(projectIdFilter).length ? projectIdFilter : { project_id: { $exists: true } }),
+      };
+
       const pipeline = [
-        {
-          $match: {
-            tenant_id: String(tenant),
-            $and: [
-              {
-                $or: [
-                  { created_at: { $gte: windowFrom, $lte: windowTo } },
-                  { timestamp: { $gte: windowFrom, $lte: windowTo } },
-                  { last_updated: { $gte: windowFrom, $lte: windowTo } },
-                  { session_start: { $gte: windowFrom, $lte: windowTo } },
-                ],
-              },
-              { project_id: { $exists: true } },
-            ],
-          },
-        },
+        { $match: strictMatch },
         {
           $group: {
             _id: { $ifNull: [{ $toString: '$project_id' }, '' ] },
             project_id: { $first: { $ifNull: [{ $toString: '$project_id' }, '' ] } },
+            user_id: { $first: { $ifNull: [{ $toString: '$user_id' }, '' ] } },
             count: { $sum: 1 },
           },
         },
@@ -154,11 +161,11 @@ async function getProjectCreateSummary(req, res, next) {
 
       // Map to response buckets. IMPORTANT: replace project_id display with user_id per request.
       buckets = (results || []).map((r) => {
-        const pid = r?.project_id != null ? String(r.project_id) : '';
+        const uid = r?.user_id != null && r.user_id !== '' ? String(r.user_id) : (r?.project_id != null ? String(r.project_id) : '');
         return {
-          key: pid,
-          user_id: pid, // replace project_id with user_id in the payload
-          label: pid,
+          key: uid,
+          user_id: uid, // use user_id in the payload
+          label: uid,
           count: r?.count ?? 0,
         };
       });
@@ -175,6 +182,10 @@ async function getProjectCreateSummary(req, res, next) {
     res.set('x-project-create-ms', String(Date.now() - t0));
     if (tenant) res.set('x-project-create-tenant', String(tenant));
     if (project_id) res.set('x-project-id', String(project_id));
+    if (typeof windowFrom !== 'undefined' && typeof windowTo !== 'undefined') {
+      res.set('x-project-create-from', windowFrom.toISOString());
+      res.set('x-project-create-to', windowTo.toISOString());
+    }
     return res.status(200).json(payload);
   } catch (err) {
     try { console.warn('[project-create] unhandled error:', err?.message || err); } catch {}
