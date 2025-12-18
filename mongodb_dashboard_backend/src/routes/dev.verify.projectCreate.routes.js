@@ -8,11 +8,10 @@ const fetch = require('node-fetch');
  * PUBLIC_INTERFACE
  * GET /api/dev/verify/project-create/summary
  * Quick verification helper: proxies an internal call to /api/project-create/summary
- * and asserts that project_name is present when project_id is provided. This is a
- * lightweight diagnostic route for manual checks in demos/dev environments.
+ * and asserts that user_id is present (replacing prior project_id display).
  *
  * Query:
- *  - project_id: string (optional)
+ *  - project_id: string (optional, preserved for compatibility; will be echoed as user_id)
  *  - tenant_id | organization_id | x-organization-id (optional)
  *
  * Returns:
@@ -51,21 +50,21 @@ router.get('/project-create/summary', async (req, res) => {
       clearTimeout(timeout);
     }
 
-    const hasTopLevel = json && Object.prototype.hasOwnProperty.call(json, 'project_name');
-    const hasInBuckets = Array.isArray(json?.buckets)
-      ? json.buckets.some(b => typeof b?.project_name === 'string' || b?.project_name === null)
+    const hasTopLevelUserId = json && Object.prototype.hasOwnProperty.call(json, 'user_id');
+    const hasInBucketsUserId = Array.isArray(json?.buckets)
+      ? json.buckets.some(b => typeof b?.user_id === 'string')
       : false;
 
-    const ok = !!(hasTopLevel || hasInBuckets);
+    const ok = !!(hasTopLevelUserId || hasInBucketsUserId);
     const note = ok
-      ? 'project_name present in response'
-      : 'project_name not found; check AppDeployment data for given project_id';
+      ? 'user_id present in response (replacing project_id display)'
+      : 'user_id not found in response';
 
     res.set('Cache-Control', 'no-store');
     res.set('x-verify-route', 'dev.project-create.summary');
     return res.status(200).json({ ok, note, received: json });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: e?.message || String(e) });
+    return res.status(200).json({ ok: false, error: e?.message || String(e) });
   }
 });
 
