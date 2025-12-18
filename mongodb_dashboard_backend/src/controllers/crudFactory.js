@@ -234,7 +234,14 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
       // Parse pagination but hard-cap the limit to prevent heavy responses.
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
-      const hardCappedLimit = clampLimit(parsedLimit, 500);
+      // If bypass across all tenants is active, force explicit pagination and a smaller per-page limit to avoid huge scans
+      const bypassAll = !!(req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass || req.sessionsAllTenantsBypass || req.deploymentsAllTenantsBypass || req.costsAllTenantsBypass);
+      const maxPerPage = bypassAll ? 100 : 500;
+      const hardCappedLimit = clampLimit(parsedLimit, maxPerPage);
+      if (bypassAll && !explicit) {
+        // Require pagination in bypass mode
+        return failure(res, 'Pagination required when querying across all tenants (page, limit).', 400);
+      }
 
       // Parse filter safely
       const filterRaw = req.query.filter ? req.query.filter : '{}';
@@ -304,19 +311,16 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       const allowedSorts = isAppDeployment
         ? ['timestamp', 'created_at', 'updated_at', '_id', 'status', 'branch_name', 'project_name']
         : ['timestamp', 'created_at', '_id'];
-      const safeSort = validateSort(req.query.sort || listDefaultSort, allowedSorts);
+      // For User model prefer created_at to align with compound index we ensure
+      const defaultSort = Model?.modelName === 'User' ? '-created_at' : (req.query.sort || listDefaultSort);
+      const safeSort = validateSort(req.query.sort || defaultSort, allowedSorts);
 
       // execute DB operations with safe sort and enforced tenant filter
       try {
-        // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
-        let existsSample = 'unknown';
-        try {
-          const existsDoc = await Model.exists(
-            appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
-          ).lean?.();
-          existsSample = existsDoc ? 'true' : 'false';
-        } catch {
-          // Some Mongoose versions don't support .lean on exists result; fallback
+        // Optional fast existence probe; can be disabled via DISABLE_EXISTS_PROBE=1 to reduce an extra round-trip on large collections
+        let existsSample = 'skipped';
+        const doProbe = String(process.env.DISABLE_EXISTS_PROBE || '0') !== '1';
+        if (doProbe) {
           try {
             const existsDoc = await Model.exists(
               appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
@@ -326,9 +330,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             existsSample = 'error';
           }
         }
-        try {
-          res.set('X-Exists-Sample', existsSample);
-        } catch (_) {}
+        try { res.set('X-Exists-Sample', existsSample); } catch (_) {}
 
         if (debugOn) {
           try {

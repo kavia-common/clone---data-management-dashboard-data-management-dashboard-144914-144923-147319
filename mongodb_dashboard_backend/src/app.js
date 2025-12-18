@@ -220,12 +220,16 @@ if (process.env.NODE_ENV !== 'test') {
       .then(async () => {
         try {
           const { ensureLlmCostsIndexes } = require('./models/llmCosts.indexes');
+          const { ensureUsersIndexes } = require('./models/users.indexes');
           // fire-and-forget; do not await to keep startup snappy
           Promise.resolve(ensureLlmCostsIndexes())
             .then(() => console.log('[startup] ensureLlmCostsIndexes scheduled'))
             .catch((e) => console.warn('[startup] ensureLlmCostsIndexes failed:', e?.message || e));
+          Promise.resolve(ensureUsersIndexes())
+            .then(() => console.log('[startup] ensureUsersIndexes scheduled'))
+            .catch((e) => console.warn('[startup] ensureUsersIndexes failed:', e?.message || e));
         } catch (e) {
-          console.warn('[startup] ensureLlmCostsIndexes unavailable:', e?.message || e);
+          console.warn('[startup] ensureIndexes unavailable:', e?.message || e);
         }
       })
       .catch((err) =>

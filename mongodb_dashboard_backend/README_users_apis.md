@@ -1,6 +1,9 @@
 # Users API scoping notes
 
 - All list endpoints under /api/users are now strictly scoped by organization on the server.
+- Super-admin/global bypass (including organization_id=T0000) is permitted for diagnostics but requires explicit pagination (page & limit), with limit capped to 100 per page to prevent timeouts across large datasets.
+- Default sort for users is by created_at descending to use appropriate indexes.
+- You can disable the small existence probe on list endpoints by setting DISABLE_EXISTS_PROBE=1 in the environment if you observe extra round-trips on very large collections.
 - Organization is read from trusted locations via middleware (headers preferred): 
   - X-Organization-Id, X-Org-Id, X-Tenant-Id, X-Tenant
   - Fallbacks: query ?tenant_id or ?organization_id, or body.organization_id for POST endpoints.
