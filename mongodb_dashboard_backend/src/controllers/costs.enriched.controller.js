@@ -16,9 +16,9 @@ async function listEnrichedCosts(req, res, next) {
   /**
    * This endpoint returns costs with user_name enriched from users collection.
    * - Tenant scoping: honors JWT tenant if present; otherwise uses x-organization-id or ?tenant_id/?organization_id.
-   * - Join: $lookup users on localField: user_id (cast to string) to foreignField: _id (cast to string).
-   * - Projection: adds user_name: ifNull(arrayElemAt([ "$user.name", 0 ]), "Unknown User").
-   * - Filtering: applies allowed filter keys passed via ?filter= JSON (status, provider, llm_model, user_id, session_id, project_id, request_id).
+   * - Join: $lookup users on normalized string forms of user_id and users._id (string cast).
+   * - Projection: adds user_name using fallbacks: name, profile.name, user_name, displayName, display_name, full_name, fullName, username (default "Unknown User").
+   * - Filtering: applies allowed filter keys passed via ?filter= JSON (status, provider, llm_model, user_id, session_id, project_id, request_id, timestamp, created_at).
    * - Pagination: page, limit; envelope response with meta.
    *
    * Query params:
@@ -99,7 +99,7 @@ async function listEnrichedCosts(req, res, next) {
       }
     });
 
-    // Lookup users by casted string _id
+    // Lookup users by casted string _id and expose multiple possible name fields
     pipeline.push({
       $lookup: {
         from: 'users',
@@ -118,7 +118,14 @@ async function listEnrichedCosts(req, res, next) {
           {
             $project: {
               _id: 1,
-              name: 1
+              name: 1,
+              'profile.name': 1,
+              user_name: 1,
+              displayName: 1,
+              display_name: 1,
+              full_name: 1,
+              fullName: 1,
+              username: 1
             }
           }
         ],
@@ -126,14 +133,55 @@ async function listEnrichedCosts(req, res, next) {
       }
     });
 
-    // Project enriched field
+    // Project enriched field using cascading fallbacks for name values
     pipeline.push({
       $addFields: {
         user_name: {
-          $ifNull: [
-            { $arrayElemAt: ['$user.name', 0] },
-            'Unknown User'
-          ]
+          $let: {
+            vars: { u: { $arrayElemAt: ['$user', 0] } },
+            in: {
+              $ifNull: [
+                {
+                  $trim: {
+                    input: {
+                      $ifNull: [
+                        '$$u.name',
+                        {
+                          $ifNull: [
+                            '$$u.profile.name',
+                            {
+                              $ifNull: [
+                                '$$u.user_name',
+                                {
+                                  $ifNull: [
+                                    '$$u.displayName',
+                                    {
+                                      $ifNull: [
+                                        '$$u.display_name',
+                                        {
+                                          $ifNull: [
+                                            '$$u.full_name',
+                                            {
+                                              $ifNull: ['$$u.fullName', '$$u.username']
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                'Unknown User'
+              ]
+            }
+          }
         }
       }
     });
@@ -171,10 +219,15 @@ async function listEnrichedCosts(req, res, next) {
         _user_id_str, // internal
         ...rest
       } = doc;
-      // Ensure user_name present
+
+      const safeName =
+        typeof doc.user_name === 'string' && doc.user_name.trim()
+          ? doc.user_name.trim()
+          : 'Unknown User';
+
       return {
         ...rest,
-        user_name: typeof doc.user_name === 'string' && doc.user_name.trim() ? doc.user_name : 'Unknown User'
+        user_name: safeName
       };
     });
 

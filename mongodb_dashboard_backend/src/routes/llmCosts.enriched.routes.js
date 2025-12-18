@@ -10,9 +10,9 @@ const { asyncHandler } = require('../utils/http');
 
 /**
  * GET /api/costs
- * Returns LLM costs enriched with user_name joined from users.
- * - Envelope response with pagination and meta.
- * - Tenant scoping enforced using existing conventions.
+ * Summary: List costs enriched with user_name
+ * Description: Joins llm_costs.user_id to users._id using $lookup and returns user_name along with existing fields.
+ * Query: page, limit, sort, filter (JSON; whitelisted fields). Tenant scoping enforced.
  */
 router.get('/', resolveTenantScope, asyncHandler(listEnrichedCosts));
 
