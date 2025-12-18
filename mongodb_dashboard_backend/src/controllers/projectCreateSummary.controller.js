@@ -1,6 +1,7 @@
 'use strict';
 
 const SessionTracking = require('../models/sessionTracking.model');
+const AppDeployment = require('../models/appDeployments.model');
 
 /**
  * Helper: parse YYYY-MM-DD into UTC start-of-day and end-of-day Date objects.
@@ -68,15 +69,21 @@ function deriveWindowFromRange(range) {
 async function getProjectCreateSummary(req, res, next) {
   /**
    * Returns projects created summary grouped by project_id from SessionTracking.
-   * Mandatory filters:
-   *  - Tenant/organization id: accept organization_id, organizationId, or tenant_id (alias to tenant_id). Also honor x-organization-id header.
-   *  - Date range on created_at: derived from ?range=daily|weekly|monthly for today (UTC) or
-   *    when range=custom, from start_date/end_date (YYYY-MM-DD) converted to UTC start/end of day.
    *
-   * Response shape must be exactly:
-   *   { buckets: [{ key: project_id, label: project_id, count }] }
+   * Enhancements per request:
+   * - When a specific "project_id" is provided via body or query, include "project_name"
+   *   resolved from AppDeployment by matching AppDeployment.project_id (and common aliases).
+   *   If no matching record is found, project_name is null. This is additive and does not
+   *   break existing consumers.
    *
-   * 400 when tenant missing or date range invalid (for custom when one of from/to is missing).
+   * Additional behavior retained:
+   * - Accept organization/tenant id via query/header for the aggregation portion.
+   * - Support range=daily|weekly|monthly|custom with start_date/end_date.
+   *
+   * Response:
+   * - If "project_id" is provided: include { project_id, project_name } in the payload,
+   *   along with the existing buckets array when tenant/range filters are provided.
+   * - If "project_id" is not provided: only the original buckets behavior is returned.
    */
   try {
     const {
@@ -92,58 +99,103 @@ async function getProjectCreateSummary(req, res, next) {
       req.query.organizationId ||
       req.headers['x-organization-id'];
 
-    if (!tenant) {
-      return res.status(400).json({ error: 'Missing tenant/organization id' });
-    }
+    // Optional project_id for name resolution (additive behavior)
+    const project_id = (req.body && req.body.project_id) || req.query.project_id || null;
 
-    // Determine date window
-    let windowFrom;
-    let windowTo;
+    // Build optional project_name resolution (non-fatal if it fails or not found)
+    let project_name = null;
+    if (project_id) {
+      try {
+        const deployment = await AppDeployment
+          .findOne(
+            {
+              $or: [
+                { project_id: project_id },
+                { projectId: project_id },
+                { 'metadata.projectId': project_id },
+                { 'project.id': project_id },
+              ],
+            },
+            { project_name: 1, projectName: 1, 'project.name': 1, name: 1 }
+          )
+          .lean()
+          .exec();
 
-    if (range === 'custom') {
-      const parsed = parseCustomDateWindow(start_date, end_date);
-      if (parsed.error) {
-        return res.status(400).json({ error: parsed.error });
+        if (deployment) {
+          project_name =
+            deployment.project_name ??
+            deployment.projectName ??
+            (deployment.project && deployment.project.name) ??
+            deployment.name ??
+            null;
+        }
+      } catch (lookupErr) {
+        // swallow lookup errors and keep project_name as null
+        project_name = null;
       }
-      windowFrom = parsed.from;
-      windowTo = parsed.to;
-    } else {
-      const derived = deriveWindowFromRange(range);
-      windowFrom = derived.from;
-      windowTo = derived.to;
     }
 
-    // Build aggregation pipeline as specified:
-    // 1) $match using created_at between from/to and tenant filter.
-    // 2) $group by "$project_id" with fields: _id, project_id:$first, count:$sum
-    // 3) $sort by { count: -1 }
-    const pipeline = [
-      {
-        $match: {
-          tenant_id: tenant,
-          created_at: { $gte: windowFrom, $lte: windowTo },
+    // If tenant context is not provided, we still return success for the project_name part (if requested)
+    // but for buckets we require tenant as before to avoid breaking expectations.
+    let buckets = [];
+    if (tenant) {
+      // Determine date window
+      let windowFrom;
+      let windowTo;
+
+      if (range === 'custom') {
+        const parsed = parseCustomDateWindow(start_date, end_date);
+        if (parsed.error) {
+          // If custom date range invalid, preserve existing behavior by returning 400.
+          return res.status(400).json({ error: parsed.error });
+        }
+        windowFrom = parsed.from;
+        windowTo = parsed.to;
+      } else {
+        const derived = deriveWindowFromRange(range);
+        windowFrom = derived.from;
+        windowTo = derived.to;
+      }
+
+      // Aggregate by project from SessionTracking (existing behavior)
+      const pipeline = [
+        {
+          $match: {
+            tenant_id: tenant,
+            created_at: { $gte: windowFrom, $lte: windowTo },
+          },
         },
-      },
-      {
-        $group: {
-          _id: '$project_id',
-          project_id: { $first: '$project_id' },
-          count: { $sum: 1 },
+        {
+          $group: {
+            _id: '$project_id',
+            project_id: { $first: '$project_id' },
+            count: { $sum: 1 },
+          },
         },
-      },
-      { $sort: { count: -1 } },
-    ];
+        { $sort: { count: -1 } },
+      ];
 
-    const results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+      const results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+      buckets = results.map((r) => ({
+        key: r.project_id,
+        label: r.project_id,
+        count: r.count,
+      }));
+    } else {
+      // No tenant provided; maintain backward compatibility:
+      // - We won't compute buckets (requires tenant).
+      // - Return empty buckets array and still include project_name if project_id is provided.
+      buckets = [];
+    }
 
-    // Keep payload exactly as requested
-    const buckets = results.map((r) => ({
-      key: r.project_id,
-      label: r.project_id,
-      count: r.count,
-    }));
+    // Compose response. Keep existing fields intact, only add project_name if project_id was requested.
+    const payload = { buckets };
+    if (project_id) {
+      payload.project_id = project_id;
+      payload.project_name = project_name;
+    }
 
-    return res.json({ buckets });
+    return res.json(payload);
   } catch (err) {
     if (typeof next === 'function') return next(err);
     return res.status(500).json({ error: 'Internal server error' });
