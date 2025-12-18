@@ -29,67 +29,25 @@ async function getLlmCostsAggregated(req, res) {
 
   // Build the minimal pipeline per spec
   const pipeline = [
-    // Tenant/organization scope — accept any string id (non-numeric such as 'b2c')
     ...(organization_id ? [{ $match: { organization_id } }] : []),
 
-    // Normalize cost fields defensively before arithmetic: treat '', null, undefined, and non-numeric as 0.
-    // We first strip a leading '$' when present, then attempt numeric conversion with onError/onNull: 0.
-    {
-      $addFields: {
-        // Common total_cost normalization at top-level documents (if present in schema variants)
-        total_cost_num: {
-          $convert: {
-            input: {
-              $cond: [
-                { $and: [{ $isArray: '$total_cost' }, { $gt: [{ $size: '$total_cost' }, 0] }] },
-                { $arrayElemAt: ['$total_cost', 0] },
-                '$total_cost',
-              ]
-            },
-            to: 'double',
-            onError: 0,
-            onNull: 0,
-          }
-        },
-      }
-    },
+    // Convert organization cost to number
+    // {
+    //   $addFields: {
+    //     organization_cost_num: {
+    //       $toDouble: { $substr: ['$organization_cost', 1, -1] }
+    //     }
+    //   }
+    // },
 
-    // Unwind users (documents may have nested user breakdowns)
-    { $unwind: { path: '$users', preserveNullAndEmptyArrays: true } },
+    // Unwind users
+    { $unwind: '$users' },
 
-    // Convert user_cost safely. Supports values like '$1.23', '1.23', '', null -> 0
+    // Convert user cost to number
     {
       $addFields: {
         user_cost_num: {
-          $convert: {
-            input: {
-              $let: {
-                vars: {
-                  raw: { $ifNull: ['$users.user_cost', 0] },
-                },
-                in: {
-                  $cond: [
-                    { $eq: [{ $type: '$$raw' }, 'string'] },
-                    {
-                      $trim: {
-                        input: {
-                          $cond: [
-                            { $eq: [{ $substrCP: ['$$raw', 0, 1] }, '$'] },
-                            { $substrCP: ['$$raw', 1, { $subtract: [{ $strLenCP: '$$raw' }, 1] }] },
-                            '$$raw'
-                          ]
-                        }
-                      }
-                    },
-                    '$$raw'
-                  ]
-                }
-              }
-            },
-            to: 'double',
-            onError: 0,
-            onNull: 0
-          }
+          $toDouble: { $substr: ['$users.user_cost', 1, -1] }
         }
       }
     },
@@ -102,7 +60,7 @@ async function getLlmCostsAggregated(req, res) {
       }
     },
 
-    // Group per USER with safe accumulation
+    // Group per USER
     {
       $group: {
         _id: {
@@ -112,21 +70,12 @@ async function getLlmCostsAggregated(req, res) {
           user_id: '$users.user_id',
           type: '$users.type'
         },
-        // choose the first normalized cost for the user in this doc (or could change to sum if duplicates appear)
-        user_cost: { $first: { $ifNull: ['$user_cost_num', 0] } },
-        // Projects may store id or project_id; collect either when present
-        projectsSet: {
-          $addToSet: {
-            $ifNull: [
-              { $ifNull: ['$users.projects.project_id', '$users.projects.id'] },
-              null
-            ]
-          }
-        }
+        user_cost: { $first: '$user_cost_num' },
+        projectsSet: { $addToSet: '$users.projects.project_id' }
       }
     },
 
-    // Shape output with safe counts
+    // Shape output
     {
       $project: {
         _id: 0,
@@ -136,12 +85,13 @@ async function getLlmCostsAggregated(req, res) {
         user_id: '$_id.user_id',
         type: '$_id.type',
         user_cost: 1,
+        // organization_cost: 1,
         projects: {
           $size: {
             $filter: {
               input: '$projectsSet',
               as: 'p',
-              cond: { $and: [{ $ne: ['$$p', null] }, { $ne: ['$$p', ''] }] }
+              cond: { $ne: ['$$p', null] }
             }
           }
         }
@@ -162,10 +112,12 @@ async function getLlmCostsAggregated(req, res) {
 
   // Execute
   const result = await LLMCost.aggregate(pipeline, { allowDiskUse: true });
-  const facet = Array.isArray(result) && result[0] ? result[0] : { rows: [], meta: [] };
+  const facet = Array.isArray(result) && result[0] ? result[0] : { rows: [], meta: [], orgMeta: [] };
   const rows = Array.isArray(facet.rows) ? facet.rows : [];
   const metaArr = Array.isArray(facet.meta) ? facet.meta : [];
-  const postGroupCount = metaArr[0]?.total || 0;
+  const orgMetaArr = Array.isArray(facet.orgMeta) ? facet.orgMeta : [];
+  const postGroupCount = metaArr[0]?.postGroupCount || 0;
+  const orgMeta = orgMetaArr[0] || null;
 
   // Enrich rows with org-level info when available
   // const enriched = rows.map((r) => {
