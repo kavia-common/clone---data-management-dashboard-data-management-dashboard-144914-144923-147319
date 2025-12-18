@@ -21,14 +21,28 @@ try {
   console.warn('[routes/index] users.routes not mounted due to error:', err?.message || err);
 }
 
-// PUBLIC_INTERFACE
-// Minimal mount for project-create summary endpoint: GET /api/project-create/summary
+/**
+ * PUBLIC_INTERFACE
+ * Minimal mount for project-create summary endpoint: GET /api/project-create/summary
+ */
 try {
   const projectCreateSummaryRoutes = require('./projectCreate.summary.routes');
   router.use('/project-create', projectCreateSummaryRoutes);
 } catch (err) {
   // eslint-disable-next-line no-console
   console.warn('[routes/index] projectCreate.summary.routes not mounted:', err?.message || err);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Dev verification helpers
+ */
+try {
+  const devVerifyProjectCreate = require('./dev.verify.projectCreate.routes');
+  router.use('/dev/verify', devVerifyProjectCreate);
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.warn('[routes/index] dev.verify.projectCreate.routes not mounted:', err?.message || err);
 }
 
 /**
