@@ -1,6 +1,6 @@
 # Project Create Summary Endpoint Quick Verification
 
-Purpose: Confirm that `/api/project-create/summary` responds deterministically with a 200 JSON payload and includes `project_name` from AppDeployment resolution when `project_id` is provided.
+Purpose: Confirm that `/api/project-create/summary` responds deterministically with a 200 JSON payload and includes `user_name` resolved from Users when `user_id` is provided (AppDeployment lookup removed).
 
 Manual test steps:
 1) Basic wiring/ping
@@ -15,12 +15,11 @@ Manual test steps:
    - GET /api/project-create/summary?tenant_id=T0000
    - Expect: 200, JSON with `success` and `buckets` array (may be empty if no data)
 
-4) Top-level project_name resolution
-   - GET /api/project-create/summary?project_id=<YOUR_PROJECT_ID>&tenant_id=T0000
-   - Expect: 200, top-level fields `project_id` and `project_name` present.
-   - Note: project_name is resolved primarily from `app_deployments` by any of:
-     projectId | project_id | metadata.projectId | project.id and name fields
-     projectName | project_name | metadata.projectName | project.name.
+4) Top-level user_name resolution
+   - GET /api/project-create/summary?user_id=<USER_ID>&tenant_id=T0000
+   - Expect: 200, top-level fields `user_id` and `user_name` present.
+   - Note: user_name is resolved from `users` collection trying fields:
+     name | displayName | display_name | full_name | fullName | username | user_name | email.
 
 5) Dev verify helper
    - GET /api/dev/verify/project-create/summary?project_id=<id>&tenant_id=T0000

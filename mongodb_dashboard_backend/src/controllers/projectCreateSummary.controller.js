@@ -1,7 +1,7 @@
 'use strict';
 
 const SessionTracking = require('../models/sessionTracking.model');
-const { resolveProjectName, resolveProjectNames } = require('../services/projects.service');
+const User = require('../models/user.model');
 
 /**
  * Helper: parse YYYY-MM-DD into UTC start-of-day and end-of-day Date objects.
@@ -90,7 +90,15 @@ async function withTimeout(promise, ms, label = 'op') {
  * - Avoid throwing from downstream helpers by catching and defaulting to null/[].
  * - Add lightweight logging breadcrumbs to trace flow without excessive noise.
  */
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * getProjectCreateSummary
+ * Now resolves and returns user_name from a provided user_id. AppDeployment and project lookups removed.
+ * - Accepts user_id from req.body or req.query (supports both).
+ * - Looks up Users collection to fetch displayable name: name|displayName|display_name|full_name|username|email|user_name.
+ * - If not found, user_name is null.
+ * - Preserves existing tenant/date handling for stability; aggregation switched to user_id counts within window.
+ */
 async function getProjectCreateSummary(req, res, next) {
   const t0 = Date.now();
   try {
@@ -104,31 +112,60 @@ async function getProjectCreateSummary(req, res, next) {
       req.headers['x-organization-id'] ||
       null;
 
-    // Optional single id (normalize to string)
-    const project_id_raw =
-      (req.body && (req.body.project_id ?? req.body.projectId)) ||
-      req.query.project_id ||
-      req.query.projectId ||
+    // Accept user_id from body or query, normalize to string
+    const user_id_raw =
+      (req.body && (req.body.user_id ?? req.body.userId)) ||
+      req.query.user_id ||
+      req.query.userId ||
       null;
-    const project_id = project_id_raw != null ? String(project_id_raw) : null;
+    const user_id = user_id_raw != null ? String(user_id_raw) : null;
 
-    // Resolve name for the single id (non-fatal, bounded)
-    let single_project_name = null;
-    if (project_id) {
+    // Resolve user_name (non-fatal, bounded)
+    let user_name = null;
+    if (user_id) {
       try {
-        single_project_name = await withTimeout(
-          resolveProjectName(project_id),
-          2000,
-          'resolveProjectName'
-        );
+        const query = {
+          $or: [
+            { _id: user_id }, // string match; we avoid ObjectId conversion to prevent cast errors with non-hex ids
+            { id: user_id },
+            { user_id: user_id },
+            { username: user_id },
+            { email: user_id },
+          ],
+        };
+        const projection = {
+          name: 1,
+          displayName: 1,
+          display_name: 1,
+          full_name: 1,
+          fullName: 1,
+          username: 1,
+          user_name: 1,
+          email: 1,
+        };
+        const u = await withTimeout(User.findOne(query, projection).lean(), 2000, 'userLookup');
+        if (u) {
+          user_name =
+            u.name ||
+            u.displayName ||
+            u.display_name ||
+            u.full_name ||
+            u.fullName ||
+            u.username ||
+            u.user_name ||
+            u.email ||
+            null;
+          if (user_name != null) user_name = String(user_name);
+        } else {
+          user_name = null;
+        }
       } catch (e) {
-        // minimal breadcrumb log
-        try { console.warn('[project-create] resolveProjectName failed:', e.message || e); } catch {}
-        single_project_name = null;
+        try { console.warn('[project-create] user lookup failed:', e?.message || e); } catch {}
+        user_name = null;
       }
     }
 
-    // Early payload; always return 200 with empty buckets even if tenant missing
+    // Always include buckets for backward compatibility; compute when tenant provided
     let buckets = [];
 
     if (tenant) {
@@ -150,7 +187,7 @@ async function getProjectCreateSummary(req, res, next) {
         windowTo = derived.to;
       }
 
-      // Aggregate by project from SessionTracking; ensure project_id exists to avoid null grouping noise
+      // Aggregate by user_id from SessionTracking; ensure user_id exists to avoid null grouping noise
       const pipeline = [
         {
           $match: {
@@ -164,14 +201,14 @@ async function getProjectCreateSummary(req, res, next) {
                   { session_start: { $gte: windowFrom, $lte: windowTo } },
                 ],
               },
-              { project_id: { $exists: true, $ne: null, $ne: '' } },
+              { user_id: { $exists: true, $ne: null, $ne: '' } },
             ],
           },
         },
         {
           $group: {
-            _id: '$project_id',
-            project_id: { $first: '$project_id' },
+            _id: { $toString: '$user_id' },
+            user_id: { $first: { $toString: '$user_id' } },
             count: { $sum: 1 },
           },
         },
@@ -180,7 +217,6 @@ async function getProjectCreateSummary(req, res, next) {
 
       let results = [];
       try {
-        // Bound aggregation to avoid long hangs; database will still run, but we won't await forever.
         results = await withTimeout(
           SessionTracking.aggregate(pipeline).allowDiskUse(true),
           4000,
@@ -195,51 +231,103 @@ async function getProjectCreateSummary(req, res, next) {
           success: true,
           buckets: [],
           diagnostics: { note: 'aggregation_failed', message: e?.message || String(e) },
-          ...(project_id ? { project_id, project_name: single_project_name } : {}),
+          ...(user_id ? { user_id, user_name } : {}),
         });
       }
 
-      // Resolve names in bulk for all distinct project_ids (guard map access)
-      const ids = Array.isArray(results) ? results.map(r => r?.project_id).filter(Boolean).map(String) : [];
-      let nameMap = new Map();
-      try {
-        nameMap = await withTimeout(
-          resolveProjectNames(ids),
-          2500,
-          'resolveProjectNames'
-        );
-      } catch (e) {
-        try { console.warn('[project-create] resolveProjectNames failed:', e.message || e); } catch {}
-        nameMap = new Map();
+      // Resolve names for the bucket users (best-effort; time-bounded)
+      const ids = Array.isArray(results) ? results.map(r => r?.user_id).filter(Boolean).map(String) : [];
+      let nameById = new Map();
+      if (ids.length > 0) {
+        try {
+          // Query Users in one go using $in across multiple fields by $or
+          const users = await withTimeout(
+            User.find(
+              {
+                $or: [
+                  { _id: { $in: ids } },
+                  { id: { $in: ids } },
+                  { user_id: { $in: ids } },
+                  { username: { $in: ids } },
+                  { email: { $in: ids } },
+                ],
+              },
+              {
+                name: 1,
+                displayName: 1,
+                display_name: 1,
+                full_name: 1,
+                fullName: 1,
+                username: 1,
+                user_name: 1,
+                email: 1,
+                _id: 1,
+                id: 1,
+                user_id: 1,
+              }
+            ).lean(),
+            2500,
+            'usersBulkLookup'
+          );
+
+          // Build a map using multiple potential keys to maximize matches
+          nameById = new Map();
+          const pickName = (u) =>
+            u?.name ||
+            u?.displayName ||
+            u?.display_name ||
+            u?.full_name ||
+            u?.fullName ||
+            u?.username ||
+            u?.user_name ||
+            u?.email ||
+            null;
+
+          for (const u of users || []) {
+            const n = pickName(u);
+            const keys = [
+              u?._id != null ? String(u._id) : null,
+              u?.id != null ? String(u.id) : null,
+              u?.user_id != null ? String(u.user_id) : null,
+              u?.username != null ? String(u.username) : null,
+              u?.email != null ? String(u.email) : null,
+            ].filter(Boolean);
+            for (const k of keys) {
+              if (!nameById.has(k)) nameById.set(k, n);
+            }
+          }
+        } catch (e) {
+          try { console.warn('[project-create] users bulk name lookup failed:', e?.message || e); } catch {}
+          nameById = new Map();
+        }
       }
 
       buckets = results.map((r) => {
-        const pid = r?.project_id != null ? String(r.project_id) : '';
-        const pname = nameMap.get(pid) ?? null;
+        const uid = r?.user_id != null ? String(r.user_id) : '';
+        const uname = nameById.get(uid) ?? null;
         return {
-          key: pid,
-          project_id: pid,
-          project_name: pname,
-          label: pname || pid,
+          key: uid,
+          user_id: uid,
+          user_name: uname,
+          label: uname || uid,
           count: r?.count ?? 0,
         };
       });
     }
 
     const payload = { success: true, buckets };
-    if (project_id) {
-      payload.project_id = project_id;
-      payload.project_name = single_project_name;
+    if (user_id) {
+      payload.user_id = user_id;
+      payload.user_name = user_name;
     }
 
     res.set('Cache-Control', 'no-store');
     res.set('x-project-create-ms', String(Date.now() - t0));
     if (tenant) res.set('x-project-create-tenant', String(tenant));
-    if (project_id) res.set('x-project-id', String(project_id));
+    if (user_id) res.set('x-user-id', String(user_id));
     return res.status(200).json(payload);
   } catch (err) {
     try { console.warn('[project-create] unhandled error:', err?.message || err); } catch {}
-    // Ensure single termination path
     try {
       return res.status(500).json({ success: false, error: 'Internal server error' });
     } catch {
