@@ -134,6 +134,80 @@
         }
       }
     },
+    "/api/costs/user/total": {
+      "get": {
+        "summary": "Total LLM costs for a specific user (tenant-scoped)",
+        "description": "Returns total LLM cost and breakdowns (by agent and type) for the specified user within the resolved tenant scope. Tenant is enforced from Authorization/JWT when present; otherwise from x-organization-id header or query aliases resolved by middleware.",
+        "tags": ["LLMCosts"],
+        "parameters": [
+          { "in": "header", "name": "x-organization-id", "schema": { "type": "string" }, "required": false, "description": "Tenant (organization) ID when JWT is not provided; ignored if JWT tenant present." },
+          { "in": "query", "name": "user_id", "schema": { "type": "string" }, "required": true, "description": "User identifier to compute totals for" },
+          { "in": "query", "name": "page", "schema": { "type": "integer", "minimum": 1 }, "description": "Optional page number (forwarded in meta; not used for aggregation)" },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "minimum": 1, "maximum": 200 }, "description": "Optional page size (forwarded in meta; not used for aggregation)" },
+          { "in": "query", "name": "sort", "schema": { "type": "string" }, "description": "Optional sort string (forwarded in meta; not used for aggregation)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "User total cost with breakdowns",
+            "headers": {
+              "x-effective-tenant": { "schema": { "type": "string" }, "description": "Resolved tenant used in filtering" },
+              "x-user-id": { "schema": { "type": "string" }, "description": "User id for which totals were computed" }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "userId": { "type": "string" },
+                        "total_cost": { "type": "number" },
+                        "user_cost": { "type": "number" },
+                        "currency": { "type": "string", "example": "USD" },
+                        "by_agent": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "agent_name": { "type": "string" },
+                              "total_cost": { "type": "number" }
+                            }
+                          }
+                        },
+                        "by_type": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "type": { "type": "string" },
+                              "total_cost": { "type": "number" }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "tenant_id": { "type": "string", "nullable": true },
+                        "page": { "type": "integer" },
+                        "limit": { "type": "integer" },
+                        "sort": { "type": "string", "nullable": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing user_id or invalid input" },
+          "403": { "description": "Forbidden: tenant scope mismatch when Authorization is provided" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
     "/api/analytics/llm-cost-by-agent": {
       "get": {
         "summary": "LLM cost distribution by agent",

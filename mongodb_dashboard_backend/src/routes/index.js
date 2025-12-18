@@ -23,6 +23,19 @@ try {
 
 /**
  * PUBLIC_INTERFACE
+ * Costs routes mounting
+ * Expose the costs module endpoints including user-scoped totals under /api/costs
+ */
+try {
+  const costsUserRoutes = require('./costs.user.routes');
+  router.use('/costs', costsUserRoutes);
+} catch (err) {
+  // eslint-disable-next-line no-console
+  console.warn('[routes/index] costs.user.routes not mounted due to error:', err?.message || err);
+}
+
+/**
+ * PUBLIC_INTERFACE
  * GET /
  * Basic service status for root path. Returns 200 OK with health summary and pointers
  * to documentation. This is intentionally lightweight and unauthenticated so that
