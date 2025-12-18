@@ -79,13 +79,10 @@ async function getOrganizationUserCosts(req, res) {
               null,
             ],
           },
-          // Convert total_cost safely to double, stripping any leading '$' if it's a string
           total_cost_num: {
-            $cond: [
-              { $isNumber: '$total_cost' },
-              { $toDouble: '$total_cost' },
-              {
-                $convert: {
+            $convert: {
+              input: {
+                $trim: {
                   input: {
                     $replaceAll: {
                       input: { $toString: '$total_cost' },
@@ -93,15 +90,16 @@ async function getOrganizationUserCosts(req, res) {
                       replacement: '',
                     },
                   },
-                  to: 'double',
-                  onError: 0,
-                  onNull: 0,
                 },
               },
-            ],
+              to: 'double',
+              onError: 0,
+              onNull: 0,
+            },
           },
         },
       },
+
       {
         $group: {
           _id: {
