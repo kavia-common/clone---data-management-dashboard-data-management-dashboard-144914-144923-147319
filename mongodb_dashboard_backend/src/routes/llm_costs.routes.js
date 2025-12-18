@@ -7,6 +7,15 @@ const { asyncHandler, success } = require('../utils/http');
 const router = express.Router();
 
 /**
+ * escapeRegex
+ * Escapes special characters in a string for safe use within a RegExp source.
+ * Local helper kept minimal to avoid importing extra utilities.
+ */
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
  * PUBLIC_INTERFACE
  * GET /api/llm_costs
  * Returns raw/full documents from the 'llm_costs' collection (underscore), with optional organization_id filter,
@@ -22,11 +31,18 @@ router.get(
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), maxLimit);
     const skip = (page - 1) * limit;
 
-    // Optional exact filter by organization_id
-    const organization_id = (req.query.organization_id || '').toString().trim();
+    // Optional broadened filter by organization_id (alias: tenant_id)
+    const rawOrg = (req.query.organization_id || req.query.tenant_id || '').toString().trim();
     const filter = {};
-    if (organization_id) {
-      filter.organization_id = organization_id;
+    if (rawOrg) {
+      // Build $or across exact and case-insensitive matches on organization_id and tenant_id
+      const rx = new RegExp(`^${escapeRegex(rawOrg)}$`, 'i');
+      filter.$or = [
+        { organization_id: rawOrg },
+        { organization_id: { $regex: rx } },
+        { tenant_id: rawOrg },
+        { tenant_id: { $regex: rx } },
+      ];
     }
 
     // Stable default sort: newest first by _id
@@ -52,7 +68,7 @@ router.get(
         page,
         limit,
         total,
-        ...(organization_id ? { organization_id } : {}),
+        ...(rawOrg ? { organization_id: rawOrg } : {}),
       },
       200
     );
