@@ -66,13 +66,33 @@ function deriveWindowFromRange(range) {
 }
 
 /**
+ * Bounded promise helper with timeout to avoid hangs from downstream layers.
+ */
+async function withTimeout(promise, ms, label = 'op') {
+  let timeoutId;
+  const to = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label}_timeout_${ms}ms`)), ms);
+  });
+  try {
+    const result = await Promise.race([promise, to]);
+    clearTimeout(timeoutId);
+    return result;
+  } catch (e) {
+    clearTimeout(timeoutId);
+    throw e;
+  }
+}
+
+/**
  * Note on stability and cancellation prevention:
  * - Always send a single response path: return after res.json/res.status(...).json.
  * - Guard against unresolved promises by setting sane defaults and ensuring awaits are bounded to our own async operations only.
  * - Avoid throwing from downstream helpers by catching and defaulting to null/[].
+ * - Add lightweight logging breadcrumbs to trace flow without excessive noise.
  */
 // PUBLIC_INTERFACE
 async function getProjectCreateSummary(req, res, next) {
+  const t0 = Date.now();
   try {
     const { range = 'daily', start_date, end_date } = req.query;
 
@@ -84,20 +104,26 @@ async function getProjectCreateSummary(req, res, next) {
       req.headers['x-organization-id'] ||
       null;
 
-    // Optional single id
-    const project_id =
+    // Optional single id (normalize to string)
+    const project_id_raw =
       (req.body && (req.body.project_id ?? req.body.projectId)) ||
       req.query.project_id ||
       req.query.projectId ||
       null;
+    const project_id = project_id_raw != null ? String(project_id_raw) : null;
 
     // Resolve name for the single id (non-fatal, bounded)
     let single_project_name = null;
     if (project_id) {
       try {
-        single_project_name = await resolveProjectName(project_id);
+        single_project_name = await withTimeout(
+          resolveProjectName(project_id),
+          2000,
+          'resolveProjectName'
+        );
       } catch (e) {
-        // swallow and keep null
+        // minimal breadcrumb log
+        try { console.warn('[project-create] resolveProjectName failed:', e.message || e); } catch {}
         single_project_name = null;
       }
     }
@@ -113,7 +139,6 @@ async function getProjectCreateSummary(req, res, next) {
       if (range === 'custom') {
         const parsed = parseCustomDateWindow(start_date, end_date);
         if (parsed.error) {
-          // For client stability, terminate here with a clear message
           res.set('Cache-Control', 'no-store');
           return res.status(400).json({ success: false, error: parsed.error });
         }
@@ -129,7 +154,7 @@ async function getProjectCreateSummary(req, res, next) {
       const pipeline = [
         {
           $match: {
-            tenant_id: tenant,
+            tenant_id: String(tenant),
             $and: [
               {
                 $or: [
@@ -155,9 +180,16 @@ async function getProjectCreateSummary(req, res, next) {
 
       let results = [];
       try {
-        results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+        // Bound aggregation to avoid long hangs; database will still run, but we won't await forever.
+        results = await withTimeout(
+          SessionTracking.aggregate(pipeline).allowDiskUse(true),
+          4000,
+          'sessionTrackingAggregate'
+        );
       } catch (e) {
-        // On aggregation error, return a safe empty dataset with diagnostics
+        try {
+          console.warn('[project-create] aggregation failed:', e.message || e);
+        } catch {}
         res.set('Cache-Control', 'no-store');
         return res.status(200).json({
           success: true,
@@ -168,17 +200,22 @@ async function getProjectCreateSummary(req, res, next) {
       }
 
       // Resolve names in bulk for all distinct project_ids (guard map access)
-      const ids = Array.isArray(results) ? results.map(r => r?.project_id).filter(Boolean) : [];
+      const ids = Array.isArray(results) ? results.map(r => r?.project_id).filter(Boolean).map(String) : [];
       let nameMap = new Map();
       try {
-        nameMap = await resolveProjectNames(ids);
-      } catch {
+        nameMap = await withTimeout(
+          resolveProjectNames(ids),
+          2500,
+          'resolveProjectNames'
+        );
+      } catch (e) {
+        try { console.warn('[project-create] resolveProjectNames failed:', e.message || e); } catch {}
         nameMap = new Map();
       }
 
       buckets = results.map((r) => {
-        const pid = r?.project_id ?? '';
-        const pname = nameMap.get(String(pid)) ?? null;
+        const pid = r?.project_id != null ? String(r.project_id) : '';
+        const pname = nameMap.get(pid) ?? null;
         return {
           key: pid,
           project_id: pid,
@@ -196,13 +233,16 @@ async function getProjectCreateSummary(req, res, next) {
     }
 
     res.set('Cache-Control', 'no-store');
+    res.set('x-project-create-ms', String(Date.now() - t0));
+    if (tenant) res.set('x-project-create-tenant', String(tenant));
+    if (project_id) res.set('x-project-id', String(project_id));
     return res.status(200).json(payload);
   } catch (err) {
+    try { console.warn('[project-create] unhandled error:', err?.message || err); } catch {}
     // Ensure single termination path
     try {
       return res.status(500).json({ success: false, error: 'Internal server error' });
     } catch {
-      // delegate to error middleware if res.headersSent issue occurs
       if (typeof next === 'function') return next(err);
     }
   }

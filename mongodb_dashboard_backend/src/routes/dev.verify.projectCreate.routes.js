@@ -12,9 +12,8 @@ const fetch = require('node-fetch');
  * lightweight diagnostic route for manual checks in demos/dev environments.
  *
  * Query:
- *  - project_id: string (required)
- *  - tenant_id | organization_id | x-organization-id (one required to compute buckets; but
- *    absence is allowed—verification will then only check top-level project_name resolution)
+ *  - project_id: string (optional)
+ *  - tenant_id | organization_id | x-organization-id (optional)
  *
  * Returns:
  *  - { ok: boolean, note: string, received: any }
@@ -63,6 +62,7 @@ router.get('/project-create/summary', async (req, res) => {
       : 'project_name not found; check AppDeployment data for given project_id';
 
     res.set('Cache-Control', 'no-store');
+    res.set('x-verify-route', 'dev.project-create.summary');
     return res.status(200).json({ ok, note, received: json });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e?.message || String(e) });

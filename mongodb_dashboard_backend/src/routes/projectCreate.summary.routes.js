@@ -12,4 +12,10 @@ const { getProjectCreateSummary } = require('../controllers/projectCreateSummary
 // Therefore define the path here as '/summary' (NOT '/project-create/summary').
 router.get('/summary', getProjectCreateSummary);
 
+// Lightweight ping route to verify router wiring responds deterministically.
+router.get('/__ping', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json({ ok: true, route: 'project-create', path: req.originalUrl });
+});
+
 module.exports = router;

@@ -29,6 +29,7 @@ try {
   const projectCreateSummaryRoutes = require('./projectCreate.summary.routes');
   // Mount at /api/project-create so that GET /api/project-create/summary hits controller without interference
   router.use('/project-create', projectCreateSummaryRoutes);
+  try { console.log('[routes/index] project-create routes mounted at /api/project-create'); } catch {}
 } catch (err) {
   // eslint-disable-next-line no-console
   console.warn('[routes/index] projectCreate.summary.routes not mounted:', err?.message || err);
