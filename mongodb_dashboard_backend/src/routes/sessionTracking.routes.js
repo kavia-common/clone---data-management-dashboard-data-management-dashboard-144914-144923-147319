@@ -363,7 +363,7 @@ router.get(
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
-    // Text search
+    // Text search (case-insensitive) - includes user_name and other fields
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let qFilter = {};
     if (q) {
@@ -387,6 +387,13 @@ router.get(
       };
     }
 
+    // Optional explicit user filter: userId or user_id
+    // This enables narrowing by a specific user independent of q text search.
+    const userId = (typeof req.query.userId === 'string' && req.query.userId.trim()) ||
+                   (typeof req.query.user_id === 'string' && req.query.user_id.trim()) ||
+                   null;
+    const userFilter = userId ? { user_id: userId } : {};
+
     // Ignore client filter param; retain tenant scope + search
     if (typeof req.query.filter !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch {}
@@ -402,10 +409,39 @@ router.get(
         }
       : {};
 
+    // Default 30-day window applied to session_start. Accepts start/end.
+    const DEFAULT_WINDOW_DAYS = 30;
+    const now = new Date();
+    let start = null;
+    let end = null;
+    if (req.query.start) {
+      const d = new Date(req.query.start);
+      if (!isNaN(d.getTime())) start = d;
+    }
+    if (req.query.end) {
+      const d = new Date(req.query.end);
+      if (!isNaN(d.getTime())) {
+        // inclusive end-of-day semantics
+        d.setUTCHours(23, 59, 59, 999);
+        end = d;
+      }
+    }
+    if (!start && !end) {
+      end = now;
+      start = new Date(now.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    } else if (start && !end) {
+      end = now;
+    } else if (!start && end) {
+      start = new Date(end.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    }
+    const timeFilter = { session_start: { $gte: start, $lte: end } };
+
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
     if (!isEmpty(qFilter)) parts.push(qFilter);
+    if (!isEmpty(userFilter)) parts.push(userFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
+    if (!isEmpty(timeFilter)) parts.push(timeFilter);
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
     // Prepare cache meta
@@ -451,7 +487,7 @@ router.get(
         const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
-          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q });
+          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q, userId });
           res.set('ETag', etag);
         }
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS/1000)}, must-revalidate`);
@@ -472,7 +508,7 @@ router.get(
       const payload = docs;
       let etag = null;
       if (wantETag) {
-        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q });
+        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q, userId });
         res.set('ETag', etag);
       }
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS/1000)}, must-revalidate`);
