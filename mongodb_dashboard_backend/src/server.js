@@ -1,7 +1,3 @@
-/* Ensure environment variables from .env are loaded even if the process
- * is started without "-r dotenv/config" (e.g., by external orchestrators).
- * This guarantees preview/CI can boot without special node flags.
- */
 try { require('dotenv').config(); } catch {}
 
 /**
@@ -43,15 +39,13 @@ const server = app
     console.log(
       `[ready] Server listening on http://${HOST}:${normalizedPort} (ENV=${process.env.NODE_ENV || 'development'})`
     );
-    // Emit an explicit readiness banner the preview system can scrape
     try {
       console.log(`[ready] Health endpoint: http://${HOST}:${normalizedPort}/health`);
-      console.log(`[ready] Docs endpoint:   http://${HOST}:${normalizedPort}/api-docs`);
+      console.log(`[ready] Docs endpoint:   http://${HOST}:${normalizedPort}/api/docs`);
     } catch {}
     try {
-      // Helpful hint: echo how to curl health and docs
       console.log(`[startup] Health: curl http://127.0.0.1:${normalizedPort}/health`);
-      console.log(`[startup] Swagger UI: http://127.0.0.1:${normalizedPort}/api-docs`);
+      console.log(`[startup] Swagger UI: http://127.0.0.1:${normalizedPort}/api/docs`);
     } catch {}
   })
   .on('error', (err) => {

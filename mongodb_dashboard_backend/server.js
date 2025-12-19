@@ -3,7 +3,6 @@
 /**
  * Server entrypoint with readiness logs, fast health endpoint, and graceful shutdown.
  * Logs "BACKEND_READY url=http://<host>:<port>" when the server is actually listening.
- * Supports DISABLE_WATCH=1 to avoid heavy watchers in preview/CI ("start:lean" / "start:ci").
  *
  * PUBLIC_INTERFACE
  * This file is the Node.js entrypoint for the backend.
@@ -14,7 +13,6 @@ const app = require('./src/app');
 
 const HOST = process.env.HOST || '0.0.0.0';
 const DEFAULT_PORT = Number(process.env.PORT || 3001);
-const DISABLE_WATCH = String(process.env.DISABLE_WATCH || '0') === '1';
 
 // Ensure a lightweight health endpoint is present (no DB roundtrip).
 function ensureHealthRoute(expressApp) {
@@ -32,10 +30,10 @@ function ensureHealthRoute(expressApp) {
   if (!hasHealth) {
     // PUBLIC_INTERFACE
     expressApp.get('/health', (req, res) => {
-      res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+      res.status(200).json({ status: 'ok', service: 'backend', timestamp: new Date().toISOString() });
     });
     expressApp.get('/api/health', (req, res) => {
-      res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+      res.status(200).json({ status: 'ok', service: 'backend', timestamp: new Date().toISOString() });
     });
   }
 }
@@ -65,6 +63,7 @@ function startServer(startPort, maxAttempts = 3) {
           const url = `http://localhost:${currentPort}`;
           console.log(`READY: ${url}`);
           console.log(`BACKEND_READY url=${url}`);
+          console.log(`Docs: ${url}/api/docs`);
           resolve({ server, port: currentPort, pidFile });
         })
         .on('error', (err) => {
@@ -81,7 +80,7 @@ function startServer(startPort, maxAttempts = 3) {
 }
 
 // Graceful shutdown and PID cleanup
-function setupGracefulShutdown(server, port, pidFile) {
+function setupGracefulShutdown(server, pidFile) {
   const cleanup = () => {
     if (server) {
       server.close(() => {
@@ -113,8 +112,8 @@ function setupGracefulShutdown(server, port, pidFile) {
 // Boot
 (async () => {
   try {
-    const { server, port, pidFile } = await startServer(DEFAULT_PORT);
-    setupGracefulShutdown(server, port, pidFile);
+    const { server, pidFile } = await startServer(DEFAULT_PORT);
+    setupGracefulShutdown(server, pidFile);
   } catch (err) {
     console.error('Failed to start server:', err);
     process.exit(1);
