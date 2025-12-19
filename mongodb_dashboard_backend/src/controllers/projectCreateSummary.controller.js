@@ -133,124 +133,45 @@ async function getProjectCreateSummary(req, res, next) {
       // - users.user_id (string)
       // - users.email (string)
       const pipeline = [
-        { $match: strictMatch },
-        {
-          $addFields: {
-            user_id_str: {
-              $cond: [{ $ifNull: ['$user_id', false] }, { $toString: '$user_id' }, ''],
-            },
-            project_id_str: {
-              $cond: [{ $ifNull: ['$project_id', false] }, { $toString: '$project_id' }, ''],
-            },
-          },
-        },
-        // Prepare potential objectId conversion for matching users._id
-        {
-          $addFields: {
-            user_oid_maybe: {
-              $cond: [
-                { $regexMatch: { input: '$user_id_str', regex: /^[a-fA-F0-9]{24}$/ } },
-                { $toObjectId: '$user_id_str' },
-                null,
-              ],
-            },
-          },
-        },
-        {
-          $lookup: {
-            from: 'users',
-            let: { uid_str: '$user_id_str', uid_oid: '$user_oid_maybe' },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $or: [
-                      // Match by ObjectId (_id)
-                      { $and: [{ $ne: ['$$uid_oid', null] }, { $eq: ['$_id', '$$uid_oid'] }] },
-                      // Match by user_id string
-                      { $eq: ['$user_id', '$$uid_str'] },
-                      // Sometimes user_id is email
-                      { $eq: ['$email', '$$uid_str'] },
-                    ],
-                  },
-                },
-              },
-              {
-                $project: {
-                  _id: 1,
-                  name: 1,
-                  username: 1,
-                  displayName: 1,
-                  display_name: 1,
-                  full_name: 1,
-                  fullName: 1,
-                  user_name: 1,
-                  email: 1,
-                  user_id: 1,
-                },
-              },
-            ],
-            as: 'user_res',
-          },
-        },
-        {
-          $addFields: {
-            user_display: {
-              $let: {
-                vars: { u: { $arrayElemAt: ['$user_res', 0] } },
-                in: {
-                  $ifNull: [
-                    '$$u.name',
-                    {
-                      $ifNull: [
-                        '$$u.displayName',
-                        {
-                          $ifNull: [
-                            '$$u.display_name',
-                            {
-                              $ifNull: [
-                                '$$u.full_name',
-                                {
-                                  $ifNull: [
-                                    '$$u.fullName',
-                                    {
-                                      $ifNull: [
-                                        '$$u.user_name',
-                                        {
-                                          $ifNull: ['$$u.username', null],
-                                        },
-                                      ],
-                                    },
-                                  ],
-                                },
-                              ],
-                            },
-                          ],
-                        },
-                      ],
-                    },
-                  ],
-                },
-              },
-            },
-          },
-        },
-        {
-          $group: {
-            _id: '$project_id_str',
-            project_id: { $first: '$project_id_str' },
-            // Choose a representative user_id string for the bucket (first seen)
-            user_id: { $first: '$user_id_str' },
-            user_name: { $first: '$user_display' },
-            count: { $sum: 1 },
-          },
-        },
-        { $sort: { count: -1 } },
-      ];
+  { $match: strictMatch },
+
+  {
+    $lookup: {
+      from: "users",
+      localField: "user_id",   // sessionTracking.user_id
+      foreignField: "_id",     // users._id
+      as: "user_info"
+    }
+  },
+
+  { 
+    $addFields: {
+      user_name: {
+        $ifNull: [
+          { $arrayElemAt: ["$user_info.name", 0] },
+          null
+        ]
+      }
+    }
+  },
+
+  {
+    $group: {
+      _id: "$project_id",
+      project_id: { $first: "$project_id" },
+      user_id: { $first: "$user_id" },
+      user_name: { $first: "$user_name" },
+      count: { $sum: 1 }
+    }
+  },
+
+  { $sort: { count: -1 } }
+];
 
       let results = [];
       try {
         results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+        console.log("results---", results)
       } catch (e) {
         try { console.warn('[project-create] aggregation failed:', e?.message || e); } catch {}
         res.set('Cache-Control', 'no-store');
@@ -270,7 +191,8 @@ async function getProjectCreateSummary(req, res, next) {
 
         return {
           key: resolvedName ?? rawUid,           // display key
-          user_name: resolvedName,               // requested: return name instead of user_id
+          user_name: resolvedName,  
+          user_id: rawUid,            // requested: return name instead of user_id
           project_id: pid,                       // include project_id for verification
           label: resolvedName ?? rawUid,         // display label
           count: r?.count ?? 0,
