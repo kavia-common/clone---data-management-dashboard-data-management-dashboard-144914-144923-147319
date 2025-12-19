@@ -4,6 +4,8 @@
  * This legacy route file previously depended on ../controllers/users.analytics.summary.controller
  * which has been removed. To avoid MODULE_NOT_FOUND on startup, we expose a minimal no-op router.
  * The canonical implementation for /api/users/tenant-summary now lives in src/routes/users.routes.js.
+ *
+ * NOTE (2025-12-19): No "Activity by Department" backend route exists; nothing to delete here.
  */
 
 const express = require('express');
