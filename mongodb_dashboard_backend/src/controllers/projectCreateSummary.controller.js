@@ -94,21 +94,124 @@ async function getProjectCreateSummary(req, res, next) {
     let buckets = [];
     let windowFrom, windowTo;
 
-    if (tenant) {
-      // Determine date window
+    // Determine date window only when we actually aggregate
+    const resolveWindow = () => {
       if (range === 'custom') {
         const parsed = parseCustomDateWindow(start_date, end_date);
         if (parsed.error) {
           res.set('Cache-Control', 'no-store');
-          return res.status(400).json({ success: false, error: parsed.error });
+          return { error: parsed.error };
         }
-        windowFrom = parsed.from;
-        windowTo = parsed.to;
-      } else {
-        const derived = deriveWindowFromRange(range);
-        windowFrom = derived.from;
-        windowTo = derived.to;
+        return { from: parsed.from, to: parsed.to };
       }
+      const derived = deriveWindowFromRange(range);
+      return { from: derived.from, to: derived.to };
+    };
+
+    // Resolve effective organization id from header/query as specified
+    const effectiveOrg = tenant ? String(tenant) : null;
+    const isT0000 = (effectiveOrg || '').toUpperCase() === 'T0000';
+
+    if (isT0000) {
+      // T0000 special-case: aggregate by organization across all tenants within window.
+      // Minimal controller-scoped aggregation to avoid touching other services.
+      // Response shape preserved: { success, buckets: [ { key, user_name, user_id, project_id, label, count } ] }
+      const w = resolveWindow();
+      if (w.error) {
+        return res.status(400).json({ success: false, error: w.error });
+      }
+      windowFrom = w.from;
+      windowTo = w.to;
+
+      // Build match for all tenants, window bound on created_at and optional project_id exact if given.
+      const projectIdFilter = {};
+      if (project_id !== null && project_id !== undefined && project_id !== '') {
+        const numMaybe = Number(project_id);
+        projectIdFilter.project_id =
+          !Number.isNaN(numMaybe) && String(numMaybe) === String(project_id)
+            ? String(numMaybe)
+            : String(project_id);
+      }
+
+      const matchAll = {
+        created_at: { $gte: windowFrom, $lte: windowTo },
+        ...(Object.keys(projectIdFilter).length ? projectIdFilter : { project_id: { $exists: true } }),
+      };
+
+      // Aggregate by tenant (organization) and project. Count records per organization.
+      // We also $lookup users to preserve the response fields but we will map organization_id into label.
+      const pipeline = [
+        { $match: matchAll },
+        {
+          $addFields: {
+            _org: {
+              $ifNull: [
+                '$tenant_id',
+                { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', '$tenantId'] }] },
+              ],
+            },
+          },
+        },
+        // Group by organization + project
+        {
+          $group: {
+            _id: { org: '$_org', project_id: '$project_id' },
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            organization_id: '$_id.org',
+            project_id: '$_id.project_id',
+            count: 1,
+          },
+        },
+        { $sort: { count: -1, organization_id: 1 } },
+      ];
+
+      let results = [];
+      try {
+        results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+      } catch (e) {
+        try {
+          console.warn('[project-create][T0000] aggregation failed:', e?.message || e);
+        } catch {}
+        res.set('Cache-Control', 'no-store');
+        return res.status(200).json({
+          success: true,
+          buckets: [],
+          diagnostics: { note: 'aggregation_failed_T0000', message: e?.message || String(e) },
+          ...(project_id ? { project_id: String(project_id) } : {}),
+        });
+      }
+
+      // Map: use organization_id as label/key; keep user fields present but null to preserve shape.
+      buckets = (results || []).map((r) => {
+        const org = r?.organization_id ? String(r.organization_id) : 'unknown';
+        const pid = r?.project_id != null ? String(r.project_id) : '';
+        return {
+          key: org,                 // T0000: by-organization display key
+          user_name: null,          // preserved field, not applicable in org grouping
+          user_id: null,            // preserved field, not applicable in org grouping
+          project_id: pid,
+          label: org,
+          count: r?.count ?? 0,
+        };
+      });
+
+      // Headers for diagnostics
+      res.set('x-project-create-tenant', 'all-tenants');
+      res.set('x-special-case', 'T0000');
+    } else if (effectiveOrg) {
+      // Default path (unchanged): per-tenant aggregation resolving user names
+      const w = resolveWindow();
+      if (w.error) {
+        res.set('Cache-Control', 'no-store');
+        return res.status(400).json({ success: false, error: w.error });
+      }
+      windowFrom = w.from;
+      windowTo = w.to;
 
       // STRICT MATCH: created_at in UTC window, exact tenant, and exact project_id when provided.
       const projectIdFilter = {};
@@ -122,56 +225,48 @@ async function getProjectCreateSummary(req, res, next) {
       }
 
       const strictMatch = {
-        tenant_id: String(tenant),
+        tenant_id: String(effectiveOrg),
         created_at: { $gte: windowFrom, $lte: windowTo },
         ...(Object.keys(projectIdFilter).length ? projectIdFilter : { project_id: { $exists: true } }),
       };
 
       // Use an aggregation pipeline that performs $lookup to users with robust id handling.
-      // We normalize sessionTracking.user_id to string, then join on multiple possible user fields:
-      // - users._id (ObjectId): use $toObjectId when possible
-      // - users.user_id (string)
-      // - users.email (string)
       const pipeline = [
-  { $match: strictMatch },
+        { $match: strictMatch },
 
-  {
-    $lookup: {
-      from: "users",
-      localField: "user_id",   // sessionTracking.user_id
-      foreignField: "_id",     // users._id
-      as: "user_info"
-    }
-  },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'user_id',
+            foreignField: '_id',
+            as: 'user_info',
+          },
+        },
 
-  { 
-    $addFields: {
-      user_name: {
-        $ifNull: [
-          { $arrayElemAt: ["$user_info.name", 0] },
-          null
-        ]
-      }
-    }
-  },
+        {
+          $addFields: {
+            user_name: {
+              $ifNull: [{ $arrayElemAt: ['$user_info.name', 0] }, null],
+            },
+          },
+        },
 
-  {
-    $group: {
-      _id: "$project_id",
-      project_id: { $first: "$project_id" },
-      user_id: { $first: "$user_id" },
-      user_name: { $first: "$user_name" },
-      count: { $sum: 1 }
-    }
-  },
+        {
+          $group: {
+            _id: '$project_id',
+            project_id: { $first: '$project_id' },
+            user_id: { $first: '$user_id' },
+            user_name: { $first: '$user_name' },
+            count: { $sum: 1 },
+          },
+        },
 
-  { $sort: { count: -1 } }
-];
+        { $sort: { count: -1 } },
+      ];
 
       let results = [];
       try {
         results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
-        console.log("results---", results)
       } catch (e) {
         try { console.warn('[project-create] aggregation failed:', e?.message || e); } catch {}
         res.set('Cache-Control', 'no-store');
@@ -190,14 +285,17 @@ async function getProjectCreateSummary(req, res, next) {
         const resolvedName = r?.user_name ?? null;
 
         return {
-          key: resolvedName ?? rawUid,           // display key
-          user_name: resolvedName,  
-          user_id: rawUid,            // requested: return name instead of user_id
-          project_id: pid,                       // include project_id for verification
-          label: resolvedName ?? rawUid,         // display label
+          key: resolvedName ?? rawUid,
+          user_name: resolvedName,
+          user_id: rawUid,
+          project_id: pid,
+          label: resolvedName ?? rawUid,
           count: r?.count ?? 0,
         };
       });
+    } else {
+      // No tenant provided: preserve previous deterministic 200 with empty buckets
+      buckets = [];
     }
 
     // Deterministic 200 JSON response
@@ -209,7 +307,7 @@ async function getProjectCreateSummary(req, res, next) {
 
     res.set('Cache-Control', 'no-store');
     res.set('x-project-create-ms', String(Date.now() - t0));
-    if (tenant) res.set('x-project-create-tenant', String(tenant));
+    if (tenant) res.set('x-project-create-tenant', isT0000 ? 'all-tenants' : String(tenant));
     if (project_id) res.set('x-project-id', String(project_id));
     if (typeof windowFrom !== 'undefined' && typeof windowTo !== 'undefined') {
       res.set('x-project-create-from', windowFrom.toISOString());
