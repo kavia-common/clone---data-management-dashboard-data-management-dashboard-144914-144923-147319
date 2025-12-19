@@ -63,38 +63,47 @@ function deriveWindowFromRange(range) {
   };
 }
 
-/**
- * PUBLIC_INTERFACE
- * getProjectCreateSummary
- * Aggregates SessionTracking by project_id within requested window and tenant scope.
- * Special case:
- * - When effective organization_id is 'T0000', aggregate counts grouped by organization_id within the date window
- *   and return an array of { organization_id, count } suitable for charting.
- * Default behavior (non-T0000) remains unchanged: return { success, buckets: [...] }.
- */
 // PUBLIC_INTERFACE
+/**
+ * Aggregates SessionTracking by project_id within requested window and tenant scope.
+ * If organization_id (from header or query) is 'T0000', groups by organization_id with a sensible maxTimeMS and robust error handling,
+ * always guarantees a response for every path, and logs debug info at entry/exit.
+ */
 async function getProjectCreateSummary(req, res, next) {
   const t0 = Date.now();
+  let didRespond = false;
+  const debug = (...args) => console.debug('[projectCreateSummary.controller]', ...args);
+
+  debug('Handler entry', { path: req.path, method: req.method });
+
   try {
     const { range = 'daily', start_date, end_date } = req.query;
 
-    // Accept aliases for tenant/organization id (normalized to string or null)
-    const effectiveOrg =
+    // Extract effective organization_id robustly
+    let effectiveOrg =
       req.headers['x-organization-id'] ||
       req.query.organization_id ||
       req.query.tenant_id ||
       req.query.organizationId ||
       req.query.tenantId ||
       null;
+    // If both header and query are specified and differ, prefer header
+    if (
+      req.headers['x-organization-id'] &&
+      req.query.organization_id &&
+      req.headers['x-organization-id'] !== req.query.organization_id
+    ) {
+      effectiveOrg = req.headers['x-organization-id'];
+    }
 
-    // Accept project_id; preserved for strict exact match when provided
+    // Accept project_id as legacy/compat
     const project_id =
       (req.body && (req.body.project_id ?? req.body.projectId)) ||
       req.query.project_id ||
       req.query.projectId ||
       null;
 
-    // Resolve window
+    // Pick window
     let windowFrom, windowTo;
     const resolveWindow = () => {
       if (range === 'custom') {
@@ -106,10 +115,11 @@ async function getProjectCreateSummary(req, res, next) {
       }
       return deriveWindowFromRange(range);
     };
-
     const w = resolveWindow();
     if (w.error) {
       res.set('Cache-Control', 'no-store');
+      debug('Window parse error', w.error);
+      didRespond = true;
       return res.status(400).json({ error: w.error });
     }
     windowFrom = w.from;
@@ -117,19 +127,19 @@ async function getProjectCreateSummary(req, res, next) {
 
     const isT0000 = (effectiveOrg || '').toUpperCase() === 'T0000';
 
-    // Build optional project filter
+    // Build project_id filter
     const projectIdFilter = {};
     if (project_id !== null && project_id !== undefined && project_id !== '') {
       projectIdFilter.project_id = String(project_id);
     }
 
     if (isT0000) {
-      // T0000 special: aggregate grouped by organization_id across the window
+      // T0000: group across ALL orgs within window
+      debug('T0000 detected, running aggregation by organization_id');
       const matchAll = {
         created_at: { $gte: windowFrom, $lte: windowTo },
         ...(Object.keys(projectIdFilter).length ? projectIdFilter : { project_id: { $exists: true } }),
       };
-
       const pipelineT0000 = [
         { $match: matchAll },
         {
@@ -159,23 +169,37 @@ async function getProjectCreateSummary(req, res, next) {
       ];
 
       try {
-        const items = await SessionTracking.aggregate(pipelineT0000).allowDiskUse(true);
-        // Return an array suitable for charting
+        const result = await SessionTracking.aggregate(pipelineT0000)
+          .option({ maxTimeMS: 4000 })
+          .allowDiskUse(true);
         res.set('x-project-create-ms', String(Date.now() - t0));
         res.set('x-project-create-tenant', 'T0000');
         res.set('x-project-create-from', windowFrom.toISOString());
         res.set('x-project-create-to', windowTo.toISOString());
         res.set('Cache-Control', 'no-store');
-        return res.status(200).json(items);
+        didRespond = true;
+        debug('Aggregation success. Count:', result.length, 'Handler exit (T0000)');
+        return res.status(200).json(result || []);
       } catch (aggErr) {
+        if (
+          aggErr &&
+          typeof aggErr === 'object' &&
+          (aggErr.code === 50 || String(aggErr.message || '').includes('exceeded time limit'))
+        ) {
+          didRespond = true;
+          debug('Aggregation timed out', aggErr.message);
+          return res.status(503).json({ error: 'Timed out (maxTimeMS exceeded)' });
+        }
         try {
           console.warn('[project-create.summary T0000] aggregation error:', aggErr?.message || aggErr);
         } catch {}
+        didRespond = true;
+        debug('Aggregation error', aggErr?.message || String(aggErr));
         return res.status(500).json({ error: 'Internal server error' });
       }
     }
 
-    // Non-T0000 path: preserve existing behavior with buckets payload
+    // Non-T0000: original behavior - group within tenant (organization)
     const strictMatch = {
       tenant_id: effectiveOrg ? String(effectiveOrg) : null,
       created_at: { $gte: windowFrom, $lte: windowTo },
@@ -183,15 +207,14 @@ async function getProjectCreateSummary(req, res, next) {
     };
 
     if (!strictMatch.tenant_id) {
-      // For consistency, when no tenant provided, return 400 as summary requires tenant
       res.set('Cache-Control', 'no-store');
+      debug('No tenant_id provided for summary');
+      didRespond = true;
       return res.status(400).json({ error: 'organization_id (or tenant_id/x-organization-id) is required' });
     }
 
-    // Use an aggregation pipeline that performs $lookup to users with robust id handling (kept as before)
     const pipeline = [
       { $match: strictMatch },
-
       {
         $lookup: {
           from: 'users',
@@ -200,7 +223,6 @@ async function getProjectCreateSummary(req, res, next) {
           as: 'user_info',
         },
       },
-
       {
         $addFields: {
           user_name: {
@@ -208,7 +230,6 @@ async function getProjectCreateSummary(req, res, next) {
           },
         },
       },
-
       {
         $group: {
           _id: '$project_id',
@@ -218,16 +239,19 @@ async function getProjectCreateSummary(req, res, next) {
           count: { $sum: 1 },
         },
       },
-
       { $sort: { count: -1 } },
     ];
 
     let results = [];
     try {
-      results = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+      results = await SessionTracking.aggregate(pipeline)
+        .option({ maxTimeMS: 4000 })
+        .allowDiskUse(true);
     } catch (e) {
       try { console.warn('[project-create] aggregation failed:', e?.message || e); } catch {}
       res.set('Cache-Control', 'no-store');
+      didRespond = true;
+      debug('Aggregation failed (non-T0000)', e?.message || String(e));
       return res.status(200).json({
         success: true,
         buckets: [],
@@ -259,18 +283,29 @@ async function getProjectCreateSummary(req, res, next) {
     res.set('x-project-create-tenant', String(effectiveOrg));
     res.set('x-project-create-from', windowFrom.toISOString());
     res.set('x-project-create-to', windowTo.toISOString());
+    didRespond = true;
+    debug('Handler exit (non-T0000)');
     return res.status(200).json(payload);
   } catch (err) {
     try { console.warn('[project-create] unhandled error:', err?.message || err); } catch {}
     try {
-      return res.status(500).json({ error: 'Internal server error' });
+      if (!didRespond) {
+        debug('Fallback handler (error path)');
+        return res.status(500).json({ error: 'Internal server error' });
+      }
     } catch {
       if (typeof next === 'function') return next(err);
     }
   }
+  // Defensive fallback in case all above fails (must respond)
+  if (!didRespond) {
+    try { 
+      debug('Final fallback: no response sent');
+      res.status(500).json({ error: 'Server did not respond in time' }); 
+    } catch {}
+  }
 }
 
 module.exports = {
-  // PUBLIC_INTERFACE
   getProjectCreateSummary,
 };
