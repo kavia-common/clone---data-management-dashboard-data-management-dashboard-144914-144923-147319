@@ -464,13 +464,16 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
   // Debug trace to validate handler entry and resolved scope during runtime
   try {
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-       
-      console.debug(`[users.projects] GET /api/users/${userId}/projects tenantId=${tenantId} from=${req.query?.from || 'n/a'} to=${req.query?.to || 'n/a'}`);
+      console.debug(`[users.projects] GET /api/users/${userId}/projects tenantId=${tenantId} from=${req.query?.from || 'n/a'} to=${req.query?.to || 'n/a'} page=${req.query?.page || 'n/a'} limit=${req.query?.limit || req.query?.pageSize || 'n/a'}`);
     }
   } catch {}
 
   // Validate optional dates (lenient: backend service handles conversion; here we only pass through)
   const { from, to } = req.query || {};
+  const page = Math.max(1, Number(req.query?.page || 1));
+  const limitRaw = Number(req.query?.limit || req.query?.pageSize || 0);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(200, limitRaw) : 0;
+
   const { getUserProjectsFromSessions } = require('../services/users.service');
 
   try {
@@ -483,20 +486,37 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
     });
 
     // Ensure projects is always an array for safety
-    const safePayload = {
+    const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+    const base = {
       user_id: String(payload?.user_id || userId),
       tenant_id: String(payload?.tenant_id || tenantId),
-      projects: Array.isArray(payload?.projects) ? payload.projects : [],
     };
 
-    return res.status(200).json(safePayload);
+    // If explicit pagination is provided (limit>0), return an envelope with meta+data
+    if (limit > 0) {
+      const total = projects.length;
+      const start = (page - 1) * limit;
+      const end = start + limit;
+      const items = projects.slice(start, end);
+      return res.status(200).json({
+        success: true,
+        data: items,
+        meta: { page, limit, total },
+        ...base,
+      });
+    }
+
+    // Backward compatible shape without pagination
+    return res.status(200).json({ ...base, projects });
   } catch (err) {
-     
     console.error('[users.projects] error:', err?.message || err);
     // Return safe default 200 with empty list to avoid 404/500 breaking frontend
+    const base = { user_id: String(userId), tenant_id: String(tenantId) };
+    if (limit > 0) {
+      return res.status(200).json({ success: true, data: [], meta: { page, limit, total: 0 }, ...base, info: 'Fallback due to internal error while aggregating projects' });
+    }
     return res.status(200).json({
-      user_id: String(userId),
-      tenant_id: String(tenantId),
+      ...base,
       projects: [],
       info: 'Fallback due to internal error while aggregating projects',
     });
