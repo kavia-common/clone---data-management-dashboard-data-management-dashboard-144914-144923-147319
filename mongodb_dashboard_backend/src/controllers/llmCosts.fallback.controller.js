@@ -116,29 +116,29 @@ async function listLlmCosts(req, res) {
       }
     }
 
-    // Build $match including case-insensitive fallback
+    // Build $match including case-insensitive fallback and timestamp window
     const tenantRegex = { $regex: `^${resolvedTenant}$`, $options: 'i' };
-    const match = {
-      $and: [
-        {
-          $or: [
-            { organization_id: resolvedTenant },
-            { tenant_id: resolvedTenant },
-            { orgId: resolvedTenant },
-            { tenantId: resolvedTenant },
-            { organizationId: resolvedTenant },
-            { 'tenant.tenant_id': resolvedTenant },
-            { organization_id: tenantRegex },
-            { tenant_id: tenantRegex },
-          ],
-        },
-        { timestamp: { $gte: from, $lte: to } },
-        Object.keys(extraFilter).length ? extraFilter : null,
-      ].filter(Boolean),
-    };
+    const baseMatchAnd = [
+      {
+        $or: [
+          { organization_id: resolvedTenant },
+          { tenant_id: resolvedTenant },
+          { orgId: resolvedTenant },
+          { tenantId: resolvedTenant },
+          { organizationId: resolvedTenant },
+          { 'tenant.tenant_id': resolvedTenant },
+          { organization_id: tenantRegex },
+          { tenant_id: tenantRegex },
+        ],
+      },
+      { timestamp: { $gte: from, $lte: to } },
+      Object.keys(extraFilter).length ? extraFilter : null,
+    ].filter(Boolean);
 
-    // Projection: lean tabular set
-    const projection = {
+    const match = { $and: baseMatchAnd };
+
+    // Aggregation projection base
+    const baseProject = {
       request_id: 1,
       session_id: 1,
       project_id: 1,
@@ -163,217 +163,156 @@ async function listLlmCosts(req, res) {
       details: 1,
     };
 
-    // Primary (Mongoose) path
-    let primaryItems = [];
-    let primaryTotal = 0;
-    let primaryTookMs = 0;
-    let primaryCollectionName = 'llm_costs';
-    try {
-      const LlmCost = req?.app?.locals?.models?.LlmCost || null;
-      if (LlmCost) {
-        try {
-          primaryCollectionName = LlmCost.collection?.name || 'llm_costs';
-        } catch {}
-        const startExec = Date.now();
-        const q = LlmCost.find(match, projection)
-          .sort(sort)
-          .skip((page - 1) * limit)
-          .limit(limit)
-          .lean();
-        primaryItems = await q;
-        primaryTotal = await LlmCost.countDocuments(match);
-        primaryTookMs = Date.now() - startExec;
-      }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn('[llm-costs] Primary Mongoose path errored, will try fallback:', e?.message || e);
-    }
-
-    if (primaryTotal > 0) {
-      res.set('x-effective-tenant', resolvedTenant);
-      res.set('x-llm-filter', JSON.stringify(match));
-      res.set('x-llm-projection', JSON.stringify(projection));
-      res.set('x-llm-sort', JSON.stringify(sort));
-      res.set('x-llm-page', String(page));
-      res.set('x-llm-limit', String(limit));
-      res.set('x-llm-timing-parsed-ms', String(Date.now() - startParsed));
-      res.set('x-llm-timing-exec-ms', String(primaryTookMs));
-      res.set('x-llm-window-from', from.toISOString());
-      res.set('x-llm-window-to', to.toISOString());
-      res.set('x-llm-window-applied', applied || 'default');
-
-      // Required diagnostics
-      res.set('X-LLM-COSTS-Collection', primaryCollectionName);
-      res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection }));
-      res.set('X-LLM-COSTS-Matched', String(primaryTotal));
-
-      if (String(resolvedTenant || '') === 'b2c') {
-        try {
-          res.set('x-llm-debug-sample', JSON.stringify(primaryItems?.[0] || null));
-        } catch {}
-      }
-
-      return res.json({
-        success: true,
-        data: primaryItems,
-        meta: {
-          page,
-          limit,
-          total: primaryTotal,
-          sort: sortStr,
-          window: {
-            from: from.toISOString(),
-            to: to.toISOString(),
-            applied: applied || 'default',
-          },
-          diagnostics: { headers: req.headers },
+    // Build pipeline for enrichment with users
+    const pipeline = [
+      { $match: match },
+      // Join users by user_id (string) matching users._id as string; if user_id is missing, still proceed
+      {
+        $lookup: {
+          from: 'users',
+          let: { uid: { $toString: '$user_id' } },
+          pipeline: [
+            { $addFields: { _id_str: { $toString: '$_id' } } },
+            { $match: { $expr: { $eq: ['$_id_str', '$$uid'] } } },
+            {
+              $project: {
+                _id: 1,
+                email: 1,
+                name: 1,
+                full_name: 1,
+                fullName: 1,
+                displayName: 1,
+                display_name: 1,
+                username: 1,
+                'profile.displayName': 1,
+                'profile.full_name': 1,
+                'profile.fullName': 1,
+                'profile.name': 1,
+              },
+            },
+          ],
+          as: '__user',
         },
-      });
-    }
-
-    // Fallback native driver path: underscore 'llm_costs' first, then env override
-    let fallbackItems = [];
-    let fallbackTotal = 0;
-    let fallbackCollection = null;
-    try {
-      const db = await getDb();
-      const envName = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim();
-      const candidates = ['llm_costs', envName || 'llm_costs'].filter((v, i, a) => v && a.indexOf(v) === i);
-
-      // Count tenant-only presence (case-insensitive fallback included)
-      const tenantOnly = {
-        $or: [
-          { organization_id: resolvedTenant },
-          { tenant_id: resolvedTenant },
-          { orgId: resolvedTenant },
-          { tenantId: resolvedTenant },
-          { organizationId: resolvedTenant },
-          { 'tenant.tenant_id': resolvedTenant },
-          { organization_id: { $regex: `^${resolvedTenant}$`, $options: 'i' } },
-          { tenant_id: { $regex: `^${resolvedTenant}$`, $options: 'i' } },
-        ],
-      };
-
-      for (const name of candidates) {
-        try {
-          const coll = db.collection(name);
-
-          // Pre-match count before pagination
-          const preMatchCount = await coll.countDocuments({ $and: match.$and.filter(Boolean) }).catch(() => 0);
-          const tenantCount = await coll.countDocuments(tenantOnly).catch(() => 0);
-
-          const items = await coll
-            .find(match, { projection })
-            .sort(sort)
-            .skip((page - 1) * limit)
-            .limit(limit)
-            .toArray();
-
-          res.set('x-llm-probed-collection', name);
-          res.set('x-llm-tenant-matched', String(tenantCount));
-          res.set('x-llm-total-matched', String(preMatchCount));
-
-          fallbackItems = items || [];
-          fallbackTotal = preMatchCount || 0;
-          fallbackCollection = name;
-          break;
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.warn('[llm-costs] Probe collection failed:', name, e?.message || e);
-          continue;
-        }
-      }
-    } catch (ferr) {
-      // eslint-disable-next-line no-console
-      console.warn('[llm-costs] Fallback probe failed:', ferr?.message || ferr);
-    }
-
-    if (fallbackCollection) {
-      // eslint-disable-next-line no-console
-      console.warn('[llm-costs] Primary path returned zero but fallback found data', {
-        tenant: resolvedTenant,
-        collection: fallbackCollection,
-      });
-
-      res.set('x-llm-fallback', 'native');
-      res.set('x-llm-fallback-collection', fallbackCollection);
-      res.set(
-        'x-llm-fallback-warning',
-        'Primary path returned 0; using native probe. Configure LLMCOSTS_COLLECTION_NAME accordingly.'
-      );
-
-      res.set('x-effective-tenant', resolvedTenant);
-      res.set('x-llm-filter', JSON.stringify(match));
-      res.set('x-llm-projection', JSON.stringify(projection));
-      res.set('x-llm-sort', JSON.stringify(sort));
-      res.set('x-llm-page', String(page));
-      res.set('x-llm-limit', String(limit));
-      res.set('x-llm-timing-parsed-ms', String(Date.now() - startParsed));
-      res.set('x-llm-window-from', from.toISOString());
-      res.set('x-llm-window-to', to.toISOString());
-      res.set('x-llm-window-applied', applied || 'default');
-
-      // Required diagnostics
-      res.set('X-LLM-COSTS-Collection', fallbackCollection);
-      res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection }));
-      res.set('X-LLM-COSTS-Matched', String(fallbackTotal));
-
-      if (String(resolvedTenant || '') === 'b2c') {
-        try {
-          res.set('x-llm-debug-sample', JSON.stringify(fallbackItems?.[0] || null));
-        } catch {}
-      }
-
-      return res.json({
-        success: true,
-        data: fallbackItems,
-        meta: {
-          page,
-          limit,
-          total: fallbackTotal,
-          sort: sortStr,
-          window: {
-            from: from.toISOString(),
-            to: to.toISOString(),
-            applied: applied || 'default',
-          },
-          diagnostics: { headers: req.headers },
-          debug: {
-            fallback: true,
-            collection: fallbackCollection,
+      },
+      // Compute user_name via coalesce priority: profile.displayName, full_name, name, email
+      {
+        $addFields: {
+          user_name: {
+            $let: {
+              vars: { u: { $arrayElemAt: ['__$user', 0] } },
+              in: {
+                $ifNull: [
+                  {
+                    $ifNull: [
+                      '$$u.profile.displayName',
+                      {
+                        $ifNull: [
+                          '$$u.full_name',
+                          {
+                            $ifNull: [
+                              '$$u.name',
+                              {
+                                $ifNull: [
+                                  '$$u.email',
+                                  {
+                                    $ifNull: [
+                                      '$$u.displayName',
+                                      {
+                                        $ifNull: [
+                                          '$$u.display_name',
+                                          {
+                                            $ifNull: [
+                                              '$$u.username',
+                                              {
+                                                $ifNull: [
+                                                  '$$u.profile.full_name',
+                                                  {
+                                                    $ifNull: ['$$u.profile.name', '$$u.profile.fullName'],
+                                                  },
+                                                ],
+                                              },
+                                            ],
+                                          },
+                                        ],
+                                      },
+                                    ],
+                                  },
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                  null,
+                ],
+              },
+            },
           },
         },
-      });
+      },
+      { $project: { ...baseProject, user_name: 1 } },
+    ];
+
+    // Sorting
+    if (Object.keys(sort).length > 0) {
+      pipeline.push({ $sort: sort });
     }
 
-    // No results
-    const effFallback = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim() || 'llm_costs';
+    // Pagination with facet
+    const skip = (page - 1) * limit;
+    pipeline.push({
+      $facet: {
+        items: [{ $skip: skip }, { $limit: limit }],
+        totalCount: [{ $count: 'count' }],
+      },
+    });
 
+    // Execute aggregation using native driver for underscore collection (or env override)
+    const db = await getDb();
+    const envName = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim();
+    const effectiveCollection = envName || 'llm_costs';
+    const coll = db.collection(effectiveCollection);
+
+    const execStart = Date.now();
+    const [facet] = await coll.aggregate(pipeline, { allowDiskUse: true }).toArray();
+    const execMs = Date.now() - execStart;
+
+    const items = (facet && facet.items) || [];
+    const total = (facet && facet.totalCount && facet.totalCount[0] && facet.totalCount[0].count) || 0;
+
+    // Headers (preserve existing names)
     res.set('x-effective-tenant', resolvedTenant);
     res.set('x-llm-filter', JSON.stringify(match));
-    res.set('x-llm-projection', JSON.stringify(projection));
+    res.set('x-llm-projection', JSON.stringify({ ...baseProject, user_name: 1 }));
     res.set('x-llm-sort', JSON.stringify(sort));
     res.set('x-llm-page', String(page));
     res.set('x-llm-limit', String(limit));
     res.set('x-llm-timing-parsed-ms', String(Date.now() - startParsed));
+    res.set('x-llm-timing-exec-ms', String(execMs));
     res.set('x-llm-window-from', from.toISOString());
     res.set('x-llm-window-to', to.toISOString());
     res.set('x-llm-window-applied', applied || 'default');
-    res.set('x-llm-fallback-collection', effFallback);
 
-    // Required diagnostics when empty
-    res.set('X-LLM-COSTS-Collection', effFallback);
-    res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection }));
-    res.set('X-LLM-COSTS-Matched', '0');
-    res.set('X-LLM-COSTS-Reason', 'No documents matched tenant/time window');
+    // Diagnostics headers previously used
+    res.set('X-LLM-COSTS-Collection', effectiveCollection);
+    res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection: { ...baseProject, user_name: 1 } }));
+    res.set('X-LLM-COSTS-Matched', String(total));
+
+    if (String(resolvedTenant || '') === 'b2c') {
+      try {
+        res.set('x-llm-debug-sample', JSON.stringify(items?.[0] || null));
+      } catch {}
+    }
 
     return res.json({
       success: true,
-      data: [],
+      data: items,
       meta: {
         page,
         limit,
-        total: 0,
+        total,
         sort: sortStr,
         window: {
           from: from.toISOString(),
