@@ -50,12 +50,12 @@ router.get(
 
     // Execute count + page
     // IMPORTANT: Do NOT project away nested arrays; include users.projects.agents and top-level agents.
+    // Include stored agent_name from llm_costs as-is (no derivation or utilities).
     const projection = {
       agents: 1,
       users: 1,
       'users.projects': 1,
       'users.projects.agents': 1,
-      // keep common tabular fields too (but avoid excluding nested)
       request_id: 1,
       session_id: 1,
       project_id: 1,
@@ -78,85 +78,21 @@ router.get(
       duration_ms: 1,
       status: 1,
       details: 1,
+      agent_name: 1, // agent_name is passed through from the collection as-is
     };
 
-    const [total, rawDocs] = await Promise.all([
+    const [total, docs] = await Promise.all([
       LLMCost.countDocuments(filter),
       LLMCost.find(filter, projection).sort(sort).skip(skip).limit(limit).lean().exec(),
     ]);
-
-    // Derive agents and top-level agent_name using robust utility with cost-aware ranking
-    const { deriveAgentName, extractDistinctAgentNames } = require('../utils/agentName');
-
-    function fallbackAgentName(doc) {
-      // Attempt robust fallbacks if deriveAgentName returns falsy.
-      const names = [];
-
-      // users[].projects[].agents[].agent_name | name
-      if (Array.isArray(doc?.users)) {
-        for (const u of doc.users) {
-          const projects = Array.isArray(u?.projects) ? u.projects : [];
-          for (const p of projects) {
-            const agents = Array.isArray(p?.agents) ? p.agents : [];
-            for (const a of agents) {
-              if (!a || typeof a !== 'object') continue;
-              const nm = (typeof a.agent_name === 'string' && a.agent_name.trim())
-                ? a.agent_name.trim()
-                : (typeof a.name === 'string' && a.name.trim() ? a.name.trim() : null);
-              if (nm) names.push(nm);
-            }
-          }
-        }
-      }
-
-      // top-level agents[].agent_name | name
-      if (Array.isArray(doc?.agents)) {
-        for (const a of doc.agents) {
-          if (!a || typeof a !== 'object') continue;
-          const nm = (typeof a.agent_name === 'string' && a.agent_name.trim())
-            ? a.agent_name.trim()
-            : (typeof a.name === 'string' && a.name.trim() ? a.name.trim() : null);
-          if (nm) names.push(nm);
-        }
-      }
-
-      // de-duplicate, prefer first
-      const seen = new Set();
-      for (const n of names) {
-        const t = n.trim();
-        if (t && !seen.has(t)) {
-          return t;
-        }
-      }
-      return null;
-    }
-
-    const docs = Array.isArray(rawDocs)
-      ? rawDocs.map((d) => {
-          try {
-            const agentsList = extractDistinctAgentNames(d);
-            let agentName = deriveAgentName(d);
-            if (!agentName) {
-              agentName = fallbackAgentName(d);
-            }
-            return { ...d, agents: agentsList, agent_name: agentName || null };
-          } catch {
-            return { ...d, agents: [], agent_name: null };
-          }
-        })
-      : [];
 
     // Minimal diagnostic headers
     try {
       res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
       res.setHeader('X-LLM-COSTS-Total', String(total));
-      const agentsFound = docs.reduce((acc, d) => acc + (Array.isArray(d.agents) ? d.agents.length : 0), 0);
-      res.setHeader('X-LLM-COSTS-Agents-Found', String(agentsFound));
-      const derivedCount = docs.reduce((acc, d) => acc + (typeof d.agent_name === 'string' && d.agent_name ? 1 : 0), 0);
-      res.setHeader('x-agents-derived', String(derivedCount));
     } catch {}
 
-    // Envelope with raw docs untouched
+    // Envelope with raw docs untouched, including stored agent_name
     return success(
       res,
       Array.isArray(docs) ? docs : [],
