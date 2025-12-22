@@ -348,6 +348,20 @@ async function listLlmCosts(req, res) {
     res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection: { ...baseProject, user_name: 1, agent_name: 1 } }));
     res.set('X-LLM-COSTS-Matched', String(total));
 
+    // Additional diagnostics: total agents discovered across current page items
+    try {
+      const agentsCounts = Array.isArray(items) ? items.map(i => Array.isArray(i.agents) ? i.agents.length : 0) : [];
+      const totalAgentsOnPage = agentsCounts.reduce((a, b) => a + b, 0);
+      res.set('X-LLM-COSTS-Agents-Found', String(totalAgentsOnPage));
+    } catch {}
+
+    // Additional diagnostics: total agents discovered across page items
+    try {
+      const agentsCounts = Array.isArray(items) ? items.map(i => Array.isArray(i.agents) ? i.agents.length : 0) : [];
+      const totalAgentsOnPage = agentsCounts.reduce((a,b)=>a+b,0);
+      res.set('X-LLM-COSTS-Agents-Found', String(totalAgentsOnPage));
+    } catch {}
+
     if (String(resolvedTenant || '') === 'b2c') {
       try {
         res.set('x-llm-debug-sample', JSON.stringify(items?.[0] || null));
