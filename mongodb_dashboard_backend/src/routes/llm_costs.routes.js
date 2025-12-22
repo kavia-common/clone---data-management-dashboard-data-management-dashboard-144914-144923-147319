@@ -54,7 +54,7 @@ router.get(
       LLMCost.find(filter).sort(sort).skip(skip).limit(limit).lean().exec(),
     ]);
 
-    // Derive agents and top-level agent_name from nested users[].projects[].agents[] if present
+    // Derive agents for each document from nested users[].projects[].agents[] if present
     const docs = Array.isArray(rawDocs) ? rawDocs.map((d) => {
       try {
         const usersArr = Array.isArray(d?.users) ? d.users : [];
@@ -63,14 +63,11 @@ router.get(
         const agentsFlat = projectsFlat.flatMap((p) => Array.isArray(p?.agents) ? p.agents : []);
         const names = agentsFlat
           .map((a) => a?.agent_name ?? a?.name ?? null)
-          .filter((n) => typeof n === 'string' && n.trim().length > 0)
-          .map((n) => n.trim());
+          .filter((n) => typeof n === 'string' && n.length > 0);
         const distinct = Array.from(new Set(names));
-        // stable representative: first after alphabetical sort, else null
-        const agentName = distinct.length ? [...distinct].sort((a, b) => a.localeCompare(b))[0] : null;
-        return { ...d, agents: distinct, agent_name: agentName };
+        return { ...d, agents: distinct };
       } catch {
-        return { ...d, agents: [], agent_name: null };
+        return { ...d, agents: [] };
       }
     }) : [];
 
