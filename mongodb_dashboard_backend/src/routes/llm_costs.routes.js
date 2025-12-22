@@ -33,19 +33,40 @@ router.get(
 
     // Optional broadened filter by organization_id (alias: tenant_id)
     const rawOrg = (req.query.organization_id || req.query.tenant_id || '').toString().trim();
+
+    // Optional user filter
+    const rawUserId = (req.query.user_id || '').toString().trim();
+
     const filter = {};
     if (rawOrg) {
       // Build $or across exact and case-insensitive matches on organization_id and tenant_id
-      const rx = new RegExp(`^${escapeRegex(rawOrg)}$`, 'i');
+      const rxOrg = new RegExp(`^${escapeRegex(rawOrg)}$`, 'i');
       filter.$or = [
         { organization_id: rawOrg },
-        { organization_id: { $regex: rx } },
+        { organization_id: { $regex: rxOrg } },
         { tenant_id: rawOrg },
-        { tenant_id: { $regex: rx } },
+        { tenant_id: { $regex: rxOrg } },
       ];
     }
 
-    // Stable default sort: newest first by _id
+    if (rawUserId) {
+      // User id may be stored as string or ObjectId rendered as string; use case-insensitive exact match
+      const rxUser = new RegExp(`^${escapeRegex(rawUserId)}$`, 'i');
+      filter.$and = (filter.$and || []).concat([
+        {
+          $or: [
+            { user_id: rawUserId },
+            { user_id: { $regex: rxUser } },
+            { 'user.id': rawUserId },
+            { 'user.id': { $regex: rxUser } },
+            { 'user._id': rawUserId },
+            { 'user._id': { $regex: rxUser } },
+          ],
+        },
+      ]);
+    }
+
+    // Stable default sort: newest first by _id (preserve existing behavior)
     const sort = { _id: -1 };
 
     // Execute count + page
@@ -58,6 +79,7 @@ router.get(
     try {
       res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
       res.setHeader('X-LLM-COSTS-Total', String(total));
+      if (rawUserId) res.setHeader('X-LLM-COSTS-User', rawUserId);
     } catch {}
 
     // Envelope with raw docs untouched
@@ -69,6 +91,7 @@ router.get(
         limit,
         total,
         ...(rawOrg ? { organization_id: rawOrg } : {}),
+        ...(rawUserId ? { user_id: rawUserId } : {}),
       },
       200
     );
