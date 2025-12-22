@@ -2,7 +2,7 @@
 
 const express = require('express');
 const LLMCost = require('../models/llmCosts.model');
-const { asyncHandler, success } = require('../utils/http');
+const { asyncHandler, success, failure } = require('../utils/http');
 
 const router = express.Router();
 
@@ -11,7 +11,9 @@ const router = express.Router();
  * Escapes special characters in a string for safe use within a RegExp source.
  * Local helper kept minimal to avoid importing extra utilities.
  */
+// PUBLIC_INTERFACE
 function escapeRegex(str) {
+  /** Escapes regex meta characters for safe dynamic regex creation. */
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
@@ -20,23 +22,33 @@ function escapeRegex(str) {
  * GET /api/llm_costs
  * Returns raw/full documents from the 'llm_costs' collection (underscore), with optional organization_id filter,
  * server-side pagination, and stable default sort by timestamp desc (fallback created_at desc, then _id desc).
- * Response: { success: true, data: [<raw docs>], pagination: { page, limit, total, totalPages } }
+ * Response: { success: true, data, pagination: { page, limit, total, totalPages } }
  */
 router.get(
   '/',
   asyncHandler(async (req, res) => {
+    // Prevent stale cache interfering with pagination responses
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.removeHeader?.('ETag');
+
     // Validate and coerce page and limit with sane caps
     const MAX_LIMIT = 200; // align with API contract cap
     let page = parseInt(req.query.page, 10);
     let limit = parseInt(req.query.limit, 10);
 
     if (!Number.isFinite(page) || page < 1) page = 1;
-    if (!Number.isFinite(limit) || limit < 1) limit = 10;
-    if (limit > MAX_LIMIT) limit = MAX_LIMIT;
+    // Default limit to 20 as per general API docs; respect requested limit otherwise
+    if (!Number.isFinite(limit) || limit < 1) limit = 20;
+    if (limit > MAX_LIMIT) {
+      // Enforce max rather than silently capping to avoid surprising frontend; return 400 to be explicit
+      return failure(res, `limit must be <= ${MAX_LIMIT}`, 400);
+    }
 
     const skip = (page - 1) * limit;
 
-    // Optional filter by organization/tenant
+    // Optional filter by organization/tenant (validated)
     const rawOrg = (req.query.organization_id || req.query.tenant_id || '').toString().trim();
     const filter = {};
     if (rawOrg) {
@@ -81,15 +93,19 @@ router.get(
       totalPages,
     };
 
-    // Note: success() helper previously returned { success, data, meta }, keep compatible but add pagination key
-    // We'll pass pagination in meta and also return a top-level pagination for frontend ergonomics
+    // Return response matching requested schema: { data, pagination }
+    // Use success() to keep consistent envelope and include pagination under meta for compatibility.
     const meta = {
       ...pagination,
       ...(rawOrg ? { organization_id: rawOrg } : {}),
     };
 
-    const body = { pagination }; // will be merged by success() as meta, but also include pagination explicitly if success() doesn't add it
-    return success(res, data, meta, 200, body);
+    return res.status(200).json({
+      success: true,
+      data,
+      pagination,
+      meta,
+    });
   })
 );
 
