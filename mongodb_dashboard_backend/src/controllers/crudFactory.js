@@ -8,7 +8,7 @@ function validateSort(sort, allowed = ['timestamp', 'created_at', '_id']) {
   // Returns a safe sort string "-field" or "field" constrained to allowed list.
   // If sort is missing or not allowed, default to first item from allowed prefixed with '-'.
   const fallback = allowed && allowed.length ? `-${allowed[0]}` : '-timestamp';
-  if (!sort || typeof sort !== 'string') {return fallback;}
+  if (!sort || typeof sort !== 'string') { return fallback; }
   const trimmed = sort.trim();
   const desc = trimmed.startsWith('-');
   const field = desc ? trimmed.slice(1) : trimmed;
@@ -23,7 +23,7 @@ function validateSort(sort, allowed = ['timestamp', 'created_at', '_id']) {
  */
 function clampLimit(limit, max = 500) {
   const n = parseInt(limit, 10);
-  if (!Number.isFinite(n)) {return Math.min(20, max);}
+  if (!Number.isFinite(n)) { return Math.min(20, max); }
   return Math.max(1, Math.min(n, max));
 }
 
@@ -45,7 +45,7 @@ const listMicroCache = new Map(); // key -> { expiresAt:number, payload:any }
  */
 function microGet(key) {
   const hit = listMicroCache.get(key);
-  if (!hit) {return null;}
+  if (!hit) { return null; }
   if (Date.now() > hit.expiresAt) {
     listMicroCache.delete(key);
     return null;
@@ -75,9 +75,9 @@ function buildListKey(req, filter, sort, page, limit, skip, explicit) {
  * - Strip client-provided tenant_id and inject from req.tenantId when available
  */
 function sanitizePayloadWithTenant(req) {
-  if (!req || typeof req !== 'object') {return null;}
+  if (!req || typeof req !== 'object') { return null; }
   const body = req.body;
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {return null;}
+  if (!body || typeof body !== 'object' || Array.isArray(body)) { return null; }
   const clean = { ...body };
   // Strip all client-supplied tenant/org fields defensively
   delete clean.tenant_id;
@@ -106,7 +106,7 @@ function mergeFilterWithTenant(filter, tenantId) {
   delete f.organizationId;
   delete f.orgId;
 
-  if (!tenantId) {return f;}
+  if (!tenantId) { return f; }
 
   // Build a normalized tenant filter to match across possible fields (defensive)
   const normalizedTenantFilter = {
@@ -157,7 +157,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
         const authPresent = !!req.headers?.authorization;
         res.set('x-tenant-auth-present', String(authPresent));
-      } catch (_) {}
+      } catch (_) { }
 
       // Developer-mode log
       const debugOn = process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true';
@@ -166,7 +166,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       try {
         const bypassHeader = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
         res.set('X-Tenant-Bypass', String(bypassHeader));
-      } catch (_) {}
+      } catch (_) { }
 
       if (debugOn) {
         try {
@@ -209,7 +209,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
               costsAllTenantsBypass: !!req.costsAllTenantsBypass
             });
           }
-        } catch (_) {}
+        } catch (_) { }
       }
 
       // Parse pagination but hard-cap the limit to prevent heavy responses.
@@ -229,7 +229,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
       // Enforce tenant BEFORE any sort to promote index usage.
       // Allow Super Admin global mode to bypass tenant checks
       const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass || req.sessionsAllTenantsBypass || req.deploymentsAllTenantsBypass || req.costsAllTenantsBypass);
-      try { if (bypass) { res.set('X-All-Tenants', 'true'); } } catch(_) {}
+      try { if (bypass) { res.set('X-All-Tenants', 'true'); } } catch (_) { }
       // Relaxed: for list endpoints like /api/llm-costs and /api/session-tracking, allow organization_id/tenant_id query/header
       if (!bypass && !req.tenantId) {
         // Attempt final resolution from common aliases if present
@@ -276,7 +276,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         if (Model && Model.collection && Model.collection.name) {
           res.set('X-Model-Collection', Model.collection.name);
         }
-      } catch (_) {}
+      } catch (_) { }
 
       // Determine allowed sort fields per model and validate sort string
       const isAppDeployment = Model?.modelName === 'AppDeployment';
@@ -293,7 +293,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         try {
           const existsDoc = await Model.exists(
             appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
-          ).lean?.();
+          );
           existsSample = existsDoc ? 'true' : 'false';
         } catch {
           // Some Mongoose versions don't support .lean on exists result; fallback
@@ -308,23 +308,23 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         }
         try {
           res.set('X-Exists-Sample', existsSample);
-        } catch (_) {}
+        } catch (_) { }
 
         if (debugOn) {
           try {
-            
+
             console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
-          } catch (_) {}
+          } catch (_) { }
         }
-          // pagination path
+        // pagination path
 
         if (req.method === 'GET' && explicit) {
-                    // cache and return envelope
+          // cache and return envelope
 
           const key = buildListKey(req, appliedFilter, safeSort, page, hardCappedLimit, skip, explicit);
           const cached = microGet(key);
-          if (cached) {return res.status(200).json(cached);}
-          
+          if (cached) { return res.status(200).json(cached); }
+
           // Use allowDiskUse(true) for safety on large sorts; filter is enforced first.
           let items;
           if (isLLMCost) {
@@ -334,29 +334,17 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 : { timestamp: -1 };
               const pipeline = [
                 { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-                { $addFields: {
+                {
+                  $addFields: {
                     timestamp: { $ifNull: ['$timestamp', '$created_at'] },
                     organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
-                    numeric_total_cost: {
-                      $convert: {
-                        input: {
-                          $replaceAll: {
-                            input: { $toString: { $ifNull: ['$total_cost', 0] } },
-                            find: '$',
-                            replacement: ''
-                          }
-                        },
-                        to: 'double',
-                        onError: 0,
-                        onNull: 0
-                      }
-                    }
-                  }
+                  },
                 },
                 { $sort: sortStage },
                 { $skip: skip },
                 { $limit: hardCappedLimit },
               ];
+
               items = await Model.aggregate(pipeline).allowDiskUse(true);
             } catch (_) {
               items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
@@ -368,7 +356,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                 : { timestamp: -1 };
               const pipeline = [
                 { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-                { $addFields: {
+                {
+                  $addFields: {
                     // Normalize timestamp fields for consistent sorting
                     timestamp: { $ifNull: ['$timestamp', '$created_at'] },
                     created_at: { $ifNull: ['$created_at', '$createdAt'] },
@@ -404,20 +393,48 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         // For LLMCost model, add a light projection to ensure timestamp field presence and numeric cost coercion for clients.
         let query = Model.find(appliedFilter).sort(safeSort).allowDiskUse(true).lean();
         try {
+          const sortStage = safeSort
+            ? (safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 })
+            : null;
+
           if (isLLMCost) {
             // Use aggregation for minimal transformation without large memory footprint
             const pipeline = [
               { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-              { $addFields: {
+              {
+                $addFields: {
                   timestamp: { $ifNull: ['$timestamp', '$created_at'] },
                   organization_id: { $ifNull: ['$organization_id', '$tenant_id'] },
                   numeric_total_cost: {
                     $convert: {
                       input: {
-                        $replaceAll: {
-                          input: { $toString: { $ifNull: ['$total_cost', 0] } },
-                          find: '$',
-                          replacement: ''
+                        $let: {
+                          vars: {
+                            cleaned: {
+                              $trim: {
+                                input: {
+                                  $replaceAll: {
+                                    input: {
+                                      $replaceAll: {
+                                        input: { $toString: { $ifNull: ['$total_cost', ''] } },
+                                        find: '$',
+                                        replacement: ''
+                                      }
+                                    },
+                                    find: 'USD',
+                                    replacement: ''
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          in: {
+                            $cond: [
+                              { $eq: ['$$cleaned', ''] },
+                              null,
+                              '$$cleaned'
+                            ]
+                          }
                         }
                       },
                       to: 'double',
@@ -426,16 +443,19 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                     }
                   }
                 }
-              },
-              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
+              }
             ];
+            if (sortStage) {
+              pipeline.push({ $sort: sortStage });
+            }
             const items = await Model.aggregate(pipeline).allowDiskUse(true);
             return res.status(200).json(items);
           }
           if (isAppDeployment) {
             const pipeline = [
               { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
-              { $addFields: {
+              {
+                $addFields: {
                   timestamp: { $ifNull: ['$timestamp', '$created_at'] },
                   created_at: { $ifNull: ['$created_at', '$createdAt'] },
                   updated_at: { $ifNull: ['$updated_at', '$updatedAt'] },
@@ -446,9 +466,11 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                     ]
                   }
                 }
-              },
-              ...(safeSort ? [{ $sort: safeSort.startsWith('-') ? { [safeSort.slice(1)]: -1 } : { [safeSort]: 1 } }] : []),
+              }
             ];
+            if (sortStage) {
+              pipeline.push({ $sort: sortStage });
+            }
             const items = await Model.aggregate(pipeline).allowDiskUse(true);
             return res.status(200).json(items);
           }
@@ -470,18 +492,18 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         const match = bypass
           ? { _id: id }
           : {
-              _id: id,
-              $or: [
-                { tenant_id: String(req.tenantId) },
-                { organization_id: String(req.tenantId) },
-                { orgId: String(req.tenantId) },
-                { tenantId: String(req.tenantId) },
-                { organizationId: String(req.tenantId) },
-                { 'tenant.tenant_id': String(req.tenantId) },
-              ],
-            };
+            _id: id,
+            $or: [
+              { tenant_id: String(req.tenantId) },
+              { organization_id: String(req.tenantId) },
+              { orgId: String(req.tenantId) },
+              { tenantId: String(req.tenantId) },
+              { organizationId: String(req.tenantId) },
+              { 'tenant.tenant_id': String(req.tenantId) },
+            ],
+          };
         const doc = await Model.findOne(match).lean();
-        if (!doc) {return failure(res, 'Not found', 404);}
+        if (!doc) { return failure(res, 'Not found', 404); }
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'getById');
@@ -491,7 +513,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
     // PUBLIC_INTERFACE
     async create(req, res) {
       const clean = sanitizePayloadWithTenant(req);
-      if (!clean) {return failure(res, 'Bad request: payload must be an object', 400);}
+      if (!clean) { return failure(res, 'Bad request: payload must be an object', 400); }
       try {
         const doc = await Model.create(clean);
         return res.status(201).json(doc);
@@ -504,24 +526,24 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
     async update(req, res) {
       const { id } = req.params;
       const clean = sanitizePayloadWithTenant(req);
-      if (!clean) {return failure(res, 'Bad request: payload must be an object', 400);}
+      if (!clean) { return failure(res, 'Bad request: payload must be an object', 400); }
       try {
         const bypass = !!(req.tenantScopeDisabled || req.allTenants);
         const match = bypass
           ? { _id: id }
           : {
-              _id: id,
-              $or: [
-                { tenant_id: String(req.tenantId) },
-                { organization_id: String(req.tenantId) },
-                { orgId: String(req.tenantId) },
-                { tenantId: String(req.tenantId) },
-                { organizationId: String(req.tenantId) },
-                { 'tenant.tenant_id': String(req.tenantId) },
-              ],
-            };
+            _id: id,
+            $or: [
+              { tenant_id: String(req.tenantId) },
+              { organization_id: String(req.tenantId) },
+              { orgId: String(req.tenantId) },
+              { tenantId: String(req.tenantId) },
+              { organizationId: String(req.tenantId) },
+              { 'tenant.tenant_id': String(req.tenantId) },
+            ],
+          };
         const doc = await Model.findOneAndUpdate(match, clean, { new: true }).lean();
-        if (!doc) {return failure(res, 'Not found', 404);}
+        if (!doc) { return failure(res, 'Not found', 404); }
         return res.status(200).json(doc);
       } catch (err) {
         return mapAndReplyError(res, err, 'update');
@@ -536,18 +558,18 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         const match = bypass
           ? { _id: id }
           : {
-              _id: id,
-              $or: [
-                { tenant_id: String(req.tenantId) },
-                { organization_id: String(req.tenantId) },
-                { orgId: String(req.tenantId) },
-                { tenantId: String(req.tenantId) },
-                { organizationId: String(req.tenantId) },
-                { 'tenant.tenant_id': String(req.tenantId) },
-              ],
-            };
+            _id: id,
+            $or: [
+              { tenant_id: String(req.tenantId) },
+              { organization_id: String(req.tenantId) },
+              { orgId: String(req.tenantId) },
+              { tenantId: String(req.tenantId) },
+              { organizationId: String(req.tenantId) },
+              { 'tenant.tenant_id': String(req.tenantId) },
+            ],
+          };
         const doc = await Model.findOneAndDelete(match).lean();
-        if (!doc) {return failure(res, 'Not found', 404);}
+        if (!doc) { return failure(res, 'Not found', 404); }
         return res.status(200).json({ _id: id });
       } catch (err) {
         return mapAndReplyError(res, err, 'remove');
