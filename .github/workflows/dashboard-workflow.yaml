@@ -8,12 +8,12 @@ on:
 env:
   DUPLO_TOKEN: ${{ secrets.DUPLO_TOKEN }}
   DUPLO_HOST: https://duplo.cloud.kavia.ai
-  DUPLO_TENANT: kavia-dev
+  DUPLO_TENANT: kavia-beta
   REPO_NAME: kavia-dashboard
   AWS_ACCOUNT_ID: 127214169382
   AWS_REGION: us-west-2
   IMAGE_NAME: kavia-dashboard
-  CLUSTER_NAME: dev
+  CLUSTER_NAME: preprod
   SERVICE_NAME: kavia-dashboard
 
 jobs:
