@@ -23,6 +23,10 @@ function escapeRegex(str) {
  * Returns raw/full documents from the 'llm_costs' collection (underscore), with optional organization_id filter,
  * server-side pagination, and stable default sort by timestamp desc (fallback created_at desc, then _id desc).
  * Response: { success: true, data, pagination: { page, limit, total, totalPages } }
+ *
+ * Patch: To avoid aggregation $convert errors on tenants with malformed string values (e.g. empty strings in numeric or date fields),
+ * we switch the data path to an aggregation pipeline that includes a defensive $addFields stage with $convert using onError/onNull: null.
+ * This preserves the response shape and existing sort/pagination/filter semantics.
  */
 router.get(
   '/',
@@ -64,10 +68,51 @@ router.get(
     // Consistent sort: prefer timestamp desc, then created_at desc, finally _id desc
     const sort = { timestamp: -1, created_at: -1, _id: -1 };
 
-    // Execute count + page
+    // New: Use aggregation pipeline to pre-normalize fields with safe $convert (onError/onNull: null)
+    // This prevents failures like: "Failed to parse number '' in $convert with no onError value: Empty string"
+    const pipeline = [];
+
+    if (Object.keys(filter).length) {
+      pipeline.push({ $match: filter });
+    }
+
+    // Defensive conversion stage - do not change field names or types if already valid;
+    // ensure empty strings / malformed become null to keep sorting and projection stable.
+    pipeline.push({
+      $addFields: {
+        timestamp: {
+          $convert: { input: '$timestamp', to: 'date', onError: null, onNull: null },
+        },
+        created_at: {
+          $convert: { input: '$created_at', to: 'date', onError: null, onNull: null },
+        },
+        tokens_in: {
+          $convert: { input: '$tokens_in', to: 'int', onError: null, onNull: null },
+        },
+        tokens_out: {
+          $convert: { input: '$tokens_out', to: 'int', onError: null, onNull: null },
+        },
+        cost_usd: {
+          $convert: { input: '$cost_usd', to: 'double', onError: null, onNull: null },
+        },
+        total_cost: {
+          $convert: { input: '$total_cost', to: 'double', onError: null, onNull: null },
+        },
+        duration_ms: {
+          $convert: { input: '$duration_ms', to: 'int', onError: null, onNull: null },
+        },
+      },
+    });
+
+    // Apply sort and pagination via aggregation to preserve semantics
+    pipeline.push({ $sort: sort });
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    // Execute both count and page via aggregation functions: count uses a simple countDocuments with the same filter.
     const [total, docs] = await Promise.all([
       LLMCost.countDocuments(filter),
-      LLMCost.find(filter).sort(sort).skip(skip).limit(limit).lean().exec(),
+      LLMCost.aggregate(pipeline).exec(),
     ]);
 
     const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
