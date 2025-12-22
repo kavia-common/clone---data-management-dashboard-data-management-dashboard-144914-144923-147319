@@ -408,15 +408,16 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                   numeric_total_cost: {
                     $convert: {
                       input: {
-                        $let: {
-                          vars: {
-                            cleaned: {
+                        $cond: [
+                          { $in: [{ $type: '$total_cost' }, ['missing', 'null', 'string']] }, // check for missing/null/string
+                          {
+                            $toDouble: {
                               $trim: {
                                 input: {
                                   $replaceAll: {
                                     input: {
                                       $replaceAll: {
-                                        input: { $toString: { $ifNull: ['$total_cost', ''] } },
+                                        input: { $ifNull: ['$total_cost', '0'] }, // fallback to 0 if null
                                         find: '$',
                                         replacement: ''
                                       }
@@ -428,22 +429,16 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                               }
                             }
                           },
-                          in: {
-                            $cond: [
-                              { $eq: ['$$cleaned', ''] },
-                              null,
-                              '$$cleaned'
-                            ]
-                          }
-                        }
+                          '$total_cost' // if already number, keep as-is
+                        ]
                       },
                       to: 'double',
                       onError: 0,
                       onNull: 0
                     }
                   }
+
                 }
-              }
             ];
             if (sortStage) {
               pipeline.push({ $sort: sortStage });

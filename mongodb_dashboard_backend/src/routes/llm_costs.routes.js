@@ -81,6 +81,11 @@ router.get(
           $convert: { input: '$created_at', to: 'date', onError: null, onNull: null },
         },
 
+        // Normalize user_id to string for join safety
+        _user_id_str: {
+          $convert: { input: '$user_id', to: 'string', onError: null, onNull: null },
+        },
+
         // Numbers: handle strings like "$1.23" by stripping symbols via toString trim chain
         _cost_total_str: {
           $trim: {
@@ -135,6 +140,85 @@ router.get(
       },
     });
 
+    // Join users to derive user_name (safe for ObjectId/string mismatches)
+    pipeline.push({
+      $lookup: {
+        from: 'users',
+        let: { cid: '$_user_id_str' },
+        pipeline: [
+          {
+            $addFields: {
+              _id_str: { $convert: { input: '$_id', to: 'string', onError: null, onNull: null } },
+              user_id_str: { $convert: { input: '$user_id', to: 'string', onError: null, onNull: null } },
+              id_str: { $convert: { input: '$id', to: 'string', onError: null, onNull: null } },
+            },
+          },
+          {
+            $match: {
+              $expr: {
+                $or: [
+                  { $eq: ['$$cid', '$user_id_str'] },
+                  { $eq: ['$$cid', '$id_str'] },
+                  { $eq: ['$$cid', '$_id_str'] },
+                ],
+              },
+            },
+          },
+          {
+            $project: {
+              name: 1,
+              displayName: 1,
+              display_name: 1,
+              full_name: 1,
+              fullName: 1,
+              user_name: 1,
+              email: 1,
+              username: 1,
+            },
+          },
+          { $limit: 1 },
+        ],
+        as: '_user_doc',
+      },
+    });
+
+    // Compute user_name with fallback chain
+    pipeline.push({
+      $addFields: {
+        user_name: {
+          $let: {
+            vars: { u: { $arrayElemAt: ['$_user_doc', 0] } },
+            in: {
+              $ifNull: [
+                '$$u.displayName',
+                {
+                  $ifNull: [
+                    '$$u.display_name',
+                    {
+                      $ifNull: [
+                        '$$u.fullName',
+                        {
+                          $ifNull: [
+                            '$$u.full_name',
+                            {
+                              $ifNull: ['$$u.user_name', { $ifNull: ['$$u.name', { $ifNull: ['$$u.username', '$$u.email'] }] }],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    // Clean temp field
+    pipeline.push({ $project: { _user_doc: 0 } });
+
     pipeline.push({ $sort: sortStage });
     pipeline.push({ $skip: skip });
     pipeline.push({ $limit: limit });
@@ -156,6 +240,89 @@ router.get(
         .limit(limit)
         .lean()
         .exec();
+
+      // Resolve user_name in-memory using users collection
+      try {
+        const mongoose = require('mongoose');
+        const User = require('../models/user.model.js');
+        const ids = Array.from(
+          new Set(
+            (docs || [])
+              .map((d) => (d && d.user_id != null ? String(d.user_id) : null))
+              .filter(Boolean)
+          )
+        );
+
+        if (ids.length) {
+          const asObjectIds = ids
+            .map((s) => {
+              try {
+                return new mongoose.Types.ObjectId(s);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+
+          const orConds = [{ user_id: { $in: ids } }, { id: { $in: ids } }];
+          if (asObjectIds.length) orConds.push({ _id: { $in: asObjectIds } });
+
+          const users = await User.find(
+            { $or: orConds },
+            {
+              user_id: 1,
+              id: 1,
+              name: 1,
+              displayName: 1,
+              display_name: 1,
+              full_name: 1,
+              fullName: 1,
+              user_name: 1,
+              email: 1,
+              username: 1,
+            }
+          )
+            .lean()
+            .exec();
+
+          const normalize = (u) =>
+            u?.displayName ||
+            u?.display_name ||
+            u?.fullName ||
+            u?.full_name ||
+            u?.user_name ||
+            u?.name ||
+            u?.username ||
+            u?.email ||
+            null;
+
+          const keyFor = (u) => {
+            if (u?.user_id) return String(u.user_id);
+            if (u?.id) return String(u.id);
+            if (u?._id) return String(u._id);
+            return null;
+          };
+
+          const nameMap = new Map();
+          for (const u of users || []) {
+            const k = keyFor(u);
+            const n = normalize(u);
+            if (k && n && !nameMap.has(k)) nameMap.set(k, n);
+          }
+
+          docs = (docs || []).map((d) => {
+            const uid = d && d.user_id != null ? String(d.user_id) : null;
+            const user_name = uid && nameMap.has(uid) ? nameMap.get(uid) : null;
+            return { ...d, user_name };
+          });
+        } else {
+          docs = (docs || []).map((d) => ({ ...d, user_name: null }));
+        }
+      } catch {
+        // Ensure field exists even if resolution fails
+        docs = (docs || []).map((d) => ({ ...d, user_name: d?.user_name ?? null }));
+      }
+
       total = await LLMCost.countDocuments(filter);
     }
 
@@ -171,6 +338,15 @@ router.get(
 
     const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
     const data = skip >= total ? [] : Array.isArray(docs) ? docs : [];
+
+    // Guarantee user_name field exists for frontend table
+    if (Array.isArray(data)) {
+      for (const d of data) {
+        if (!Object.prototype.hasOwnProperty.call(d, 'user_name')) {
+          d.user_name = null;
+        }
+      }
+    }
 
     const meta = {
       page,
