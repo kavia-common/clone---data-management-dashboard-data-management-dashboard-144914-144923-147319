@@ -163,6 +163,8 @@ async function listLlmCosts(req, res) {
       details: 1,
       // Added: expose agents array built later in pipeline
       agents: 1,
+      // New: expose derived agent_name
+      agent_name: 1,
     };
 
     // Build pipeline for enrichment with users
@@ -170,6 +172,7 @@ async function listLlmCosts(req, res) {
     // - Treat user_id and users._id as strings (UUIDs)
     // - Join users with a pipeline lookup using $expr string equality
     // - user_name strictly from users.name, else "Unknown User"
+    // - derive agent_name from nested users->projects->agents
     const pipeline = [
       { $match: match },
 
@@ -226,7 +229,7 @@ async function listLlmCosts(req, res) {
       },
       {
         $addFields: {
-          agents: {
+          _agentNamesDistinct: {
             $setUnion: [
               {
                 $filter: {
@@ -240,11 +243,31 @@ async function listLlmCosts(req, res) {
                     },
                   },
                   as: 'n',
-                  cond: { $ne: ['$$n', null] },
+                  cond: { $and: [{ $ne: ['$$n', null] }, { $ne: [{ $strLenCP: '$$n' }, 0] }] },
                 },
               },
-              [], // ensure distinct with setUnion
+              [],
             ],
+          },
+        },
+      },
+      // stable selection: first non-empty after alphabetical sort
+      {
+        $addFields: {
+          agents: '$_agentNamesDistinct',
+          agent_name: {
+            $let: {
+              vars: {
+                sorted: { $sortArray: { input: '$_agentNamesDistinct', sortBy: 1 } },
+              },
+              in: {
+                $cond: [
+                  { $gt: [{ $size: '$$sorted' }, 0] },
+                  { $arrayElemAt: ['$$sorted', 0] },
+                  null,
+                ],
+              },
+            },
           },
         },
       },
@@ -274,7 +297,8 @@ async function listLlmCosts(req, res) {
       {
         $project: {
           ...baseProject,
-          user_name: 1
+          user_name: 1,
+          agent_name: 1
         }
       }
     ];
@@ -309,7 +333,7 @@ async function listLlmCosts(req, res) {
     // Headers (preserve existing names)
     res.set('x-effective-tenant', resolvedTenant);
     res.set('x-llm-filter', JSON.stringify(match));
-    res.set('x-llm-projection', JSON.stringify({ ...baseProject, user_name: 1 }));
+    res.set('x-llm-projection', JSON.stringify({ ...baseProject, user_name: 1, agent_name: 1 }));
     res.set('x-llm-sort', JSON.stringify(sort));
     res.set('x-llm-page', String(page));
     res.set('x-llm-limit', String(limit));
@@ -321,7 +345,7 @@ async function listLlmCosts(req, res) {
 
     // Diagnostics headers previously used
     res.set('X-LLM-COSTS-Collection', effectiveCollection);
-    res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection: { ...baseProject, user_name: 1 } }));
+    res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection: { ...baseProject, user_name: 1, agent_name: 1 } }));
     res.set('X-LLM-COSTS-Matched', String(total));
 
     if (String(resolvedTenant || '') === 'b2c') {
