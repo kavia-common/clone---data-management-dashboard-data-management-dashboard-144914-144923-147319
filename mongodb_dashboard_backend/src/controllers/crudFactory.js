@@ -395,6 +395,9 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             items = await Model.find(appliedFilter).sort(safeSort).skip(skip).limit(hardCappedLimit).allowDiskUse(true).lean();
           }
           const total = await Model.countDocuments(appliedFilter);
+          // Standardized envelope for paginated responses to ensure downstream consistency.
+          // For backward compatibility across modules, we keep the { success, data, meta } shape,
+          // but callers can rely on meta containing { page, limit, total }.
           const payload = { success: true, data: items, meta: { page, limit: hardCappedLimit, total } };
           microSet(key, payload);
           return res.status(200).json(payload);

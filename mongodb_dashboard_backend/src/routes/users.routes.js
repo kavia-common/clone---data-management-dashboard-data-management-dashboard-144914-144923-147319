@@ -407,6 +407,11 @@ router.get(
  *  - When no JWT is present (demo mode only), allow tenant from header/query and still enforce filtering.
  *  - Mongo filter uses normalized OR across {tenant_id, organization_id, orgId, tenantId, organizationId, tenant.tenant_id}.
  * - Supports optional pagination (page, limit) for envelope response; without pagination returns a raw array.
+ * Response shapes:
+ *  - When page/limit are provided (explicit pagination): { success: true, data: [ ...users ], meta: { page, limit, total } }
+ *  - When no pagination params are provided: [ ...users ]
+ * Notes:
+ *  - This is the single paginated endpoint to be used by the frontend Users module.
  */
 router.get(
   '/',
