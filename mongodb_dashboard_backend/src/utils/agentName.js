@@ -23,96 +23,172 @@ function distinctStrings(items) {
 }
 
 /**
- * Walks through possible nested shapes to collect agent names.
- * Supported shapes:
- *  - doc.agent_name
- *  - doc.agents[].agent_name
- *  - doc.users[].projects[].agents[].agent_name
- *  - doc.details?.agents[].agent_name
- *  - doc.details?.metadata?.agents[].agent_name
- *
- * Returns the first non-empty name when many exist, otherwise joins distinct with ", ".
- *
- * PUBLIC_INTERFACE
- * @param {object} doc Source document
- * @returns {string|null} Representative agent_name or null
+ * Parse a currency-like or numeric-like value to Number.
+ * Strips non-digit/decimal characters (e.g., "$12.34", "USD 1,234.50").
+ * Returns NaN when not parseable.
+ * @param {any} v
+ * @returns {number}
  */
-function deriveAgentName(doc) {
-  if (!doc || typeof doc !== "object") return null;
-
-  // Direct field already present
-  if (typeof doc.agent_name === "string" && doc.agent_name.trim()) {
-    return doc.agent_name.trim();
+function parseMoneyToNumber(v) {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const cleaned = v.replace(/[^0-9.+-eE]/g, "");
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : NaN;
   }
+  return NaN;
+}
 
-  const collected = [];
+/**
+ * Collect candidate agents from various shapes with an optional cost field to rank.
+ * Each candidate is represented as { name: string, totalCost: number|NaN }.
+ * @param {object} doc
+ * @returns {{name: string, totalCost: number}[]}
+ */
+function collectAgentCandidates(doc) {
+  const out = [];
 
-  // Top-level agents array: [{ agent_name }]
-  if (Array.isArray(doc.agents)) {
-    for (const a of doc.agents) {
-      if (a && typeof a.agent_name === "string" && a.agent_name.trim()) {
-        collected.push(a.agent_name.trim());
-      }
-      // also support generic "name"
-      if (a && typeof a.name === "string" && a.name.trim()) {
-        collected.push(a.name.trim());
-      }
+  // Direct top-level fields (rare): { agent_name, total_cost }
+  if (doc && typeof doc === "object") {
+    if (typeof doc.agent_name === "string" && doc.agent_name.trim()) {
+      out.push({ name: doc.agent_name.trim(), totalCost: parseMoneyToNumber(doc.total_cost) });
     }
   }
 
-  // Nested users[].projects[].agents[]
-  if (Array.isArray(doc.users)) {
+  // doc.agents[]: allow variants { agent_name, name, total_cost, totalCost, "Total Cost" }
+  if (Array.isArray(doc?.agents)) {
+    for (const a of doc.agents) {
+      if (!a || typeof a !== "object") continue;
+      const nm = typeof a.agent_name === "string" && a.agent_name.trim()
+        ? a.agent_name.trim()
+        : (typeof a.name === "string" && a.name.trim() ? a.name.trim() : null);
+      if (!nm) continue;
+      const tc = parseMoneyToNumber(
+        a.total_cost ?? a.totalCost ?? a["Total Cost"] ?? a.cost_usd ?? a.cost
+      );
+      out.push({ name: nm, totalCost: tc });
+    }
+  }
+
+  // users[].projects[].agents[]
+  if (Array.isArray(doc?.users)) {
     for (const u of doc.users) {
-      if (!u || typeof u !== "object") continue;
-      const projects = Array.isArray(u.projects) ? u.projects : [];
+      const projects = Array.isArray(u?.projects) ? u.projects : [];
       for (const p of projects) {
-        if (!p || typeof p !== "object") continue;
-        const agents = Array.isArray(p.agents) ? p.agents : [];
+        const agents = Array.isArray(p?.agents) ? p.agents : [];
         for (const a of agents) {
-          if (a && typeof a.agent_name === "string" && a.agent_name.trim()) {
-            collected.push(a.agent_name.trim());
-          }
-          if (a && typeof a.name === "string" && a.name.trim()) {
-            collected.push(a.name.trim());
-          }
+          if (!a || typeof a !== "object") continue;
+          const nm = typeof a.agent_name === "string" && a.agent_name.trim()
+            ? a.agent_name.trim()
+            : (typeof a.name === "string" && a.name.trim() ? a.name.trim() : null);
+          if (!nm) continue;
+          const tc = parseMoneyToNumber(
+            a.total_cost ?? a.totalCost ?? a["Total Cost"] ?? a.cost_usd ?? a.cost
+          );
+          out.push({ name: nm, totalCost: tc });
         }
       }
     }
   }
 
-  // doc.details.agents
-  const details = doc.details && typeof doc.details === "object" ? doc.details : null;
-  if (details && Array.isArray(details.agents)) {
-    for (const a of details.agents) {
-      if (a && typeof a.agent_name === "string" && a.agent_name.trim()) {
-        collected.push(a.agent_name.trim());
-      }
-      if (a && typeof a.name === "string" && a.name.trim()) {
-        collected.push(a.name.trim());
+  // details.agents and details.metadata.agents
+  const details = doc && typeof doc === "object" ? doc.details : null;
+  const meta = details && typeof details === "object" ? details.metadata : null;
+  const nestedAgentsArrays = [];
+  if (Array.isArray(details?.agents)) nestedAgentsArrays.push(details.agents);
+  if (Array.isArray(meta?.agents)) nestedAgentsArrays.push(meta.agents);
+  for (const arr of nestedAgentsArrays) {
+    for (const a of arr) {
+      if (!a || typeof a !== "object") continue;
+      const nm = typeof a.agent_name === "string" && a.agent_name.trim()
+        ? a.agent_name.trim()
+        : (typeof a.name === "string" && a.name.trim() ? a.name.trim() : null);
+      if (!nm) continue;
+      const tc = parseMoneyToNumber(
+        a.total_cost ?? a.totalCost ?? a["Total Cost"] ?? a.cost_usd ?? a.cost
+      );
+      out.push({ name: nm, totalCost: tc });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Derive a representative agent_name from a heterogeneous document.
+ * Rule when multiple names exist:
+ *   - Prefer the agent with the highest total_cost (numeric parse).
+ *   - If totals are equal or NaN, fall back to alphabetical by name.
+ * Handles variations in structure and empty arrays.
+ * @param {object} doc
+ * @returns {string|null}
+ */
+function deriveAgentName(doc) {
+  if (!doc || typeof doc !== "object") return null;
+
+  // If a clean top-level agent_name already exists, still validate it
+  if (typeof doc.agent_name === "string" && doc.agent_name.trim()) {
+    return doc.agent_name.trim();
+  }
+
+  const candidates = collectAgentCandidates(doc);
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+  // Aggregate by name: compute best (max) totalCost per name
+  const byName = new Map();
+  for (const c of candidates) {
+    const key = c.name;
+    const current = byName.get(key);
+    const tc = Number.isFinite(c.totalCost) ? c.totalCost : NaN;
+    if (!current) {
+      byName.set(key, { name: key, totalCost: tc });
+    } else {
+      const prev = Number.isFinite(current.totalCost) ? current.totalCost : NaN;
+      if (Number.isFinite(tc)) {
+        if (!Number.isFinite(prev) || tc > prev) {
+          byName.set(key, { name: key, totalCost: tc });
+        }
+      } else {
+        // keep previous (prefer finite over NaN)
       }
     }
   }
 
-  // doc.details.metadata.agents
-  const metadata = details && typeof details.metadata === "object" ? details.metadata : null;
-  if (metadata && Array.isArray(metadata.agents)) {
-    for (const a of metadata.agents) {
-      if (a && typeof a.agent_name === "string" && a.agent_name.trim()) {
-        collected.push(a.agent_name.trim());
-      }
-      if (a && typeof a.name === "string" && a.name.trim()) {
-        collected.push(a.name.trim());
-      }
-    }
-  }
+  const arr = Array.from(byName.values());
+  if (arr.length === 1) return arr[0].name;
 
-  const names = distinctStrings(collected);
-  if (names.length === 0) return null;
-  if (names.length === 1) return names[0];
-  // When multiple exist, return a joined distinct string. Frontend expects a string.
-  return names.join(", ");
+  // Sort by:
+  // 1) totalCost desc (finite > NaN)
+  // 2) name alphabetical asc
+  arr.sort((a, b) => {
+    const aFinite = Number.isFinite(a.totalCost);
+    const bFinite = Number.isFinite(b.totalCost);
+    if (aFinite && bFinite) {
+      if (b.totalCost !== a.totalCost) return b.totalCost - a.totalCost;
+    } else if (aFinite && !bFinite) {
+      return -1; // a before b
+    } else if (!aFinite && bFinite) {
+      return 1; // b before a
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  return arr[0]?.name || null;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * Extract distinct agent names as a flat array (no ranking), useful for diagnostics.
+ * @param {object} doc
+ * @returns {string[]}
+ */
+function extractDistinctAgentNames(doc) {
+  const cands = collectAgentCandidates(doc);
+  return distinctStrings(cands.map((c) => c.name));
 }
 
 module.exports = {
   deriveAgentName,
+  extractDistinctAgentNames,
 };

@@ -54,21 +54,13 @@ router.get(
       LLMCost.find(filter).sort(sort).skip(skip).limit(limit).lean().exec(),
     ]);
 
-    // Derive agents and top-level agent_name from nested users[].projects[].agents[] if present
+    // Derive agents and top-level agent_name using robust utility with cost-aware ranking
+    const { deriveAgentName, extractDistinctAgentNames } = require('../utils/agentName');
     const docs = Array.isArray(rawDocs) ? rawDocs.map((d) => {
       try {
-        const usersArr = Array.isArray(d?.users) ? d.users : [];
-        const projectsNested = usersArr.map((u) => Array.isArray(u?.projects) ? u.projects : []);
-        const projectsFlat = projectsNested.flat();
-        const agentsFlat = projectsFlat.flatMap((p) => Array.isArray(p?.agents) ? p.agents : []);
-        const names = agentsFlat
-          .map((a) => a?.agent_name ?? a?.name ?? null)
-          .filter((n) => typeof n === 'string' && n.trim().length > 0)
-          .map((n) => n.trim());
-        const distinct = Array.from(new Set(names));
-        // stable representative: first after alphabetical sort, else null
-        const agentName = distinct.length ? [...distinct].sort((a, b) => a.localeCompare(b))[0] : null;
-        return { ...d, agents: distinct, agent_name: agentName };
+        const agentsList = extractDistinctAgentNames(d);
+        const agentName = deriveAgentName(d);
+        return { ...d, agents: agentsList, agent_name: agentName };
       } catch {
         return { ...d, agents: [], agent_name: null };
       }
@@ -80,6 +72,8 @@ router.get(
       res.setHeader('X-LLM-COSTS-Total', String(total));
       const agentsFound = docs.reduce((acc, d) => acc + (Array.isArray(d.agents) ? d.agents.length : 0), 0);
       res.setHeader('X-LLM-COSTS-Agents-Found', String(agentsFound));
+      const derivedCount = docs.reduce((acc, d) => acc + (typeof d.agent_name === 'string' && d.agent_name ? 1 : 0), 0);
+      res.setHeader('x-agents-derived', String(derivedCount));
     } catch {}
 
     // Envelope with raw docs untouched

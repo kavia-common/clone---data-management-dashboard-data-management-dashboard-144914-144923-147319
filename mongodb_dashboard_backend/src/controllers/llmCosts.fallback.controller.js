@@ -251,25 +251,152 @@ async function listLlmCosts(req, res) {
           },
         },
       },
-      // stable selection: first non-empty after alphabetical sort
+      // Compute cost-aware ranking for agent_name selection.
+      // 1) Rebuild flattened agents with potential cost fields for ranking.
       {
         $addFields: {
-          agents: '$_agentNamesDistinct',
+          _agentsWithCost: {
+            $map: {
+              input: { $ifNull: ['$_agentsFlat', []] },
+              as: 'a',
+              in: {
+                name: {
+                  $trim: {
+                    input: {
+                      $ifNull: ['$$a.agent_name', { $ifNull: ['$$a.name', null] }]
+                    }
+                  }
+                },
+                // parse numeric by stripping non-number symbols from strings
+                totalCost: {
+                  $let: {
+                    vars: {
+                      raw: {
+                        $ifNull: [
+                          '$$a.total_cost',
+                          { $ifNull: ['$$a.totalCost', { $ifNull: ['$$a.Total Cost', { $ifNull: ['$$a.cost_usd', '$$a.cost'] }] }] }
+                        ]
+                      }
+                    },
+                    in: {
+                      $cond: [
+                        { $isNumber: '$$raw' },
+                        '$$raw',
+                        {
+                          $let: {
+                            vars: {
+                              s: {
+                                $cond: [
+                                  { $eq: [{ $type: '$$raw' }, 'string'] },
+                                  '$$raw',
+                                  null
+                                ]
+                              }
+                            },
+                            in: {
+                              $cond: [
+                                { $ifNull: ['$$s', false] },
+                                {
+                                  $convert: {
+                                    input: {
+                                      $replaceAll: {
+                                        input: {
+                                          $replaceAll: {
+                                            input: {
+                                              $replaceAll: { input: '$$s', find: ',', replacement: '' }
+                                            },
+                                            find: '$',
+                                            replacement: ''
+                                          }
+                                        },
+                                        find: 'USD',
+                                        replacement: ''
+                                      }
+                                    },
+                                    to: 'double',
+                                    onError: null,
+                                    onNull: null
+                                  }
+                                },
+                                null
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      // 2) Filter valid named agents and deduplicate by name keeping max totalCost
+      {
+        $addFields: {
+          _agentsValid: {
+            $filter: {
+              input: '$_agentsWithCost',
+              as: 'x',
+              cond: { $and: [{ $ne: ['$$x.name', null] }, { $gt: [{ $strLenCP: '$$x.name' }, 0] }] }
+            }
+          }
+        }
+      },
+      {
+        $addFields: {
+          _agentsGrouped: {
+            $map: {
+              input: { $setUnion: ['$._agentsValid.name', []] },
+              as: 'nm',
+              in: {
+                name: '$$nm',
+                totalCost: {
+                  $max: {
+                    $map: {
+                      input: {
+                        $filter: {
+                          input: '$_agentsValid',
+                          as: 'y',
+                          cond: { $eq: ['$$y.name', '$$nm'] }
+                        }
+                      },
+                      as: 'z',
+                      in: '$$z.totalCost'
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      // 3) Sort by totalCost desc (finite > null) then name asc; choose first as representative
+      {
+        $addFields: {
+          agents: {
+            $map: {
+              input: { $sortArray: { input: '$_agentsGrouped', sortBy: { totalCost: -1, name: 1 } } },
+              as: 'g',
+              in: '$$g.name'
+            }
+          },
           agent_name: {
             $let: {
               vars: {
-                sorted: { $sortArray: { input: '$_agentNamesDistinct', sortBy: 1 } },
+                sortedG: { $sortArray: { input: '$_agentsGrouped', sortBy: { totalCost: -1, name: 1 } } }
               },
               in: {
                 $cond: [
-                  { $gt: [{ $size: '$$sorted' }, 0] },
-                  { $arrayElemAt: ['$$sorted', 0] },
-                  null,
-                ],
-              },
-            },
-          },
-        },
+                  { $gt: [{ $size: '$$sortedG' }, 0] },
+                  { $getField: { field: 'name', input: { $arrayElemAt: ['$$sortedG', 0] } } },
+                  null
+                ]
+              }
+            }
+          }
+        }
       },
 
       {
@@ -353,6 +480,8 @@ async function listLlmCosts(req, res) {
       const agentsCounts = Array.isArray(items) ? items.map(i => Array.isArray(i.agents) ? i.agents.length : 0) : [];
       const totalAgentsOnPage = agentsCounts.reduce((a, b) => a + b, 0);
       res.set('X-LLM-COSTS-Agents-Found', String(totalAgentsOnPage));
+      const derivedCount = Array.isArray(items) ? items.reduce((acc, it) => acc + (it && typeof it.agent_name === 'string' && it.agent_name ? 1 : 0), 0) : 0;
+      res.set('x-agents-derived', String(derivedCount));
     } catch {}
 
     // Additional diagnostics: total agents discovered across page items
