@@ -27,28 +27,39 @@ async function getLlmCostsAggregated(req, res) {
     ? { $match: { organization_id: organization_id } }
     : { $match: {} };
 
-  // Build the minimal pipeline per spec
+  // Build pipeline with enrichment of user_name strictly from users.name using ObjectId join
   const pipeline = [
     ...(organization_id ? [{ $match: { organization_id } }] : []),
 
-    // Convert organization cost to number
-    // {
-    //   $addFields: {
-    //     organization_cost_num: {
-    //       $toDouble: { $substr: ['$organization_cost', 1, -1] }
-    //     }
-    //   }
-    // },
+    // Unwind users for per-user grouping
+    { $unwind: { path: '$users', preserveNullAndEmptyArrays: true } },
 
-    // Unwind users
-    { $unwind: '$users' },
-
-    // Convert user cost to number
+    // Parse user cost and prepare join key
     {
       $addFields: {
         user_cost_num: {
           $toDouble: { $substr: ['$users.user_cost', 1, -1] }
+        },
+        userObjectId: {
+          $convert: { input: '$users.user_id', to: 'objectId', onError: null, onNull: null }
         }
+      }
+    },
+
+    // Lookup user strictly by _id
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'userObjectId',
+        foreignField: '_id',
+        as: '_user'
+      }
+    },
+
+    // Add user_name from users.name (fallback Unknown User)
+    {
+      $addFields: {
+        user_name: { $ifNull: [{ $first: '$_user.name' }, 'Unknown User'] }
       }
     },
 
@@ -71,11 +82,12 @@ async function getLlmCostsAggregated(req, res) {
           type: '$users.type'
         },
         user_cost: { $first: '$user_cost_num' },
+        user_name: { $first: '$user_name' },
         projectsSet: { $addToSet: '$users.projects.project_id' }
       }
     },
 
-    // Shape output
+    // Shape output with user_name included
     {
       $project: {
         _id: 0,
@@ -83,16 +95,12 @@ async function getLlmCostsAggregated(req, res) {
         organization_name: '$_id.organization_name',
         organization_cost: '$_id.organization_cost',
         user_id: '$_id.user_id',
+        user_name: 1,
         type: '$_id.type',
         user_cost: 1,
-        // organization_cost: 1,
         projects: {
           $size: {
-            $filter: {
-              input: '$projectsSet',
-              as: 'p',
-              cond: { $ne: ['$$p', null] }
-            }
+            $filter: { input: '$projectsSet', as: 'p', cond: { $ne: ['$$p', null] } }
           }
         }
       }

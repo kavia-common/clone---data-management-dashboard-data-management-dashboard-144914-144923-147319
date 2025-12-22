@@ -164,95 +164,40 @@ async function listLlmCosts(req, res) {
     };
 
     // Build pipeline for enrichment with users
+    // Requirements:
+    // - Convert user_id (string) to ObjectId for join
+    // - Join users on _id
+    // - user_name strictly from users.name, else "Unknown User"
     const pipeline = [
       { $match: match },
-      // Join users by user_id (string) matching users._id as string; if user_id is missing, still proceed
+      {
+        $addFields: {
+          userObjectId: {
+            $convert: { input: '$user_id', to: 'objectId', onError: null, onNull: null }
+          }
+        }
+      },
       {
         $lookup: {
           from: 'users',
-          let: { uid: { $toString: '$user_id' } },
-          pipeline: [
-            { $addFields: { _id_str: { $toString: '$_id' } } },
-            { $match: { $expr: { $eq: ['$_id_str', '$$uid'] } } },
-            {
-              $project: {
-                _id: 1,
-                email: 1,
-                name: 1,
-                full_name: 1,
-                fullName: 1,
-                displayName: 1,
-                display_name: 1,
-                username: 1,
-                'profile.displayName': 1,
-                'profile.full_name': 1,
-                'profile.fullName': 1,
-                'profile.name': 1,
-              },
-            },
-          ],
-          as: '__user',
-        },
+          localField: 'userObjectId',
+          foreignField: '_id',
+          as: '_user'
+        }
       },
-      // Compute user_name via coalesce priority: profile.displayName, full_name, name, email
       {
         $addFields: {
           user_name: {
-            $let: {
-              vars: { u: { $arrayElemAt: ['__$user', 0] } },
-              in: {
-                $ifNull: [
-                  {
-                    $ifNull: [
-                      '$$u.profile.displayName',
-                      {
-                        $ifNull: [
-                          '$$u.full_name',
-                          {
-                            $ifNull: [
-                              '$$u.name',
-                              {
-                                $ifNull: [
-                                  '$$u.email',
-                                  {
-                                    $ifNull: [
-                                      '$$u.displayName',
-                                      {
-                                        $ifNull: [
-                                          '$$u.display_name',
-                                          {
-                                            $ifNull: [
-                                              '$$u.username',
-                                              {
-                                                $ifNull: [
-                                                  '$$u.profile.full_name',
-                                                  {
-                                                    $ifNull: ['$$u.profile.name', '$$u.profile.fullName'],
-                                                  },
-                                                ],
-                                              },
-                                            ],
-                                          },
-                                        ],
-                                      },
-                                    ],
-                                  },
-                                ],
-                              },
-                            ],
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                  null,
-                ],
-              },
-            },
-          },
-        },
+            $ifNull: [{ $first: '$_user.name' }, 'Unknown User']
+          }
+        }
       },
-      { $project: { ...baseProject, user_name: 1 } },
+      {
+        $project: {
+          ...baseProject,
+          user_name: 1
+        }
+      }
     ];
 
     // Sorting
