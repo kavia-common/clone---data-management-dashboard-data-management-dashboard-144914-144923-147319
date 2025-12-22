@@ -127,13 +127,48 @@ async function getLlmCostsAggregated(req, res) {
   const result = await LLMCost.aggregate(pipeline, { allowDiskUse: true });
   const facet = Array.isArray(result) && result[0] ? result[0] : { rows: [], meta: [], orgMeta: [] };
   let rows = Array.isArray(facet.rows) ? facet.rows : [];
-  // Append agent_name per row (joined distinct when multiple)
+
+  // Append agent_name per row with fallbacks
+  function fallbackAgentName(doc) {
+    const names = [];
+    if (Array.isArray(doc?.users)) {
+      for (const u of doc.users) {
+        const projects = Array.isArray(u?.projects) ? u.projects : [];
+        for (const p of projects) {
+          const agents = Array.isArray(p?.agents) ? p.agents : [];
+          for (const a of agents) {
+            if (!a || typeof a !== 'object') continue;
+            const nm = (typeof a.agent_name === 'string' && a.agent_name.trim())
+              ? a.agent_name.trim()
+              : (typeof a.name === 'string' && a.name.trim() ? a.name.trim() : null);
+            if (nm) names.push(nm);
+          }
+        }
+      }
+    }
+    if (Array.isArray(doc?.agents)) {
+      for (const a of doc.agents) {
+        if (!a || typeof a !== 'object') continue;
+        const nm = (typeof a.agent_name === 'string' && a.agent_name.trim())
+          ? a.agent_name.trim()
+          : (typeof a.name === 'string' && a.name.trim() ? a.name.trim() : null);
+        if (nm) names.push(nm);
+      }
+    }
+    const seen = new Set();
+    for (const n of names) {
+      const t = n.trim();
+      if (t && !seen.has(t)) return t;
+    }
+    return null;
+  }
+
   try {
     rows = rows.map((doc) => {
       const out = { ...doc };
       try {
-        out.agent_name = deriveAgentName(doc);
-      } catch { /* no-op */ }
+        out.agent_name = deriveAgentName(doc) || fallbackAgentName(doc) || null;
+      } catch { out.agent_name = fallbackAgentName(doc) || null; }
       return out;
     });
   } catch { /* defensive no-op */ }
@@ -166,6 +201,14 @@ async function getLlmCostsAggregated(req, res) {
       res.setHeader('X-LLM-COSTS-Reason', 'Empty rows after aggregation.');
     }
   } catch { }
+
+  // Diagnostics: count how many items have non-null agent_name
+  try {
+    const derivedCount = Array.isArray(enriched)
+      ? enriched.reduce((acc, d) => acc + (d && typeof d.agent_name === 'string' && d.agent_name ? 1 : 0), 0)
+      : 0;
+    res.setHeader('x-agents-derived', String(derivedCount));
+  } catch {}
 
   // Response shape with pagination meta
   return success(
