@@ -409,7 +409,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                     $convert: {
                       input: {
                         $cond: [
-                          { $in: [{ $type: '$total_cost' }, ['missing', 'null', 'string']] }, // check for missing/null/string
+                          { $in: [{ $type: '$total_cost' }, ['missing', 'null', 'string']] },
                           {
                             $toDouble: {
                               $trim: {
@@ -417,7 +417,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                                   $replaceAll: {
                                     input: {
                                       $replaceAll: {
-                                        input: { $ifNull: ['$total_cost', '0'] }, // fallback to 0 if null
+                                        input: { $ifNull: ['$total_cost', '0'] },
                                         find: '$',
                                         replacement: ''
                                       }
@@ -429,7 +429,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                               }
                             }
                           },
-                          '$total_cost' // if already number, keep as-is
+                          '$total_cost'
                         ]
                       },
                       to: 'double',
@@ -437,8 +437,8 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
                       onNull: 0
                     }
                   }
-
                 }
+              }
             ];
             if (sortStage) {
               pipeline.push({ $sort: sortStage });
@@ -446,6 +446,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
             const items = await Model.aggregate(pipeline).allowDiskUse(true);
             return res.status(200).json(items);
           }
+
           if (isAppDeployment) {
             const pipeline = [
               { $match: appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {} },
@@ -481,96 +482,96 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
 
     // PUBLIC_INTERFACE
     async getById(req, res) {
-      const { id } = req.params;
-      try {
-        const bypass = !!(req.tenantScopeDisabled || req.allTenants);
-        const match = bypass
-          ? { _id: id }
-          : {
-            _id: id,
-            $or: [
-              { tenant_id: String(req.tenantId) },
-              { organization_id: String(req.tenantId) },
-              { orgId: String(req.tenantId) },
-              { tenantId: String(req.tenantId) },
-              { organizationId: String(req.tenantId) },
-              { 'tenant.tenant_id': String(req.tenantId) },
-            ],
-          };
-        const doc = await Model.findOne(match).lean();
-        if (!doc) { return failure(res, 'Not found', 404); }
-        return res.status(200).json(doc);
-      } catch (err) {
-        return mapAndReplyError(res, err, 'getById');
-      }
-    },
+        const { id } = req.params;
+        try {
+          const bypass = !!(req.tenantScopeDisabled || req.allTenants);
+          const match = bypass
+            ? { _id: id }
+            : {
+              _id: id,
+              $or: [
+                { tenant_id: String(req.tenantId) },
+                { organization_id: String(req.tenantId) },
+                { orgId: String(req.tenantId) },
+                { tenantId: String(req.tenantId) },
+                { organizationId: String(req.tenantId) },
+                { 'tenant.tenant_id': String(req.tenantId) },
+              ],
+            };
+          const doc = await Model.findOne(match).lean();
+          if (!doc) { return failure(res, 'Not found', 404); }
+          return res.status(200).json(doc);
+        } catch (err) {
+          return mapAndReplyError(res, err, 'getById');
+        }
+      },
 
     // PUBLIC_INTERFACE
     async create(req, res) {
-      const clean = sanitizePayloadWithTenant(req);
-      if (!clean) { return failure(res, 'Bad request: payload must be an object', 400); }
-      try {
-        const doc = await Model.create(clean);
-        return res.status(201).json(doc);
-      } catch (err) {
-        return mapAndReplyError(res, err, 'create');
-      }
-    },
+        const clean = sanitizePayloadWithTenant(req);
+        if (!clean) { return failure(res, 'Bad request: payload must be an object', 400); }
+        try {
+          const doc = await Model.create(clean);
+          return res.status(201).json(doc);
+        } catch (err) {
+          return mapAndReplyError(res, err, 'create');
+        }
+      },
 
     // PUBLIC_INTERFACE
     async update(req, res) {
-      const { id } = req.params;
-      const clean = sanitizePayloadWithTenant(req);
-      if (!clean) { return failure(res, 'Bad request: payload must be an object', 400); }
-      try {
-        const bypass = !!(req.tenantScopeDisabled || req.allTenants);
-        const match = bypass
-          ? { _id: id }
-          : {
-            _id: id,
-            $or: [
-              { tenant_id: String(req.tenantId) },
-              { organization_id: String(req.tenantId) },
-              { orgId: String(req.tenantId) },
-              { tenantId: String(req.tenantId) },
-              { organizationId: String(req.tenantId) },
-              { 'tenant.tenant_id': String(req.tenantId) },
-            ],
-          };
-        const doc = await Model.findOneAndUpdate(match, clean, { new: true }).lean();
-        if (!doc) { return failure(res, 'Not found', 404); }
-        return res.status(200).json(doc);
-      } catch (err) {
-        return mapAndReplyError(res, err, 'update');
-      }
-    },
+        const { id } = req.params;
+        const clean = sanitizePayloadWithTenant(req);
+        if (!clean) { return failure(res, 'Bad request: payload must be an object', 400); }
+        try {
+          const bypass = !!(req.tenantScopeDisabled || req.allTenants);
+          const match = bypass
+            ? { _id: id }
+            : {
+              _id: id,
+              $or: [
+                { tenant_id: String(req.tenantId) },
+                { organization_id: String(req.tenantId) },
+                { orgId: String(req.tenantId) },
+                { tenantId: String(req.tenantId) },
+                { organizationId: String(req.tenantId) },
+                { 'tenant.tenant_id': String(req.tenantId) },
+              ],
+            };
+          const doc = await Model.findOneAndUpdate(match, clean, { new: true }).lean();
+          if (!doc) { return failure(res, 'Not found', 404); }
+          return res.status(200).json(doc);
+        } catch (err) {
+          return mapAndReplyError(res, err, 'update');
+        }
+      },
 
     // PUBLIC_INTERFACE
     async remove(req, res) {
-      const { id } = req.params;
-      try {
-        const bypass = !!(req.tenantScopeDisabled || req.allTenants);
-        const match = bypass
-          ? { _id: id }
-          : {
-            _id: id,
-            $or: [
-              { tenant_id: String(req.tenantId) },
-              { organization_id: String(req.tenantId) },
-              { orgId: String(req.tenantId) },
-              { tenantId: String(req.tenantId) },
-              { organizationId: String(req.tenantId) },
-              { 'tenant.tenant_id': String(req.tenantId) },
-            ],
-          };
-        const doc = await Model.findOneAndDelete(match).lean();
-        if (!doc) { return failure(res, 'Not found', 404); }
-        return res.status(200).json({ _id: id });
-      } catch (err) {
-        return mapAndReplyError(res, err, 'remove');
-      }
-    },
-  };
-}
+        const { id } = req.params;
+        try {
+          const bypass = !!(req.tenantScopeDisabled || req.allTenants);
+          const match = bypass
+            ? { _id: id }
+            : {
+              _id: id,
+              $or: [
+                { tenant_id: String(req.tenantId) },
+                { organization_id: String(req.tenantId) },
+                { orgId: String(req.tenantId) },
+                { tenantId: String(req.tenantId) },
+                { organizationId: String(req.tenantId) },
+                { 'tenant.tenant_id': String(req.tenantId) },
+              ],
+            };
+          const doc = await Model.findOneAndDelete(match).lean();
+          if (!doc) { return failure(res, 'Not found', 404); }
+          return res.status(200).json({ _id: id });
+        } catch (err) {
+          return mapAndReplyError(res, err, 'remove');
+        }
+      },
+    };
+  }
 
-module.exports = { buildCrudController };
+  module.exports = { buildCrudController };
