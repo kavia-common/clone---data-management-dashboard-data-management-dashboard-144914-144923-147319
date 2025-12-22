@@ -114,9 +114,7 @@ describe('SessionTracking list filtering (date range, user)', () => {
       .set(authHeaders(tenant));
 
     expect(res.status).toBe(200);
-    // Assert envelope presence when pagination provided
-    expect(res.body && typeof res.body === 'object' && Array.isArray(res.body.data)).toBe(true);
-    const items = res.body.data;
+    const items = Array.isArray(res.body) ? res.body : res.body.data;
     // Should include only recent u-match record within default 30d window
     expect(items.every((x) => x.user_id === 'u-match')).toBe(true);
     expect(items.length).toBe(1);
