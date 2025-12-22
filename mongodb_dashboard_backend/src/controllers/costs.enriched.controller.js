@@ -10,6 +10,7 @@ const { getDb } = require('../config/db');
 const { buildTenantScopeFilter } = require('../middleware/tenantScope'); // helper pattern used in repo
 const { parseJSONSafe } = require('../utils/validation');
 const { performance } = require('perf_hooks');
+const { deriveAgentName } = require('../utils/agentName');
 
  // PUBLIC_INTERFACE
 async function listEnrichedCosts(req, res, next) {
@@ -252,6 +253,10 @@ async function listEnrichedCosts(req, res, next) {
           return { ...u, user_display_name: disp };
         });
       }
+      // Add representative agent_name for UI column
+      try {
+        out.agent_name = deriveAgentName(out);
+      } catch {}
       return out;
     });
 

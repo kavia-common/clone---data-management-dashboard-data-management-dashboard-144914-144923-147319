@@ -844,6 +844,7 @@
                           "currency": { "type": "string", "nullable": true, "example": "USD" },
                           "duration_ms": { "type": "integer", "nullable": true },
                           "status": { "type": "string", "nullable": true },
+                          "agent_name": { "type": "string", "nullable": true, "description": "Representative agent name derived from nested users[].projects[].agents[].agent_name or joined distinct names" },
                           "details": {
                             "type": "object",
                             "description": "Optional details containing raw breakdown, metadata and any extra fields",

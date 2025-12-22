@@ -2,6 +2,8 @@
 
 const LLMCost = require('../models/llmCosts.model'); // corrected path two-level up not needed; file resides in src/models
 const { success } = require('../utils/http');
+const { deriveAgentName } = require('../utils/agentName');
+const { deriveAgentName } = require('../utils/agentName');
 
 /**
  * PUBLIC_INTERFACE
@@ -125,7 +127,17 @@ async function getLlmCostsAggregated(req, res) {
   // Execute
   const result = await LLMCost.aggregate(pipeline, { allowDiskUse: true });
   const facet = Array.isArray(result) && result[0] ? result[0] : { rows: [], meta: [], orgMeta: [] };
-  const rows = Array.isArray(facet.rows) ? facet.rows : [];
+  let rows = Array.isArray(facet.rows) ? facet.rows : [];
+  // Append agent_name per row (joined distinct when multiple)
+  try {
+    rows = rows.map((doc) => {
+      const out = { ...doc };
+      try {
+        out.agent_name = deriveAgentName(doc);
+      } catch { /* no-op */ }
+      return out;
+    });
+  } catch { /* defensive no-op */ }
   const metaArr = Array.isArray(facet.meta) ? facet.meta : [];
   const orgMetaArr = Array.isArray(facet.orgMeta) ? facet.orgMeta : [];
   const postGroupCount = metaArr[0]?.postGroupCount || 0;
