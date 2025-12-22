@@ -248,8 +248,13 @@ async function getProjectCreateSummary(req, res, next) {
         .option({ maxTimeMS: 4000 })
         .allowDiskUse(true);
     } catch (e) {
+      // Always respond deterministically for non-T0000 paths: 200 with empty buckets
       try { console.warn('[project-create] aggregation failed:', e?.message || e); } catch {}
       res.set('Cache-Control', 'no-store');
+      res.set('x-project-create-ms', String(Date.now() - t0));
+      res.set('x-project-create-tenant', String(effectiveOrg || 'unknown'));
+      res.set('x-project-create-from', windowFrom.toISOString());
+      res.set('x-project-create-to', windowTo.toISOString());
       didRespond = true;
       debug('Aggregation failed (non-T0000)', e?.message || String(e));
       return res.status(200).json({
@@ -291,6 +296,7 @@ async function getProjectCreateSummary(req, res, next) {
     try {
       if (!didRespond) {
         debug('Fallback handler (error path)');
+        res.set('Cache-Control', 'no-store');
         return res.status(500).json({ error: 'Internal server error' });
       }
     } catch {
@@ -299,9 +305,10 @@ async function getProjectCreateSummary(req, res, next) {
   }
   // Defensive fallback in case all above fails (must respond)
   if (!didRespond) {
-    try { 
+    try {
       debug('Final fallback: no response sent');
-      res.status(500).json({ error: 'Server did not respond in time' }); 
+      res.set('Cache-Control', 'no-store');
+      res.status(500).json({ error: 'Server did not respond in time' });
     } catch {}
   }
 }
