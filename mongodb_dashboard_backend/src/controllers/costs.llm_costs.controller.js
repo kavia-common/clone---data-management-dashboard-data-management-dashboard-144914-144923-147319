@@ -3,7 +3,6 @@
 const LLMCost = require('../models/llmCosts.model'); // corrected path two-level up not needed; file resides in src/models
 const { success } = require('../utils/http');
 const { deriveAgentName } = require('../utils/agentName');
-const { deriveAgentName } = require('../utils/agentName');
 
 /**
  * PUBLIC_INTERFACE
