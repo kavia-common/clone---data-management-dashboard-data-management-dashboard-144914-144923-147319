@@ -19,7 +19,7 @@ async function connectDB() {
   const uri = process.env.MONGODB_URI;
 
   if (!uri || typeof uri !== 'string' || uri.trim() === '') {
-     
+
     console.warn(
       '[db] MONGODB_URI is not set. Skipping MongoDB connection. The API will start, health endpoints will report db=disconnected.'
     );
@@ -30,7 +30,8 @@ async function connectDB() {
   mongoose.set('strictQuery', true);
 
   // In test mode, prefer fast failures and no buffering to keep tests snappy.
-  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'pre_prod_kaviaroot';
+  // const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'pre_prod_kaviaroot';
+  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
   if (isTest) {
     try {
       mongoose.set('bufferCommands', false);
@@ -45,7 +46,8 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'pre_prod_kaviaroot'; // Optional; if not set, Mongo will use the URI/path default
+  // const dbName = 'pre_prod_kaviaroot'; // Optional; if not set, Mongo will use the URI/path default
+  const dbName = 'test';
 
   const options = {
     autoIndex,
@@ -66,25 +68,25 @@ async function connectDB() {
   }
 
   mongoose.connection.on('connected', () => {
-     
+
     console.log(
       `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
     );
     if (dbName) {
-       
+
       console.log(`MongoDB dbName selected via env: ${dbName}`);
     }
-     
+
     console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
   });
 
   mongoose.connection.on('error', (err) => {
-     
+
     console.error('MongoDB connection error:', err.message);
   });
 
   mongoose.connection.on('disconnected', () => {
-     
+
     console.warn('MongoDB disconnected');
   });
 
