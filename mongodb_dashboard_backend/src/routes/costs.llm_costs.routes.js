@@ -1,10 +1,13 @@
-/**
- * NOTICE: /api/llm_costs removal
- * Aggregated LLM costs route has been removed. This file is now a stub to keep module resolution intact.
- */
 'use strict';
+/**
+ * PUBLIC_INTERFACE
+ * Router for legacy underscore endpoint: /api/llm_costs
+ * This forwards to the same handler as src/routes/llm_costs.routes.js to avoid duplication.
+ * Ensures GET /api/llm_costs returns 200 with { success, data, meta } even when empty.
+ */
 const express = require('express');
-const router = express.Router();
+const forwardedRouter = require('./llm_costs.routes'); // reuse implemented routes
 
-// Intentionally no routes exported.
-module.exports = router;
+// PUBLIC_INTERFACE
+// Expose the forwarded router directly so mounting this file behaves identically.
+module.exports = forwardedRouter;

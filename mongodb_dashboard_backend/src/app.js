@@ -185,7 +185,8 @@ safeUse('/api/llm-costs', require('./routes/llmCosts.public.routes')); // list e
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
-safeUse('/api/llm_costs', require('./routes/costs.llm_costs.routes'));
+// Mount underscore path using the implemented router so GET /api/llm_costs works for Users/Credits modules
+safeUse('/api/llm_costs', require('./routes/llm_costs.routes'));
 safeUse('/api/projects', require('./routes/projects.summary.routes'));
 safeUse('/api/service-type', require('./routes/serviceType.summary.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));

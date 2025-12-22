@@ -1,16 +1,17 @@
+'use strict';
 /**
- * NOTICE: /api/llm-costs removal
- * The public routes for /api/llm-costs have been removed per request.
- * This file remains as a placeholder to avoid require/import resolution errors.
- * If any code attempts to mount this router, it will effectively be a no-op.
- *
- * To re-enable, restore previous handlers and mount under src/routes/index.js.
+ * PUBLIC_INTERFACE
+ * Public routes for /api/llm-costs (hyphen).
+ * Implements GET / that returns a paginated envelope from the fallback controller with diagnostics.
  */
 const express = require('express');
+const { listLlmCosts } = require('../controllers/llmCosts.fallback.controller');
+
 const router = express.Router();
 
-// No routes are registered here intentionally. This documents the removal.
-// Previously provided:
-//   - GET /api/llm-costs
-//   - GET /api/projects/:projectId/llm-costs (deprecated alias)
+// PUBLIC_INTERFACE
+// GET /api/llm-costs
+// Returns 200 with { success, data, meta } or empty list when no records.
+router.get('/', listLlmCosts);
+
 module.exports = router;
