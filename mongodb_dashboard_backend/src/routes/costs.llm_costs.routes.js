@@ -1,13 +1,24 @@
 'use strict';
+
+const express = require('express');
+const { asyncHandler } = require('../utils/http');
+const { getLlmCostsAggregated } = require('../controllers/costs.llm_costs.controller');
+
+const router = express.Router();
+
 /**
  * PUBLIC_INTERFACE
- * Router for legacy underscore endpoint: /api/llm_costs
- * This forwards to the same handler as src/routes/llm_costs.routes.js to avoid duplication.
- * Ensures GET /api/llm_costs returns 200 with { success, data, meta } even when empty.
+ * GET /api/llm_costs
+ * Aggregated LLM costs view.
+ * Query: organization_id (optional), page (default 1), limit (default 10, max 100).
+ * Returns rows with: organization_id, organization_name, user_id, type, user_cost, projects,
+ * enriched with organization_cost and users.
+ * Diagnostics headers:
+ *  - X-LLM-COSTS-Collection
+ *  - X-LLM-COSTS-MatchedPreGroup
+ *  - X-LLM-COSTS-PostGroupCount
+ *  - X-LLM-COSTS-Reason (when rows empty)
  */
-const express = require('express');
-const forwardedRouter = require('./llm_costs.routes'); // reuse implemented routes
+router.get('/', asyncHandler(getLlmCostsAggregated));
 
-// PUBLIC_INTERFACE
-// Expose the forwarded router directly so mounting this file behaves identically.
-module.exports = forwardedRouter;
+module.exports = router;
