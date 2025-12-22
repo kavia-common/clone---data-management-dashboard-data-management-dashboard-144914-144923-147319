@@ -49,42 +49,30 @@ router.get(
     const sort = { _id: -1 };
 
     // Execute count + page
-    // IMPORTANT: Do NOT project away nested arrays; include users.projects.agents and top-level agents.
-    // Include stored agent_name from llm_costs as-is (no derivation or utilities).
-    const projection = {
-      agents: 1,
-      users: 1,
-      'users.projects': 1,
-      'users.projects.agents': 1,
-      request_id: 1,
-      session_id: 1,
-      project_id: 1,
-      timestamp: 1,
-      created_at: 1,
-      model: 1,
-      model_version: 1,
-      provider: 1,
-      provider_status: 1,
-      user_id: 1,
-      organization_id: 1,
-      tenant_id: 1,
-      tokens_in: 1,
-      tokens_out: 1,
-      prompt: 1,
-      completion: 1,
-      cost_usd: 1,
-      total_cost: 1,
-      currency: 1,
-      duration_ms: 1,
-      status: 1,
-      details: 1,
-      agent_name: 1, // agent_name is passed through from the collection as-is
-    };
-
-    const [total, docs] = await Promise.all([
+    const [total, rawDocs] = await Promise.all([
       LLMCost.countDocuments(filter),
-      LLMCost.find(filter, projection).sort(sort).skip(skip).limit(limit).lean().exec(),
+      LLMCost.find(filter).sort(sort).skip(skip).limit(limit).lean().exec(),
     ]);
+
+    // Derive agents and top-level agent_name from nested users[].projects[].agents[] if present
+    const docs = Array.isArray(rawDocs) ? rawDocs.map((d) => {
+      try {
+        const usersArr = Array.isArray(d?.users) ? d.users : [];
+        const projectsNested = usersArr.map((u) => Array.isArray(u?.projects) ? u.projects : []);
+        const projectsFlat = projectsNested.flat();
+        const agentsFlat = projectsFlat.flatMap((p) => Array.isArray(p?.agents) ? p.agents : []);
+        const names = agentsFlat
+          .map((a) => a?.agent_name ?? a?.name ?? null)
+          .filter((n) => typeof n === 'string' && n.trim().length > 0)
+          .map((n) => n.trim());
+        const distinct = Array.from(new Set(names));
+        // stable representative: first after alphabetical sort, else null
+        const agentName = distinct.length ? [...distinct].sort((a, b) => a.localeCompare(b))[0] : null;
+        return { ...d, agents: distinct, agent_name: agentName };
+      } catch {
+        return { ...d, agents: [], agent_name: null };
+      }
+    }) : [];
 
     // Minimal diagnostic headers
     try {
@@ -92,7 +80,7 @@ router.get(
       res.setHeader('X-LLM-COSTS-Total', String(total));
     } catch {}
 
-    // Envelope with raw docs untouched, including stored agent_name
+    // Envelope with raw docs untouched
     return success(
       res,
       Array.isArray(docs) ? docs : [],
