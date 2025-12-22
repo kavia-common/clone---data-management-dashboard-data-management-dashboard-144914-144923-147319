@@ -164,31 +164,31 @@ async function listLlmCosts(req, res) {
     };
 
     // Build pipeline for enrichment with users
-    // Requirements:
-    // - Convert user_id (string) to ObjectId for join
-    // - Join users on _id
+    // Requirements now:
+    // - Treat user_id and users._id as strings (UUIDs)
+    // - Join users with a pipeline lookup using $expr string equality
     // - user_name strictly from users.name, else "Unknown User"
     const pipeline = [
       { $match: match },
       {
-        $addFields: {
-          userObjectId: {
-            $convert: { input: '$user_id', to: 'objectId', onError: null, onNull: null }
-          }
-        }
-      },
-      {
         $lookup: {
           from: 'users',
-          localField: 'userObjectId',
-          foreignField: '_id',
-          as: '_user'
+          let: { userId: '$user_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$_id', '$$userId'] }
+              }
+            },
+            { $project: { _id: 1, name: 1 } }
+          ],
+          as: 'userDoc'
         }
       },
       {
         $addFields: {
           user_name: {
-            $ifNull: [{ $first: '$_user.name' }, 'Unknown User']
+            $ifNull: [{ $arrayElemAt: ['$userDoc.name', 0] }, 'Unknown User']
           }
         }
       },

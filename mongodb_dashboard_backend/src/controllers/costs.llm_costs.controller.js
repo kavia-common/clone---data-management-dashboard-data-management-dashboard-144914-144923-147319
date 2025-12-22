@@ -27,39 +27,43 @@ async function getLlmCostsAggregated(req, res) {
     ? { $match: { organization_id: organization_id } }
     : { $match: {} };
 
-  // Build pipeline with enrichment of user_name strictly from users.name using ObjectId join
+  // Build pipeline with enrichment of user_name strictly from users.name using string equality (no ObjectId conversion)
   const pipeline = [
     ...(organization_id ? [{ $match: { organization_id } }] : []),
 
     // Unwind users for per-user grouping
     { $unwind: { path: '$users', preserveNullAndEmptyArrays: true } },
 
-    // Parse user cost and prepare join key
+    // Parse user cost; keep user_id as string for join
     {
       $addFields: {
         user_cost_num: {
           $toDouble: { $substr: ['$users.user_cost', 1, -1] }
-        },
-        userObjectId: {
-          $convert: { input: '$users.user_id', to: 'objectId', onError: null, onNull: null }
         }
       }
     },
 
-    // Lookup user strictly by _id
+    // Lookup user strictly by string _id using pipeline + $expr
     {
       $lookup: {
         from: 'users',
-        localField: 'userObjectId',
-        foreignField: '_id',
-        as: '_user'
+        let: { userId: '$users.user_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ['$_id', '$$userId'] }
+            }
+          },
+          { $project: { _id: 1, name: 1 } }
+        ],
+        as: 'userDoc'
       }
     },
 
     // Add user_name from users.name (fallback Unknown User)
     {
       $addFields: {
-        user_name: { $ifNull: [{ $first: '$_user.name' }, 'Unknown User'] }
+        user_name: { $ifNull: [{ $arrayElemAt: ['$userDoc.name', 0] }, 'Unknown User'] }
       }
     },
 
