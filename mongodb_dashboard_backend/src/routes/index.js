@@ -9,17 +9,16 @@ const router = express.Router();
  * '/summary' resolves correctly and is not captured by the dynamic '/:id' route.
  * Do not remount '/api/users' elsewhere (e.g., in app.js) to preserve this order.
  */
-// Mount the summary sub-router FIRST so /api/users/summary is matched before any dynamic '/:id'
+/**
+ * Users routes
+ * - Mount the summary sub-router FIRST so /api/users/summary is matched before any dynamic '/:id'
+ * - Then mount the main users router
+ */
 const usersSummaryRoutes = require('./users.summary');
 router.use('/users', usersSummaryRoutes);
-// Mount the main users router AFTER summary so that '/:id' does not capture '/summary'
-try {
-  const usersRoutes = require('./users.routes');
-  router.use('/users', usersRoutes);
-} catch (err) {
-  // eslint-disable-next-line no-console
-  console.warn('[routes/index] users.routes not mounted due to error:', err?.message || err);
-}
+
+const usersRoutes = require('./users.routes');
+router.use('/users', usersRoutes);
 
 /**
  * PUBLIC_INTERFACE
