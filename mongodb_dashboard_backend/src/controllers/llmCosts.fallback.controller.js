@@ -161,6 +161,8 @@ async function listLlmCosts(req, res) {
       duration_ms: 1,
       status: 1,
       details: 1,
+      // Added: expose agents array built later in pipeline
+      agents: 1,
     };
 
     // Build pipeline for enrichment with users
@@ -170,6 +172,83 @@ async function listLlmCosts(req, res) {
     // - user_name strictly from users.name, else "Unknown User"
     const pipeline = [
       { $match: match },
+
+      // Compute agents: flatten users[].projects[].agents[] safely and collect distinct agent_name
+      {
+        $addFields: {
+          _usersArr: { $ifNull: ['$users', []] },
+        },
+      },
+      {
+        $addFields: {
+          _projectsNested: {
+            $map: {
+              input: '$_usersArr',
+              as: 'u',
+              in: { $ifNull: ['$$u.projects', []] },
+            },
+          },
+        },
+      },
+      {
+        // flatten one level of projects arrays: [[...], [...]] -> [...]
+        $addFields: {
+          _projectsFlat: {
+            $reduce: {
+              input: '$_projectsNested',
+              initialValue: [],
+              in: { $concatArrays: ['$$value', '$$this'] },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          _agentsNested: {
+            $map: {
+              input: '$_projectsFlat',
+              as: 'p',
+              in: { $ifNull: ['$$p.agents', []] },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          _agentsFlat: {
+            $reduce: {
+              input: '$_agentsNested',
+              initialValue: [],
+              in: { $concatArrays: ['$$value', '$$this'] },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          agents: {
+            $setUnion: [
+              {
+                $filter: {
+                  input: {
+                    $map: {
+                      input: { $ifNull: ['$_agentsFlat', []] },
+                      as: 'a',
+                      in: {
+                        $ifNull: ['$$a.agent_name', { $ifNull: ['$$a.name', null] }],
+                      },
+                    },
+                  },
+                  as: 'n',
+                  cond: { $ne: ['$$n', null] },
+                },
+              },
+              [], // ensure distinct with setUnion
+            ],
+          },
+        },
+      },
+
       {
         $lookup: {
           from: 'users',

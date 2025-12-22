@@ -49,10 +49,27 @@ router.get(
     const sort = { _id: -1 };
 
     // Execute count + page
-    const [total, docs] = await Promise.all([
+    const [total, rawDocs] = await Promise.all([
       LLMCost.countDocuments(filter),
       LLMCost.find(filter).sort(sort).skip(skip).limit(limit).lean().exec(),
     ]);
+
+    // Derive agents for each document from nested users[].projects[].agents[] if present
+    const docs = Array.isArray(rawDocs) ? rawDocs.map((d) => {
+      try {
+        const usersArr = Array.isArray(d?.users) ? d.users : [];
+        const projectsNested = usersArr.map((u) => Array.isArray(u?.projects) ? u.projects : []);
+        const projectsFlat = projectsNested.flat();
+        const agentsFlat = projectsFlat.flatMap((p) => Array.isArray(p?.agents) ? p.agents : []);
+        const names = agentsFlat
+          .map((a) => a?.agent_name ?? a?.name ?? null)
+          .filter((n) => typeof n === 'string' && n.length > 0);
+        const distinct = Array.from(new Set(names));
+        return { ...d, agents: distinct };
+      } catch {
+        return { ...d, agents: [] };
+      }
+    }) : [];
 
     // Minimal diagnostic headers
     try {
