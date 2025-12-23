@@ -272,9 +272,65 @@ async function listLlmCosts(req, res) {
         }
       },
       {
+        $addFields: {
+          // create a normalized non-empty array of agent name candidates
+          _agentCandidates: {
+            $filter: {
+              input: {
+                $map: {
+                  input: { $ifNull: ['$agents', []] },
+                  as: 'n',
+                  in: {
+                    $cond: [
+                      { $and: [{ $ne: ['$$n', null] }, { $ne: [{ $trim: { input: '$$n' } }, ''] }] },
+                      { $trim: { input: '$$n' } },
+                      null
+                    ]
+                  }
+                }
+              },
+              as: 'x',
+              cond: { $ne: ['$$x', null] }
+            }
+          }
+        }
+      },
+      {
+        // compute deterministic agent_name: first alphabetical of distinct candidates
+        $addFields: {
+          agent_name: {
+            $let: {
+              vars: {
+                dedup: {
+                  $setUnion: ['$_agentCandidates', []]
+                }
+              },
+              in: {
+                $cond: [
+                  { $gt: [{ $size: '$$dedup' }, 0] },
+                  {
+                    $arrayElemAt: [
+                      {
+                        $sortArray: {
+                          input: '$$dedup',
+                          sortBy: 1
+                        }
+                      },
+                      0
+                    ]
+                  },
+                  null
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
         $project: {
           ...baseProject,
-          user_name: 1
+          user_name: 1,
+          agent_name: 1
         }
       }
     ];

@@ -54,22 +54,47 @@ router.get(
       LLMCost.find(filter).sort(sort).skip(skip).limit(limit).lean().exec(),
     ]);
 
-    // Derive agents for each document from nested users[].projects[].agents[] if present
-    const docs = Array.isArray(rawDocs) ? rawDocs.map((d) => {
-      try {
-        const usersArr = Array.isArray(d?.users) ? d.users : [];
-        const projectsNested = usersArr.map((u) => Array.isArray(u?.projects) ? u.projects : []);
-        const projectsFlat = projectsNested.flat();
-        const agentsFlat = projectsFlat.flatMap((p) => Array.isArray(p?.agents) ? p.agents : []);
-        const names = agentsFlat
-          .map((a) => a?.agent_name ?? a?.name ?? null)
-          .filter((n) => typeof n === 'string' && n.length > 0);
-        const distinct = Array.from(new Set(names));
-        return { ...d, agents: distinct };
-      } catch {
-        return { ...d, agents: [] };
-      }
-    }) : [];
+    // Derive agent_name deterministically from nested users[].projects[].agents[].agent_name
+    const docs = Array.isArray(rawDocs)
+      ? rawDocs.map((d) => {
+          try {
+            const usersArr = Array.isArray(d?.users) ? d.users : [];
+            const projectsNested = usersArr.map((u) =>
+              Array.isArray(u?.projects) ? u.projects : []
+            );
+            const projectsFlat = projectsNested.flat();
+            const agentsFlat = projectsFlat.flatMap((p) =>
+              Array.isArray(p?.agents) ? p.agents : []
+            );
+
+            // Collect candidate names from agent_name then fallback to name
+            const candidates = agentsFlat
+              .map((a) => (typeof a?.agent_name === 'string' && a.agent_name.trim()
+                ? a.agent_name.trim()
+                : typeof a?.name === 'string' && a.name.trim()
+                ? a.name.trim()
+                : null))
+              .filter((n) => typeof n === 'string' && n.length > 0);
+
+            // Distinct set
+            const distinct = Array.from(new Set(candidates));
+            // Deterministic rule:
+            // - if multiple names exist, choose the first non-empty alphabetical name
+            // - if none exist, set to null
+            let agent_name = null;
+            if (distinct.length > 0) {
+              const sorted = [...distinct].sort((a, b) =>
+                a.localeCompare(b, undefined, { sensitivity: 'base' })
+              );
+              agent_name = sorted[0] || null;
+            }
+
+            return { ...d, agent_name };
+          } catch {
+            return { ...d, agent_name: null };
+          }
+        })
+      : [];
 
     // Minimal diagnostic headers
     try {
