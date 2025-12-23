@@ -158,7 +158,7 @@ async function listLlmCosts(req, res) {
       duration_ms: 1,
       status: 1,
       details: 1,
-      agents: 1, // carry through computed agents
+      agent_name: 1,
     };
 
     // Pipeline
@@ -231,6 +231,17 @@ async function listLlmCosts(req, res) {
         },
       },
       { $addFields: { user_name: { $ifNull: [{ $arrayElemAt: ['$userDoc.name', 0] }, 'Unknown User'] } } },
+      {
+        $addFields: {
+          agent_name: {
+            $ifNull: [
+              '$agent_name',
+              { $ifNull: ['$details.agent_name', '$details.agent'] },
+            ],
+          },
+        },
+      },
+
       { $project: { ...baseProject, user_name: 1 } },
     ];
 
@@ -269,8 +280,8 @@ async function listLlmCosts(req, res) {
         try {
           const names = Array.isArray(d?.agents)
             ? d.agents
-                .filter((s) => typeof s === 'string' && s.trim())
-                .map((s) => s.trim())
+              .filter((s) => typeof s === 'string' && s.trim())
+              .map((s) => s.trim())
             : [];
           const distinct = Array.from(new Set(names));
           let agent_name = null;
@@ -314,7 +325,7 @@ async function listLlmCosts(req, res) {
     if (String(resolvedTenant || '') === 'b2c') {
       try {
         res.set('x-llm-debug-sample', JSON.stringify(items?.[0] || null));
-      } catch {}
+      } catch { }
     }
 
     return res.json({
