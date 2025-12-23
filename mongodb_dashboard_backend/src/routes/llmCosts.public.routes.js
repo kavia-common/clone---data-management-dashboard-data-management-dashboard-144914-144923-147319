@@ -15,8 +15,8 @@ router.use(requireTenant, tenantScopeEnforcer());
 
 /**
  * PUBLIC_INTERFACE
- * Note: All /api/llm-costs endpoints require the x-organization-id header. Query aliases (?tenant_id, ?organization_id) are optional and ignored when the header is present. Any tenant fields in payload are overridden by the resolved tenant.
- * GET /api/llm-costs
+ * Note: All /api/llm_costs endpoints require the x-organization-id header. Query aliases (?tenant_id, ?organization_id) are optional and ignored when the header is present. Any tenant fields in payload are overridden by the resolved tenant.
+ * GET /api/llm_costs
  * Returns all tenant-scoped documents from the llm_costs collection.
  * - Ignores any tenant_id/organization_id in client filter and enforces the resolved tenant.
  * - If page/limit are provided, an envelope { success, data, meta } is returned as per generic controller.

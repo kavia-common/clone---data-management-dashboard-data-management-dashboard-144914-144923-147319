@@ -430,11 +430,11 @@ router.get('/seed', asyncHandler(async (req, res) => {
  * Quickly verify data availability and basic querying across all collections.
  * Returns counts and the first 3 documents for each collection.
  */
-router.get('/llm-costs/ensure-indexes', asyncHandler(async (req, res) => {
+router.get('/llm_costs/ensure-indexes', asyncHandler(async (req, res) => {
   if (!allowDev) { return res.status(403).json({ success: false, message: 'Dev routes disabled' }); }
   try {
     const db = await getDb();
-    const col = db.collection('llm-costs');
+    const col = db.collection('llm_costs');
     const created = [];
     const ensure = async (spec, opts = {}) => {
       try {

@@ -1,6 +1,6 @@
 /**
  * @swagger
- * /api/llm-costs:
+ * /api/llm_costs:
  *   get:
  *     summary: List all LLM cost records
  *     description: >
@@ -51,12 +51,12 @@
 
 /**
  * @swagger
- * /api/projects/{projectId}/llm-costs:
+ * /api/projects/{projectId}/llm_costs:
  *   get:
  *     summary: List LLM cost records (deprecated project alias)
  *     deprecated: true
  *     description: >
- *       Deprecated alias that forwards to /api/llm-costs (list-all). This path no longer applies project-based filtering.
+ *       Deprecated alias that forwards to /api/llm_costs (list-all). This path no longer applies project-based filtering.
  *     tags: [LLMCosts]
  *     parameters:
  *       - in: header

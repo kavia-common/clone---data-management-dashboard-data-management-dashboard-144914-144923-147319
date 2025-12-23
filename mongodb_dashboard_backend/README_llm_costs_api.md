@@ -16,11 +16,11 @@ LLMCOSTS_COLLECTION_NAME=llm_costs
 ```
 
 Endpoints of interest:
-- GET /api/llm-costs
+- GET /api/llm_costs
   - Returns a paginated envelope { success, data, meta } with tenant scoping.
   - Pagination and sorting are applied after the $match for tenant and time window.
   - Projection includes common fields for tabular display.
-- GET /api/llm-costs/hierarchy
+- GET /api/llm_costs/hierarchy
   - Returns hierarchical aggregation per user -> projects -> agents with per-date breakdowns.
 - GET /api/costs/:organization_id
   - Aggregated costs by organization (see README_costs for details).
