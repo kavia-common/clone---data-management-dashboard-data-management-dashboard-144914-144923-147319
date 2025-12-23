@@ -5,21 +5,18 @@ const { getDb } = require('../config/db');
 /**
  * PUBLIC_INTERFACE
  * listLlmCosts
- * Handler for GET /api/llm-costs that returns a paginated tabular list of LLM cost documents.
- * Strategy:
- * 1) Try primary Mongoose model (if registered) with enforced tenant filter and projection.
- * 2) If empty, fallback to native driver with underscore collection precedence (llm_costs),
- *    supporting env overrides LLMCOSTS_COLLECTION_NAME or LLM_COSTS_COLLECTION.
- * Behavior:
- * - Always enforces tenant scope from Authorization JWT (req.auth.tenantId) if present, otherwise from
- *   x-organization-id or query aliases (?organization_id/?tenant_id).
- * - Builds an explicit $match including case-insensitive tenant fallbacks and timestamp window.
- * - Applies pagination ($skip/$limit) AFTER $match to ensure correct paging.
- * - Adds diagnostics headers:
- *    X-LLM-COSTS-Collection: effective collection used
- *    X-LLM-COSTS-Pipeline: JSON of { match, sort, page, limit, projection }
- *    X-LLM-COSTS-Matched: total matched documents (before pagination)
- *    X-LLM-COSTS-Reason: present when result is empty, with terse reason
+ * Handler for GET /api/llm_costs (underscore variant) that returns a paginated tabular list of LLM cost documents.
+ *
+ * Behavior kept intact:
+ * - Tenant scoping: prefers req.auth.tenantId; otherwise uses x-organization-id or ?organization_id/?tenant_id
+ * - Filter whitelist and date window on "timestamp" only
+ * - Pagination envelope { success, data, meta }
+ * - Headers for diagnostics and timings are preserved
+ *
+ * Small addition:
+ * - Deterministically derive agent_name from nested users[].projects[].agents[].agent_name (or .name as fallback):
+ *   Rule: collect all non-empty strings, distinct, sort alphabetically (case-insensitive), pick the first.
+ *   This ensures non-null agent_name when nested agents are present.
  */
 async function listLlmCosts(req, res) {
   const startParsed = Date.now();
@@ -137,7 +134,7 @@ async function listLlmCosts(req, res) {
 
     const match = { $and: baseMatchAnd };
 
-    // Aggregation projection base
+    // Projection base
     const baseProject = {
       request_id: 1,
       session_id: 1,
@@ -161,66 +158,38 @@ async function listLlmCosts(req, res) {
       duration_ms: 1,
       status: 1,
       details: 1,
-      // Added: expose agents array built later in pipeline
-      agents: 1,
+      agents: 1, // carry through computed agents
     };
 
-    // Build pipeline for enrichment with users
-    // Requirements now:
-    // - Treat user_id and users._id as strings (UUIDs)
-    // - Join users with a pipeline lookup using $expr string equality
-    // - user_name strictly from users.name, else "Unknown User"
+    // Pipeline
     const pipeline = [
       { $match: match },
 
-      // Compute agents: flatten users[].projects[].agents[] safely and collect distinct agent_name
-      {
-        $addFields: {
-          _usersArr: { $ifNull: ['$users', []] },
-        },
-      },
+      // Compute agents array from nested users[].projects[].agents[] (names only)
+      { $addFields: { _usersArr: { $ifNull: ['$users', []] } } },
       {
         $addFields: {
           _projectsNested: {
-            $map: {
-              input: '$_usersArr',
-              as: 'u',
-              in: { $ifNull: ['$$u.projects', []] },
-            },
+            $map: { input: '$_usersArr', as: 'u', in: { $ifNull: ['$$u.projects', []] } },
           },
         },
       },
       {
-        // flatten one level of projects arrays: [[...], [...]] -> [...]
         $addFields: {
           _projectsFlat: {
-            $reduce: {
-              input: '$_projectsNested',
-              initialValue: [],
-              in: { $concatArrays: ['$$value', '$$this'] },
-            },
+            $reduce: { input: '$_projectsNested', initialValue: [], in: { $concatArrays: ['$$value', '$$this'] } },
           },
         },
       },
       {
         $addFields: {
-          _agentsNested: {
-            $map: {
-              input: '$_projectsFlat',
-              as: 'p',
-              in: { $ifNull: ['$$p.agents', []] },
-            },
-          },
+          _agentsNested: { $map: { input: '$_projectsFlat', as: 'p', in: { $ifNull: ['$$p.agents', []] } } },
         },
       },
       {
         $addFields: {
           _agentsFlat: {
-            $reduce: {
-              input: '$_agentsNested',
-              initialValue: [],
-              in: { $concatArrays: ['$$value', '$$this'] },
-            },
+            $reduce: { input: '$_agentsNested', initialValue: [], in: { $concatArrays: ['$$value', '$$this'] } },
           },
         },
       },
@@ -232,7 +201,7 @@ async function listLlmCosts(req, res) {
                 $filter: {
                   input: {
                     $map: {
-                      input: { $ifNull: ['$_agentsFlat', []] },
+                      input: { $ifNull: ['_agentsFlat', []] },
                       as: 'a',
                       in: {
                         $ifNull: ['$$a.agent_name', { $ifNull: ['$$a.name', null] }],
@@ -243,40 +212,26 @@ async function listLlmCosts(req, res) {
                   cond: { $ne: ['$$n', null] },
                 },
               },
-              [], // ensure distinct with setUnion
+              [],
             ],
           },
         },
       },
 
+      // Join users to compute user_name (stable previous behavior for underscore)
       {
         $lookup: {
           from: 'users',
           let: { userId: '$user_id' },
           pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ['$_id', '$$userId'] }
-              }
-            },
-            { $project: { _id: 1, name: 1 } }
+            { $match: { $expr: { $eq: ['$_id', '$$userId'] } } },
+            { $project: { _id: 1, name: 1 } },
           ],
-          as: 'userDoc'
-        }
+          as: 'userDoc',
+        },
       },
-      {
-        $addFields: {
-          user_name: {
-            $ifNull: [{ $arrayElemAt: ['$userDoc.name', 0] }, 'Unknown User']
-          }
-        }
-      },
-      {
-        $project: {
-          ...baseProject,
-          user_name: 1
-        }
-      }
+      { $addFields: { user_name: { $ifNull: [{ $arrayElemAt: ['$userDoc.name', 0] }, 'Unknown User'] } } },
+      { $project: { ...baseProject, user_name: 1 } },
     ];
 
     // Sorting
@@ -293,7 +248,7 @@ async function listLlmCosts(req, res) {
       },
     });
 
-    // Execute aggregation using native driver for underscore collection (or env override)
+    // Execute aggregation on underscore collection
     const db = await getDb();
     const envName = (process.env.LLMCOSTS_COLLECTION_NAME || process.env.LLM_COSTS_COLLECTION || '').trim();
     const effectiveCollection = envName || 'llm_costs';
@@ -306,16 +261,14 @@ async function listLlmCosts(req, res) {
     let items = (facet && facet.items) || [];
     const total = (facet && facet.totalCount && facet.totalCount[0] && facet.totalCount[0].count) || 0;
 
-    // Deterministically derive agent_name: first non-empty alphabetically from nested users[].projects[].agents[].agent_name (or .name)
+    // Deterministic agent_name: first alphabetical non-empty from nested agents or top-level projects[].agents[] if present
     try {
       items = items.map((d) => {
         try {
-          // Collect agents from users[].projects[].agents[]
           const usersArr = Array.isArray(d?.users) ? d.users : [];
           const userProjects = usersArr.flatMap((u) => (Array.isArray(u?.projects) ? u.projects : []));
           const nestedAgents = userProjects.flatMap((p) => (Array.isArray(p?.agents) ? p.agents : []));
 
-          // Also consider possible top-level projects[].agents[] if present (defensive)
           const topProjects = Array.isArray(d?.projects) ? d.projects : [];
           const topAgents = topProjects.flatMap((p) => (Array.isArray(p?.agents) ? p.agents : []));
 
@@ -331,23 +284,27 @@ async function listLlmCosts(req, res) {
             )
             .filter(Boolean);
 
-          // Distinct, then sort alphabetically (case-insensitive), pick first
           const distinct = Array.from(new Set(candidates));
           let agent_name = null;
           if (distinct.length > 0) {
             agent_name = distinct.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))[0];
           }
 
-          return { ...d, agent_name };
+          // If none from nested and a top-level exists, keep it
+          if (!agent_name && typeof d?.agent_name === 'string' && d.agent_name.trim()) {
+            agent_name = d.agent_name.trim();
+          }
+
+          return { ...d, agent_name: agent_name || null };
         } catch {
-          return { ...d, agent_name: null };
+          return { ...d, agent_name: (typeof d?.agent_name === 'string' && d.agent_name.trim()) ? d.agent_name.trim() : null };
         }
       });
     } catch {
-      // leave items unchanged on any unexpected failure
+      // No-op if enrichment fails
     }
 
-    // Headers (preserve existing names)
+    // Headers
     res.set('x-effective-tenant', resolvedTenant);
     res.set('x-llm-filter', JSON.stringify(match));
     res.set('x-llm-projection', JSON.stringify({ ...baseProject, user_name: 1, agents: 1 }));
@@ -360,7 +317,7 @@ async function listLlmCosts(req, res) {
     res.set('x-llm-window-to', to.toISOString());
     res.set('x-llm-window-applied', applied || 'default');
 
-    // Diagnostics headers previously used
+    // Additional diagnostics (preserved)
     res.set('X-LLM-COSTS-Collection', effectiveCollection);
     res.set('X-LLM-COSTS-Pipeline', JSON.stringify({ match, sort, page, limit, projection: { ...baseProject, user_name: 1 } }));
     res.set('X-LLM-COSTS-Matched', String(total));
@@ -389,7 +346,7 @@ async function listLlmCosts(req, res) {
     });
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.error('GET /api/llm-costs error', err);
+    console.error('GET /api/llm_costs error', err);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }
