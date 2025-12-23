@@ -303,13 +303,54 @@ async function listLlmCosts(req, res) {
     const [facet] = await coll.aggregate(pipeline, { allowDiskUse: true }).toArray();
     const execMs = Date.now() - execStart;
 
-    const items = (facet && facet.items) || [];
+    let items = (facet && facet.items) || [];
     const total = (facet && facet.totalCount && facet.totalCount[0] && facet.totalCount[0].count) || 0;
+
+    // Deterministically derive agent_name: first non-empty alphabetically from nested users[].projects[].agents[].agent_name (or .name)
+    try {
+      items = items.map((d) => {
+        try {
+          // Collect agents from users[].projects[].agents[]
+          const usersArr = Array.isArray(d?.users) ? d.users : [];
+          const userProjects = usersArr.flatMap((u) => (Array.isArray(u?.projects) ? u.projects : []));
+          const nestedAgents = userProjects.flatMap((p) => (Array.isArray(p?.agents) ? p.agents : []));
+
+          // Also consider possible top-level projects[].agents[] if present (defensive)
+          const topProjects = Array.isArray(d?.projects) ? d.projects : [];
+          const topAgents = topProjects.flatMap((p) => (Array.isArray(p?.agents) ? p.agents : []));
+
+          const allAgents = [...nestedAgents, ...topAgents];
+
+          const candidates = allAgents
+            .map((a) =>
+              typeof a?.agent_name === 'string' && a.agent_name.trim()
+                ? a.agent_name.trim()
+                : typeof a?.name === 'string' && a.name.trim()
+                ? a.name.trim()
+                : null
+            )
+            .filter(Boolean);
+
+          // Distinct, then sort alphabetically (case-insensitive), pick first
+          const distinct = Array.from(new Set(candidates));
+          let agent_name = null;
+          if (distinct.length > 0) {
+            agent_name = distinct.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))[0];
+          }
+
+          return { ...d, agent_name };
+        } catch {
+          return { ...d, agent_name: null };
+        }
+      });
+    } catch {
+      // leave items unchanged on any unexpected failure
+    }
 
     // Headers (preserve existing names)
     res.set('x-effective-tenant', resolvedTenant);
     res.set('x-llm-filter', JSON.stringify(match));
-    res.set('x-llm-projection', JSON.stringify({ ...baseProject, user_name: 1 }));
+    res.set('x-llm-projection', JSON.stringify({ ...baseProject, user_name: 1, agents: 1 }));
     res.set('x-llm-sort', JSON.stringify(sort));
     res.set('x-llm-page', String(page));
     res.set('x-llm-limit', String(limit));
