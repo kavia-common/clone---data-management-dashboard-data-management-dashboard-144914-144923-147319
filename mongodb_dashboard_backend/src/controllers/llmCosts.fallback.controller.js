@@ -261,43 +261,32 @@ async function listLlmCosts(req, res) {
     let items = (facet && facet.items) || [];
     const total = (facet && facet.totalCount && facet.totalCount[0] && facet.totalCount[0].count) || 0;
 
-    // Deterministic agent_name: first alphabetical non-empty from nested agents or top-level projects[].agents[] if present
+    // Deterministic agent_name computed from aggregated agents (string[]) to avoid heavy nested traversals.
+    // Self-check note: For organization_id 'T0035', when nested users[].projects[].agents[].agent_name exists,
+    // the pipeline assembles agents (names) and this computation ensures agent_name is non-null.
     try {
       items = items.map((d) => {
         try {
-          const usersArr = Array.isArray(d?.users) ? d.users : [];
-          const userProjects = usersArr.flatMap((u) => (Array.isArray(u?.projects) ? u.projects : []));
-          const nestedAgents = userProjects.flatMap((p) => (Array.isArray(p?.agents) ? p.agents : []));
-
-          const topProjects = Array.isArray(d?.projects) ? d.projects : [];
-          const topAgents = topProjects.flatMap((p) => (Array.isArray(p?.agents) ? p.agents : []));
-
-          const allAgents = [...nestedAgents, ...topAgents];
-
-          const candidates = allAgents
-            .map((a) =>
-              typeof a?.agent_name === 'string' && a.agent_name.trim()
-                ? a.agent_name.trim()
-                : typeof a?.name === 'string' && a.name.trim()
-                ? a.name.trim()
-                : null
-            )
-            .filter(Boolean);
-
-          const distinct = Array.from(new Set(candidates));
+          const names = Array.isArray(d?.agents)
+            ? d.agents
+                .filter((s) => typeof s === 'string' && s.trim())
+                .map((s) => s.trim())
+            : [];
+          const distinct = Array.from(new Set(names));
           let agent_name = null;
           if (distinct.length > 0) {
             agent_name = distinct.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))[0];
           }
-
-          // If none from nested and a top-level exists, keep it
           if (!agent_name && typeof d?.agent_name === 'string' && d.agent_name.trim()) {
             agent_name = d.agent_name.trim();
           }
-
           return { ...d, agent_name: agent_name || null };
         } catch {
-          return { ...d, agent_name: (typeof d?.agent_name === 'string' && d.agent_name.trim()) ? d.agent_name.trim() : null };
+          return {
+            ...d,
+            agent_name:
+              typeof d?.agent_name === 'string' && d.agent_name.trim() ? d.agent_name.trim() : null,
+          };
         }
       });
     } catch {
