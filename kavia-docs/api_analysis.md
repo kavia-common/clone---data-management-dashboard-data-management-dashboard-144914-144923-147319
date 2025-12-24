@@ -2,297 +2,380 @@
 
 ## Overview
 
-This document provides a thorough analysis of the Express backend API for the Data Management Dashboard. It enumerates all discovered HTTP routes/endpoints, their HTTP methods and paths, how they map to controllers/handlers, the middleware chains applied (authentication, tenant scoping, validation, error handling), the data models/services in use, and the request/response behaviors including pagination, sorting, filtering, and typical status codes. It also explains cross-cutting security (JWT, Super Admin/T0000 bypass, rate limiting, CORS/Helmet) and utilities that influence API behavior. All file paths listed below are relative to the backend container root: mongodb_dashboard_backend.
+This document provides a thorough analysis of the Express backend API for the Data Management Dashboard. It enumerates all HTTP routes/endpoints, their HTTP methods and paths, how they map to controllers/handlers, the middleware chains applied (authentication, tenant scoping, validation, error handling), the data models/services in use, and the request/response behaviors including pagination, sorting, filtering, and typical status codes. It also explains cross-cutting security (JWT, Super Admin/T0000 bypass, rate limiting, CORS/Helmet) and utilities that influence API behavior. All file paths listed below are relative to the backend container root: mongodb_dashboard_backend.
 
 The implementation uses Express.js, Mongoose, and a multi-tenant approach enforced via tenant-aware middleware. Swagger/OpenAPI is generated dynamically and served from this backend for discovery and docs.
 
 ## Server Composition and Cross-Cutting Middleware
 
-The main application wiring is defined in:
-- src/app.js
-- src/server.js
+- Main wiring:
+  - src/app.js
+  - src/server.js
 
-Key composition:
-- Helmet, CORS, and Rate Limiting:
-  - src/middleware/security.js exports:
-    - corsMiddleware(): dynamic whitelist CORS with permissive same-host fallback
-    - helmetMiddleware(): secure headers (CSP off to avoid clashes with Swagger UI), cross-origin resource policy relaxed
-    - rateLimiter(): express-rate-limit with GET skipping by default
-  - src/middleware/permissiveCors.js exports permissiveCorsMiddleware used under /api to echo Origin and handle preflight broadly
-  - app.js mounts:
-    - helmetMiddleware globally
-    - corsMiddleware globally
-    - permissiveCorsMiddleware under /api
-    - explicit app.options('/api/*', cors()) to support preflights
-    - rateLimiter globally
-    - compression is enabled (configurable by ENABLE_RESPONSE_COMPRESSION)
+- Security and infrastructure middleware:
+  - src/middleware/security.js
+    - corsMiddleware(): CORS with computed whitelist and permissive same-host fallback
+    - helmetMiddleware(): security headers with CSP disabled to avoid conflicts with Swagger
+    - rateLimiter(): configurable rate limiter (skips GET by default)
+  - src/middleware/permissiveCors.js
+    - permissiveCorsMiddleware: echo Origin and robust preflight on /api/*
+  - Mounted in app.js:
+    - helmetMiddleware (global)
+    - corsMiddleware (global)
+    - permissiveCorsMiddleware (under /api)
+    - app.options('/api/*', cors()) for preflights
+    - rateLimiter (global)
+    - compression (gzip/brotli) when ENABLE_RESPONSE_COMPRESSION=true
 
 - Swagger/OpenAPI:
-  - swagger.js provides getBaseOpenApiSpec() and app.js exposes:
-    - GET /openapi.json, /api-docs.json, /api/docs.json (dynamic host/port)
-    - Swagger UI at /api/docs, /docs, /api-docs
+  - swagger.js (getBaseOpenApiSpec)
+  - app.js serves:
+    - GET /openapi.json, /api-docs.json, /api/docs.json
+    - Swagger UI at /api-docs, /api/docs, /docs
 
 - Health and Root:
-  - GET /api/health, /health, /healthz, /ready, /live via in-app healthHandler (no auth)
-  - GET / responds with a minimal landing payload
+  - In-app health: GET /api/health, /health, /healthz, /ready, /live
+  - Root landing: GET / returns compact JSON
 
 - Error Handling:
-  - src/middleware/standardHandlers.js provides:
-    - auditLoggerMiddleware() [documented, not mounted globally in app.js]
-    - notFoundHandler() [not used; app provides own 404]
-    - errorHandler(err, req, res, next) included in app.js as final handler
-  - src/middleware/errorHandler.js provides a simplified error handler (not mounted in app.js)
+  - src/middleware/standardHandlers.js
+    - errorHandler: standardized JSON error envelope mounted in app.js (final handler)
+  - src/middleware/errorHandler.js exists but not mounted globally
 
-- MongoDB connection is established in app.js via config/db.connectDB(), but server start does not block if DB is unavailable.
+- MongoDB:
+  - connectDB in app.js; startup is non-blocking if DB is missing
+  - Index provisioning for llm_costs is attempted on startup (best-effort)
 
 ## Tenant Scoping and Authentication
 
-Authentication and tenant scoping are enforced by route-local middlewares; there is no single global verifyAuth mount in app.js. The primary mechanisms are:
+Authentication and tenant scoping are enforced per-route. Key middlewares:
 
-- JWT/Authorization context (optional per-route):
-  - src/middleware/verifyAuth.js: Full JWT verification with issuer/audience options; supports demo mode; can set req.auth.tenantId and Super Admin flags (isSuperAdmin) and enable all-tenants bypass when requested (x-all-tenants / ?all_tenants).
-  - src/middleware/auth.js: attachAuthContext() best-effort user context from Bearer token and requireAuth() guard used for session routes.
+- Authentication and auth context:
+  - src/middleware/verifyAuth.js
+    - Verifies JWT (HS/RS per config), supports demo mode when allowed
+    - Extracts tenantId and roles; recognizes Super Admin and “all tenants” flags (x-all-tenants, ?all_tenants)
+  - src/middleware/auth.js
+    - attachAuthContext(): best-effort construction of req.user for audit and RBAC
+    - requireAuth(): gate protected endpoints
 
-- Tenant resolution and enforcement:
-  - src/middleware/requireTenant.js: Core resolver that determines the effective tenant from JWT (req.auth.tenantId), header (x-organization-id/x-tenant-id), or query (tenant_id/organization_id). It:
-    - Rejects 400 if tenant is missing (outside demo flows)
-    - Rejects 403 if query/header conflicts with JWT tenant
-    - Enables super admin global “all tenants” mode when T0000 or x-all-tenants true, setting req.tenantScopeDisabled/allTenants
-    - Mirrors resolved tenant to req.tenantId and req.organizationId and emits X-Applied-Tenant and X-Applied-Filter headers
-
-  - src/middleware/tenantScopeEnforcer.js: Attaches helpers to req:
-    - withTenantFilter(obj), withTenantAggregation(pipeline), stampTenant(doc)
-    - Enforces tenant_id on queries and aggregation unless bypass flags are set (Super Admin global or explicit route bypass)
-    - Marks X-All-Tenants and X-Applied-Tenant headers when bypass is active
-
-  - src/middleware/extractOrganization.js: Alternative resolver for endpoints that want explicit organization requirement but also support Super Admin global bypass.
+- Tenant resolution/enforcement:
+  - src/middleware/requireTenant.js
+    - Resolves tenant from JWT (preferred), then x-organization-id/x-tenant-id headers, then query tenant_id/organization_id
+    - Enforces 400 on missing tenant; 403 on mismatch with JWT
+    - Enables Super Admin global bypass (T0000 or explicit all tenants), setting req.tenantScopeDisabled/allTenants
+    - Mirrors tenant to req.tenantId and emits X-Applied-* headers
+  - src/middleware/tenantScopeEnforcer.js
+    - Attaches helpers: withTenantFilter, withTenantAggregation, stampTenant; enforces tenant_id unless bypass active
+  - src/middleware/extractOrganization.js
+    - Alternative tenant resolver; supports Super Admin bypass (sets global mode)
 
 - Super Admin bypass:
-  - Special T0000 tenant or x-all-tenants enables “global” mode where tenant filters are disabled. Route handlers also set headers like X-All-Tenants and X-Applied-Tenant=all-tenants.
+  - T0000 and/or x-all-tenants true enable global mode; tenant filters are skipped and headers X-All-Tenants/X-Applied-Tenant=all-tenants are set
 
-- Rate limiting and CORS operate regardless of authentication; configured to be permissive enough for preview environments and local development.
+- Rate limiting + CORS apply regardless of auth; configured permissively for preview/dev
 
 ## Routing Topology and Endpoint Mapping
 
-All API routes are mounted under the /api prefix (except the root path and health paths). The base router at src/routes/index.js mounts users summary routes before users routes to preserve /summary over /:id precedence.
+All API routes are mounted under /api (except health root). Base router at src/routes/index.js mounts users.summary before users to preserve /summary precedence.
 
-Below is the mapping of key endpoint groups to their routers, handlers, middleware, models, and behaviors. Request/response schemas and parameters reflect actual controller logic and the OpenAPI (interfaces/openapi.json) where applicable, with implementation notes clarified.
+Below each endpoint group lists the mounted path, HTTP method, handler mapping, middleware chain, models/services involved, and status/behavior.
 
 ### Health and Docs
 
 - GET /api/health (src/app.js)
   - Middleware: Helmet, CORS, Rate Limiter, permissive CORS (under /api)
-  - Returns: { status: "ok", db: connected|connecting|disconnected, timestamp }
-  - Status codes: 200
-  - Notes: No auth required
+  - Response: { status: "ok", db: connected|connecting|disconnected, timestamp }
+  - Status: 200
 
 - GET /openapi.json, /api-docs.json, /api/docs.json (src/app.js)
-  - Returns dynamic OpenAPI specification built at request time
-  - Status codes: 200
+  - Returns dynamic OpenAPI (host-aware)
+  - Status: 200
 
 - GET /api-docs, /docs (src/app.js)
   - Swagger UI
 
-### LLM Costs (Tabular list and helpers)
+### Authentication
 
-- Base routers mounted at:
-  - /api/llm-costs (public list): src/routes/llmCosts.public.routes.js
-  - /api/llm-costs (aggregate/hierarchy and others): see additional routes below
+Router: src/routes/auth.routes.js (mounted at /api/auth)
 
-- GET /api/llm-costs (List)
-  - Router: src/routes/llmCosts.public.routes.js
-  - Middleware:
-    - requireTenant (resolves tenant and enforces 400/403)
-    - tenantScopeEnforcer() (enforce tenant_id to queries)
-  - Handler: listLlmCosts from src/controllers/llmCosts.fallback.controller (the route wraps and calls this richer controller)
-  - Model: src/models/llmCosts.model.js (collection: llm_costs by default; configurable via env)
-  - Request:
-    - Pagination: page (>=1), limit (<=200 enforced)
-    - Sort: sort string (e.g., -timestamp)
-    - Filter: filter JSON allowed keys enforced by controller (see OpenAPI descriptions)
-    - Tenant: JWT req.auth.tenantId overrides header x-organization-id and query; conflict => 403
-  - Response:
-    - Envelope { success, data: [ ... ], meta: { page, limit, total, sort?, window?, debug? } } when paginated
-    - Response headers include X-LLM-COSTS-Collection and x-effective-tenant
-  - Status codes: 200, 400 (bad filter, invalid limits, missing tenant), 403 (tenant mismatch), 500
+- GET /api/auth/health
+  - Handler: inline in router
+  - Returns config flags for tenant salt without exposing secrets
+  - Status: 200
 
-- GET /api/projects/:projectId/llm-costs (Deprecated alias)
-  - Router: src/routes/llmCosts.public.routes.js
-  - Handler: controller.list from crudFactory (tenant scoping applies)
-  - Notes: No project-level filtering is implied; alias only
+- POST /api/auth/signup
+  - Validates { organization_id, email, password } (422 on validation errors)
+  - Ensures tenant/org salt; hashes password with v2 scheme; upserts User
+  - Models: Tenant, User
+  - Status: 201 on success; 400/422 on errors
 
-- Implementation parameters and schema closely reflect interfaces/openapi.json:
-  - paths./api/llm-costs.get and headers/metadata defined there align with controller behavior
+- POST /api/auth/login
+  - Validates body; resolves tenant; verifies/migrates hash; issues HS256 JWT if secret configured, else “ok” demo in dev
+  - Models: Tenant, User
+  - Response: { success, tenant_id, token/id_token, token_type, user }
+  - Status: 200, 400/401/422
 
-- Aggregations and hierarchies (if mounted):
-  - Additional endpoints may be provided by:
-    - src/controllers/llmCostsAggregate.controller.js
-    - src/controllers/llmCosts.controller.js (getHierarchy)
-    - src/services/llmCostsHierarchy.service.js
-  - app.js mounts:
-    - /api/llm-costs (src/routes/llmCosts.routes.js, src/routes/llmCosts.hierarchy.routes.js) — implementation details depend on those routers
+- POST /api/auth/reset-password
+  - Validates; ensures tenant/org salt; rehashes with v2 and updates User
+  - Models: Tenant, User
+  - Status: 200, 400/404/422
 
-### Costs: Enriched and By Organization (Analytics)
+### LLM Costs (Tabular list, CRUD, hierarchy)
 
-- GET /api/costs (Enriched)
-  - Router: src/routes/llmCosts.enriched.routes.js (mounted under /api/costs via app.js)
-  - Controller: src/controllers/costs.enriched.controller.js (listEnrichedCosts)
-    - Enriches llm_costs with user_display_name by joining users collection
-    - Enforces tenant via buildTenantScopeFilter and injects tenant_id into filter
-  - Parameters: page, limit (<=200), sort (e.g., -timestamp), filter (whitelist of fields)
-  - Response: Envelope { success, data, meta } with timing headers (x-costs-*)
-  - Status codes: 200, 400 (invalid/missing tenant, invalid filter)
+Routers and mounts:
+- /api/llm-costs → src/routes/llmCosts.public.routes.js
+- /api/llm-costs → src/routes/llmCosts.routes.js (CRUD)
+- /api/llm-costs → src/routes/llmCosts.hierarchy.routes.js (hierarchy)
 
-- GET /api/analytics/llm-cost-by-agent
-  - Routers:
-    - src/routes/analytics.js OR src/routes/llmCosts.aggregate.routes.js (depending on mount; app.js mounts /api/analytics)
-  - Controller: src/controllers/llmCost.controller.js (getLlmCostByAgentController)
-  - Service: src/services/llmCost.service.js (getLlmCostByAgent with robust fallbacks)
-  - Response: 200 array of { agent, total_cost }; 500 on failure
+Models:
+- src/models/llmCosts.model.js (collection defaults to “llm_costs”; configurable)
 
-- GET /api/costs/:organization_id (By-organization aggregate)
-  - Controller: src/controllers/costs.byOrganization.controller.js
-  - Model: src/models/llmCosts.model.js
-  - Behavior: Aggregation by organization and user with robust numeric conversions and project counts
-  - Status: 200 on success, 400 (missing org), 500 on error
+Middleware (per router):
+- llmCosts.public.routes: requireTenant, tenantScopeEnforcer()
+- llmCosts.routes: requireTenant, tenantScopeEnforcer()
+- llmCosts.hierarchy.routes: requireTenant, tenantScopeEnforcer()
+
+Endpoints:
+
+- GET /api/llm-costs (Public list wrapper)
+  - Handler: controllers/llmCosts.fallback.controller.listLlmCosts (invoked by public routes wrapper)
+  - Behavior:
+    - Tenant enforced via requireTenant; removes tenant fields from client filter
+    - Pagination: page, limit≤200; sort string (e.g., -timestamp); filter whitelist enforced
+    - Headers include x-effective-tenant and X-LLM-COSTS-Collection
+  - Status: 200; 400 (invalid/missing tenant/filter); 403 (JWT mismatch); 500
+
+- GET /api/llm-costs (CRUD list path)
+  - Handler: crudFactory.list bound to LLMCost
+  - Behavior similar to public list; uses default sort -timestamp (indexed)
+
+- GET /api/llm-costs/{id}
+  - Handler: crudFactory.getById
+  - Status: 200, 400 (invalid id), 404, 403 on tenant mismatch
+
+- POST /api/llm-costs
+  - Handler: crudFactory.create; payload tenant fields overridden by server (stampTenant)
+  - Status: 201; 400/422
+
+- PUT /api/llm-costs/{id}
+  - Handler: crudFactory.update; scoping enforced; stampTenant
+  - Status: 200; 400/404/422
+
+- DELETE /api/llm-costs/{id}
+  - Handler: crudFactory.remove
+  - Status: 200; 400/404
+
+- GET /api/llm-costs/hierarchy
+  - Router: src/routes/llmCosts.hierarchy.routes.js
+  - Controller: src/controllers/llmCosts.controller.js:getHierarchy
+  - Behavior: Aggregates hierarchical costs per user→projects→agents; enforces tenant; optional filter parsing
+  - Status: 200; 400 (invalid filter)
+
+- Deprecated alias note:
+  - The OpenAPI lists /api/projects/{projectId}/llm-costs (deprecated). In code, the public router defines an alias under its own mount: GET /api/llm-costs/projects/:projectId/llm-costs (tenant-scoped list via controller.list). Prefer the canonical /api/llm-costs.
+
+### Costs: Enriched and Aggregations
+
+Routers and mounts:
+- /api/costs → src/routes/llmCosts.enriched.routes.js
+- /api/costs → src/routes/costs.organization.routes.js
+- /api/costs → src/routes/costs.byAgent.routes.js
+
+Endpoints:
+
+- GET /api/costs (Enriched list)
+  - Router: src/routes/llmCosts.enriched.routes.js
+  - Middleware: resolveTenantScope (lightweight resolver)
+  - Controller: src/controllers/costs.enriched.controller.js:listEnrichedCosts
+  - Behavior:
+    - Joins llm_costs -> users by user_id to add user_display_name
+    - Pagination: page, limit≤200; sort; filter whitelist
+    - Headers: x-effective-tenant, x-tenant-source, x-costs-* timings
+  - Status: 200; 400 (invalid filter/tenant)
+
+- GET /api/costs/{organization_id} (Organization/user aggregate)
+  - Router: src/routes/costs.organization.routes.js
+  - Middleware: requireTenant, tenantScopeEnforcer()
+  - Controller: src/controllers/costs.byOrganization.controller.js:getOrganizationUserCosts
+  - Behavior: Robust aggregation by organization and user with normalized numeric totals, project counts
+  - Status: 200; 400 (missing org); 500
+
+- GET /api/costs/by-agent (Top agents by total cost)
+  - Router: src/routes/costs.byAgent.routes.js
+  - Middleware: requireTenant, tenantScopeEnforcer()
+  - Query: start, end (ISO optional), limit default 20 (clamped [1..100]); T0000 bypass enables global
+  - Behavior: Aggregation computing { agent_name, total } sorted desc
+  - Status: 200; 400 (invalid dates), 403 (tenant required)
 
 ### Users
 
-Mounted under /api/users via src/routes/index.js:
-- Summary routes precede the main routes to ensure /summary resolves before dynamic :id routes.
+Base mount: via src/routes/index.js → router.use('/users', users.summary then users.routes)
+
+Models used: User, SessionTracking, Tenant
 
 - GET /api/users (List)
   - Router: src/routes/users.routes.js
-  - Middleware chain (within router):
-    - usersEarlyBypassDetector: Detects T0000 and sets bypass flags for all tenants mode (X-All-Tenants headers)
-    - conditionalExtractOrg: extracts tenant unless bypass is active
-  - Handler: controller.list from crudFactory with LLMCost-like enforcement rules
-  - Tenant rules:
-    - With JWT: JWT tenant is enforced; conflicting header/query => 403
-    - Without JWT (demo): allow organization_id via header/query but still enforce filter
-    - Super Admin T0000: bypass tenant scoping; route sets X-All-Tenants and applied filter headers
-  - Pagination: page, limit (<=200); sort; filter (JSON)
-  - Response: Envelope for paginated calls; raw array otherwise
-  - Status codes: 200, 400 (invalid filter), 403 (tenant mismatch)
+  - Middlewares:
+    - usersEarlyBypassDetector (T0000 global bypass)
+    - conditionalExtractOrg (extractOrganization unless bypass)
+  - Handler: crudFactory.list bound to User
+  - Behavior:
+    - With JWT: JWT tenant enforced; conflicting header/query => 403
+    - Without JWT (demo): accept header/query tenant but still enforce on filter
+    - Pagination, sort, filter (JSON)
+    - Headers: X-Users-Bypass, X-All-Tenants, X-Applied-Tenant, X-Applied-Filter
+  - Status: 200; 400 (invalid filter); 403 (mismatch)
 
 - GET /api/users/summary
   - Router: src/routes/users.summary.js
-  - Middleware: extractOrganization() (supports Super Admin/T0000 global mode)
-  - Behavior: Buckets users by created_at over a time window (daily/weekly/monthly/custom); T0000 => all organizations with per-org series
-  - Parameters: organization_id|tenant_id, range, start_date, end_date
-  - Status codes: 200, 400 (invalid range/dates/missing tenant), 500
+  - Middleware: extractOrganization() (supports global bypass)
+  - Behavior:
+    - Buckets by created_at for chosen range (daily/weekly/monthly/custom)
+    - T0000/all-tenants: include orgBuckets (per-org series) and headers with mode hints
+  - Status: 200; 400 (invalid params), 500
 
 - GET /api/users/tenant-summary
-  - Router: src/routes/users.routes.js (/tenant-summary)
+  - Router: src/routes/users.routes.js
   - Middleware: extractOrganization()
-  - Behavior: Aggregates distinct active users per tenant from session_tracking with cache; includeInactive fallback to users/tenants
-  - Parameters: from/to (ISO), status (pipe-delimited), includeInactive (boolean)
-  - Response: { items: [ { tenant_id, tenant_name, user_count } ], total }
-  - Status: 200, 400 (invalid parameters)
+  - Behavior:
+    - Aggregates distinct active users per tenant (from session_tracking)
+    - includeInactive flag extends coverage to tenants/users if no recent activity
+    - Cache with TTL
+  - Status: 200; 400 (invalid dates)
 
 - GET /api/users/active-trend
-  - Router: src/routes/users.routes.js (/active-trend)
-  - Behavior: Time-bucketed counts of distinct active users based on session_tracking.last_updated (fallback to session_start)
-  - Parameters: from, to, granularity=day|week, status (default completed|active), tenant_id scope (must match req.tenantId when JWT is present)
-  - Status: 200, 400 (invalid dates), 403 (tenant mismatch)
+  - Router: src/routes/users.routes.js
+  - Behavior: Time series of distinct active users bucketed by day/week; enforces tenant alignment; caches responses
+  - Status: 200; 400 (invalid dates), 403 (tenant mismatch)
 
 - GET /api/users/:userId/projects
   - Router: src/routes/users.routes.js
-  - Service: src/services/users.service.js (getUserProjectsFromSessions)
-  - Parameters: userId path param; organization_id|tenant_id (required unless implied by context)
+  - Service: src/services/users.service.js:getUserProjectsFromSessions
+  - Requires: userId path param; organization_id|tenant_id (header/query) or context
   - Response: { user_id, tenant_id, projects: [ { project_id, project_name?, last_activity? } ] }
-  - Status: 200 on success (with empty array fallback), 400 on missing params
+  - Status: 200 (empty projects on fallback), 400 (missing params)
 
 - GET /api/users/:id, PUT /api/users/:id, DELETE /api/users/:id
-  - Router: src/routes/users.routes.js
-  - Handler: controller.getById/update/remove from crudFactory
-  - Validation: id must be a valid Mongo ObjectId; otherwise 404/400
-  - Status: 200 on success, 400 (invalid id/payload), 404 (not found), 422 (validation)
+  - Handlers: crudFactory.getById/update/remove
+  - Validation: ObjectId; 404 (not found), 400 (invalid id), 422 (validation)
 
 - GET /api/users/seed-if-empty
-  - Seeds demo users only if users collection is empty
-  - Response: { success, inserted, total } with 200 status
+  - Seeds demo users only if collection empty
+  - Status: 200
 
 ### Session Tracking
 
-- Router: src/routes/sessionTracking.routes.js
+Router: src/routes/sessionTracking.routes.js
+
 - GET /api/session-tracking
-  - Early bypass T0000 detection, then enforces tenant unless bypassed
-  - Pagination: page, limit|pageSize; sort defaults to -session_start; q text search across several fields
-  - Filter: filter query param is ignored (server uses search + tenant scope); X-Filter-Ignored header may be set
-  - Caching: Response-level in-memory TTL cache with optional ETag; respects If-None-Match => 304
-  - Response: Envelope when paginated; raw array otherwise
-  - Status: 200, 304 (with ETag), 400 (missing tenant), etc.
+  - Early bypass T0000; otherwise enforce tenant (from header/query/JWT)
+  - Query: page/limit|pageSize; sort default -session_start; q (text search)
+  - Filter param is ignored (server sets X-Filter-Ignored=true)
+  - Response:
+    - Envelope with meta when paginated; raw array otherwise
+    - Caching: in-memory TTL with optional ETag; handles If-None-Match => 304
+  - Status: 200; 304; 400 (missing tenant)
 
-- GET /api/session-tracking/:id, POST /api/session-tracking, PUT /api/session-tracking/:id, DELETE /api/session-tracking/:id
-  - CRUD via controller from crudFactory
-  - Writes invalidate route cache
+- GET /api/session-tracking/:id
+  - Handler: crudFactory.getById
+  - Status: 200; common error mappings via crudFactory
 
-### Session (Auth/Tenant Selection)
+- POST /api/session-tracking, PUT /api/session-tracking/:id, DELETE /api/session-tracking/:id
+  - Handlers: crudFactory.create/update/remove
+  - Side-effect: Invalidate in-memory cache for this route
 
-- Router: src/routes/session.routes.js (mounted at /api/session; alias selection also under /api/tenants/select)
-- Middleware:
-  - attachAuthContext() globally to this router
-  - requireAuth() guard on protected methods
+### Session / Tenant Selection
+
+Router: src/routes/session.routes.js (mounted under /api/session; alias selection mounted under /api/tenants/select in app.js via the same router)
+
+- Middleware: attachAuthContext() globally; requireAuth() on protected routes
+
 - GET /api/session/tenants
-  - Returns tenants for the current user (from req.user), with audit logging
-  - Status: 200, 401 if unauthenticated
-- POST /api/session/tenant and POST /api/tenants/select
-  - Validates tenant membership (RBAC), writes audit logs, sets activeTenant cookie when possible
-  - Status: 200 on success; 400 (validation), 401, 403 (not member)
+  - Returns normalized tenants from user record; audit trail recorded
+  - Status: 200; 401
+
+- POST /api/session/tenant
+  - Validates RBAC and sets active tenant cookie; audit trail recorded
+  - Status: 200; 400; 401; 403
+
+- POST /api/tenants/select
+  - Alias to /api/session/tenant; same behavior
+
 - POST /api/session/all-tenants
-  - Super Admin only; toggles global mode; sets response headers accordingly
-  - Status: 200, 403
+  - Super Admin only; toggles global mode; sets headers
+  - Status: 200; 403
 
 ### App Deployments
 
-- Router: src/routes/appDeployments.routes.js (mounted at /api/app-deployments and alias /api/appDeployments)
+Router: src/routes/appDeployments.routes.js (mounted at /api/app-deployments and alias /api/appDeployments)
+
 - GET /api/app-deployments
-  - Tenant scoping via x-organization-id or JWT (prefers auth tenant); page/limit/sort/filter (JSON)
-  - Response: Envelope when paginated; raw array otherwise; sets x-effective-tenant and x-appdeploy-* headers
-  - Model: src/models/appDeployments.model.js
-  - Status: 200, 400 (invalid filter)
-- POST/PUT/DELETE /api/app-deployments/:id (if defined in router)
-  - Generally via crudFactory patterns; validate payload and id
+  - Tenant-scoped list with page/limit/sort/filter (JSON)
+  - Headers: x-effective-tenant, x-appdeploy-*
+  - Model: AppDeployment
+  - Status: 200; 400 (invalid filter)
+
+- Other CRUD endpoints (by id) may be present in the same router (typical crudFactory pattern): GET/PUT/DELETE /api/app-deployments/{id}
 
 ### Projects Summary and Related
 
-- Router: src/routes/projects.summary.routes.js (mounted at /api/projects)
 - GET /api/projects/summary
-  - Uses session_tracking collection for time-bucketed summaries by created_at; T0000 => all orgs series; includes optional barData for org totals
+  - Router: src/routes/projects.summary.routes.js (mounted at /api/projects)
   - Middleware: extractOrganization()
-  - Status: 200, 400 (invalid parameters), 500
+  - Behavior: Time-bucketed summary from session_tracking; T0000 provides per-org series and “barData”
+  - Status: 200; 400; 500
 
-- Router: src/routes/projects.routes.js (mounted under /api/projects)
-  - Additional project-related endpoints (not detailed here)
+- Additional project routes reside in src/routes/projects.routes.js
 
 ### Counts
 
-- Router: src/routes/counts.routes.js (mounted under /api/costs and also provides /health under this router)
-- GET /api/users/count
-  - requireTenant middleware enforces tenant; T0000 triggers bypass
-  - Returns users count or falls back to distinct user_id in session_tracking when users collection is empty
+Router: src/routes/counts.routes.js
+
+- GET /api/costs/users/count
+  - Mounted under /api/costs in app.js; path is /api/costs/users/count
+  - Middleware: requireTenant; T0000 bypass detection inside handler
+  - Behavior: Count users in users collection for the enforced tenant; if zero, fall back to distinct user_id in session_tracking
+  - Response: { success, total }
   - Status: 200
 
-### Analytics (Agents)
+- GET /api/costs/health
+  - Lightweight router health: returns { status: 'ok' }
 
-- Routers:
-  - src/routes/analytics.js and src/routes/llmCosts.aggregate.routes.js mounted under /api/analytics and /api/costs
-  - Provide analytics endpoints such as /api/analytics/llm-cost-by-agent (see LLM Costs section)
+### Analytics
 
-### Auth
+- LLM cost by agent (analytics summary)
+  - GET /api/analytics/llm-cost-by-agent
+  - Routers: src/routes/analytics.js or src/routes/llmCosts.aggregate.routes.js (mounted under /api/analytics)
+  - Controller: src/controllers/llmCost.controller.js:getLlmCostByAgentController
+  - Service: src/services/llmCost.service.js:getLlmCostByAgent
+  - Status: 200; 500
 
-- Router: src/routes/auth.routes.js (mounted at /api/auth)
-- Endpoints defined in interfaces/openapi.json map to signup, login, reset-password, and health
-- Hashing utilities reside in src/utils/authHash.js; tenant salt provisioning flows exist in models and config
+- Agents analytics placeholder
+  - GET /api/analytics/agents
+  - Router: src/routes/analyticsAgents.js
+  - Response: { items: [], total: 0, meta: { limit: 50, offset: 0 } }
+  - Status: 200
+
+### Dashboard
+
+- GET /api/dashboard/metrics
+  - Router: src/routes/dashboard.routes.js
+  - Middleware: verifyAuth, requireTenant
+  - Behavior: Endpoint intentionally removed; returns 404 to preserve clients/tests compatibility
+  - Status: 404
+
+- GET /api/dashboard/overview
+  - Router: src/routes/dashboard.modules.routes.js (mounted under /api/dashboard/overview)
+  - Behavior: Minimal placeholder; returns { items: [], total: 0 }
+  - Status: 200
 
 ## Data Models
 
-- Users: src/models/user.model.js (collection: users; strict: false for flexible schema; indexes on organization_id, email)
-- Session Tracking: src/models/sessionTracking.model.js (collection: session_tracking; indexes on tenant_id, user, time fields)
-- LLM Costs: src/models/llmCosts.model.js (collection defaults to llm_costs; configurable via env)
-- App Deployments: src/models/appDeployments.model.js (collection: app_deployments; indexes for tenant/project/sort)
-- Projects: src/models/project.model.js (collection: projects; access metadata)
+- Users: src/models/user.model.js (collection: users; strict: false; indexes on organization_id, email)
+- Session Tracking: src/models/sessionTracking.model.js (collection: session_tracking; indexes on tenant_id, user, and time fields)
+- LLM Costs: src/models/llmCosts.model.js (collection defaults to llm_costs; configurable; indexes for tenant/timestamp and other access paths)
+- App Deployments: src/models/appDeployments.model.js (collection: app_deployments; indexes for tenant, project, and sort paths)
+- Projects: src/models/project.model.js (collection: projects)
 - Tenants: src/models/tenant.model.js (collection: tenants; per-tenant orgSalt; associations)
 - Audit Log: src/models/auditLog.model.js (collection: audit_logs)
 
@@ -308,88 +391,62 @@ Mounted under /api/users via src/routes/index.js:
 
 ## Controller Factory (CRUD)
 
-- src/controllers/crudFactory.js builds tenant-safe, paginated CRUD controllers for Mongoose models:
-  - Enforces tenant filters (merging and removing client-supplied tenant keys)
+- src/controllers/crudFactory.js builds tenant-enforced CRUD controllers for Mongoose models:
+  - Enforces tenant filters (strips client-supplied tenant keys)
   - Validates sort strings (allowlist per model)
-  - Micro-caches list results briefly
-  - Provides getById with scoping match, create/update/remove with tenant stamping unless global bypass is active
-  - Status mapping: 200, 201, 400 (invalid), 404, 422 (validation)
+  - Micro-caches list requests briefly
+  - getById applies tenant match; create/update stamp tenant unless global bypass; remove enforces tenant scope
+  - Error mapping: 200/201, 400, 404, 422
 
 ## Request/Response Behaviors
 
 - Pagination:
-  - Standard parsing uses utils/http.parsePagination (page, limit, skip, explicit). Many list endpoints return envelope { success, data, meta } when explicit pagination is requested; otherwise raw arrays are returned.
-  - Typical max limit enforced at 200.
+  - parsePagination (utils/http) determines page, limit, skip, explicit. Many list endpoints return envelope { success, data, meta } when explicit pagination is requested; otherwise raw arrays are returned.
+  - Typical max limit enforced at 200 (or per-route clamp).
 
 - Sorting:
-  - Query parameter sort typically supports "field" and "-field". Allowed fields are constrained by controller/model allowlists. Default sorts vary per route (often -timestamp or -created_at).
+  - “field” or “-field” strings; allowed fields constrained by controller/model allowlists (e.g., timestamp, created_at, _id). Defaults are chosen for indexed access.
 
 - Filtering:
-  - When filter is accepted in query, controllers parse JSON; invalid JSON => 400.
-  - Tenant scoping: Any client-provided tenant fields (tenant_id, organization_id, etc.) are removed, and server-enforced scope is applied. With JWT in effect, a conflicting tenant in header/query => 403.
+  - Filter JSON parsing; invalid JSON returns 400.
+  - Tenant scoping overrides/removes client-supplied tenant fields. With JWT in effect, conflicting tenant headers/queries yield 403.
 
 - Headers:
-  - Many routes emit diagnostic headers: X-Applied-Tenant, X-Applied-Filter, X-All-Tenants, X-Model-Collection, and route-specific headers (e.g., x-costs-* and X-LLM-COSTS-*).
+  - Diagnostic headers: X-Applied-Tenant, X-Applied-Filter, X-All-Tenants, X-Model-Collection
+  - Route-specific: llm-costs X-LLM-COSTS-Collection; costs enriched x-costs-* timings; metrics users X-Users-*; session tracking X-Cache/ETag; etc.
 
 - Status codes:
-  - 200 for successful reads; 201 for creations; 400 for invalid inputs; 401 for missing/invalid auth when enforced; 403 for tenant mismatch/forbidden; 404 for not found; 422 for validation errors; 500/503 for server/DB issues.
+  - 200 for successful reads; 201 for creates; 400 for invalid inputs; 401 for missing/invalid auth on protected routes; 403 for tenant mismatches/forbidden; 404 for not found; 422 for validation errors; 500/503 for server/DB issues; 304 for ETag cache validations.
 
 ## Security Considerations
 
 - Authentication:
-  - JWT via verifyAuth (available) or attachAuthContext/requireAuth on specific routes. Not globally enforced; individual routes decide auth needs.
-  - Session routes require auth and perform RBAC; other routes rely on tenant enforcement which may use JWT tenant when provided.
+  - Some routes require verifyAuth and/or requireAuth (e.g., dashboard, metrics users, session).
+  - Others rely on tenant resolution and scoping with or without JWT, but enforce tenant constraints on filtering.
 
 - Authorization and Tenant Scoping:
-  - requireTenant, tenantScopeEnforcer, and extractOrganization enforce tenant scoping and reject mismatches, except when Super Admin global mode (T0000 or x-all-tenants) is active.
-
-- Super Admin bypass:
-  - T0000 and x-all-tenants true allow global queries; routes set X-All-Tenants and skip tenant filters.
+  - Strict tenant enforcement via requireTenant and tenantScopeEnforcer; extractOrganization provides an alternative flow.
+  - Super Admin global mode (T0000 or x-all-tenants/param) intentionally bypasses tenant filters; headers expose this mode.
 
 - Rate limiting:
-  - express-rate-limit configured globally; GET requests are often skipped from rate limits by default (configurable).
+  - Global limiter configured; GET often skipped. Adjust env settings to harden for production.
 
 - CORS:
-  - corsMiddleware and permissiveCorsMiddleware ensure permissive behavior suitable for preview/dev, with echo origin on /api paths and broad preflight support.
+  - corsMiddleware + permissiveCorsMiddleware provide flexible behavior suitable for dev/preview; consider stricter whitelists in production.
 
-- Headers and Diagnostics:
-  - Server emits several X-* headers that can leak implementation details; safe for preview and internal use; evaluate exposure for production hardening.
-
-- Password hashing and tenant salts:
-  - Hashing supports versioned schemes (see src/utils/authHash.js), with per-tenant orgSalt; auth endpoints in OpenAPI reflect these behaviors.
+- Hashing and tenant salts:
+  - authHash utilities implement versioned hashing (argon2id/bcrypt/scrypt) with per-tenant salt (orgSalt); auth routes rely on Tenant config.
 
 ## Error Cases and Handling
 
-- Standardized JSON envelopes for errors are implemented in standardHandlers.errorHandler (mounted in app.js).
+- Central error handler (standardHandlers.errorHandler) maps Mongoose cast errors to 400, validation to 422, network/DB issues to 503, others to 500.
 - Common cases:
-  - Invalid filter JSON => 400
-  - Missing tenant when required => 400
+  - Missing tenant => 400
   - Tenant mismatch with Authorization => 403
-  - Invalid ObjectId => 400 or 404 depending on route
-  - Validation failures on writes => 422
-  - DB connection issues => 503
+  - Invalid filter JSON => 400
+  - Invalid ObjectId => 400/404
+  - Validation failures => 422
   - Server errors => 500
-
-## Cross-Cutting Utilities
-
-- src/utils/http.js: asyncHandler, parsePagination, and response helpers success()/failure()
-- src/utils/validation.js: parseJSONSafe for defensive filter parsing
-- src/utils/access.js and src/utils/rbac.js: Super Admin detection, tenant normalization and RBAC for membership checks
-- src/utils/authHash.js: Versioned hashing utilities (argon2id/bcrypt/scrypt), with tenant salt/pepper
-- src/utils/tenantCrypto.js: Encryption helpers for tenant ID parity with frontend (AES-128-ECB)
-
-## Spec vs. Implementation Notes
-
-- The OpenAPI file (interfaces/openapi.json) is broadly aligned with implemented endpoints especially for:
-  - /api/health
-  - /api/llm-costs (tabular list), /api/projects/{projectId}/llm-costs (deprecated alias)
-  - /api/analytics/llm-cost-by-agent
-  - /api/app-deployments (GET/POST) and /api/app-deployments/{id} (CRUD)
-  - /api/projects/summary, /api/users/summary, /api/users/tenant-summary, /api/users, /api/users/{id}
-  - /api/session/tenant, /api/session/tenants
-  - /api/session-tracking (list and CRUD)
-- Some routes in app.js reference router files not listed above (e.g., costs.organization.routes). Where the router file is present, this document maps behavior; otherwise, behavior follows from controllers referenced in app.js (e.g., costs.byOrganization.controller.js).
-- Where both code and OpenAPI define behaviors, this document reflects actual code (tenant scoping precedence, bypass modes, headers), with OpenAPI kept as a reference for schemas and examples.
 
 ## High-Level Request Flow
 
@@ -413,50 +470,53 @@ flowchart LR
 
 ## Endpoint Index (Quick Reference)
 
-The following index lists the primary endpoints and where they are defined. See sections above for details.
-
 - Health/Docs:
   - GET /api/health — src/app.js
   - GET /openapi.json — src/app.js
   - GET /api-docs — src/app.js
 
-- LLM Costs:
-  - GET /api/llm-costs — src/routes/llmCosts.public.routes.js → controllers/llmCosts.fallback.controller.js, models/llmCosts.model.js
-  - GET /api/projects/:projectId/llm-costs (deprecated) — src/routes/llmCosts.public.routes.js
+- Auth:
+  - GET /api/auth/health, POST /api/auth/signup, POST /api/auth/login, POST /api/auth/reset-password — src/routes/auth.routes.js
 
-- Costs/Analytics:
-  - GET /api/costs — src/routes/llmCosts.enriched.routes.js → controllers/costs.enriched.controller.js
-  - GET /api/analytics/llm-cost-by-agent — src/routes/analytics.js → controllers/llmCost.controller.js → services/llmCost.service.js
-  - GET /api/costs/:organization_id — controllers/costs.byOrganization.controller.js
+- LLM Costs:
+  - GET /api/llm-costs — src/routes/llmCosts.public.routes.js and src/routes/llmCosts.routes.js
+  - GET /api/llm-costs/{id}, POST /api/llm-costs, PUT /api/llm-costs/{id}, DELETE /api/llm-costs/{id} — src/routes/llmCosts.routes.js
+  - GET /api/llm-costs/hierarchy — src/routes/llmCosts.hierarchy.routes.js
+
+- Costs:
+  - GET /api/costs — src/routes/llmCosts.enriched.routes.js
+  - GET /api/costs/{organization_id} — src/routes/costs.organization.routes.js
+  - GET /api/costs/by-agent — src/routes/costs.byAgent.routes.js
+  - GET /api/costs/users/count — src/routes/counts.routes.js
 
 - Users:
-  - GET /api/users — src/routes/users.routes.js (crudFactory on models/user.model.js)
+  - GET /api/users — src/routes/users.routes.js
   - GET /api/users/summary — src/routes/users.summary.js
   - GET /api/users/tenant-summary — src/routes/users.routes.js
   - GET /api/users/active-trend — src/routes/users.routes.js
-  - GET /api/users/:userId/projects — src/routes/users.routes.js → services/users.service.js
-  - GET/PUT/DELETE /api/users/:id — src/routes/users.routes.js
+  - GET /api/users/:userId/projects — src/routes/users.routes.js
+  - CRUD /api/users/:id — src/routes/users.routes.js
+  - GET /api/users/seed-if-empty — src/routes/users.routes.js
 
 - Session Tracking:
   - GET/POST/PUT/DELETE /api/session-tracking — src/routes/sessionTracking.routes.js
 
-- Session/Tenant Selection:
-  - GET /api/session/tenants — src/routes/session.routes.js
-  - POST /api/session/tenant — src/routes/session.routes.js
-  - POST /api/tenants/select — src/routes/session.routes.js
-  - POST /api/session/all-tenants — src/routes/session.routes.js
+- Session/Tenant:
+  - GET /api/session/tenants, POST /api/session/tenant, POST /api/tenants/select, POST /api/session/all-tenants — src/routes/session.routes.js
 
-- App Deployments:
-  - GET /api/app-deployments — src/routes/appDeployments.routes.js → models/appDeployments.model.js
-  - (Other CRUD if present) — src/routes/appDeployments.routes.js
-
-- Projects Summary:
+- Projects:
   - GET /api/projects/summary — src/routes/projects.summary.routes.js
+  - Other project routes — src/routes/projects.routes.js
 
-- Counts:
-  - GET /api/users/count — src/routes/counts.routes.js
+- Analytics:
+  - GET /api/analytics/llm-cost-by-agent — src/routes/analytics.js or src/routes/llmCosts.aggregate.routes.js
+  - GET /api/analytics/agents — src/routes/analyticsAgents.js
 
-For the complete OpenAPI-described shapes, refer to interfaces/openapi.json; behaviors such as tenant scoping precedence and bypass flags are enforced by middleware in code and may be stricter than the OpenAPI prose.
+- Dashboard:
+  - GET /api/dashboard/metrics — src/routes/dashboard.routes.js (404 placeholder)
+  - GET /api/dashboard/overview — src/routes/dashboard.modules.routes.js
+
+For full schemas and examples, see interfaces/openapi.json; code takes precedence on behaviors such as tenant scoping and headers.
 
 ## References (Key Files)
 
@@ -464,8 +524,13 @@ For the complete OpenAPI-described shapes, refer to interfaces/openapi.json; beh
 - Routers:
   - src/routes/index.js
   - src/routes/llmCosts.public.routes.js
+  - src/routes/llmCosts.routes.js
+  - src/routes/llmCosts.hierarchy.routes.js
   - src/routes/llmCosts.enriched.routes.js
+  - src/routes/costs.organization.routes.js
+  - src/routes/costs.byAgent.routes.js
   - src/routes/analytics.js
+  - src/routes/analyticsAgents.js
   - src/routes/users.routes.js
   - src/routes/users.summary.js
   - src/routes/sessionTracking.routes.js
@@ -473,6 +538,10 @@ For the complete OpenAPI-described shapes, refer to interfaces/openapi.json; beh
   - src/routes/appDeployments.routes.js
   - src/routes/projects.summary.routes.js
   - src/routes/counts.routes.js
+  - src/routes/metrics.users.routes.js
+  - src/routes/dashboard.routes.js
+  - src/routes/dashboard.modules.routes.js
+  - src/routes/auth.routes.js
 - Middleware:
   - src/middleware/requireTenant.js
   - src/middleware/tenantScopeEnforcer.js
@@ -484,12 +553,14 @@ For the complete OpenAPI-described shapes, refer to interfaces/openapi.json; beh
 - Controllers/Services:
   - src/controllers/crudFactory.js
   - src/controllers/llmCost.controller.js
+  - src/controllers/llmCosts.controller.js
   - src/controllers/costs.enriched.controller.js
   - src/controllers/costs.byOrganization.controller.js
   - src/services/llmCost.service.js
   - src/services/llmCostsHierarchy.service.js
   - src/services/users.service.js
   - src/services/projects.service.js
+  - src/services/auditTrail.js
 - Models:
   - src/models/llmCosts.model.js
   - src/models/user.model.js
