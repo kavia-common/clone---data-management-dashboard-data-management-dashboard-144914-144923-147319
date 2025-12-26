@@ -1,17 +1,19 @@
 'use strict';
 
+const LLMCost = require('../models/llmCosts.model');
+const { success } = require('../utils/http');
+
 /**
  * PUBLIC_INTERFACE
  * getLlmCostsAggregated
  * Controller for GET /api/llm_costs (underscore)
  *
- * Restored previous working behavior: simple list with pagination and optional tenant filter.
- * Minimal b2c-only fix: if organization_id === 'b2c', run a guarded aggregation
- * that safely converts numeric-like fields without altering global filtering/sorting logic.
+ * Fixes:
+ * - Avoids any bare "$" FieldPath in addFields/project/set
+ * - Normalizes problematic numeric fields for b2c (empty strings, currency-prefixed)
+ * - Adds onError/onNull:0 to all conversions
+ * - Defensive pagination/sorting
  */
-const LLMCost = require('../models/llmCosts.model');
-const { success } = require('../utils/http');
-
 async function getLlmCostsAggregated(req, res) {
   const maxLimit = 100;
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
@@ -20,54 +22,7 @@ async function getLlmCostsAggregated(req, res) {
 
   const organization_id = (req.query.organization_id || '').toString().trim();
 
-  // For all orgs except b2c, restore original behavior: raw find with simple org filter and pagination
-  if (organization_id && organization_id !== 'b2c') {
-    const filter = { $or: [{ organization_id }, { tenant_id: organization_id }] };
-    const sort = { _id: -1 };
-    let total = 0;
-    let docs = [];
-    try {
-      [total, docs] = await Promise.all([
-        LLMCost.countDocuments(filter),
-        LLMCost.find(filter).sort(sort).skip(skip).limit(limit).lean().exec(),
-      ]);
-    } catch (err) {
-      return success(
-        res,
-        [],
-        { page, limit, total: 0, organization_id: organization_id || null, error: String(err?.message || err) },
-        200
-      );
-    }
-    try {
-      res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
-      res.setHeader('X-LLM-COSTS-Total', String(total));
-      res.setHeader('x-effective-tenant', organization_id);
-    } catch {}
-    return success(res, docs, { page, limit, total, organization_id }, 200);
-  }
-
-  // For no org provided, behave like prior: list without tenant filter (demo use), simple sort/pagination
-  if (!organization_id) {
-    const sort = { _id: -1 };
-    let total = 0;
-    let docs = [];
-    try {
-      [total, docs] = await Promise.all([
-        LLMCost.countDocuments({}),
-        LLMCost.find({}).sort(sort).skip(skip).limit(limit).lean().exec(),
-      ]);
-    } catch (err) {
-      return success(res, [], { page, limit, total: 0, organization_id: null, error: String(err?.message || err) }, 200);
-    }
-    try {
-      res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
-      res.setHeader('X-LLM-COSTS-Total', String(total));
-    } catch {}
-    return success(res, docs, { page, limit, total, organization_id: null }, 200);
-  }
-
-  // Minimal, targeted b2c aggregation with safe numeric conversions and valid field paths only.
+  // Helper to build a safe numeric conversion for a field path
   const toSafeDouble = (fieldPath) => ({
     $let: {
       vars: {
@@ -123,90 +78,135 @@ async function getLlmCostsAggregated(req, res) {
     },
   });
 
+  // Initial normalization for common numeric fields to avoid $convert errors
+  // NOTE: Never use a bare '$' anywhere; always valid field paths like '$details.breakdown_summary.costs.input'
+  const normalizationStage = {
+    $addFields: {
+      safePromptTokens: {
+        $convert: {
+          input: {
+            $cond: [
+              {
+                $or: [
+                  { $eq: [{ $type: '$prompt_tokens' }, 'missing'] },
+                  { $eq: ['$prompt_tokens', null] },
+                  { $eq: ['$prompt_tokens', ''] },
+                ],
+              },
+              0,
+              '$prompt_tokens',
+            ],
+          },
+          to: 'double',
+          onError: 0,
+          onNull: 0,
+        },
+      },
+      safeCompletionTokens: {
+        $convert: {
+          input: {
+            $cond: [
+              {
+                $or: [
+                  { $eq: [{ $type: '$completion_tokens' }, 'missing'] },
+                  { $eq: ['$completion_tokens', null] },
+                  { $eq: ['$completion_tokens', ''] },
+                ],
+              },
+              0,
+              '$completion_tokens',
+            ],
+          },
+          to: 'double',
+          onError: 0,
+          onNull: 0,
+        },
+      },
+      safeInputCost: toSafeDouble('$details.breakdown_summary.costs.input'),
+      safeOutputCost: toSafeDouble('$details.breakdown_summary.costs.output'),
+      safeTotalCost: {
+        $cond: [
+          {
+            $or: [
+              { $ne: [{ $type: '$total_cost' }, 'missing'] },
+              { $ne: ['$total_cost', null] },
+              { $ne: ['$total_cost', ''] },
+            ],
+          },
+          toSafeDouble('$total_cost'),
+          {
+            $add: [
+              toSafeDouble('$details.breakdown_summary.costs.input'),
+              toSafeDouble('$details.breakdown_summary.costs.output'),
+            ],
+          },
+        ],
+      },
+    },
+  };
+
   const pipeline = [
-    { $match: { $or: [{ organization_id: 'b2c' }, { tenant_id: 'b2c' }] } },
+    ...(organization_id ? [{ $match: { organization_id } }] : []),
+
+    // Normalize numerics early to prevent conversion errors downstream
+    normalizationStage,
+
+    // Unwind users array to compute per-user cost where present; preserve missing arrays
+    { $unwind: { path: '$users', preserveNullAndEmptyArrays: true } },
+
+    // Compute user_cost_num safely from users.user_cost; handle '', '$12.34', comma separated, etc.
     {
       $addFields: {
-        // Only guard known problematic numeric fields; do not change filtering/sorting/pagination globally
-        safe_total_cost: toSafeDouble('$total_cost'),
-        safe_input_cost: toSafeDouble('$details.breakdown_summary.costs.input'),
-        safe_output_cost: toSafeDouble('$details.breakdown_summary.costs.output'),
-        safe_prompt_tokens: {
-          $convert: {
-            input: {
-              $cond: [
-                {
-                  $or: [
-                    { $eq: [{ $type: '$prompt_tokens' }, 'missing'] },
-                    { $eq: ['$prompt_tokens', null] },
-                    { $eq: ['$prompt_tokens', ''] },
-                  ],
-                },
-                0,
-                '$prompt_tokens',
-              ],
-            },
-            to: 'int',
-            onError: 0,
-            onNull: 0,
-          },
-        },
-        safe_completion_tokens: {
-          $convert: {
-            input: {
-              $cond: [
-                {
-                  $or: [
-                    { $eq: [{ $type: '$completion_tokens' }, 'missing'] },
-                    { $eq: ['$completion_tokens', null] },
-                    { $eq: ['$completion_tokens', ''] },
-                  ],
-                },
-                0,
-                '$completion_tokens',
-              ],
-            },
-            to: 'int',
-            onError: 0,
-            onNull: 0,
-          },
-        },
+        user_cost_num: toSafeDouble('$users.user_cost'),
       },
     },
-    // Project raw doc plus safe fields appended for clients that rely on them
+
+    // Projects may be absent; unwind safely for counting distinct project_ids
+    {
+      $unwind: { path: '$users.projects', preserveNullAndEmptyArrays: true },
+    },
+
+    // Group by user and carry normalized totals
+    {
+      $group: {
+        _id: {
+          organization_id: '$organization_id',
+          organization_name: '$organization_name',
+          user_id: '$users.user_id',
+          type: '$users.type',
+        },
+        user_cost: { $first: '$user_cost_num' },
+        safeTotalCost: { $first: '$safeTotalCost' },
+        safeInputCost: { $first: '$safeInputCost' },
+        safeOutputCost: { $first: '$safeOutputCost' },
+        projectsSet: { $addToSet: '$users.projects.project_id' },
+      },
+    },
+
+    // Shape final projection; ensure all paths are valid
     {
       $project: {
-        _id: 1,
-        request_id: 1,
-        session_id: 1,
-        project_id: 1,
-        timestamp: 1,
-        created_at: 1,
-        model: 1,
-        model_version: 1,
-        provider: 1,
-        provider_status: 1,
-        user_id: 1,
-        organization_id: 1,
-        tenant_id: 1,
-        users: 1,
-        details: 1,
-        status: 1,
-        total_cost: 1,
-        'details.breakdown_summary.costs.input': 1,
-        'details.breakdown_summary.costs.output': 1,
-        prompt_tokens: 1,
-        completion_tokens: 1,
-
-        // safe derivations
-        safe_total_cost: 1,
-        safe_input_cost: 1,
-        safe_output_cost: 1,
-        safe_prompt_tokens: 1,
-        safe_completion_tokens: 1,
+        _id: 0,
+        organization_id: '$_id.organization_id',
+        organization_name: '$_id.organization_name',
+        user_id: '$_id.user_id',
+        type: '$_id.type',
+        user_cost: { $ifNull: ['$user_cost', 0] },
+        total_cost: { $ifNull: ['$safeTotalCost', 0] },
+        input_cost: { $ifNull: ['$safeInputCost', 0] },
+        output_cost: { $ifNull: ['$safeOutputCost', 0] },
+        projects: {
+          $size: {
+            $filter: { input: '$projectsSet', as: 'p', cond: { $ne: ['$$p', null] } },
+          },
+        },
       },
     },
-    { $sort: { _id: -1 } },
+
+    // Default sort defensively on total_cost desc then user_cost desc
+    { $sort: { total_cost: -1, user_cost: -1 } },
+
+    // Pagination facet
     {
       $facet: {
         rows: [{ $skip: skip }, { $limit: limit }],
@@ -219,11 +219,23 @@ async function getLlmCostsAggregated(req, res) {
   try {
     result = await LLMCost.aggregate(pipeline, { allowDiskUse: true });
   } catch (err) {
+    // Surface a 200 with empty array rather than a 500 for malformed legacy docs,
+    // but include a diagnostic header to help operators.
     try {
       res.setHeader('X-LLM-COSTS-Aggregation-Error', '1');
       res.setHeader('X-LLM-COSTS-Aggregation-Message', String(err?.message || err));
     } catch {}
-    return success(res, [], { page, limit, total: 0, organization_id: 'b2c' }, 200);
+    return success(
+      res,
+      [],
+      {
+        page,
+        limit,
+        total: 0,
+        organization_id: organization_id || null,
+      },
+      200
+    );
   }
 
   const facet = Array.isArray(result) && result[0] ? result[0] : { rows: [], meta: [] };
@@ -232,11 +244,21 @@ async function getLlmCostsAggregated(req, res) {
 
   try {
     res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
-    res.setHeader('X-LLM-COSTS-Total', String(total));
-    res.setHeader('x-effective-tenant', 'b2c');
+    if (organization_id) res.setHeader('x-effective-tenant', organization_id);
+    res.setHeader('x-llm-costs-total', String(total));
   } catch {}
 
-  return success(res, rows, { page, limit, total, organization_id: 'b2c' }, 200);
+  return success(
+    res,
+    rows,
+    {
+      page,
+      limit,
+      total,
+      organization_id: organization_id || null,
+    },
+    200
+  );
 }
 
 module.exports = { getLlmCostsAggregated };
