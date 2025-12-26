@@ -44,28 +44,28 @@ async function getLlmCostsAggregated(req, res) {
     // },
 
     {
-  $addFields: {
-    user_cost_num: {
-      $convert: {
-        input: {
-          $cond: [
-            {
-              $and: [
-                { $ne: ['$users.user_cost', null] },
-                { $ne: ['$users.user_cost', ''] }
+      $addFields: {
+        user_cost_num: {
+          $convert: {
+            input: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: ['$users.user_cost', null] },
+                    { $ne: ['$users.user_cost', ''] }
+                  ]
+                },
+                { $substr: ['$users.user_cost', 1, -1] },
+                '0'
               ]
             },
-            { $substr: ['$users.user_cost', 1, -1] },
-            '0'
-          ]
-        },
-        to: 'double',
-        onError: 0,
-        onNull: 0
+            to: 'double',
+            onError: 0,
+            onNull: 0
+          }
+        }
       }
-    }
-  }
-},
+    },
 
     // Lookup user strictly by string _id using pipeline + $expr
     {
@@ -98,6 +98,13 @@ async function getLlmCostsAggregated(req, res) {
         preserveNullAndEmptyArrays: true
       }
     },
+    {
+      $unwind: {
+        path: '$users.projects.agents',
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
 
     // Group per USER
     {
@@ -111,7 +118,23 @@ async function getLlmCostsAggregated(req, res) {
         },
         user_cost: { $first: '$user_cost_num' },
         user_name: { $first: '$user_name' },
-        projectsSet: { $addToSet: '$users.projects.project_id' }
+        projectsSet: { $addToSet: '$users.projects.project_id' },
+
+        agentsSet: {
+          $addToSet: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: ['$users.projects.agents.agent_name', null] },
+                  { $ne: ['$users.projects.agents.agent_name', ''] }
+                ]
+              },
+              '$users.projects.agents.agent_name',
+              '$$REMOVE'
+            ]
+          }
+        }
+
       }
     },
 
@@ -126,6 +149,9 @@ async function getLlmCostsAggregated(req, res) {
         user_name: 1,
         type: '$_id.type',
         user_cost: 1,
+        agents: {
+          $ifNull: ['$agentsSet', []]
+        },
         projects: {
           $size: {
             $filter: { input: '$projectsSet', as: 'p', cond: { $ne: ['$$p', null] } }
@@ -152,7 +178,7 @@ async function getLlmCostsAggregated(req, res) {
   const rows = Array.isArray(facet.rows) ? facet.rows : [];
   const metaArr = Array.isArray(facet.meta) ? facet.meta : [];
   const orgMetaArr = Array.isArray(facet.orgMeta) ? facet.orgMeta : [];
-  const postGroupCount = metaArr[0]?.postGroupCount || 0;
+  const postGroupCount = metaArr[0]?.total || 0;
   const orgMeta = orgMetaArr[0] || null;
 
   // Enrich rows with org-level info when available
