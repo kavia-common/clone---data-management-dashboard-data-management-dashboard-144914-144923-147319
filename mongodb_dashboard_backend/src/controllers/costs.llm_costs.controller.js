@@ -1,22 +1,20 @@
 'use strict';
 
-const LLMCost = require('../models/llmCosts.model'); // corrected path two-level up not needed; file resides in src/models
+const LLMCost = require('../models/llmCosts.model');
 const { success } = require('../utils/http');
-const { deriveAgentName } = require('../utils/agentName');
 
 /**
  * PUBLIC_INTERFACE
  * getLlmCostsAggregated
  * Controller for GET /api/llm_costs
  *
- * Implements a minimal, safe, and verifiable pipeline.
- * - Optional organization_id filter (?organization_id)
- * - Pagination with defaults page=1, limit=10 (clamped to max 100)
- * - No malformed field paths: no stage contains a field path that is just '$'
- * - Adds diagnostics headers
+ * - Optional organization_id filter
+ * - Pagination (page, limit)
+ * - Aggregates per user
+ * - Correctly derives agent_name from projects.agents BEFORE grouping
  */
 async function getLlmCostsAggregated(req, res) {
-  // Parse pagination with clamping
+  // Pagination
   const maxLimit = 100;
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), maxLimit);
@@ -24,18 +22,20 @@ async function getLlmCostsAggregated(req, res) {
 
   // Optional filter
   const organization_id = (req.query.organization_id || '').toString().trim();
-  const matchStage = organization_id
-    ? { $match: { organization_id: organization_id } }
-    : { $match: {} };
+  const matchStage = organization_id ? [{ $match: { organization_id } }] : [];
 
-  // Build pipeline with enrichment of user_name strictly from users.name using string equality (no ObjectId conversion)
   const pipeline = [
-    ...(organization_id ? [{ $match: { organization_id } }] : []),
+    ...matchStage,
 
-    // Unwind users for per-user grouping
-    { $unwind: { path: '$users', preserveNullAndEmptyArrays: true } },
+    // Unwind users
+    {
+      $unwind: {
+        path: '$users',
+        preserveNullAndEmptyArrays: true
+      }
+    },
 
-    // Parse user cost; keep user_id as string for join
+    // Parse user cost
     {
       $addFields: {
         user_cost_num: {
@@ -44,7 +44,7 @@ async function getLlmCostsAggregated(req, res) {
       }
     },
 
-    // Lookup user strictly by string _id using pipeline + $expr
+    // Lookup user name
     {
       $lookup: {
         from: 'users',
@@ -61,14 +61,16 @@ async function getLlmCostsAggregated(req, res) {
       }
     },
 
-    // Add user_name from users.name (fallback Unknown User)
+    // Attach user_name
     {
       $addFields: {
-        user_name: { $ifNull: [{ $arrayElemAt: ['$userDoc.name', 0] }, 'Unknown User'] }
+        user_name: {
+          $ifNull: [{ $arrayElemAt: ['$userDoc.name', 0] }, 'Unknown User']
+        }
       }
     },
 
-    // Unwind projects (optional but needed for count)
+    // Unwind projects
     {
       $unwind: {
         path: '$users.projects',
@@ -76,7 +78,15 @@ async function getLlmCostsAggregated(req, res) {
       }
     },
 
-    // Group per USER
+    // 🔥 UNWIND AGENTS (THIS FIXES agent_name)
+    {
+      $unwind: {
+        path: '$users.projects.agents',
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    // Group per USER (while agents are still present)
     {
       $group: {
         _id: {
@@ -88,11 +98,13 @@ async function getLlmCostsAggregated(req, res) {
         },
         user_cost: { $first: '$user_cost_num' },
         user_name: { $first: '$user_name' },
-        projectsSet: { $addToSet: '$users.projects.project_id' }
+        agentsSnapshot: { $first: '$users.projects.agents' },
+        projectsSet: { $addToSet: '$users.projects.project_id' },
+        agentNames: { $addToSet: '$users.projects.agents.agent_name' }
       }
     },
 
-    // Shape output with user_name included
+    // Shape response
     {
       $project: {
         _id: 0,
@@ -103,10 +115,27 @@ async function getLlmCostsAggregated(req, res) {
         user_name: 1,
         type: '$_id.type',
         user_cost: 1,
+        agents: '$agentsSnapshot',
         projects: {
           $size: {
-            $filter: { input: '$projectsSet', as: 'p', cond: { $ne: ['$$p', null] } }
+            $filter: {
+              input: '$projectsSet',
+              as: 'p',
+              cond: { $ne: ['$$p', null] }
+            }
           }
+        },
+        agent_name: {
+          $arrayElemAt: [
+            {
+              $filter: {
+                input: '$agentNames',
+                as: 'a',
+                cond: { $ne: ['$$a', null] }
+              }
+            },
+            0
+          ]
         }
       }
     },
@@ -122,60 +151,34 @@ async function getLlmCostsAggregated(req, res) {
     }
   ];
 
-
-  // Execute
+  // Execute aggregation
   const result = await LLMCost.aggregate(pipeline, { allowDiskUse: true });
-  const facet = Array.isArray(result) && result[0] ? result[0] : { rows: [], meta: [], orgMeta: [] };
-  let rows = Array.isArray(facet.rows) ? facet.rows : [];
-  // Append agent_name per row (joined distinct when multiple)
-  try {
-    rows = rows.map((doc) => {
-      const out = { ...doc };
-      try {
-        out.agent_name = deriveAgentName(doc);
-      } catch { /* no-op */ }
-      return out;
-    });
-  } catch { /* defensive no-op */ }
-  const metaArr = Array.isArray(facet.meta) ? facet.meta : [];
-  const orgMetaArr = Array.isArray(facet.orgMeta) ? facet.orgMeta : [];
-  const postGroupCount = metaArr[0]?.postGroupCount || 0;
-  const orgMeta = orgMetaArr[0] || null;
+  const facet = result?.[0] || { rows: [], meta: [] };
 
-  // Enrich rows with org-level info when available
-  // const enriched = rows.map((r) => {
-  //   if (orgMeta) {
-  //     return {
-  //       ...r,
-  //       organization_cost: orgMeta.organization_cost ?? 0,
-  //       users: orgMeta.users ?? 0,
-  //     };
-  //   }
-  //   return { ...r, organization_cost: 0, users: 0 };
-  // });
-  const enriched = rows;
-
+  const rows = facet.rows || [];
+  const total = facet.meta?.[0]?.total || 0;
 
   // Diagnostics headers
   try {
     res.setHeader('X-LLM-COSTS-Collection', LLMCost.collection?.collectionName || 'llm_costs');
-    // Matched pre-group docs requires separate count; keep lightweight by echoing filter only
-    res.setHeader('X-LLM-COSTS-MatchedPreGroup', JSON.stringify(matchStage?.$match || {}));
-    res.setHeader('X-LLM-COSTS-PostGroupCount', String(postGroupCount));
-    if (!enriched.length) {
+    res.setHeader('X-LLM-COSTS-MatchedPreGroup', JSON.stringify(organization_id ? { organization_id } : {}));
+    res.setHeader('X-LLM-COSTS-PostGroupCount', String(total));
+    if (!rows.length) {
       res.setHeader('X-LLM-COSTS-Reason', 'Empty rows after aggregation.');
     }
-  } catch { }
+  } catch {
+    /* no-op */
+  }
 
-  // Response shape with pagination meta
+  // Final response
   return success(
     res,
-    enriched,
+    rows,
     {
       page,
       limit,
-      total: postGroupCount,
-      organization_id: organization_id || null,
+      total,
+      organization_id: organization_id || null
     },
     200
   );

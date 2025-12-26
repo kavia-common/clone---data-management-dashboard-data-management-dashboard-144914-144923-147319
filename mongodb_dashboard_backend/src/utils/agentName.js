@@ -26,18 +26,29 @@ function distinctStrings(items) {
  * Collect candidate names from a list of agent-like objects supporting various keys.
  * @param {Array<any>} arr
  * @param {string[]} keys
- * @param {Array<[string,string?]>} getFieldPaths optional array of nested get-field paths like [['metadata','Agent Name']]
+ * @param {Array<[string,string?]>} getFieldPaths optional array of nested get-field paths
  */
-function collectFromAgentsArray(arr, keys = ["agent_name", "name"], getFieldPaths = []) {
+function collectFromAgentsArray(
+  arr,
+  keys = ["agent_name", "name"],
+  getFieldPaths = []
+) {
   const out = [];
-  const list = Array.isArray(arr) ? arr : [];
+  const list = Array.isArray(arr)
+    ? arr
+    : arr && typeof arr === "object"
+    ? [arr]
+    : [];
+
   for (const a of list) {
     if (!a || typeof a !== "object") continue;
+
     for (const k of keys) {
       const v = a[k];
       if (typeof v === "string" && v.trim()) out.push(v.trim());
     }
-    // Support fields with spaces via nested objects (e.g., { "Agent Name": "..." })
+
+    // Support nested metadata fields (e.g., metadata["Agent Name"])
     for (const [objKey, fieldKey] of getFieldPaths) {
       try {
         const obj = a?.[objKey];
@@ -46,6 +57,7 @@ function collectFromAgentsArray(arr, keys = ["agent_name", "name"], getFieldPath
       } catch {}
     }
   }
+
   return out;
 }
 
@@ -53,89 +65,148 @@ function collectFromAgentsArray(arr, keys = ["agent_name", "name"], getFieldPath
  * PUBLIC_INTERFACE
  * deriveAgentName
  * Derives a representative agent_name from heterogeneous llm_costs document shapes.
+ *
  * Priority order:
  * 1) doc.agent_name or doc.agent/agentName/tool
  * 2) doc.agents[].{agent_name|name} and agents[].metadata["Agent Name"]
- * 3) doc.users[].projects[].agents[] variants
- * 4) doc.projects[].agents[] variants (top-level projects array)
+ * 3) doc.users -> projects -> agents (supports array OR object)
+ * 4) doc.projects[].agents[] (top-level)
  * 5) doc.details.agents[] and doc.details.metadata.agents[]
- * 6) doc.metadata["Agent Name"] or doc["Agent Name"] (top-level)
- * Selection: When multiple distinct names exist, choose deterministically by locale-insensitive alphabetical order.
+ * 6) doc.metadata["Agent Name"] or doc["Agent Name"]
+ * 7) FINAL fallback: infer from doc.type (aggregation-safe)
+ *
+ * Selection:
+ * - When multiple names exist, returns a deterministic alphabetical value
+ *
  * @param {object} doc
  * @returns {string|null}
  */
 function deriveAgentName(doc) {
   if (!doc || typeof doc !== "object") return null;
 
-  // Direct fields first
+  // 1️⃣ Direct fields
   const direct =
     (typeof doc.agent_name === "string" && doc.agent_name.trim()) ||
     (typeof doc.agent === "string" && doc.agent.trim()) ||
     (typeof doc.agentName === "string" && doc.agentName.trim()) ||
     (typeof doc.tool === "string" && doc.tool.trim());
+
   if (direct) return String(direct).trim();
 
   const collected = [];
 
-  // Top-level agents: [{ agent_name|name, metadata: { "Agent Name": ... } }]
+  // 2️⃣ Top-level agents[]
   collected.push(
-    ...collectFromAgentsArray(doc.agents, ["agent_name", "name"], [["metadata", "Agent Name"]])
+    ...collectFromAgentsArray(
+      doc.agents,
+      ["agent_name", "name"],
+      [["metadata", "Agent Name"]]
+    )
   );
 
-  // Nested users[].projects[].agents[]
-  if (Array.isArray(doc.users)) {
-    for (const u of doc.users) {
-      const projects = Array.isArray(u?.projects) ? u.projects : [];
-      for (const p of projects) {
-        collected.push(
-          ...collectFromAgentsArray(p?.agents, ["agent_name", "name"], [["metadata", "Agent Name"]])
-        );
-      }
-    }
-  }
+  // 3️⃣ users -> projects -> agents
+  const usersList = Array.isArray(doc.users)
+    ? doc.users
+    : doc.users && typeof doc.users === "object"
+    ? [doc.users]
+    : [];
 
-  // Top-level projects[].agents[]
-  if (Array.isArray(doc.projects)) {
-    for (const p of doc.projects) {
+  for (const u of usersList) {
+    const projects = Array.isArray(u?.projects)
+      ? u.projects
+      : u?.projects && typeof u.projects === "object"
+      ? [u.projects]
+      : [];
+
+    for (const p of projects) {
       collected.push(
-        ...collectFromAgentsArray(p?.agents, ["agent_name", "name"], [["metadata", "Agent Name"]])
+        ...collectFromAgentsArray(
+          p?.agents,
+          ["agent_name", "name"],
+          [["metadata", "Agent Name"]]
+        )
       );
     }
   }
 
-  // details.agents[]
+  // 4️⃣ Top-level projects[].agents[]
+  const topProjects = Array.isArray(doc.projects)
+    ? doc.projects
+    : doc.projects && typeof doc.projects === "object"
+    ? [doc.projects]
+    : [];
+
+  for (const p of topProjects) {
+    collected.push(
+      ...collectFromAgentsArray(
+        p?.agents,
+        ["agent_name", "name"],
+        [["metadata", "Agent Name"]]
+      )
+    );
+  }
+
+  // 5️⃣ details.agents[] and details.metadata.agents[]
   const details = doc.details && typeof doc.details === "object" ? doc.details : null;
+
   if (details) {
     collected.push(
-      ...collectFromAgentsArray(details.agents, ["agent_name", "name"], [["metadata", "Agent Name"]])
+      ...collectFromAgentsArray(
+        details.agents,
+        ["agent_name", "name"],
+        [["metadata", "Agent Name"]]
+      )
     );
-    // details.metadata.agents[]
-    const meta = details.metadata && typeof details.metadata === "object" ? details.metadata : null;
+
+    const meta =
+      details.metadata && typeof details.metadata === "object"
+        ? details.metadata
+        : null;
+
     if (meta) {
       collected.push(
-        ...collectFromAgentsArray(meta.agents, ["agent_name", "name"], [["metadata", "Agent Name"]])
+        ...collectFromAgentsArray(
+          meta.agents,
+          ["agent_name", "name"],
+          [["metadata", "Agent Name"]]
+        )
       );
     }
   }
 
-  // metadata["Agent Name"] and top-level ["Agent Name"]
-  const metaAgentName =
-    doc.metadata && typeof doc.metadata === "object" ? doc.metadata["Agent Name"] : null;
-  if (typeof metaAgentName === "string" && metaAgentName.trim()) {
-    collected.push(metaAgentName.trim());
+  // 6️⃣ metadata["Agent Name"] or top-level ["Agent Name"]
+  if (typeof doc?.metadata?.["Agent Name"] === "string") {
+    collected.push(doc.metadata["Agent Name"].trim());
   }
-  const topAgentName = doc["Agent Name"];
-  if (typeof topAgentName === "string" && topAgentName.trim()) {
-    collected.push(topAgentName.trim());
+
+  if (typeof doc["Agent Name"] === "string") {
+    collected.push(doc["Agent Name"].trim());
   }
 
   const names = distinctStrings(collected);
-  if (names.length === 0) return null;
   if (names.length === 1) return names[0];
+  if (names.length > 1) {
+    return names.sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" })
+    )[0];
+  }
 
-  // Deterministic selection: choose the first after case-insensitive sort
-  const sorted = [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  return sorted[0];
+  // 7️⃣ FINAL fallback → infer from type (aggregation-safe)
+  if (typeof doc.type === "string" && doc.type.trim()) {
+    const type = doc.type.toLowerCase();
+
+    const TYPE_AGENT_MAP = {
+      llm_interaction: "LLM",
+      chat: "CHAT",
+      completion: "COMPLETION",
+      embedding: "EMBEDDING",
+      moderation: "MODERATION",
+    };
+
+    return TYPE_AGENT_MAP[type] || type.toUpperCase();
+  }
+
+  return null;
 }
 
 module.exports = {
