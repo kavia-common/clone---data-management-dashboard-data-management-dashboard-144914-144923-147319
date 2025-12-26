@@ -35,10 +35,34 @@ async function getLlmCostsAggregated(req, res) {
     { $unwind: { path: '$users', preserveNullAndEmptyArrays: true } },
 
     // Parse user cost; keep user_id as string for join
+    // {
+    //   $addFields: {
+    //     user_cost_num: {
+    //       $toDouble: { $substr: ['$users.user_cost', 1, -1] }
+    //     }
+    //   }
+    // },
+
     {
       $addFields: {
         user_cost_num: {
-          $toDouble: { $substr: ['$users.user_cost', 1, -1] }
+          $convert: {
+            input: {
+              $cond: [
+                {
+                  $and: [
+                    { $ne: ['$users.user_cost', null] },
+                    { $ne: ['$users.user_cost', ''] }
+                  ]
+                },
+                { $substr: ['$users.user_cost', 1, -1] },
+                '0'
+              ]
+            },
+            to: 'double',
+            onError: 0,
+            onNull: 0
+          }
         }
       }
     },
