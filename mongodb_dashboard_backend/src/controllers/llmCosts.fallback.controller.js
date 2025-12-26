@@ -272,36 +272,31 @@ async function listLlmCosts(req, res) {
     let items = (facet && facet.items) || [];
     const total = (facet && facet.totalCount && facet.totalCount[0] && facet.totalCount[0].count) || 0;
 
-    // Deterministic agent_name computed from aggregated agents (string[]) to avoid heavy nested traversals.
-    // Self-check note: For organization_id 'T0035', when nested users[].projects[].agents[].agent_name exists,
-    // the pipeline assembles agents (names) and this computation ensures agent_name is non-null.
+    // PUBLIC_INTERFACE
+    // Post-process agent_name from the already-aggregated agents array.
+    // Logic: take d.agents (if present), filter truthy trimmed strings, deduplicate, sort case-insensitively,
+    // select the first as agent_name; if none, fallback to existing d.agent_name if non-empty.
     try {
       items = items.map((d) => {
-        try {
-          const names = Array.isArray(d?.agents)
-            ? d.agents
+        // Pull names from aggregated agents array
+        const names = Array.isArray(d && d.agents)
+          ? d.agents
               .filter((s) => typeof s === 'string' && s.trim())
               .map((s) => s.trim())
-            : [];
-          const distinct = Array.from(new Set(names));
-          let agent_name = null;
-          if (distinct.length > 0) {
-            agent_name = distinct.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))[0];
-          }
-          if (!agent_name && typeof d?.agent_name === 'string' && d.agent_name.trim()) {
-            agent_name = d.agent_name.trim();
-          }
-          return { ...d, agent_name: agent_name || null };
-        } catch {
-          return {
-            ...d,
-            agent_name:
-              typeof d?.agent_name === 'string' && d.agent_name.trim() ? d.agent_name.trim() : null,
-          };
-        }
+          : [];
+        // Deduplicate and sort case-insensitively
+        const distinct = Array.from(new Set(names)).sort((a, b) =>
+          a.localeCompare(b, undefined, { sensitivity: 'base' })
+        );
+        // Prefer the first aggregated name; else fallback to existing non-empty agent_name
+        const derived =
+          (distinct.length > 0 ? distinct[0] : null) ||
+          (typeof d?.agent_name === 'string' && d.agent_name.trim() ? d.agent_name.trim() : null);
+
+        return { ...d, agent_name: derived };
       });
     } catch {
-      // No-op if enrichment fails
+      // No-op if enrichment fails; leave items as-is
     }
 
     // Headers
