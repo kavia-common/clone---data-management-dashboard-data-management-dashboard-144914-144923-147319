@@ -1,28 +1,24 @@
-# GET /api/llm_costs (underscore) — Full nested documents
+# PUBLIC_INTERFACE
+/** GET /api/llm_costs (underscore version)
+This route lists raw documents from the llm_costs collection with minimal enrichment. It is separate from /api/llm-costs (dash) which includes broader projections and joins.
 
-This endpoint now returns raw/full documents from the llm_costs collection (underscore), without any aggregation that alters the structure.
+Key behavior and guardrails:
+- Requires no auth; optional tenant filter via ?organization_id or ?tenant_id (string values only).
+- Pagination: page and limit must be positive integers. Defaults: page=1, limit=10; limit is clamped to 100.
+- Sorting: stable default by _id desc.
+- Defensive error handling:
+  - Returns 400 on invalid pagination or non-string tenant params.
+  - Wraps DB operations in try/catch and returns 400 for known cast/validation issues, else 500.
+- Documents are returned as-is, with a derived agents: string[] computed from nested users[].projects[].agents[*].(agent_name|name).
 
-Behavior:
-- Collection: defaults to llm_costs. Environment overrides:
-  - LLMCOSTS_COLLECTION_NAME or LLM_COSTS_COLLECTION
-- Filtering:
-  - Optional query param organization_id for exact match:
-    GET /api/llm_costs?organization_id=org_123
-- Pagination:
-  - page >= 1 (default 1)
-  - limit > 0 (default 10), clamped to max 100
-  - Response includes { meta: { page, limit, total, organization_id? } }
-- Sorting:
-  - Stable default sort by _id descending (newest first)
-- Response:
-  {
-    "success": true,
-    "data": [ <raw docs with all nested arrays/fields preserved> ],
-    "meta": { "page": 1, "limit": 10, "total": 42, "organization_id": "org_123" }
-  }
+Diagnostics:
+- X-LLM-COSTS-Collection, X-LLM-COSTS-Total, x-effective-tenant (if provided)
+
+Manual verification examples:
+- GET /api/llm_costs?organization_id=b2c&page=1&limit=10
+- GET /api/llm_costs?tenant_id=org_abc&page=1&limit=5
+- GET /api/llm_costs?page=1&limit=10 (no tenant filter)
 
 Notes:
-- Currency strings remain as-is (e.g., "$2.519490") — no parsing is performed server-side.
-- Minimal diagnostic headers may be included:
-  - X-LLM-COSTS-Collection: effective MongoDB collection name
-  - X-LLM-COSTS-Total: total documents matching the filter
+- This endpoint intentionally does not enforce JWT tenant scope; prefer /api/llm-costs for scoped behaviors.
+*/
