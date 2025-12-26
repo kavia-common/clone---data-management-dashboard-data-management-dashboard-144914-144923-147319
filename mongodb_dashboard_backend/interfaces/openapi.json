@@ -769,7 +769,7 @@
         }
       }
     },
-    "/api/llm_costs": {
+    "/api/llm-costs": {
       "get": {
         "summary": "List LLM cost records (tabular)",
         "description": "Returns a tabular-friendly list of LLM cost documents. Always returns an envelope { success, data, meta } with pagination. Indexed filters and projections are applied to avoid timeouts. Time filtering is applied ONLY on the canonical field 'timestamp'.\nTenant scoping: When Authorization (Bearer JWT) is present, the tenant from the JWT is enforced and overrides any header/query values. If a different organization_id/tenant_id is provided than the JWT tenant, the request is rejected with 403. Without JWT (demo/testing), x-organization-id header or query aliases (?tenant_id or ?organization_id) may be used to set scope. Any tenant fields in the filter are ignored server-side.\nDebugging: Responses include headers indicating effective tenant, filter, projection, sort and timing.",
@@ -844,7 +844,6 @@
                           "currency": { "type": "string", "nullable": true, "example": "USD" },
                           "duration_ms": { "type": "integer", "nullable": true },
                           "status": { "type": "string", "nullable": true },
-                          "agent_name": { "type": "string", "nullable": true, "description": "Representative agent name derived from nested users[].projects[].agents[].agent_name or joined distinct names" },
                           "details": {
                             "type": "object",
                             "description": "Optional details containing raw breakdown, metadata and any extra fields",
@@ -942,7 +941,7 @@
         }
       }
     },
-    "/api/projects/{projectId}/llm_costs": {
+    "/api/projects/{projectId}/llm-costs": {
       "get": {
         "summary": "List LLM cost records (deprecated project alias)",
         "deprecated": true,
@@ -984,7 +983,7 @@
         }
       }
     },
-    "/api/llm_costs/{id}": {
+    "/api/llm-costs/{id}": {
       "get": {
         "summary": "Get an LLM cost record by ID",
         "tags": [ "LLMCosts" ],
