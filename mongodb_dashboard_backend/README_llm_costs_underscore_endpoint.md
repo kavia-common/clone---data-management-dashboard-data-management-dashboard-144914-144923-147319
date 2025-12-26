@@ -21,4 +21,9 @@ Manual verification examples:
 
 Notes:
 - This endpoint intentionally does not enforce JWT tenant scope; prefer /api/llm-costs for scoped behaviors.
+
+Fix note (resilience against empty-string numeric fields):
+- 2025-12: Hardened aggregation numeric conversion for users.user_cost to guard against empty strings and currency-formatted strings.
+- Replaced $toDouble/$substr with a resilient $convert pipeline that trims, strips '$' and commas, and falls back to 0 on empty/malformed input.
+- This resolves 500 errors like: "Failed to parse number '' in $convert with no onError value" observed for organization_id=b2c.
 */
