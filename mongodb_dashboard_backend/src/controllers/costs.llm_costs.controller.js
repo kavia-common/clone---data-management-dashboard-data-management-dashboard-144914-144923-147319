@@ -38,7 +38,58 @@ async function getLlmCostsAggregated(req, res) {
     {
       $addFields: {
         user_cost_num: {
-          $toDouble: { $substr: ['$users.user_cost', 1, -1] }
+          $let: {
+            vars: {
+              rawCost: { $ifNull: ['$users.user_cost', 0] }
+            },
+            in: {
+              $cond: [
+                { $isNumber: '$$rawCost' },
+                '$$rawCost',
+                {
+                  $let: {
+                    vars: {
+                      s1: { $toString: '$$rawCost' }
+                    },
+                    in: {
+                      $let: {
+                        vars: {
+                          s2: {
+                            $replaceAll: {
+                              input: {
+                                $replaceAll: { input: '$$s1', find: '$', replacement: '' }
+                              },
+                              find: ',',
+                              replacement: ''
+                            }
+                          }
+                        },
+                        in: {
+                          $cond: [
+                            {
+                              $or: [
+                                { $eq: ['$$s2', ''] },
+                                { $eq: [{ $trim: { input: '$$s2' } }, ''] }
+                              ]
+                            },
+                            0,
+                            {
+                              $convert: {
+                                input: '$$s2',
+                                to: 'double',
+                                onError: 0,
+                                onNull: 0
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
         }
       }
     },

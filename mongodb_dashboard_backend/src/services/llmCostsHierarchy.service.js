@@ -83,10 +83,11 @@ function projectionStage() {
         ],
       },
       numeric_cost: {
-        // Robust numeric conversion:
-        // 1. Prefer 'cost' then 'total_cost' then 'usage.cost'
-        // 2. If value is a string and starts with '$', strip it
-        // 3. Convert to double with onError/onNull = 0
+        // Robust numeric conversion with empty-string and non-numeric handling:
+        // 1) Prefer numeric if already number
+        // 2) Normalize to string; strip '$' and commas
+        // 3) If resulting string is empty -> 0
+        // 4) $convert with onError/onNull = 0 to avoid PlanExecutor errors
         $let: {
           vars: {
             rawCost: {
@@ -94,30 +95,53 @@ function projectionStage() {
             },
           },
           in: {
-            $convert: {
-              input: {
-                $cond: [
-                  { $isNumber: '$$rawCost' },
-                  '$$rawCost',
-                  {
-                    $cond: [
-                      // If string and starts with '$', remove leading '$'
-                      {
-                        $and: [
-                          { $eq: [{ $type: '$$rawCost' }, 'string'] },
-                          { $eq: [{ $substrCP: ['$$rawCost', 0, 1] }, '$'] },
+            $cond: [
+              { $isNumber: '$$rawCost' },
+              '$$rawCost',
+              {
+                $let: {
+                  vars: {
+                    // Cast to string, remove $ and commas
+                    s1: { $toString: '$$rawCost' },
+                  },
+                  in: {
+                    $let: {
+                      vars: {
+                        s2: {
+                          $replaceAll: {
+                            input: {
+                              $replaceAll: { input: '$$s1', find: '$', replacement: '' },
+                            },
+                            find: ',',
+                            replacement: '',
+                          },
+                        },
+                      },
+                      in: {
+                        // If after cleanup it's empty or whitespace, treat as 0
+                        $cond: [
+                          {
+                            $or: [
+                              { $eq: ['$$s2', ''] },
+                              { $eq: [{ $trim: { input: '$$s2' } }, ''] },
+                            ],
+                          },
+                          0,
+                          {
+                            $convert: {
+                              input: '$$s2',
+                              to: 'double',
+                              onError: 0,
+                              onNull: 0,
+                            },
+                          },
                         ],
                       },
-                      { $substrCP: ['$$rawCost', 1, { $strLenCP: '$$rawCost' }] },
-                      { $toString: '$$rawCost' },
-                    ],
+                    },
                   },
-                ],
+                },
               },
-              to: 'double',
-              onError: 0,
-              onNull: 0,
-            },
+            ],
           },
         },
       },
