@@ -37,73 +37,8 @@ async function getLlmCostsAggregated(req, res) {
     // Parse user cost; keep user_id as string for join
     {
       $addFields: {
-        // Robust conversion of users.user_cost that may be number|string|empty or include leading '$'
         user_cost_num: {
-          $let: {
-            vars: {
-              raw: { $ifNull: ['$users.user_cost', 0] },
-              rawStr: {
-                $toString: {
-                  $ifNull: ['$users.user_cost', '']
-                }
-              }
-            },
-            in: {
-              $cond: [
-                { $isNumber: '$$raw' },
-                // Already numeric
-                { $convert: { input: '$$raw', to: 'double', onError: 0, onNull: 0 } },
-                // Not a number -> sanitize string, trim, strip leading '$' and commas, guard empty -> 0
-                {
-                  $let: {
-                    vars: {
-                      trimmed: { $trim: { input: '$$rawStr' } },
-                      noDollar: {
-                        $cond: [
-                          { $eq: [{ $substrCP: ['$$rawStr', 0, 1] }, '$'] },
-                          { $substrCP: ['$$rawStr', 1, { $strLenCP: '$$rawStr' }] },
-                          '$$rawStr'
-                        ]
-                      }
-                    },
-                    in: {
-                      $let: {
-                        vars: {
-                          cleaned: {
-                            $replaceAll: {
-                              input: {
-                                $replaceAll: {
-                                  input: { $trim: { input: '$$noDollar' } },
-                                  find: ',',
-                                  replacement: ''
-                                }
-                              },
-                              find: ' ',
-                              replacement: ''
-                            }
-                          }
-                        },
-                        in: {
-                          $convert: {
-                            input: {
-                              $cond: [
-                                { $eq: ['$$cleaned', ''] },
-                                '0',
-                                '$$cleaned'
-                              ]
-                            },
-                            to: 'double',
-                            onError: 0,
-                            onNull: 0
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              ]
-            }
-          }
+          $toDouble: { $substr: ['$users.user_cost', 1, -1] }
         }
       }
     },
