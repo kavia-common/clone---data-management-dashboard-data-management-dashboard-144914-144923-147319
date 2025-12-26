@@ -99,18 +99,44 @@ router.get(
     }
 
     // Derive agents for each document from nested users[].projects[].agents[] if present
+    // - Defensive against missing arrays/fields
+    // - Collect unique agent_name values (fallback to name), sorted ascending for stable UI
+    // - Keep backward compatibility by preserving all existing fields
     const docs = Array.isArray(rawDocs)
       ? rawDocs.map((d) => {
           try {
-            const usersArr = Array.isArray(d?.users) ? d.users : [];
-            const projectsNested = usersArr.map((u) => (Array.isArray(u?.projects) ? u.projects : []));
-            const projectsFlat = projectsNested.flat();
-            const agentsFlat = projectsFlat.flatMap((p) => (Array.isArray(p?.agents) ? p.agents : []));
-            const names = agentsFlat
-              .map((a) => a?.agent_name ?? a?.name ?? null)
-              .filter((n) => typeof n === 'string' && n.length > 0);
-            const distinct = Array.from(new Set(names));
-            return { ...d, agents: distinct };
+            const usersArr = Array.isArray(d && d.users) ? d.users : [];
+            const agentNames = [];
+
+            for (const u of usersArr) {
+              const projects = Array.isArray(u && u.projects) ? u.projects : [];
+              for (const p of projects) {
+                const agents = Array.isArray(p && p.agents) ? p.agents : [];
+                for (const a of agents) {
+                  const n = (a && (a.agent_name || a.name)) || null;
+                  if (typeof n === 'string' && n.trim().length > 0) {
+                    agentNames.push(n.trim());
+                  }
+                }
+              }
+            }
+
+            // De-duplicate and sort
+            const distinctSorted = Array.from(new Set(agentNames)).sort((a, b) =>
+              String(a).localeCompare(String(b))
+            );
+
+            // Backward compatibility: also expose a single agent_name if only one exists
+            // without removing any existing fields.
+            const agent_name =
+              distinctSorted.length === 1 ? distinctSorted[0] : d.agent_name || undefined;
+
+            // Return with new agents array and optional agent_name (existing fields preserved)
+            return {
+              ...d,
+              ...(agent_name ? { agent_name } : {}),
+              agents: distinctSorted,
+            };
           } catch {
             return { ...d, agents: [] };
           }
