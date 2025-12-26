@@ -3,6 +3,7 @@
 const express = require('express');
 const LLMCost = require('../models/llmCosts.model');
 const { asyncHandler, success } = require('../utils/http');
+const { deriveAgentName } = require('../utils/agentName');
 
 const router = express.Router();
 
@@ -48,44 +49,8 @@ router.get(
     const docs = Array.isArray(rawDocs)
       ? rawDocs.map((d) => {
           try {
-            /* ---------- users[].projects[].agents ---------- */
-            const usersArr = Array.isArray(d?.users) ? d.users : [];
-            const userProjects = usersArr.flatMap((u) =>
-              Array.isArray(u?.projects) ? u.projects : []
-            );
-            const userAgents = userProjects.flatMap((p) =>
-              Array.isArray(p?.agents) ? p.agents : []
-            );
-
-            /* ---------- projects[].agents (TOP LEVEL) ---------- */
-            const topProjects = Array.isArray(d?.projects) ? d.projects : [];
-            const topAgents = topProjects.flatMap((p) =>
-              Array.isArray(p?.agents) ? p.agents : []
-            );
-
-            /* ---------- MERGE ALL AGENTS ---------- */
-            const allAgents = [...userAgents, ...topAgents];
-
-            const candidates = allAgents
-              .map((a) =>
-                typeof a?.agent_name === 'string' && a.agent_name.trim()
-                  ? a.agent_name.trim()
-                  : typeof a?.name === 'string' && a.name.trim()
-                  ? a.name.trim()
-                  : null
-              )
-              .filter(Boolean);
-
-            const distinct = Array.from(new Set(candidates));
-
-            let agent_name = null;
-            if (distinct.length > 0) {
-              agent_name = distinct.sort((a, b) =>
-                a.localeCompare(b, undefined, { sensitivity: 'base' })
-              )[0];
-            }
-
-            return { ...d, agent_name };
+            const agent_name = deriveAgentName(d);
+            return { ...d, agent_name: agent_name ?? null };
           } catch {
             return { ...d, agent_name: null };
           }
