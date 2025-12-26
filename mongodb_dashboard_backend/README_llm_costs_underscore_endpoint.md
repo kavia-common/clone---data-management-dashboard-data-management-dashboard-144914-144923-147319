@@ -22,20 +22,8 @@ Manual verification examples:
 Notes:
 - This endpoint intentionally does not enforce JWT tenant scope; prefer /api/llm-costs for scoped behaviors.
 
-Troubleshooting (b2c org failures) – exact fixes applied:
-1) Invalid $addFields: '$' by itself is not a valid FieldPath
-   - Root cause: a malformed field path or accidental template interpolation produced a bare "$".
-   - Fix: Audited all $addFields/$project/$set expressions to ensure every field path is a valid path string (e.g., "$field" or "$a.b.c"). No stage now uses "$" alone.
-2) Failed to parse number '' in $convert with no onError value: Empty string
-   - Root cause: documents had '' or whitespace strings in numeric fields like prompt_tokens, completion_tokens, input_cost, output_cost, total_cost.
-   - Fix: Introduced an initial normalization stage using $addFields:
-     - safePromptTokens, safeCompletionTokens, safeInputCost, safeOutputCost, safeTotalCost
-     - Each uses {$convert: {input: <expr>, to: "double", onError: 0, onNull: 0}} coupled with guards to map ""/null/missing to 0.
-     - Strings like "$12.34" or "1,234.56" are normalized via trim + strip "$" + remove commas before conversion.
-3) Defensive pagination and sorting
-   - Stable default sort by total_cost desc then user_cost desc to avoid sorting on missing fields.
-   - Pagination variables are validated and clamped.
-
-Verification:
-- GET /api/llm_costs?organization_id=b2c&page=1&limit=10 now returns 200 with an empty array or valid results (no 500).
+Fix note (resilience against empty-string numeric fields):
+- 2025-12: Hardened aggregation numeric conversion for users.user_cost to guard against empty strings and currency-formatted strings.
+- Replaced $toDouble/$substr with a resilient $convert pipeline that trims, strips '$' and commas, and falls back to 0 on empty/malformed input.
+- This resolves 500 errors like: "Failed to parse number '' in $convert with no onError value" observed for organization_id=b2c.
 */
