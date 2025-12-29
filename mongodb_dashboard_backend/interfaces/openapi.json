@@ -2017,6 +2017,78 @@
         }
       }
     },
+    "/api/users/session-details": {
+      "post": {
+        "summary": "User session details",
+        "description": "Returns session_tracking documents for a given user scoped to a tenant. Accepts optional time range and pagination.",
+        "tags": ["Users","SessionTracking"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "user_id": { "type": "string", "description": "User identifier (string). Required." },
+                  "tenant_id": { "type": "string", "description": "Tenant (organization) id. Required unless super admin/all-tenants bypass active." },
+                  "from": { "type": "string", "format": "date-time", "description": "Optional ISO start bound" },
+                  "to": { "type": "string", "format": "date-time", "description": "Optional ISO end bound" },
+                  "page": { "type": "integer", "minimum": 1, "default": 1 },
+                  "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
+                  "sort": { "type": "string", "description": "Sort string like '-last_updated' or 'last_updated'" }
+                },
+                "required": ["user_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session details payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user_id": { "type": "string" },
+                    "tenant_id": { "type": "string", "nullable": true },
+                    "sessions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "_id": { "type": "string" },
+                          "session_id": { "type": "string", "nullable": true },
+                          "project_id": { "type": "string", "nullable": true },
+                          "status": { "type": "string", "nullable": true },
+                          "start_time": { "type": "string", "format": "date-time", "nullable": true },
+                          "end_time": { "type": "string", "format": "date-time", "nullable": true },
+                          "last_updated": { "type": "string", "format": "date-time", "nullable": true },
+                          "duration_ms": { "type": "integer", "nullable": true },
+                          "model": { "type": "string", "nullable": true },
+                          "provider": { "type": "string", "nullable": true },
+                          "metadata": { "type": "object", "additionalProperties": true, "nullable": true }
+                        }
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "page": { "type": "integer" },
+                        "limit": { "type": "integer" },
+                        "total": { "type": "integer" },
+                        "sort": { "type": "object", "additionalProperties": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid input (missing user_id, invalid tenant/date)" }
+        }
+      }
+    },
     "/api/users/referral-sources": {
       "get": {
         "summary": "Top referral sources",

@@ -17,6 +17,9 @@ const router = express.Router();
 const usersSummaryRoutes = require('./users.summary');
 router.use('/users', usersSummaryRoutes);
 
+const usersSessionDetailsRoutes = require('./users.sessionDetails.routes');
+router.use('/users', usersSessionDetailsRoutes);
+
 const usersRoutes = require('./users.routes');
 router.use('/users', usersRoutes);
 
