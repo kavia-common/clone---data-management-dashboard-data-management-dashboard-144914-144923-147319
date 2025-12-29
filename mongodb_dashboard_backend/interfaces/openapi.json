@@ -2017,6 +2017,44 @@
         }
       }
     },
+    "/api/users/{userId}/sessions": {
+      "get": {
+        "summary": "Get session records for a user",
+        "description": "Returns session_tracking documents filtered by user_id. Optionally scope by tenant using organization_id or tenant_id. Supports optional pagination (page, limit/pageSize) and sort.",
+        "tags": ["Users","SessionTracking"],
+        "parameters": [
+          { "in": "path", "name": "userId", "required": true, "schema": { "type": "string" }, "description": "User identifier (normalized to string for matching)" },
+          { "in": "query", "name": "organization_id", "required": false, "schema": { "type": "string" }, "description": "Tenant (organization) ID. Alias: tenant_id" },
+          { "in": "query", "name": "tenant_id", "required": false, "schema": { "type": "string" }, "description": "Alias for tenant (organization) id" },
+          { "in": "query", "name": "page", "schema": { "type": "integer", "minimum": 1 }, "description": "Page number (when provided, envelope response is returned)" },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "minimum": 1, "maximum": 200 }, "description": "Page size (when provided with page). Alias: pageSize" },
+          { "in": "query", "name": "pageSize", "schema": { "type": "integer", "minimum": 1, "maximum": 200 }, "description": "Alias for limit" },
+          { "in": "query", "name": "sort", "schema": { "type": "string" }, "description": "Sort string (e.g., -timestamp)" },
+          { "in": "query", "name": "filter", "schema": { "type": "string" }, "description": "JSON filter (whitelist: status, session_id, project_id, request_id, timestamp, created_at, service_type, provider, llm_model)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "User sessions list (array or envelope when paginated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/GenericDocument" }
+                    },
+                    {
+                      "$ref": "#/components/schemas/ListEnvelope"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing required parameters or invalid input" }
+        }
+      }
+    },
     "/api/users/referral-sources": {
       "get": {
         "summary": "Top referral sources",
