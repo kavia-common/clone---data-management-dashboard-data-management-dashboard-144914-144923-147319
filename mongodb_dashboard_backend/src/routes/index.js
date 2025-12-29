@@ -17,10 +17,6 @@ const router = express.Router();
 const usersSummaryRoutes = require('./users.summary');
 router.use('/users', usersSummaryRoutes);
 
-// Mount sessions per-user routes before main users router so that '/:userId/sessions' is not shadowed.
-const usersSessionsRoutes = require('./users.sessions.single.routes');
-router.use('/users', usersSessionsRoutes);
-
 const usersRoutes = require('./users.routes');
 router.use('/users', usersRoutes);
 
