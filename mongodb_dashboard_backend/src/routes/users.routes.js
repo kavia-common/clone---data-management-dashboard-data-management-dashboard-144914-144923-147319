@@ -21,7 +21,7 @@ const router = express.Router();
  * @param {string[]} userIdStrings List of user ids (string form) to aggregate for.
  * @returns {Promise<Record<string, { session_count: number, session_total_count: number, session_total_duration: number }>>}
  */
-async function aggregateSessionTotalsByUserId(userIdStrings) {
+async function aggregateSessionTotalsByUserId(userIdStrings, { tenantId = null, bypass = false } = {}) {
   if (!Array.isArray(userIdStrings) || userIdStrings.length === 0) return {};
 
   const unique = Array.from(new Set(userIdStrings.filter((v) => typeof v === 'string' && v.length > 0)));
@@ -31,20 +31,25 @@ async function aggregateSessionTotalsByUserId(userIdStrings) {
    * Aggregation notes:
    * - Normalize user_id to string with $toString to match user._id (stringified).
    * - Use $ifNull to default missing numeric fields to 0 so sums don't become null.
-   * - session_count is computed as the COUNT of session_tracking documents per user
-   *   AFTER all server-side filters/scoping already applied to session_tracking in storage.
-   *   This mirrors the existing behavior for session_total_count/_duration (which sum fields).
+   * - IMPORTANT: This aggregation MUST respect the same scoping already applied to /api/users.
+   *   Therefore:
+   *   - When tenant scoping is active: constrain to session_tracking.tenant_id === effective tenant.
+   *   - When super-admin/all-tenants bypass is active: do not constrain by tenant_id.
    */
+  const match = {
+    $expr: { $in: [{ $toString: '$user_id' }, unique] },
+  };
+
+  if (!bypass && tenantId) {
+    match.tenant_id = String(tenantId);
+  }
+
   const pipeline = [
-    {
-      $match: {
-        $expr: { $in: [{ $toString: '$user_id' }, unique] },
-      },
-    },
+    { $match: match },
     {
       $group: {
         _id: { $toString: '$user_id' },
-        // New: number of session_tracking records for this user
+        // number of session_tracking records for this user
         session_count: { $sum: 1 },
 
         // Existing fields (kept intact)
@@ -561,7 +566,13 @@ router.get(
           .map((u) => (u && u._id !== undefined && u._id !== null ? String(u._id) : ''))
           .filter(Boolean);
 
-        const totalsMap = await aggregateSessionTotalsByUserId(userIds);
+        const bypass = !!(req.tenantScopeDisabled || req.allTenants || req.usersAllTenantsBypass || req?.user?.isSuperAdmin);
+        const effectiveTenant = req.tenantId || req.organizationId || req?.auth?.tenantId || null;
+
+        const totalsMap = await aggregateSessionTotalsByUserId(userIds, {
+          tenantId: effectiveTenant,
+          bypass,
+        });
         const merged = mergeSessionTotalsIntoUsers(usersArray, totalsMap);
 
         const out = Array.isArray(payload) ? merged : { ...payload, data: merged };
