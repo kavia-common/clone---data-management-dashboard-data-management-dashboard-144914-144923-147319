@@ -19,7 +19,7 @@ const router = express.Router();
  * even if not explicitly defined in the schema.
  *
  * @param {string[]} userIdStrings List of user ids (string form) to aggregate for.
- * @returns {Promise<Record<string, { session_total_count: number, session_total_duration: number }>>}
+ * @returns {Promise<Record<string, { session_count: number, session_total_count: number, session_total_duration: number }>>}
  */
 async function aggregateSessionTotalsByUserId(userIdStrings) {
   if (!Array.isArray(userIdStrings) || userIdStrings.length === 0) return {};
@@ -27,10 +27,14 @@ async function aggregateSessionTotalsByUserId(userIdStrings) {
   const unique = Array.from(new Set(userIdStrings.filter((v) => typeof v === 'string' && v.length > 0)));
   if (unique.length === 0) return {};
 
-  // Aggregation notes:
-  // - Normalize user_id to string with $toString to match user._id (stringified).
-  // - Use $ifNull to default missing numeric fields to 0 so sums don't become null.
-  // - total_duration may be number; preserve as number (double).
+  /**
+   * Aggregation notes:
+   * - Normalize user_id to string with $toString to match user._id (stringified).
+   * - Use $ifNull to default missing numeric fields to 0 so sums don't become null.
+   * - session_count is computed as the COUNT of session_tracking documents per user
+   *   AFTER all server-side filters/scoping already applied to session_tracking in storage.
+   *   This mirrors the existing behavior for session_total_count/_duration (which sum fields).
+   */
   const pipeline = [
     {
       $match: {
@@ -40,6 +44,10 @@ async function aggregateSessionTotalsByUserId(userIdStrings) {
     {
       $group: {
         _id: { $toString: '$user_id' },
+        // New: number of session_tracking records for this user
+        session_count: { $sum: 1 },
+
+        // Existing fields (kept intact)
         session_total_count: { $sum: { $ifNull: ['$total_count', 0] } },
         session_total_duration: { $sum: { $ifNull: ['$total_duration', 0] } },
       },
@@ -48,6 +56,7 @@ async function aggregateSessionTotalsByUserId(userIdStrings) {
       $project: {
         _id: 0,
         user_id: '$_id',
+        session_count: 1,
         session_total_count: 1,
         session_total_duration: 1,
       },
@@ -58,6 +67,7 @@ async function aggregateSessionTotalsByUserId(userIdStrings) {
   return rows.reduce((acc, r) => {
     const k = String(r.user_id);
     acc[k] = {
+      session_count: Number(r.session_count || 0),
       session_total_count: Number(r.session_total_count || 0),
       session_total_duration: Number(r.session_total_duration || 0),
     };
@@ -69,7 +79,7 @@ async function aggregateSessionTotalsByUserId(userIdStrings) {
  * Adds session totals fields to each user item without mutating the original object shape.
  *
  * @param {any[]} users List of user documents (plain objects).
- * @param {Record<string, {session_total_count:number, session_total_duration:number}>} totalsMap Totals keyed by user_id string.
+ * @param {Record<string, {session_count:number, session_total_count:number, session_total_duration:number}>} totalsMap Totals keyed by user_id string.
  * @returns {any[]} New list with merged totals.
  */
 function mergeSessionTotalsIntoUsers(users, totalsMap) {
@@ -78,11 +88,12 @@ function mergeSessionTotalsIntoUsers(users, totalsMap) {
 
   return users.map((u) => {
     const id = u && u._id !== undefined && u._id !== null ? String(u._id) : '';
-    const totals = map[id] || { session_total_count: 0, session_total_duration: 0 };
+    const totals = map[id] || { session_count: 0, session_total_count: 0, session_total_duration: 0 };
 
     // Non-breaking addition: only add new flat fields, preserve all existing fields.
     return {
       ...u,
+      session_count: Number(totals.session_count || 0),
       session_total_count: Number(totals.session_total_count || 0),
       session_total_duration: Number(totals.session_total_duration || 0),
     };
