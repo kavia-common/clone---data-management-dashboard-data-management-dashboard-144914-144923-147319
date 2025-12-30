@@ -461,16 +461,63 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'userId (path) and organization_id/tenant_id (query/header) are required' });
   }
 
+  /**
+   * Normalize incoming time bounds for this endpoint.
+   * Supports:
+   * - ISODate("...") wrapper (frontend legacy behavior)
+   * - Full ISO timestamp
+   * - Date-only "YYYY-MM-DD" (expanded to full-day UTC bounds)
+   *
+   * Returns:
+   * - undefined when input is empty/invalid (so service behaves like "no bound")
+   */
+  function normalizeProjectsRangeParam(value, { mode }) {
+    if (value === undefined || value === null || value === '') return undefined;
+
+    let s = String(value).trim();
+
+    // Unwrap ISODate("...") or ISODate('...') if present
+    // Example: ISODate("2025-12-30T00:00:00.000Z")
+    const isoDateWrapped = /^ISODate\((.*)\)$/i.exec(s);
+    if (isoDateWrapped && isoDateWrapped[1]) {
+      s = isoDateWrapped[1].trim().replace(/^['"]|['"]$/g, '');
+    }
+
+    // Date-only => expand to UTC full-day bounds
+    const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (ymd) {
+      const y = Number(ymd[1]);
+      const m0 = Number(ymd[2]) - 1;
+      const d = Number(ymd[3]);
+
+      const dt =
+        mode === 'from'
+          ? new Date(Date.UTC(y, m0, d, 0, 0, 0, 0))
+          : new Date(Date.UTC(y, m0, d, 23, 59, 59, 999));
+
+      return dt.toISOString();
+    }
+
+    // Pass through ISO timestamps if valid
+    const dt = new Date(s);
+    if (Number.isNaN(dt.getTime())) return undefined;
+    return dt.toISOString();
+  }
+
+  const rawFrom = req.query?.from;
+  const rawTo = req.query?.to;
+  const from = normalizeProjectsRangeParam(rawFrom, { mode: 'from' });
+  const to = normalizeProjectsRangeParam(rawTo, { mode: 'to' });
+
   // Debug trace to validate handler entry and resolved scope during runtime
   try {
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-       
-      console.debug(`[users.projects] GET /api/users/${userId}/projects tenantId=${tenantId} from=${req.query?.from || 'n/a'} to=${req.query?.to || 'n/a'}`);
+      console.debug(
+        `[users.projects] GET /api/users/${userId}/projects tenantId=${tenantId} rawFrom=${rawFrom || 'n/a'} rawTo=${rawTo || 'n/a'} normalizedFrom=${from || 'n/a'} normalizedTo=${to || 'n/a'}`
+      );
     }
   } catch {}
 
-  // Validate optional dates (lenient: backend service handles conversion; here we only pass through)
-  const { from, to } = req.query || {};
   const { getUserProjectsFromSessions } = require('../services/users.service');
 
   try {
@@ -491,7 +538,6 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
 
     return res.status(200).json(safePayload);
   } catch (err) {
-     
     console.error('[users.projects] error:', err?.message || err);
     // Return safe default 200 with empty list to avoid 404/500 breaking frontend
     return res.status(200).json({
