@@ -661,10 +661,51 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
     });
 
     // Ensure projects is always an array for safety
+    /**
+     * Count total sessions for this user in the same tenant + date range.
+     *
+     * IMPORTANT:
+     * - We intentionally reuse the same date filtering semantics as the existing service:
+     *   it matches sessions where ANY of timestamp/session_start/last_updated is within range.
+     * - We count documents (sessions), not sums of any existing "total_count" field.
+     *
+     * Performance note (no schema change in this task):
+     * - Consider ensuring an index that supports this query pattern, e.g.:
+     *   { tenant_id: 1, user_id: 1, last_updated: 1 } (and/or session_start/timestamp)
+     */
+    const userIdString = String(userId);
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+
+    const timeClauses = [];
+    if (fromDate || toDate) {
+      const makeRange = (field) => {
+        const r = {};
+        if (fromDate) r.$gte = fromDate;
+        if (toDate) r.$lte = toDate;
+        return { [field]: r };
+      };
+      timeClauses.push(makeRange('timestamp'));
+      timeClauses.push(makeRange('session_start'));
+      timeClauses.push(makeRange('last_updated'));
+    }
+
+    const bypass = !!(req && (req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin || req.usersAllTenantsBypass));
+
+    const sessionsFilter = {
+      $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
+      ...(timeClauses.length ? { $or: timeClauses } : {}),
+      ...(bypass ? {} : { tenant_id: String(tenantId) }),
+    };
+
+    const totalSessions = await SessionTracking.countDocuments(sessionsFilter);
+
     const safePayload = {
       user_id: String(payload?.user_id || userId),
       tenant_id: String(payload?.tenant_id || tenantId),
       projects: Array.isArray(payload?.projects) ? payload.projects : [],
+      // New field (non-breaking addition): total sessions count for the same filters.
+      total_count: Number(totalSessions || 0),
     };
 
     return res.status(200).json(safePayload);
@@ -675,6 +716,7 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
       user_id: String(userId),
       tenant_id: String(tenantId),
       projects: [],
+      total_count: 0,
       info: 'Fallback due to internal error while aggregating projects',
     });
   }
