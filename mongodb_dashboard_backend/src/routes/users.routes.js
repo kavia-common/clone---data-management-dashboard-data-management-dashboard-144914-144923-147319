@@ -12,6 +12,83 @@ const Tenant = require('../models/tenant.model');
 
 const router = express.Router();
 
+/**
+ * Aggregates SessionTracking totals per user_id (as string).
+ *
+ * Note: SessionTracking schema is strict:false; fields total_count and total_duration may exist
+ * even if not explicitly defined in the schema.
+ *
+ * @param {string[]} userIdStrings List of user ids (string form) to aggregate for.
+ * @returns {Promise<Record<string, { session_total_count: number, session_total_duration: number }>>}
+ */
+async function aggregateSessionTotalsByUserId(userIdStrings) {
+  if (!Array.isArray(userIdStrings) || userIdStrings.length === 0) return {};
+
+  const unique = Array.from(new Set(userIdStrings.filter((v) => typeof v === 'string' && v.length > 0)));
+  if (unique.length === 0) return {};
+
+  // Aggregation notes:
+  // - Normalize user_id to string with $toString to match user._id (stringified).
+  // - Use $ifNull to default missing numeric fields to 0 so sums don't become null.
+  // - total_duration may be number; preserve as number (double).
+  const pipeline = [
+    {
+      $match: {
+        $expr: { $in: [{ $toString: '$user_id' }, unique] },
+      },
+    },
+    {
+      $group: {
+        _id: { $toString: '$user_id' },
+        session_total_count: { $sum: { $ifNull: ['$total_count', 0] } },
+        session_total_duration: { $sum: { $ifNull: ['$total_duration', 0] } },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        user_id: '$_id',
+        session_total_count: 1,
+        session_total_duration: 1,
+      },
+    },
+  ];
+
+  const rows = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+  return rows.reduce((acc, r) => {
+    const k = String(r.user_id);
+    acc[k] = {
+      session_total_count: Number(r.session_total_count || 0),
+      session_total_duration: Number(r.session_total_duration || 0),
+    };
+    return acc;
+  }, {});
+}
+
+/**
+ * Adds session totals fields to each user item without mutating the original object shape.
+ *
+ * @param {any[]} users List of user documents (plain objects).
+ * @param {Record<string, {session_total_count:number, session_total_duration:number}>} totalsMap Totals keyed by user_id string.
+ * @returns {any[]} New list with merged totals.
+ */
+function mergeSessionTotalsIntoUsers(users, totalsMap) {
+  if (!Array.isArray(users)) return users;
+  const map = totalsMap && typeof totalsMap === 'object' ? totalsMap : {};
+
+  return users.map((u) => {
+    const id = u && u._id !== undefined && u._id !== null ? String(u._id) : '';
+    const totals = map[id] || { session_total_count: 0, session_total_duration: 0 };
+
+    // Non-breaking addition: only add new flat fields, preserve all existing fields.
+    return {
+      ...u,
+      session_total_count: Number(totals.session_total_count || 0),
+      session_total_duration: Number(totals.session_total_duration || 0),
+    };
+  });
+}
+
 // Legacy alias: /api/users/active-trend-from-users (non-breaking proxy to analytics users active trend)
 // This preserves old consumers expecting labels/datasets by adapting from the existing controller logic.
 router.get(
@@ -438,6 +515,60 @@ router.get(
         appliedTenant: String(applied || ''),
       });
     } catch {}
+
+    // Wrap controller.list response to add non-breaking fields.
+    // This preserves all existing scoping/filter/sort/pagination behavior because we delegate
+    // to the existing controller and only post-process the payload.
+    const originalJson = res.json.bind(res);
+    const originalStatus = res.status.bind(res);
+
+    // Track status code to preserve existing behavior even if controller sets it explicitly.
+    let statusCode = 200;
+    res.status = (code) => {
+      statusCode = code;
+      return originalStatus(code);
+    };
+
+    res.json = async (payload) => {
+      try {
+        // Only augment successful list responses; if payload is unexpected, pass through.
+        // controller.list returns either:
+        //  - array: [user,...]
+        //  - envelope: { success:true, data:[user,...], meta:{...} }
+        const isEnvelope =
+          payload &&
+          typeof payload === 'object' &&
+          !Array.isArray(payload) &&
+          Array.isArray(payload.data);
+
+        const usersArray = Array.isArray(payload) ? payload : isEnvelope ? payload.data : null;
+        if (!Array.isArray(usersArray)) {
+          return originalJson(payload);
+        }
+
+        const userIds = usersArray
+          .map((u) => (u && u._id !== undefined && u._id !== null ? String(u._id) : ''))
+          .filter(Boolean);
+
+        const totalsMap = await aggregateSessionTotalsByUserId(userIds);
+        const merged = mergeSessionTotalsIntoUsers(usersArray, totalsMap);
+
+        const out = Array.isArray(payload) ? merged : { ...payload, data: merged };
+
+        // Preserve status code semantics
+        if (statusCode && typeof statusCode === 'number') {
+          // res.status already called; if not, this is harmless
+          try { res.status(statusCode); } catch {}
+        }
+
+        return originalJson(out);
+      } catch (err) {
+        // Non-breaking safety: if aggregation fails, fall back to original payload.
+        console.error('[users:list] session totals augmentation failed:', err?.message || err);
+        return originalJson(payload);
+      }
+    };
+
     return controller.list(req, res, next);
   }
 );
