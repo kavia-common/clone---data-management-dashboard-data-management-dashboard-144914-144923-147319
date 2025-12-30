@@ -363,28 +363,36 @@ router.get(
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
-    // Text search
+    // Text search with exact user_id equality support
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     let qFilter = {};
     if (q) {
       const regex = new RegExp(q, 'i');
-      qFilter = {
-        $or: [
-          { task_id: regex },
-          { tenant_id: regex },
-          { organization_name: regex },
-          { user_name: regex },
-          { User_name: regex },
-          { project_id: regex },
-          { container_id: regex },
-          { service_type: regex },
-          { status: regex },
-          { user_id: regex },
-          { 'session_data.session_name': regex },
-          { 'session_data.description': regex },
-          { 'session_data.llm_model': regex },
-        ],
-      };
+
+      // If q appears to be a single-token identifier (no spaces), allow exact user_id match
+      // This supports filtering sessions for a specific selected user quickly from the UI.
+      const looksLikeId = !/\s/.test(q); // single token
+      const orParts = [
+        { task_id: regex },
+        { tenant_id: regex },
+        { organization_name: regex },
+        { user_name: regex },
+        { User_name: regex },
+        { project_id: regex },
+        { container_id: regex },
+        { service_type: regex },
+        { status: regex },
+        { user_id: regex },
+        { 'session_data.session_name': regex },
+        { 'session_data.description': regex },
+        { 'session_data.llm_model': regex },
+      ];
+      if (looksLikeId) {
+        // Prioritize exact equality on user_id when an id-looking token is provided
+        orParts.unshift({ user_id: q });
+      }
+
+      qFilter = { $or: orParts };
     }
 
     // Ignore client filter param; retain tenant scope + search
