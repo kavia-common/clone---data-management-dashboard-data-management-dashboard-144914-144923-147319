@@ -751,23 +751,35 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
 
     const bypass = !!(req && (req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin || req.usersAllTenantsBypass));
 
-    const sessionsFilter = {
-      $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
-      ...(timeClauses.length ? { $or: timeClauses } : {}),
-      ...(bypass
-        ? {}
-        : {
-            $or: [
-              { tenant_id: String(tenantId) },
-              { organization_id: String(tenantId) },
-              { organizationId: String(tenantId) },
-              { tenantId: String(tenantId) },
-              { orgId: String(tenantId) },
-              { 'tenant.tenant_id': String(tenantId) },
-            ],
-          }),
-    };
+    // IMPORTANT:
+    // Do NOT place both tenant-scoping and time-scoping under the same `$or` key at the top-level,
+    // otherwise the later spread overwrites the earlier one. That bug causes date filters to be
+    // dropped and results in all-time totals even when from/to are provided.
+    const andClauses = [
+      // Always scope to the user
+      { $expr: { $eq: [{ $toString: '$user_id' }, userIdString] } },
+    ];
 
+    // Time window: ANY of these fields may represent activity; include session if any is in range.
+    if (timeClauses.length) {
+      andClauses.push({ $or: timeClauses });
+    }
+
+    // Tenant window (unless bypass / all-tenants mode)
+    if (!bypass) {
+      andClauses.push({
+        $or: [
+          { tenant_id: String(tenantId) },
+          { organization_id: String(tenantId) },
+          { organizationId: String(tenantId) },
+          { tenantId: String(tenantId) },
+          { orgId: String(tenantId) },
+          { 'tenant.tenant_id': String(tenantId) },
+        ],
+      });
+    }
+
+    const sessionsFilter = andClauses.length === 1 ? andClauses[0] : { $and: andClauses };
     const totalSessions = await SessionTracking.countDocuments(sessionsFilter);
 
     const safePayload = {
