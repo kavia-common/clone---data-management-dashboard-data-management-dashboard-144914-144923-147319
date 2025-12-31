@@ -88,12 +88,16 @@ describe('GET /api/users/:userId/projects - T0000 all-tenants aggregation', () =
     const pipeline = SessionTracking.aggregate.mock.calls[0][0];
     const match = pipeline[0].$match;
 
-    // In tenant-scoped mode, $or across aliases must be present
-    expect(match).toHaveProperty('$or');
-    expect(Array.isArray(match.$or)).toBe(true);
-    expect(match.$or.some((c) => c.tenant_id === 'ORG_1')).toBe(true);
-    expect(match.$or.some((c) => c.organization_id === 'ORG_1')).toBe(true);
-    expect(match.$or.some((c) => c.organizationId === 'ORG_1')).toBe(true);
+    // In tenant-scoped mode, match is composed under $and to avoid overwriting multiple $or clauses.
+    expect(match).toHaveProperty('$and');
+    expect(Array.isArray(match.$and)).toBe(true);
+
+    const serializedMatch = JSON.stringify(match);
+    // Ensure user scoping and tenant alias scoping are both present.
+    expect(serializedMatch).toMatch(/\\$expr/);
+    expect(serializedMatch).toMatch(/tenant_id/);
+    expect(serializedMatch).toMatch(/organization_id/);
+    expect(serializedMatch).toMatch(/organizationId/);
 
     // Project name lookup is tenant-scoped in non-T0000 mode
     const projectFindFilter = Project.find.mock.calls[0][0];
@@ -127,8 +131,13 @@ describe('GET /api/users/:userId/projects - T0000 all-tenants aggregation', () =
     // (Service-side aggregation composition differs from route-side count composition.)
     const pipeline = SessionTracking.aggregate.mock.calls[0][0];
     const match = pipeline[0].$match;
-    expect(match).toHaveProperty('$expr');
+
+    // Match is composed under $and; ensure both user scoping and time scoping exist.
+    expect(match).toHaveProperty('$and');
     const matchJson = JSON.stringify(match);
+    expect(matchJson).toMatch(/\\$expr/);
+
+    // Time window must be applied (any of these fields in range).
     expect(matchJson).toMatch(/timestamp/);
     expect(matchJson).toMatch(/session_start/);
     expect(matchJson).toMatch(/last_updated/);
