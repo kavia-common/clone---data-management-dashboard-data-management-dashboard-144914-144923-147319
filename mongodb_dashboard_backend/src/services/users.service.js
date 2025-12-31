@@ -48,8 +48,23 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
       : {}),
   };
 
+  // IMPORTANT:
+  // Session tracking data may store tenant identifiers under different field names
+  // depending on ingestion path. For safety, apply an $or across known aliases.
   const matchStage = {
-    $match: bypass ? baseMatch : { ...baseMatch, tenant_id: tenantId },
+    $match: bypass
+      ? baseMatch
+      : {
+          ...baseMatch,
+          $or: [
+            { tenant_id: tenantId },
+            { organization_id: tenantId },
+            { organizationId: tenantId },
+            { tenantId: tenantId },
+            { orgId: tenantId },
+            { 'tenant.tenant_id': tenantId },
+          ],
+        },
   };
 
   const pipeline = [

@@ -585,8 +585,24 @@ router.get(
  */
 router.get('/:userId/projects', asyncHandler(async (req, res) => {
   const userId = req.params.userId;
+
   // Accept both organization_id and tenant_id; prefer organization_id
-  const tenantId = (req.query.organization_id || req.query.tenant_id || req.organizationId || req.tenantId || '').toString().trim();
+  const tenantIdRaw = (req.query.organization_id || req.query.tenant_id || req.organizationId || req.tenantId || '').toString().trim();
+  const isT0000 = String(tenantIdRaw || '').toUpperCase() === 'T0000';
+
+  // IMPORTANT:
+  // For this endpoint, organization_id=T0000 is a supported "all tenants" selector used by the UI
+  // for Super Admin analytics. It should NOT be treated as a literal tenant filter.
+  if (isT0000) {
+    req.tenantScopeDisabled = true;
+    req.allTenants = true;
+    req.usersAllTenantsBypass = true;
+    try { res.set('X-All-Tenants', 'true'); } catch {}
+  }
+
+  // Keep tenant id as-provided for normal tenants; for T0000 we still echo tenant_id as T0000
+  // but must ensure DB queries do not filter on it.
+  const tenantId = tenantIdRaw;
 
   if (!userId || !tenantId) {
     return res.status(400).json({ success: false, message: 'userId (path) and organization_id/tenant_id (query/header) are required' });
@@ -695,7 +711,18 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
     const sessionsFilter = {
       $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
       ...(timeClauses.length ? { $or: timeClauses } : {}),
-      ...(bypass ? {} : { tenant_id: String(tenantId) }),
+      ...(bypass
+        ? {}
+        : {
+            $or: [
+              { tenant_id: String(tenantId) },
+              { organization_id: String(tenantId) },
+              { organizationId: String(tenantId) },
+              { tenantId: String(tenantId) },
+              { orgId: String(tenantId) },
+              { 'tenant.tenant_id': String(tenantId) },
+            ],
+          }),
     };
 
     const totalSessions = await SessionTracking.countDocuments(sessionsFilter);
