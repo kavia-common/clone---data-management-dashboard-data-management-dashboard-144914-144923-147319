@@ -132,8 +132,17 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
           ],
         };
 
-    const projects = await Project.find(findFilter, { project_id: 1, project_name: 1 }).lean();
-    projectNamesMap = projects.reduce((acc, p) => {
+    // NOTE:
+    // Some unit tests mock Project.find as a simple jest.fn() returning an array.
+    // In that case, `.lean()` is not available. To keep the code resilient and
+    // to avoid hard dependency on Mongoose query chaining, we support both:
+    // - Query object with .lean()
+    // - Direct array return (mocked/stubbed)
+    const findResult = await Project.find(findFilter, { project_id: 1, project_name: 1 });
+    const projects = typeof findResult?.lean === 'function' ? await findResult.lean() : findResult;
+
+    projectNamesMap = (Array.isArray(projects) ? projects : []).reduce((acc, p) => {
+      if (!p || !p.project_id) return acc;
       acc[p.project_id] = p.project_name || null;
       return acc;
     }, {});
