@@ -417,32 +417,77 @@ router.get(
     const to = req.query.to || now.toISOString();
     const granularity = (req.query.granularity || 'day').toLowerCase();
     const statusParam = (req.query.status || 'completed|active').trim();
-    // Enforce tenant scoping:
-    // - If query.tenant_id present, use it only if it matches req.tenantId
-    // - Otherwise, default to req.tenantId
-    let tenantId = req.query.tenant_id ? String(req.query.tenant_id) : null;
-    if (!tenantId && req.tenantId) {tenantId = String(req.tenantId);}
-    if (tenantId && req.tenantId && String(tenantId) !== String(req.tenantId)) {
-      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+
+    // Resolve requested tenant from query (tenant_id alias only for this endpoint)
+    // and support Super Admin selector: tenant_id=T0000 => all-tenants (no tenant filter).
+    const requestedTenant = req.query.tenant_id ? String(req.query.tenant_id) : null;
+    const isT0000 = requestedTenant && String(requestedTenant).toUpperCase() === 'T0000';
+
+    if (isT0000) {
+      // Mark bypass so downstream logic + diagnostics are consistent with other endpoints.
+      req.tenantScopeDisabled = true;
+      req.allTenants = true;
+      req.usersAllTenantsBypass = true;
+      try {
+        res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
+        res.set('X-Requested-Tenant', 'T0000');
+      } catch {}
+    }
+
+    // Enforce tenant scoping ONLY when not in bypass mode:
+    // - If query.tenant_id is present, it must match req.tenantId (JWT-resolved tenant).
+    // - Otherwise, default to req.tenantId.
+    let tenantId = null;
+    if (!isT0000) {
+      tenantId = requestedTenant;
+      if (!tenantId && req.tenantId) tenantId = String(req.tenantId);
+
+      if (tenantId && req.tenantId && String(tenantId) !== String(req.tenantId)) {
+        return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+      }
     }
 
     const fromDate = new Date(from);
     const toDate = new Date(to);
-    if (Number.isNaN(fromDate) || Number.isNaN(toDate))
-      {return res.status(400).json({ success: false, message: 'Invalid date range' });}
+    if (Number.isNaN(fromDate) || Number.isNaN(toDate)) {
+      return res.status(400).json({ success: false, message: 'Invalid date range' });
+    }
 
-    const cacheKey = buildActiveTrendCacheKey({ from, to, granularity, status: statusParam, tenant_id: tenantId });
+    const cacheKey = buildActiveTrendCacheKey({
+      from,
+      to,
+      granularity,
+      status: statusParam,
+      tenant_id: isT0000 ? 'all-tenants' : tenantId,
+    });
     const cached = getCache(ACTIVE_TREND_CACHE, cacheKey);
-    if (cached) {return res.json(cached);}
+    if (cached) return res.json(cached);
 
+    // IMPORTANT:
+    // Prefer last_updated if present; fall back to session_start for bucketing.
+    // For T0000/all-tenants mode, do NOT apply any tenant filter.
     const match = {
       last_updated: { $gte: fromDate, $lte: toDate },
+      ...(tenantId
+        ? {
+            $or: [
+              { tenant_id: tenantId },
+              { organization_id: tenantId },
+              { organizationId: tenantId },
+              { tenantId: tenantId },
+              { orgId: tenantId },
+              { 'tenant.tenant_id': tenantId },
+            ],
+          }
+        : {}),
     };
-    if (tenantId) {match.tenant_id = tenantId;}
 
     if (statusParam.includes('|')) {
       match.status = { $in: statusParam.split('|').map((s) => s.trim()) };
-    } else {match.status = statusParam;}
+    } else {
+      match.status = statusParam;
+    }
 
     const dateFormat = granularity === 'week' ? '%Y-%U' : '%Y-%m-%d';
     const pipeline = [
@@ -451,18 +496,16 @@ router.get(
         $group: {
           _id: {
             bucket: {
-              $dateToString: { format: dateFormat, date: { $ifNull: ['$last_updated', '$session_start'] } },
+              $dateToString: {
+                format: dateFormat,
+                date: { $ifNull: ['$last_updated', '$session_start'] },
+              },
             },
             user_id: { $toString: '$user_id' },
           },
         },
       },
-      {
-        $group: {
-          _id: '$_id.bucket',
-          total: { $sum: 1 },
-        },
-      },
+      { $group: { _id: '$_id.bucket', total: { $sum: 1 } } },
       { $project: { date: '$_id', total: 1, _id: 0 } },
       { $sort: { date: 1 } },
     ];
@@ -470,7 +513,7 @@ router.get(
     const items = await SessionTracking.aggregate(pipeline);
     const response = { items, meta: { from, to, granularity } };
     setCache(ACTIVE_TREND_CACHE, cacheKey, response, ACTIVE_TREND_TTL_MS);
-    res.status(200).json(response);
+    return res.status(200).json(response);
   })
 );
 
