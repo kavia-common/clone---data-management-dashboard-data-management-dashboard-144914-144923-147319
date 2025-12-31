@@ -4,12 +4,34 @@ const SessionTracking = require('../models/sessionTracking.model');
 const Project = require('../models/project.model');
 
 /**
+ * Determine if the request should run in "all tenants" mode.
+ * We treat tenant selector "T0000" (case-insensitive) as global for this endpoint.
+ *
+ * @param {string} tenantIdRaw raw tenant/organization id
+ * @param {any} req express req
+ * @returns {boolean}
+ */
+function isAllTenantsMode(tenantIdRaw, req) {
+  const t = tenantIdRaw !== undefined && tenantIdRaw !== null ? String(tenantIdRaw) : '';
+  const isT0000 = /^T0+$/i.test(t.trim());
+  const bypassFlag = !!(req && (req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin || req.usersAllTenantsBypass));
+  return isT0000 || bypassFlag;
+}
+
+/**
  * PUBLIC_INTERFACE
  * getUserProjectsFromSessions
- * Aggregates distinct projects for a given user within a tenant using session_tracking data.
+ * Aggregates distinct projects for a given user based on session_tracking data.
+ *
+ * Behavior:
+ * - When tenantId is "T0000" (case-insensitive) OR bypass flags are present on req,
+ *   runs in all-tenants mode and does NOT apply any tenant/org filters.
+ * - Otherwise, strictly scopes to the provided tenantId using common alias fields.
+ * - If from/to are provided, applies them consistently across timestamp/session_start/last_updated.
  */
 async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = undefined }) {
   const userIdString = String(userId);
+  const tenantIdString = tenantId !== undefined && tenantId !== null ? String(tenantId) : '';
 
   const timeClauses = [];
   const fromDate = from ? new Date(from) : null;
@@ -18,8 +40,8 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
   if (fromDate || toDate) {
     const makeRange = (field) => {
       const r = {};
-      if (fromDate) {r.$gte = fromDate;}
-      if (toDate) {r.$lte = toDate;}
+      if (fromDate) r.$gte = fromDate;
+      if (toDate) r.$lte = toDate;
       return { [field]: r };
     };
     timeClauses.push(makeRange('timestamp'));
@@ -27,13 +49,16 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
     timeClauses.push(makeRange('last_updated'));
   }
 
-  const bypass = !!(req && (req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin || req.usersAllTenantsBypass));
+  const allTenantsMode = isAllTenantsMode(tenantIdString, req);
+
   try {
     if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
-      // Route-level visibility: show when usersAllTenantsBypass is set
-      console.debug(`[users.service] getUserProjectsFromSessions bypass=${bypass} (usersAllTenantsBypass=${!!(req && req.usersAllTenantsBypass)})`);
+      console.debug(
+        `[users.service] getUserProjectsFromSessions allTenantsMode=${allTenantsMode} tenantId=${tenantIdString} usersAllTenantsBypass=${!!(req && req.usersAllTenantsBypass)}`
+      );
     }
   } catch {}
+
   const baseMatch = {
     $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
     ...(timeClauses.length
@@ -41,7 +66,7 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
           $or: timeClauses.map((clause) => {
             const key = Object.keys(clause)[0];
             const cond = clause[key];
-            if (!cond.$gte && !cond.$lte) {return { [key]: { $exists: true } };}
+            if (!cond.$gte && !cond.$lte) return { [key]: { $exists: true } };
             return clause;
           }),
         }
@@ -49,20 +74,20 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
   };
 
   // IMPORTANT:
-  // Session tracking data may store tenant identifiers under different field names
-  // depending on ingestion path. For safety, apply an $or across known aliases.
+  // Session tracking data may store tenant identifiers under different field names.
+  // For non-global mode we apply an $or across known aliases.
   const matchStage = {
-    $match: bypass
+    $match: allTenantsMode
       ? baseMatch
       : {
           ...baseMatch,
           $or: [
-            { tenant_id: tenantId },
-            { organization_id: tenantId },
-            { organizationId: tenantId },
-            { tenantId: tenantId },
-            { orgId: tenantId },
-            { 'tenant.tenant_id': tenantId },
+            { tenant_id: tenantIdString },
+            { organization_id: tenantIdString },
+            { organizationId: tenantIdString },
+            { tenantId: tenantIdString },
+            { orgId: tenantIdString },
+            { 'tenant.tenant_id': tenantIdString },
           ],
         },
   };
@@ -91,7 +116,23 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
   const projectIds = grouped.map((g) => g.project_id).filter(Boolean);
   let projectNamesMap = {};
   if (projectIds.length > 0) {
-    const projects = await Project.find({ project_id: { $in: projectIds } }, { project_id: 1, project_name: 1 }).lean();
+    // Preserve legacy behavior for non-global mode: projects names are tenant-scoped.
+    // In all-tenants mode, do NOT tenant-scope project name lookup so the UI can display names.
+    const findFilter = allTenantsMode
+      ? { project_id: { $in: projectIds } }
+      : {
+          project_id: { $in: projectIds },
+          $or: [
+            { tenant_id: tenantIdString },
+            { organization_id: tenantIdString },
+            { organizationId: tenantIdString },
+            { tenantId: tenantIdString },
+            { orgId: tenantIdString },
+            { 'tenant.tenant_id': tenantIdString },
+          ],
+        };
+
+    const projects = await Project.find(findFilter, { project_id: 1, project_name: 1 }).lean();
     projectNamesMap = projects.reduce((acc, p) => {
       acc[p.project_id] = p.project_name || null;
       return acc;
@@ -107,11 +148,12 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
         : undefined,
       last_activity: g.last_activity ? new Date(g.last_activity).toISOString() : undefined,
     }));
-  // If no projects, return an empty array (not null/undefined) to guarantee stable client behavior.
-   // console.debug('[users.service] projects output sample:', projects.slice(0, 2));
+
   return {
     user_id: userIdString,
-    tenant_id: tenantId,
+    // Maintain backward-compatible response shape: keep tenant_id as the incoming selector
+    // (even if it's T0000) so the frontend doesn't break.
+    tenant_id: tenantIdString,
     projects,
   };
 }
