@@ -59,35 +59,45 @@ async function getUserProjectsFromSessions({ tenantId, userId, from, to, req = u
     }
   } catch {}
 
-  const baseMatch = {
-    $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
-    ...(timeClauses.length
-      ? {
-          $or: timeClauses.map((clause) => {
-            const key = Object.keys(clause)[0];
-            const cond = clause[key];
-            if (!cond.$gte && !cond.$lte) return { [key]: { $exists: true } };
-            return clause;
-          }),
-        }
-      : {}),
+  // Build activity (time) filter:
+  // We consider a session "in range" when ANY of these fields is within range.
+  const timeOrClause = timeClauses.length
+    ? {
+        $or: timeClauses.map((clause) => {
+          const key = Object.keys(clause)[0];
+          const cond = clause[key];
+          if (!cond.$gte && !cond.$lte) return { [key]: { $exists: true } };
+          return clause;
+        }),
+      }
+    : null;
+
+  const tenantOrClause = {
+    $or: [
+      { tenant_id: tenantIdString },
+      { organization_id: tenantIdString },
+      { organizationId: tenantIdString },
+      { tenantId: tenantIdString },
+      { orgId: tenantIdString },
+      { 'tenant.tenant_id': tenantIdString },
+    ],
   };
 
   // IMPORTANT:
-  // Session tracking data may store tenant identifiers under different field names.
-  // For non-global mode we apply an $or across known aliases.
+  // Do NOT put both time-scoping and tenant-scoping under the same `$or` key
+  // on the same object — that would overwrite one of them. Instead, compose
+  // the query with `$and` so both constraints are enforced.
   const matchStage = {
     $match: allTenantsMode
-      ? baseMatch
+      ? {
+          $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
+          ...(timeOrClause ? timeOrClause : {}),
+        }
       : {
-          ...baseMatch,
-          $or: [
-            { tenant_id: tenantIdString },
-            { organization_id: tenantIdString },
-            { organizationId: tenantIdString },
-            { tenantId: tenantIdString },
-            { orgId: tenantIdString },
-            { 'tenant.tenant_id': tenantIdString },
+          $and: [
+            { $expr: { $eq: [{ $toString: '$user_id' }, userIdString] } },
+            tenantOrClause,
+            ...(timeOrClause ? [timeOrClause] : []),
           ],
         },
   };
