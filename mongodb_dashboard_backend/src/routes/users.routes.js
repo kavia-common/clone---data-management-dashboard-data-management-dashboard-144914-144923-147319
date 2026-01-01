@@ -12,6 +12,16 @@ const Tenant = require('../models/tenant.model');
 
 const router = express.Router();
 
+// Mount batch users->projects endpoint (POST /api/users/projects).
+// This is additive and does not change existing /api/users/:userId/projects behavior.
+try {
+  const usersProjectsBatchRoutes = require('./users.projects.batch.routes');
+  router.use(usersProjectsBatchRoutes);
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.warn('[users.routes] users.projects.batch.routes not mounted:', e?.message || e);
+}
+
 /**
  * Aggregates SessionTracking totals per user_id (as string).
  *
