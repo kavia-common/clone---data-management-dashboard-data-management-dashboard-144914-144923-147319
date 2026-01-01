@@ -326,7 +326,11 @@ function verifyAuth(req, res, next) {
     return next();
   } catch (err) {
     const allowDemoFlag = String(process.env.ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
-    if (!process.env.NODE_ENV?.toLowerCase() === 'production' && allowDemoFlag) {
+    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+    // In non-production, when demo auth is enabled, do not hard-fail invalid JWTs.
+    // Instead, allow request to continue with a demo auth context (used by preview environments).
+    if (!isProd && allowDemoFlag) {
       req.auth = {
         sub: 'demo-fallback',
         tenantId:
@@ -339,6 +343,7 @@ function verifyAuth(req, res, next) {
       };
       return next();
     }
+
     return res.status(401).json({ success: false, message: 'Unauthorized: invalid token' });
   }
 }

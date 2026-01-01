@@ -47,36 +47,111 @@ function normalizeSort(sortRaw) {
 }
 
 /**
- * Internal: parse JSON filter param.
- * Strips any tenant-scoping keys; tenant scoping is enforced server-side.
+ * Internal: attempt to parse a JSON-ish string. Supports double-encoded JSON.
+ * Returns:
+ *  - object on success
+ *  - {} for falsy/empty
+ *  - null for invalid input
  */
-function parseFilter(filterRaw) {
-  if (!filterRaw) return {};
-  if (typeof filterRaw === 'object') {
-    // If already object-ish, clone defensively
-    const f = Array.isArray(filterRaw) ? {} : { ...filterRaw };
-    delete f.tenant_id;
-    delete f.tenantId;
-    delete f.organization_id;
-    delete f.organizationId;
-    delete f.orgId;
-    return f;
+function parseJsonObjectish(input) {
+  if (!input) return {};
+  if (typeof input === 'object') {
+    if (Array.isArray(input)) return {};
+    return input;
   }
+  if (typeof input !== 'string') return {};
+  const s = input.trim();
+  if (!s) return {};
+  // Guard: reject mongo shell literals like ISODate("...") early (not valid JSON)
+  if (/ISODate\s*\(/i.test(s)) return null;
 
-  if (typeof filterRaw !== 'string') return {};
   try {
-    const f = JSON.parse(filterRaw);
-    if (!f || typeof f !== 'object' || Array.isArray(f)) return {};
-    delete f.tenant_id;
-    delete f.tenantId;
-    delete f.organization_id;
-    delete f.organizationId;
-    delete f.orgId;
-    return f;
+    const first = JSON.parse(s);
+    if (typeof first === 'string') {
+      // Sometimes query param arrives as JSON-stringified JSON string.
+      // Example: filter="{"status":"active"}"  (quotes included)
+      try {
+        const second = JSON.parse(first);
+        if (!second || typeof second !== 'object' || Array.isArray(second)) return {};
+        return second;
+      } catch {
+        return null;
+      }
+    }
+    if (!first || typeof first !== 'object' || Array.isArray(first)) return {};
+    return first;
   } catch {
-    // caller decides 400; return a sentinel
     return null;
   }
+}
+
+/**
+ * Internal: convert common Mongo Extended JSON date forms into JS Date objects.
+ * Supports:
+ *  - { "$date": "2025-01-01T00:00:00.000Z" }
+ *  - { "$date": 1735689600000 } (ms since epoch)
+ *
+ * This avoids Mongoose CastErrors when filters are produced by tooling or copied from Mongo exports.
+ */
+function normalizeExtendedJsonDates(value) {
+  if (!value) return value;
+
+  if (Array.isArray(value)) {
+    return value.map((v) => normalizeExtendedJsonDates(v));
+  }
+
+  if (typeof value !== 'object') return value;
+
+  // Handle {$date: ...}
+  if (
+    Object.prototype.hasOwnProperty.call(value, '$date') &&
+    Object.keys(value).length === 1
+  ) {
+    const raw = value.$date;
+    const d =
+      typeof raw === 'number'
+        ? new Date(raw)
+        : typeof raw === 'string'
+          ? new Date(raw)
+          : null;
+
+    // If invalid date, keep original (will be rejected downstream if used against Date fields),
+    // but we prefer to avoid throwing.
+    if (d && !Number.isNaN(d.getTime())) return d;
+    return value;
+  }
+
+  // Recurse normal objects
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    out[k] = normalizeExtendedJsonDates(v);
+  }
+  return out;
+}
+
+/**
+ * Internal: remove tenant scoping keys from a filter object.
+ */
+function stripTenantKeys(filterObj) {
+  const f = filterObj && typeof filterObj === 'object' && !Array.isArray(filterObj) ? { ...filterObj } : {};
+  delete f.tenant_id;
+  delete f.tenantId;
+  delete f.organization_id;
+  delete f.organizationId;
+  delete f.orgId;
+  return f;
+}
+
+/**
+ * Internal: parse JSON filter param.
+ * Strips any tenant-scoping keys; tenant scoping is enforced server-side.
+ * Also normalizes common date encodings.
+ */
+function parseFilter(filterRaw) {
+  const parsed = parseJsonObjectish(filterRaw);
+  if (parsed === null) return null;
+  const stripped = stripTenantKeys(parsed);
+  return normalizeExtendedJsonDates(stripped);
 }
 
 /**
