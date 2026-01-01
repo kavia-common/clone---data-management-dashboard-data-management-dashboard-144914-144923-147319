@@ -205,10 +205,13 @@ router.get(
       Project.countDocuments(match),
     ]);
 
+    // Ensure meta.total is always a finite integer for frontend pagination math.
+    const totalSafe = Number.isFinite(Number(total)) ? Number(total) : 0;
+
     return res.status(200).json({
       success: true,
       data: Array.isArray(items) ? items : [],
-      meta: { total: Number(total || 0), page, limit },
+      meta: { total: totalSafe, page, limit },
     });
   })
 );
