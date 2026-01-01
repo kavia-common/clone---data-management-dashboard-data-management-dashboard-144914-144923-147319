@@ -190,10 +190,13 @@ safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/llm_costs', require('./routes/costs.llm_costs.routes'));
 safeUse('/api/projects', require('./routes/projects.summary.routes'));
 safeUse('/api/service-type', require('./routes/serviceType.summary.routes'));
+
+// Projects list must be registered BEFORE '/:projectId/*' routes to avoid being shadowed by dynamic params.
+safeUse('/api/projects', require('./routes/projects.list.routes'));
 safeUse('/api/projects', require('./routes/projects.routes'));
 try {
   // eslint-disable-next-line no-console
-  console.log('[routes] Projects routes registered at: GET /api/projects/summary and /api/projects/*');
+  console.log('[routes] Projects routes registered at: GET /api/projects (list), /api/projects/summary and /api/projects/*');
 } catch {}
 safeUse('/api/session', require('./routes/session.routes'));
 safeUse('/api/dashboard', require('./routes/dashboard.routes'));
