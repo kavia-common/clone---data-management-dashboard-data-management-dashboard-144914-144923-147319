@@ -835,6 +835,7 @@ router.get(
       } catch (_) {}
     }
 
+    // Ensure explicit response shape + stable types for consumers.
     const response = {
       user_id: userIdString,
       tenant_id: tenantId || null,
@@ -844,11 +845,12 @@ router.get(
       total_duration: Number(totalsRow?.total_duration ?? 0),
       last_updated: totalsRow?.last_updated ? new Date(totalsRow.last_updated).toISOString() : null,
 
-      // New fields (non-breaking additions)
-      service_type,
-      organization_name: organization_name ? String(organization_name) : null,
-      total_cost: Number.isFinite(total_cost) ? total_cost : 0,
+      // Explicitly required fields (stable types + safe fallbacks)
+      service_type: Array.isArray(service_type) ? service_type : [],
+      organization_name: organization_name ? String(organization_name) : '',
+      total_cost: Number.isFinite(total_cost) ? Number(total_cost) : 0,
 
+      // Existing fields already returned
       sessions: Array.isArray(sessions) ? sessions : [],
       // IMPORTANT: full docs, no projection
       records: Array.isArray(records) ? records : [],
