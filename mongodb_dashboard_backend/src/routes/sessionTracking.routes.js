@@ -8,122 +8,6 @@ const { buildCrudController } = require('../controllers/crudFactory');
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
 
-/**
- * SessionTracking aggregates helper
- * IMPORTANT: We must not overwrite stored aggregate fields (total_duration/total_count).
- * The bug report indicates these values exist in MongoDB but were being returned as 0
- * due to mapping/defaulting logic. This route now preserves them and only computes
- * when missing.
- */
-
-// PUBLIC_INTERFACE
-function toEpochMs(value) {
-  /** Convert a Date/string/number to epoch ms, or null if invalid. */
-  if (value === null || value === undefined) return null;
-  if (value instanceof Date) {
-    const t = value.getTime();
-    return Number.isFinite(t) ? t : null;
-  }
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string') {
-    const d = new Date(value);
-    const t = d.getTime();
-    return Number.isFinite(t) ? t : null;
-  }
-  return null;
-}
-
-// PUBLIC_INTERFACE
-function computeDurationSecondsFromSegments(doc) {
-  /**
-   * Compute total duration (seconds) from session_segments when total_duration is absent.
-   * Each segment duration is: (end || last_updated) - start.
-   *
-   * Unit handling:
-   * - start/end/last_updated are expected to be Date-like; compute delta in ms then convert to seconds.
-   * - Returns a float seconds value (not rounded) to preserve precision like stored 1732.985.
-   */
-  const segments = doc?.session_segments;
-  if (!Array.isArray(segments) || segments.length === 0) return 0;
-
-  const lastUpdatedMs =
-    toEpochMs(doc?.last_updated) ??
-    toEpochMs(doc?.timestamp) ??
-    toEpochMs(doc?.session_start) ??
-    null;
-
-  let totalMs = 0;
-  for (const seg of segments) {
-    const startMs = toEpochMs(seg?.start);
-    if (!Number.isFinite(startMs)) continue;
-
-    const endMs = toEpochMs(seg?.end) ?? lastUpdatedMs;
-    if (!Number.isFinite(endMs)) continue;
-
-    const delta = Math.max(0, endMs - startMs);
-    totalMs += delta;
-  }
-
-  return totalMs / 1000;
-}
-
-// PUBLIC_INTERFACE
-function normalizeTotals(doc) {
-  /**
-   * Ensure each document includes total_count and total_duration.
-   * - If the document already has these fields, preserve them exactly (no default-to-zero).
-   * - If missing, compute total_duration from session_segments and total_count from
-   *   session_breakdown length (or 1 as last fallback when a single doc represents a user aggregate).
-   */
-  const out = { ...doc };
-
-  // total_count: preserve if present
-  if (out.total_count === undefined || out.total_count === null) {
-    const breakdown = out?.session_breakdown;
-    if (Array.isArray(breakdown)) out.total_count = breakdown.length;
-    else if (breakdown && typeof breakdown === 'object' && Number.isFinite(Number(breakdown.count))) {
-      out.total_count = Number(breakdown.count);
-    } else {
-      // If we can't infer, default to 0 (only when field absent)
-      out.total_count = 0;
-    }
-  }
-
-  // total_duration: preserve if present
-  if (out.total_duration === undefined || out.total_duration === null) {
-    out.total_duration = computeDurationSecondsFromSegments(out);
-  } else {
-    // Unit-safe: if stored as ms (very large), normalize to seconds for consistency in UI.
-    // Heuristic: values above ~10 million are likely ms (>= ~2.7 hours in ms threshold is 10M).
-    if (typeof out.total_duration === 'number' && Number.isFinite(out.total_duration) && out.total_duration > 10_000_000) {
-      out.total_duration = out.total_duration / 1000;
-    }
-  }
-
-  return out;
-}
-
-// PUBLIC_INTERFACE
-function computeEnvelopeTotals(items) {
-  /**
-   * Compute top-level totals for paginated response:
-   * - total_count: sum of each item's total_count
-   * - total_duration: sum of each item's total_duration (seconds)
-   */
-  let totalCount = 0;
-  let totalDuration = 0;
-
-  for (const it of items || []) {
-    const c = Number(it?.total_count);
-    if (Number.isFinite(c)) totalCount += c;
-
-    const d = typeof it?.total_duration === 'number' ? it.total_duration : Number(it?.total_duration);
-    if (Number.isFinite(d)) totalDuration += d;
-  }
-
-  return { total_count: totalCount, total_duration: totalDuration };
-}
-
 // Flags
 const ENABLE_ROUTE_CACHE = String(process.env.ENABLE_ROUTE_CACHE || 'true').toLowerCase() === 'true';
 const ENABLE_ETAG = String(process.env.ENABLE_ETAG || 'true').toLowerCase() === 'true';
@@ -372,22 +256,12 @@ router.get(
     // DB execution
     try {
       if (explicit) {
-        const [docsRaw, total] = await Promise.all([
+        const [docs, total] = await Promise.all([
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
           SessionTracking.countDocuments(finalFilter),
         ]);
 
-        // Ensure totals are included and preserved.
-        const docs = (docsRaw || []).map(normalizeTotals);
-        const envelopeTotals = computeEnvelopeTotals(docs);
-
-        // Keep existing envelope shape but add top-level totals for UI convenience.
-        const payload = {
-          success: true,
-          data: docs,
-          meta: { page, limit, total, ...envelopeTotals },
-        };
-
+        const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
           etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q, userId });
@@ -406,9 +280,8 @@ router.get(
         return res.status(200).json(payload);
       }
 
-      const docsRaw = await SessionTracking.find(finalFilter).sort(sort).lean();
-      const payload = (docsRaw || []).map(normalizeTotals);
-
+      const docs = await SessionTracking.find(finalFilter).sort(sort).lean();
+      const payload = docs;
       let etag = null;
       if (wantETag) {
         etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q, userId });
