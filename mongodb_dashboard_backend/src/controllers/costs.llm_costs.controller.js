@@ -67,10 +67,7 @@ async function getLlmCostsAggregated(req, res) {
       }
     },
 
-    // Lookup user by id with robust normalization:
-    // - costs.users.user_id is commonly a string
-    // - users._id can be ObjectId OR string depending on environment/seed data
-    // We match by stringifying users._id and comparing to the stringified user_id.
+    // Lookup user strictly by string _id using pipeline + $expr
     {
       $lookup: {
         from: 'users',
@@ -78,100 +75,19 @@ async function getLlmCostsAggregated(req, res) {
         pipeline: [
           {
             $match: {
-              $expr: {
-                $and: [
-                  { $ne: ['$$userId', null] },
-                  {
-                    $eq: [
-                      { $toString: '$_id' },
-                      { $toString: '$$userId' }
-                    ]
-                  }
-                ]
-              }
+              $expr: { $eq: ['$_id', '$$userId'] }
             }
           },
-          {
-            $project: {
-              _id: 1,
-              // Keep multiple possible name fields for backwards compatibility
-              name: 1,
-              displayName: 1,
-              display_name: 1,
-              full_name: 1,
-              fullName: 1,
-              user_name: 1,
-              username: 1,
-              email: 1,
-            }
-          }
+          { $project: { _id: 1, name: 1 } }
         ],
         as: 'userDoc'
       }
     },
 
-    // Add user_name with safe fallbacks:
-    // 1) users collection (preferred)
-    // 2) embedded cost document user name fields (if present)
-    // 3) "Unknown User"
+    // Add user_name from users.name (fallback Unknown User)
     {
       $addFields: {
-        user_name: {
-          $ifNull: [
-            {
-              $ifNull: [
-                { $arrayElemAt: ['$userDoc.name', 0] },
-                {
-                  $ifNull: [
-                    { $arrayElemAt: ['$userDoc.displayName', 0] },
-                    {
-                      $ifNull: [
-                        { $arrayElemAt: ['$userDoc.display_name', 0] },
-                        {
-                          $ifNull: [
-                            { $arrayElemAt: ['$userDoc.full_name', 0] },
-                            {
-                              $ifNull: [
-                                { $arrayElemAt: ['$userDoc.fullName', 0] },
-                                {
-                                  $ifNull: [
-                                    { $arrayElemAt: ['$userDoc.user_name', 0] },
-                                    {
-                                      $ifNull: [
-                                        { $arrayElemAt: ['$userDoc.username', 0] },
-                                        { $arrayElemAt: ['$userDoc.email', 0] }
-                                      ]
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              $ifNull: [
-                '$users.user_name',
-                {
-                  $ifNull: [
-                    '$users.userName',
-                    {
-                      $ifNull: [
-                        '$users.name',
-                        'Unknown User'
-                      ]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
+        user_name: { $ifNull: [{ $arrayElemAt: ['$userDoc.name', 0] }, 'Unknown User'] }
       }
     },
 
