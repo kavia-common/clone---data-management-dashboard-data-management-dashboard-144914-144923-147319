@@ -617,6 +617,100 @@ router.get(
 );
 /**
  * PUBLIC_INTERFACE
+ * GET /api/users/:userId/session-details
+ * Returns comprehensive session details for the specified user sourced from the session_tracking collection.
+ *
+ * Minimum fields returned:
+ *  - total_count: number (Number of Sessions)
+ *  - total_duration: number (Total Duration; units depend on ingest, commonly seconds)
+ *
+ * Also returns:
+ *  - last_updated: ISO string or null (best-effort, derived from latest record)
+ *  - sessions: array of raw session records (best-effort, derived from document.sessions if present)
+ *  - records: array of the most relevant session_tracking documents for transparency/debugging
+ *
+ * Notes:
+ *  - This endpoint is intentionally non-breaking: it does not modify any existing /api/session-tracking routes.
+ *  - Safe fallbacks are applied for older documents where fields may be missing.
+ *  - Query matches user_id by string equivalence using $expr + $toString to support Mixed/ObjectId storage.
+ *  - Tenant scoping is NOT required for this endpoint per the task request; it returns data for the userId across all tenants.
+ */
+router.get(
+  '/:userId/session-details',
+  asyncHandler(async (req, res) => {
+    const userId = req.params.userId;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId (path) is required' });
+    }
+
+    const userIdString = String(userId);
+
+    // Fetch a small set of most recent records (so response includes "relevant session detail records").
+    // We prefer last_updated, then session_start, then timestamp for recency.
+    const records = await SessionTracking.find(
+      {
+        $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
+      },
+      null,
+      { limit: 50 } // keep bounded; frontend can page using /api/session-tracking if needed
+    )
+      .sort({ last_updated: -1, session_start: -1, timestamp: -1, _id: -1 })
+      .lean();
+
+    // Aggregate totals across the user's records.
+    // total_count: sum of record.total_count if present; otherwise fall back to 1 per record.
+    // total_duration: sum of record.total_duration if numeric-ish; otherwise 0.
+    const totalsAgg = await SessionTracking.aggregate([
+      {
+        $match: {
+          $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          // Safe fallback: if total_count is missing, count the record as 1 session.
+          total_count: { $sum: { $ifNull: ['$total_count', 1] } },
+          // total_duration may be missing or non-numeric in older docs; coerce missing to 0.
+          total_duration: { $sum: { $ifNull: ['$total_duration', 0] } },
+          last_updated: { $max: { $ifNull: ['$last_updated', '$session_start'] } },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          total_count: 1,
+          total_duration: 1,
+          last_updated: 1,
+        },
+      },
+    ]).allowDiskUse(true);
+
+    const totalsRow = Array.isArray(totalsAgg) && totalsAgg.length ? totalsAgg[0] : null;
+
+    // Prefer sessions list if present in any of the records (older docs may not have it).
+    // We take the first array we find (newer records tend to have richer shape).
+    const sessions =
+      records.find((r) => Array.isArray(r?.sessions))?.sessions ||
+      records.find((r) => Array.isArray(r?.session_data?.sessions))?.session_data?.sessions ||
+      [];
+
+    // Defensive normalization for response stability.
+    const response = {
+      user_id: userIdString,
+      total_count: Number(totalsRow?.total_count ?? 0),
+      total_duration: Number(totalsRow?.total_duration ?? 0),
+      last_updated: totalsRow?.last_updated ? new Date(totalsRow.last_updated).toISOString() : null,
+      sessions: Array.isArray(sessions) ? sessions : [],
+      records: Array.isArray(records) ? records : [],
+    };
+
+    return res.status(200).json(response);
+  })
+);
+
+/**
+ * PUBLIC_INTERFACE
  * GET /api/users/:userId/projects
  * Returns distinct projects for the specified user based on session_tracking activity.
  * Query:
