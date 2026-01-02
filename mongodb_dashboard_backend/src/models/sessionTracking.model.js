@@ -16,6 +16,14 @@ const SessionTrackingSchema = new mongoose.Schema(
     last_updated: { type: Date, index: true },
     timestamp: { type: Date, index: true },
     project_id: { type: String, index: true, sparse: true },
+
+    // NOTE: session_tracking documents may also include aggregate fields used by the UI.
+    // We keep strict:false so MongoDB documents can carry these without schema migrations.
+    // Examples:
+    // - total_count: number of sessions for a user
+    // - total_duration: total duration across sessions (units depend on ingest; often seconds)
+    total_count: { type: Number },
+    total_duration: { type: mongoose.Schema.Types.Mixed },
   },
   {
     collection: 'session_tracking',
