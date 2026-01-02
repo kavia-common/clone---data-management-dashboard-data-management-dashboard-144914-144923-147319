@@ -615,25 +615,29 @@ router.get(
     return controller.list(req, res, next);
   }
 );
+
 /**
  * PUBLIC_INTERFACE
  * GET /api/users/:userId/session-details
- * Returns comprehensive session details for the specified user sourced from the session_tracking collection.
+ * Returns session details for the specified user sourced from the session_tracking collection.
  *
- * Minimum fields returned:
- *  - total_count: number (Number of Sessions)
- *  - total_duration: number (Total Duration; units depend on ingest, commonly seconds)
+ * Query params:
+ *  - organization_id (preferred) OR tenant_id: tenant/org scope to filter session_tracking records.
  *
- * Also returns:
- *  - last_updated: ISO string or null (best-effort, derived from latest record)
- *  - sessions: array of raw session records (best-effort, derived from document.sessions if present)
- *  - records: array of the most relevant session_tracking documents for transparency/debugging
+ * Response:
+ *  - user_id: string
+ *  - tenant_id: string | null (echoed from query when provided)
+ *  - total_count: number (best-effort; sum(total_count) else 1 per record)
+ *  - total_duration: number (best-effort; sum(total_duration) else 0)
+ *  - last_updated: ISO string | null (max(last_updated, session_start) best-effort)
+ *  - sessions: array (best-effort derived from the first matching record that has sessions)
+ *  - records: array of FULL session_tracking documents (no projection; returned as-is)
  *
  * Notes:
- *  - This endpoint is intentionally non-breaking: it does not modify any existing /api/session-tracking routes.
+ *  - Do not project or omit fields; full session_tracking documents are returned in `records`.
  *  - Safe fallbacks are applied for older documents where fields may be missing.
- *  - Query matches user_id by string equivalence using $expr + $toString to support Mixed/ObjectId storage.
- *  - Tenant scoping is NOT required for this endpoint per the task request; it returns data for the userId across all tenants.
+ *  - Matching user_id is done via $expr + $toString to support Mixed/ObjectId storage.
+ *  - If multiple records exist, returns the most recent bounded set ordered by last_updated/session_start/timestamp.
  */
 router.get(
   '/:userId/session-details',
@@ -645,63 +649,70 @@ router.get(
 
     const userIdString = String(userId);
 
-    // Fetch a small set of most recent records (so response includes "relevant session detail records").
-    // We prefer last_updated, then session_start, then timestamp for recency.
-    const records = await SessionTracking.find(
-      {
-        $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
-      },
-      null,
-      { limit: 50 } // keep bounded; frontend can page using /api/session-tracking if needed
-    )
+    // Accept both organization_id and tenant_id (prefer organization_id).
+    const tenantIdRaw =
+      (typeof req.query?.organization_id === 'string' && req.query.organization_id) ||
+      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id) ||
+      '';
+
+    const tenantId = tenantIdRaw ? String(tenantIdRaw).trim() : '';
+
+    // Safe fallback: if tenant isn't provided, only filter by user_id.
+    const andClauses = [{ $expr: { $eq: [{ $toString: '$user_id' }, userIdString] } }];
+
+    // If tenant is provided, enforce tenant/org filter too.
+    if (tenantId) {
+      andClauses.push({
+        $or: [
+          { tenant_id: tenantId },
+          { organization_id: tenantId },
+          { organizationId: tenantId },
+          { tenantId: tenantId },
+          { orgId: tenantId },
+          { 'tenant.tenant_id': tenantId },
+        ],
+      });
+    }
+
+    const matchFilter = andClauses.length === 1 ? andClauses[0] : { $and: andClauses };
+
+    // Return a bounded set of the most recent records with NO projection (all fields).
+    const MAX_RECORDS = 50;
+
+    const records = await SessionTracking.find(matchFilter, null, { limit: MAX_RECORDS })
       .sort({ last_updated: -1, session_start: -1, timestamp: -1, _id: -1 })
       .lean();
 
-    // Aggregate totals across the user's records.
-    // total_count: sum of record.total_count if present; otherwise fall back to 1 per record.
-    // total_duration: sum of record.total_duration if numeric-ish; otherwise 0.
+    // Aggregate totals across the matched records.
     const totalsAgg = await SessionTracking.aggregate([
-      {
-        $match: {
-          $expr: { $eq: [{ $toString: '$user_id' }, userIdString] },
-        },
-      },
+      { $match: matchFilter },
       {
         $group: {
           _id: null,
-          // Safe fallback: if total_count is missing, count the record as 1 session.
           total_count: { $sum: { $ifNull: ['$total_count', 1] } },
-          // total_duration may be missing or non-numeric in older docs; coerce missing to 0.
           total_duration: { $sum: { $ifNull: ['$total_duration', 0] } },
           last_updated: { $max: { $ifNull: ['$last_updated', '$session_start'] } },
         },
       },
-      {
-        $project: {
-          _id: 0,
-          total_count: 1,
-          total_duration: 1,
-          last_updated: 1,
-        },
-      },
+      { $project: { _id: 0, total_count: 1, total_duration: 1, last_updated: 1 } },
     ]).allowDiskUse(true);
 
     const totalsRow = Array.isArray(totalsAgg) && totalsAgg.length ? totalsAgg[0] : null;
 
-    // Prefer sessions list if present in any of the records (older docs may not have it).
-    // We take the first array we find (newer records tend to have richer shape).
+    // Prefer sessions list if present in any matching record (older docs may not have it).
     const sessions =
       records.find((r) => Array.isArray(r?.sessions))?.sessions ||
       records.find((r) => Array.isArray(r?.session_data?.sessions))?.session_data?.sessions ||
       [];
 
-    // Defensive normalization for response stability.
     const response = {
       user_id: userIdString,
+      tenant_id: tenantId || null,
       total_count: Number(totalsRow?.total_count ?? 0),
       total_duration: Number(totalsRow?.total_duration ?? 0),
       last_updated: totalsRow?.last_updated ? new Date(totalsRow.last_updated).toISOString() : null,
       sessions: Array.isArray(sessions) ? sessions : [],
+      // IMPORTANT: full docs, no projection
       records: Array.isArray(records) ? records : [],
     };
 
@@ -813,7 +824,6 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
       req, // allow service to detect super admin bypass
     });
 
-    // Ensure projects is always an array for safety
     /**
      * Count total sessions for this user in the same tenant + date range.
      *
