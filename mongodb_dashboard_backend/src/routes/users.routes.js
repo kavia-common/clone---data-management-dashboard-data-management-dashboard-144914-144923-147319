@@ -624,12 +624,15 @@ router.get(
  * Query params:
  *  - organization_id (preferred) OR tenant_id: tenant/org scope to filter session_tracking records.
  *
- * Response:
+ * Response (non-breaking additions included):
  *  - user_id: string
  *  - tenant_id: string | null (echoed from query when provided)
  *  - total_count: number (best-effort; sum(total_count) else 1 per record)
  *  - total_duration: number (best-effort; sum(total_duration) else 0)
  *  - last_updated: ISO string | null (max(last_updated, session_start) best-effort)
+ *  - service_type: string[] (de-duplicated list across the user's sessions; best-effort)
+ *  - organization_name: string | null (prefer from session docs; otherwise derived from tenant/user context when possible)
+ *  - total_cost: number (best-effort sum across sessions; parses numeric and currency-like strings)
  *  - sessions: array (best-effort derived from the first matching record that has sessions)
  *  - records: array of FULL session_tracking documents (no projection; returned as-is)
  *
@@ -683,7 +686,31 @@ router.get(
       .sort({ last_updated: -1, session_start: -1, timestamp: -1, _id: -1 })
       .lean();
 
-    // Aggregate totals across the matched records.
+    /**
+     * Best-effort parsing for numeric/currency-like values.
+     * Accepts:
+     *  - number
+     *  - "$1.23" / "1.23" / "USD 1.23" / "1,234.56"
+     * Returns 0 for invalid/missing.
+     */
+    function parseNumericCost(value) {
+      if (value === null || value === undefined) return 0;
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+
+      if (typeof value === 'string') {
+        const cleaned = value
+          .trim()
+          .replace(/,/g, '')
+          .replace(/[^\d.-]/g, '');
+        const n = Number(cleaned);
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      return 0;
+    }
+
+    // Aggregate totals across the matched records (DB-side for counts/duration/last_updated,
+    // app-side for service_type/org_name/total_cost to allow flexible field fallbacks).
     const totalsAgg = await SessionTracking.aggregate([
       { $match: matchFilter },
       {
@@ -705,12 +732,123 @@ router.get(
       records.find((r) => Array.isArray(r?.session_data?.sessions))?.session_data?.sessions ||
       [];
 
+    // ---- New aggregations (safe + non-breaking) ----
+
+    // service_type: build a unique list across records, coalescing common variants.
+    const serviceTypeSet = new Set();
+    for (const r of records || []) {
+      const v =
+        r?.service_type ??
+        r?.serviceType ??
+        r?.metadata?.service_type ??
+        r?.session_data?.service_type ??
+        null;
+
+      if (typeof v === 'string' && v.trim()) {
+        serviceTypeSet.add(v.trim());
+      } else if (Array.isArray(v)) {
+        for (const it of v) {
+          if (typeof it === 'string' && it.trim()) serviceTypeSet.add(it.trim());
+        }
+      }
+    }
+    const service_type = Array.from(serviceTypeSet);
+
+    // total_cost: sum across records using flexible field fallbacks.
+    let total_cost = 0;
+    for (const r of records || []) {
+      const v =
+        r?.total_cost ??
+        r?.totalCost ??
+        r?.cost_usd ??
+        r?.costUSD ??
+        r?.llm_cost ??
+        r?.llmCost ??
+        r?.session_data?.total_cost ??
+        r?.session_data?.cost_usd ??
+        null;
+
+      total_cost += parseNumericCost(v);
+    }
+
+    // organization_name: prefer from session docs; else try to derive from tenant/user context.
+    let organization_name =
+      records.find((r) => typeof r?.organization_name === 'string' && r.organization_name.trim())
+        ?.organization_name ||
+      records.find((r) => typeof r?.organizationName === 'string' && r.organizationName.trim())
+        ?.organizationName ||
+      records.find((r) => typeof r?.tenant_name === 'string' && r.tenant_name.trim())
+        ?.tenant_name ||
+      records.find((r) => typeof r?.tenant?.tenant_name === 'string' && r.tenant.tenant_name.trim())
+        ?.tenant?.tenant_name ||
+      records.find(
+        (r) => typeof r?.tenant?.organization_name === 'string' && r.tenant.organization_name.trim()
+      )?.tenant?.organization_name ||
+      null;
+
+    // If still missing, try Tenant model lookup by provided tenantId (best-effort, safe).
+    if (!organization_name && tenantId) {
+      try {
+        const tenantDoc = await Tenant.findOne(
+          { tenant_id: tenantId },
+          { tenant_id: 1, tenant_name: 1 }
+        ).lean();
+        if (tenantDoc?.tenant_name) organization_name = String(tenantDoc.tenant_name);
+      } catch (_) {}
+    }
+
+    // If still missing, try derive from user doc (best-effort, safe).
+    if (!organization_name) {
+      try {
+        const userDoc = await User.findById(userIdString, {
+          organization_name: 1,
+          organizationName: 1,
+          tenant_name: 1,
+          tenantName: 1,
+          organization_id: 1,
+        }).lean();
+
+        organization_name =
+          (typeof userDoc?.organization_name === 'string' && userDoc.organization_name.trim()
+            ? userDoc.organization_name.trim()
+            : null) ||
+          (typeof userDoc?.organizationName === 'string' && userDoc.organizationName.trim()
+            ? userDoc.organizationName.trim()
+            : null) ||
+          (typeof userDoc?.tenant_name === 'string' && userDoc.tenant_name.trim()
+            ? userDoc.tenant_name.trim()
+            : null) ||
+          (typeof userDoc?.tenantName === 'string' && userDoc.tenantName.trim()
+            ? userDoc.tenantName.trim()
+            : null) ||
+          null;
+
+        if (!organization_name && userDoc?.organization_id) {
+          try {
+            const t = await Tenant.findOne(
+              { tenant_id: String(userDoc.organization_id) },
+              { tenant_name: 1 }
+            ).lean();
+            if (t?.tenant_name) organization_name = String(t.tenant_name);
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+
     const response = {
       user_id: userIdString,
       tenant_id: tenantId || null,
+
+      // Existing fields (keep semantics)
       total_count: Number(totalsRow?.total_count ?? 0),
       total_duration: Number(totalsRow?.total_duration ?? 0),
       last_updated: totalsRow?.last_updated ? new Date(totalsRow.last_updated).toISOString() : null,
+
+      // New fields (non-breaking additions)
+      service_type,
+      organization_name: organization_name ? String(organization_name) : null,
+      total_cost: Number.isFinite(total_cost) ? total_cost : 0,
+
       sessions: Array.isArray(sessions) ? sessions : [],
       // IMPORTANT: full docs, no projection
       records: Array.isArray(records) ? records : [],
