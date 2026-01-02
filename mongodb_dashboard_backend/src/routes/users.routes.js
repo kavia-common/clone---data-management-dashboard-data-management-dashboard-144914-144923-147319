@@ -617,6 +617,167 @@ router.get(
 );
 /**
  * PUBLIC_INTERFACE
+ * GET /api/users/:userId/sessions
+ *
+ * User-scoped sessions endpoint for Users Analytics.
+ * This endpoint is intentionally separate from /api/session-tracking to avoid impacting
+ * Session Tracking module behavior and consumers.
+ *
+ * Query params:
+ *  - organization_id (required): tenant (organization) id. Alias: tenant_id
+ *  - from (optional): ISO timestamp lower bound (inclusive)
+ *  - to (optional): ISO timestamp upper bound (inclusive)
+ *
+ * Filtering semantics:
+ *  - Always filter by user_id == :userId (string-normalized).
+ *  - Always filter by tenant (organization_id) unless in bypass/all-tenants mode.
+ *  - If from/to are provided: session is included when ANY of (last_updated, session_start, timestamp)
+ *    falls within [from,to]. This matches existing conventions in users endpoints.
+ *
+ * Responses:
+ *  - 200: { success:true, data:[session...], meta:{ user_id, organization_id, from, to, count } }
+ *         Returns empty data array if no sessions match.
+ *  - 400: invalid/missing organization_id or invalid from/to ISO timestamps
+ *  - 404: if user not found (when applicable)
+ */
+router.get(
+  '/:userId/sessions',
+  asyncHandler(async (req, res) => {
+    const userId = req.params.userId;
+
+    // Accept both organization_id and tenant_id; prefer organization_id
+    const tenantIdRaw = (req.query.organization_id || req.query.tenant_id || req.organizationId || req.tenantId || '')
+      .toString()
+      .trim();
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId (path) is required' });
+    }
+    if (!tenantIdRaw) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'organization_id (query) is required (alias: tenant_id)' });
+    }
+
+    // Support "all tenants" selector for Super Admin analytics (consistent with users projects endpoint)
+    const isT0000 = String(tenantIdRaw || '').toUpperCase() === 'T0000';
+    if (isT0000) {
+      req.tenantScopeDisabled = true;
+      req.allTenants = true;
+      req.usersAllTenantsBypass = true;
+      try {
+        res.set('X-All-Tenants', 'true');
+        res.set('X-Applied-Tenant', 'all-tenants');
+      } catch {}
+    }
+
+    const tenantId = tenantIdRaw;
+
+    // Parse ISO timestamps in a timezone-safe way (Date parses ISO with timezone offsets correctly).
+    // We also support ISODate("...") wrapper to be resilient to legacy callers.
+    function parseIsoQueryDate(value, { fieldName }) {
+      if (value === undefined || value === null || value === '') return undefined;
+
+      let s = String(value).trim();
+      const isoDateWrapped = /^ISODate\((.*)\)$/i.exec(s);
+      if (isoDateWrapped && isoDateWrapped[1]) {
+        s = isoDateWrapped[1].trim().replace(/^['"]|['"]$/g, '');
+      }
+
+      const d = new Date(s);
+      if (Number.isNaN(d.getTime())) {
+        const err = new Error(`Invalid "${fieldName}" date`);
+        err.statusCode = 400;
+        throw err;
+      }
+      return d;
+    }
+
+    let fromDate;
+    let toDate;
+    try {
+      fromDate = parseIsoQueryDate(req.query?.from, { fieldName: 'from' });
+      toDate = parseIsoQueryDate(req.query?.to, { fieldName: 'to' });
+    } catch (e) {
+      return res.status(e.statusCode || 400).json({ success: false, message: e.message || 'Invalid date' });
+    }
+
+    // Basic bounds sanity: allow open-ended; if both provided ensure from <= to
+    if (fromDate && toDate && fromDate.getTime() > toDate.getTime()) {
+      return res.status(400).json({ success: false, message: '"from" must be <= "to"' });
+    }
+
+    // Optional: 404 if user does not exist.
+    // We only attempt ObjectId lookup when userId looks like an ObjectId to avoid unnecessary casting errors.
+    // If userId is not an ObjectId (some deployments may use string ids), we skip strict existence check.
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      const exists = await User.exists({ _id: new mongoose.Types.ObjectId(userId) });
+      if (!exists) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+    }
+
+    const bypass = !!(req && (req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin || req.usersAllTenantsBypass));
+
+    // Build filter using $and to avoid clobbering $or keys and to keep semantics explicit.
+    const andClauses = [{ $expr: { $eq: [{ $toString: '$user_id' }, String(userId)] } }];
+
+    if (fromDate || toDate) {
+      const makeRange = (field) => {
+        const r = {};
+        if (fromDate) r.$gte = fromDate;
+        if (toDate) r.$lte = toDate;
+        return { [field]: r };
+      };
+      andClauses.push({
+        $or: [makeRange('last_updated'), makeRange('session_start'), makeRange('timestamp')],
+      });
+    }
+
+    if (!bypass) {
+      // Organization scoping (match existing conventions; allow different tenant field names)
+      andClauses.push({
+        $or: [
+          { tenant_id: String(tenantId) },
+          { organization_id: String(tenantId) },
+          { organizationId: String(tenantId) },
+          { tenantId: String(tenantId) },
+          { orgId: String(tenantId) },
+          { 'tenant.tenant_id': String(tenantId) },
+        ],
+      });
+    }
+
+    const filter = andClauses.length === 1 ? andClauses[0] : { $and: andClauses };
+
+    // Query session documents directly from session_tracking collection.
+    // Keep the payload bounded: return most recent first and cap results to avoid accidental huge payloads.
+    // (Frontend calls this once per "Quick Range", so it should be safe.)
+    const MAX_SESSIONS = 2000;
+    const sessions = await SessionTracking.find(filter)
+      .sort({ last_updated: -1, session_start: -1, timestamp: -1, _id: -1 })
+      .limit(MAX_SESSIONS)
+      .lean();
+
+    const count = sessions.length;
+
+    return res.status(200).json({
+      success: true,
+      data: sessions,
+      meta: {
+        user_id: String(userId),
+        organization_id: String(tenantId),
+        from: fromDate ? fromDate.toISOString() : null,
+        to: toDate ? toDate.toISOString() : null,
+        count,
+        limited: count >= MAX_SESSIONS,
+      },
+    });
+  })
+);
+
+/**
+ * PUBLIC_INTERFACE
  * GET /api/users/:userId/projects
  * Returns distinct projects for the specified user based on session_tracking activity.
  * Query:
