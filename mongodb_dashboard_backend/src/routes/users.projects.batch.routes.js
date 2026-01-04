@@ -2,47 +2,37 @@
 
 /**
  * PUBLIC_INTERFACE
- * Users Sessions Batch Aggregation Route (used by Users tab "Activity by User" chart)
+ * Users Projects Batch Routes
  *
  * POST /api/users/projects
+ * Accepts JSON: {
+ *   userIds: string[],
+ *   organization_id?: string,
+ *   tenant_id?: string,
+ *   from?: string|Date,
+ *   to?: string|Date
+ * }
  *
- * Request body:
- *  {
- *    userIds: string[],
- *    organization_id?: string,   // alias: tenant_id
- *    tenant_id?: string,         // alias: organization_id
- *    from?: string|Date,         // ISO timestamp
- *    to?: string|Date            // ISO timestamp
- *  }
- *
- * Semantics (must match reference MongoDB query behavior):
- *  - Filters sessions by created_at within [from,to] inclusive using $gte/$lte.
- *  - Filters by tenant (organization_id/tenant_id) unless organization_id === 'T0000'
- *    (super-admin wildcard) in which case tenant filter is omitted.
- *  - Aggregates total session count per requested user_id (count of session documents).
- *  - Enriches with user_name from users collection when available.
- *
- * Response:
- *  {
- *    success: true,
- *    tenant_id: string|null, // echoed tenant selector; "T0000" when wildcard
- *    data: {
- *      [user_id: string]: { user_id, user_name, total_count, projects: [] }
- *    },
- *    meta: { requestedUserIds, chunkSize, chunks, from, to }
- *  }
+ * Returns a map keyed by userId. Each value is an object compatible with the frontend expectations:
+ *   {
+ *     total_count: number,
+ *     projects: Array<{ project_id, project_name, last_activity }>
+ *   }
  *
  * Notes:
- *  - No per-user calls: aggregation is done in bulk via MongoDB pipeline(s).
- *  - Handles large userIds lists safely via chunking and a configurable max size.
+ * - Supports very large userIds arrays safely by chunking; overall cap is configurable.
+ * - organization_id and tenant_id are aliases; organization_id takes precedence.
+ * - Super Admin / wildcard tenant:
+ *    - organization_id === 'T0000' (case-insensitive) is treated as "all tenants" (no tenant/org filter).
+ *    - Additionally, if no tenant is provided but caller sets x-organization-id: T0000, it is accepted.
+ * - Uses MongoDB aggregation with allowDiskUse to avoid memory pressure.
  */
 
 const express = require('express');
-const cors = require('cors');
-const mongoose = require('mongoose');
 const router = express.Router();
-
-const { getDb } = require('../config/db');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const { getDb } = require('../config/db'); // existing db helper if available
 
 // Basic permissive CORS for this route only; aligns with REACT_APP_FRONTEND_URL if set
 const FRONTEND_URL = process.env.REACT_APP_FRONTEND_URL;
@@ -56,6 +46,7 @@ function isT0000Like(val) {
   return String(val).trim().toUpperCase() === 'T0000';
 }
 
+// Simple logger
 function log(...args) {
   if ((process.env.REACT_APP_LOG_LEVEL || 'info') !== 'silent') {
     // eslint-disable-next-line no-console
@@ -74,18 +65,18 @@ function logError(context, err) {
   });
 }
 
+// Helpers
 function parseDateSafe(val) {
   if (!val) return null;
   const d = new Date(val);
-  return Number.isNaN(d.getTime()) ? null : d;
+  return isNaN(d.getTime()) ? null : d;
 }
 
 function normalizeStringId(v) {
   if (v == null) return null;
   try {
-    const s = String(v);
-    return s.trim() ? s : null;
-  } catch {
+    return String(v);
+  } catch (_e) {
     return null;
   }
 }
@@ -101,83 +92,77 @@ function chunkArray(arr, chunkSize) {
 function buildEmptyResponseMap(userIds) {
   const map = {};
   for (const uid of userIds) {
-    map[uid] = { user_id: uid, user_name: null, total_count: 0, projects: [] };
+    map[uid] = { total_count: 0, projects: [] };
   }
   return map;
 }
 
 /**
- * Aggregates session totals for a userIds chunk with optional user_name enrichment.
- * Returns rows: [{ user_id, user_name, total_count }]
+ * Run aggregation for a single chunk of userIds and return results shaped as:
+ *   [{ user_id, projects: [...] }]
  */
-async function aggregateSessionsByUserChunk({ db, userIdsChunk, tenant, isAllTenants, fromDate, toDate }) {
-  // Tenant filter is omitted entirely for T0000/all-tenants mode.
-  const match = {};
+async function aggregateChunk({ db, userIdsChunk, tenant, isAllTenants, fromDate, toDate }) {
+  const usersClause = { $expr: { $in: [{ $toString: '$user_id' }, userIdsChunk] } };
 
-  // created_at inclusive bounds
-  const createdAtRange = {};
-  if (fromDate) createdAtRange.$gte = fromDate;
-  if (toDate) createdAtRange.$lte = toDate;
-  if (Object.keys(createdAtRange).length) {
-    match.created_at = createdAtRange;
-  }
+  const timeRange = {};
+  if (fromDate) timeRange.$gte = fromDate;
+  if (toDate) timeRange.$lte = toDate;
 
-  // user filter: normalize stored user_id to string for matching against provided ids
-  // NOTE: Use $expr+$toString so sessions.user_id may be ObjectId/Mixed.
-  match.$expr = { $in: [{ $toString: '$user_id' }, userIdsChunk] };
+  const andClauses = [usersClause];
 
   if (!isAllTenants) {
-    // Match reference requirement: Filter by organization_id (tenant_id) unless T0000.
-    // We support both tenant_id and organization_id fields on session docs.
-    match.$and = [
-      // Preserve existing match keys and add tenant clause without overwriting $expr/created_at
-      // by keeping tenant clause inside $and.
-      // (We also keep $expr at top-level; Mongo treats it as AND with other top-level keys.)
-      {
-        $or: [{ tenant_id: tenant }, { organization_id: tenant }],
-      },
-    ];
+    andClauses.push({ $or: [{ tenant_id: tenant }, { organization_id: tenant }] });
   }
 
+  if (Object.keys(timeRange).length) {
+    andClauses.push({
+      $or: [{ last_updated: timeRange }, { session_start: timeRange }],
+    });
+  }
+
+  const match = andClauses.length === 1 ? andClauses[0] : { $and: andClauses };
+
+  // Aggregation pipeline
   const pipeline = [
     { $match: match },
-    // Group by normalized user_id string and count documents
-    {
-      $group: {
-        _id: { $toString: '$user_id' },
-        total_count: { $sum: 1 },
-      },
-    },
-    // Optional enrichment: lookup user document by _id string.
-    // Note: This assumes users._id is ObjectId; we compare using $toString.
-    {
-      $lookup: {
-        from: 'users',
-        let: { uid: '$_id' },
-        pipeline: [
-          { $match: { $expr: { $eq: [{ $toString: '$_id' }, '$$uid'] } } },
-          { $project: { _id: 0, user_name: { $ifNull: ['$user_name', { $ifNull: ['$name', null] }] } } },
-          { $limit: 1 },
-        ],
-        as: 'u',
-      },
-    },
     {
       $project: {
-        _id: 0,
-        user_id: '$_id',
-        user_name: { $ifNull: [{ $arrayElemAt: ['$u.user_name', 0] }, null] },
-        total_count: 1,
+        user_id: { $toString: '$user_id' },
+        project_id: { $ifNull: [{ $toString: '$project_id' }, null] },
+        project_name: { $ifNull: ['$project_name', null] },
+        activity_time: { $ifNull: ['$last_updated', '$session_start'] },
       },
     },
+    // exclude records without a project id
+    { $match: { project_id: { $ne: null } } },
+    // compute last activity per (user_id, project_id)
+    {
+      $group: {
+        _id: { user_id: '$user_id', project_id: '$project_id' },
+        project_name: { $last: '$project_name' },
+        last_activity: { $max: '$activity_time' },
+      },
+    },
+    {
+      $group: {
+        _id: '$_id.user_id',
+        projects: {
+          $push: {
+            project_id: '$_id.project_id',
+            project_name: '$project_name',
+            last_activity: '$last_activity',
+          },
+        },
+      },
+    },
+    { $project: { _id: 0, user_id: '$_id', projects: 1 } },
   ];
 
-  const sessionsCollectionName = process.env.SESSIONS_COLLECTION_NAME || 'sessions';
-  const coll = db.collection(sessionsCollectionName);
+  const coll = db.collection('session_tracking');
   return coll.aggregate(pipeline, { allowDiskUse: true }).toArray();
 }
 
-// PUBLIC_INTERFACE
+// Route: POST /api/users/projects
 router.post('/projects', cors(corsOptions), async (req, res) => {
   const requestId =
     req.headers['x-request-id'] ||
@@ -198,6 +183,7 @@ router.post('/projects', cors(corsOptions), async (req, res) => {
 
     const isAllTenants = isT0000Like(tenantCandidate);
 
+    // Validation: userIds array
     if (!Array.isArray(userIds)) {
       return res.status(400).json({ error: 'userIds must be an array of strings' });
     }
@@ -218,12 +204,16 @@ router.post('/projects', cors(corsOptions), async (req, res) => {
       return res.status(400).json({ error: 'organization_id (or tenant_id) is required' });
     }
 
+    // Parse dates (optional)
     const fromDate = parseDateSafe(from);
     const toDate = parseDateSafe(to);
     if ((from && !fromDate) || (to && !toDate)) {
       return res.status(400).json({ error: 'Invalid from/to date value(s)' });
     }
 
+    // Very large userIds support:
+    // - cap to prevent abuse (configurable)
+    // - chunk to keep $in arrays manageable and avoid max BSON size issues
     const MAX_USER_IDS = Number(process.env.USERS_PROJECTS_BATCH_MAX_USER_IDS || 5000);
     const CHUNK_SIZE = Number(process.env.USERS_PROJECTS_BATCH_CHUNK_SIZE || 500);
 
@@ -249,13 +239,11 @@ router.post('/projects', cors(corsOptions), async (req, res) => {
 
     const chunks = chunkArray(userIds, CHUNK_SIZE);
 
-    // Merged result maps
-    const countsByUser = new Map(); // user_id -> number
-    const namesByUser = new Map(); // user_id -> string|null
-
+    // Collect results across chunks
+    const merged = new Map(); // user_id -> array(project)
     for (const chunk of chunks) {
       // eslint-disable-next-line no-await-in-loop
-      const rows = await aggregateSessionsByUserChunk({
+      const results = await aggregateChunk({
         db,
         userIdsChunk: chunk,
         tenant,
@@ -264,33 +252,49 @@ router.post('/projects', cors(corsOptions), async (req, res) => {
         toDate,
       });
 
-      for (const r of rows || []) {
-        const uid = normalizeStringId(r?.user_id);
-        if (!uid) continue;
-
-        const prev = countsByUser.get(uid) || 0;
-        const next = prev + Number(r?.total_count || 0);
-        countsByUser.set(uid, next);
-
-        const nm = r?.user_name != null ? String(r.user_name) : null;
-        if (nm && !namesByUser.get(uid)) {
-          namesByUser.set(uid, nm);
-        }
+      for (const row of results || []) {
+        if (!row || !row.user_id) continue;
+        const uid = normalizeStringId(row.user_id);
+        const existing = merged.get(uid) || [];
+        const incoming = (row.projects || []).map((p) => ({
+          project_id: normalizeStringId(p.project_id),
+          project_name: p.project_name || null,
+          last_activity: p.last_activity ? new Date(p.last_activity) : null,
+        }));
+        merged.set(uid, existing.concat(incoming));
       }
     }
 
-    // Ensure all requested users are present with total_count=0 if no sessions
+    // Initialize all keys with empty objects to handle empty results gracefully
     const data = buildEmptyResponseMap(userIds);
-    for (const uid of userIds) {
+
+    // Fill data from merged map; de-dupe projects by project_id with max(last_activity)
+    for (const [uid, projects] of merged.entries()) {
+      const byProject = new Map(); // project_id -> project
+      for (const p of projects) {
+        if (!p?.project_id) continue;
+        const prev = byProject.get(p.project_id);
+        const prevTime = prev?.last_activity ? new Date(prev.last_activity).getTime() : -Infinity;
+        const nextTime = p.last_activity ? new Date(p.last_activity).getTime() : -Infinity;
+
+        if (!prev || nextTime > prevTime) {
+          byProject.set(p.project_id, p);
+        }
+      }
+
+      const deduped = Array.from(byProject.values()).sort((a, b) => {
+        const at = a.last_activity ? new Date(a.last_activity).getTime() : 0;
+        const bt = b.last_activity ? new Date(b.last_activity).getTime() : 0;
+        return bt - at;
+      });
+
       data[uid] = {
-        user_id: uid,
-        user_name: namesByUser.get(uid) || null,
-        total_count: countsByUser.get(uid) || 0,
-        projects: [],
+        total_count: deduped.length,
+        projects: deduped,
       };
     }
 
-    log('batch sessions-by-user ok', {
+    log('batch projects ok', {
       requestId,
       tenant,
       isAllTenants,
@@ -315,6 +319,8 @@ router.post('/projects', cors(corsOptions), async (req, res) => {
     });
   } catch (err) {
     logError('POST /api/users/projects', err);
+
+    // Ensure we send a JSON error even if default errorHandler changes
     return res.status(500).json({
       success: false,
       error: 'Internal server error',
