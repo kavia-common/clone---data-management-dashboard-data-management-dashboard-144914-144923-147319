@@ -10,6 +10,9 @@ const { extractOrganization } = require('../middleware/extractOrganization');
 const SessionTracking = require('../models/sessionTracking.model');
 const Tenant = require('../models/tenant.model');
 
+// Batch endpoint router: POST /api/users/projects
+const usersProjectsBatchRoutes = require('./users.projects.batch.routes');
+
 const router = express.Router();
 
 /**
@@ -282,6 +285,14 @@ function getCache(map, key) {
 function setCache(map, key, value, ttl) {
   map.set(key, { value, expiresAt: Date.now() + ttl });
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * Batch projects for users (mounted early to avoid conflict with /:id)
+ *
+ * POST /api/users/projects
+ */
+router.use(usersProjectsBatchRoutes);
 
 // ====== SEED IF EMPTY ======
 router.get(
