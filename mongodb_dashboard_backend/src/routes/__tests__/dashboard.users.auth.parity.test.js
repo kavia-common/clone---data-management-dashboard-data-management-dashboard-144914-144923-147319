@@ -44,14 +44,20 @@ describe('GET /api/dashboard/users auth parity', () => {
     );
   });
 
-  test('passes auth gate with Bearer ok (not 401)', async () => {
-    const res = await request(app)
-      .get('/api/dashboard/users')
-      .set('Authorization', 'Bearer ok')
-      .set('x-organization-id', 'DEMO');
+  test('parity with /api/users: same token + organization_id should not 401', async () => {
+    // Reference behavior: /api/users works with this token flow and tenant query.
+    // In test env DB may be disconnected, so we only assert the auth gate parity (not 401).
+    const usersRes = await request(app)
+      .get('/api/users?organization_id=T0015')
+      .set('Authorization', 'Bearer ok');
 
-    // DB may be disconnected in test env, but auth should pass.
-    expect(res.status).not.toBe(401);
+    expect(usersRes.status).not.toBe(401);
+
+    const dashboardRes = await request(app)
+      .get('/api/dashboard/users?organization_id=T0015')
+      .set('Authorization', 'Bearer ok');
+
+    expect(dashboardRes.status).not.toBe(401);
   });
 
   test('without token remains 401 even after wiring change', async () => {

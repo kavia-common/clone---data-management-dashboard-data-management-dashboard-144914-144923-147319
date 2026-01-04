@@ -2,22 +2,9 @@
 
 const express = require('express');
 const mongoose = require('mongoose');
-const { verifyAuth } = require('../middleware/verifyAuth');
-const { requireTenant } = require('../middleware/requireTenant');
 const { getDb } = require('../config/db');
 
 const router = express.Router();
-
-/**
- * Ensure this endpoint uses the *exact* same auth + tenant middleware as other protected endpoints:
- * - verifyAuth: parses Authorization: Bearer <token> (and demo-token handling where configured)
- * - requireTenant: resolves/enforces tenant scoping from JWT, then headers/query fallback
- *
- * IMPORTANT:
- * - We intentionally do not change verifyAuth/requireTenant implementations.
- * - We intentionally do not change any other route wiring.
- */
-router.use(verifyAuth, requireTenant);
 
 /**
  * Normalize the incoming date range parameters and apply default UTC "today" bounds.
