@@ -53,4 +53,9 @@ describe('GET /api/dashboard/users auth parity', () => {
     // DB may be disconnected in test env, but auth should pass.
     expect(res.status).not.toBe(401);
   });
+
+  test('without token remains 401 even after wiring change', async () => {
+    const res = await request(app).get('/api/dashboard/users?from=2025-01-01&to=2025-01-02');
+    expect(res.status).toBe(401);
+  });
 });

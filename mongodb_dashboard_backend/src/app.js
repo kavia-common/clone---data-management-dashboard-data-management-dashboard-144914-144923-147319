@@ -196,6 +196,12 @@ try {
   console.log('[routes] Projects routes registered at: GET /api/projects/summary and /api/projects/*');
 } catch {}
 safeUse('/api/session', require('./routes/session.routes'));
+/**
+ * Mount a dedicated dashboard users router FIRST to ensure GET /api/dashboard/users
+ * follows the exact same auth+tenant middleware wiring as other working protected routes.
+ * This change is intentionally scoped to this endpoint only.
+ */
+safeUse('/api/dashboard', require('./routes/dashboard.users.routes'));
 safeUse('/api/dashboard', require('./routes/dashboard.routes'));
 safeUse('/api/metrics/users', require('./routes/metrics.users.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
