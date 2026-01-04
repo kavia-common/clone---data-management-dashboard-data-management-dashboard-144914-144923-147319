@@ -30,7 +30,7 @@ async function connectDB() {
   mongoose.set('strictQuery', true);
 
   // In test mode, prefer fast failures and no buffering to keep tests snappy.
-  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
+  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'pre_prod_kaviaroot';
   if (isTest) {
     try {
       mongoose.set('bufferCommands', false);
@@ -45,7 +45,7 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'test'; // Optional; if not set, Mongo will use the URI/path default
+  const dbName = 'pre_prod_kaviaroot'; // Optional; if not set, Mongo will use the URI/path default
 
   const options = {
     autoIndex,
