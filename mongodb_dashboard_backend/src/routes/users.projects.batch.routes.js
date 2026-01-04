@@ -103,8 +103,11 @@ router.post(
         return res.status(503).json({ error: 'Database not connected' });
       }
 
-      // Base filters that must ALWAYS apply.
-      const tenantClause = { $or: [{ tenant_id: tenant }, { organization_id: tenant }] };
+      // Base filters:
+      // - userIds filter ALWAYS applies
+      // - tenant/org filter applies for normal tenants, but must be DISABLED for T0000 (super-admin all-tenants view)
+      const isAllTenants = String(tenant).toUpperCase() === 'T0000';
+
       const usersClause = { $expr: { $in: [{ $toString: '$user_id' }, userIds] } };
 
       // Optional time window: treat a session as "in range" if EITHER last_updated OR session_start
@@ -113,7 +116,11 @@ router.post(
       if (fromDate) timeRange.$gte = fromDate;
       if (toDate) timeRange.$lte = toDate;
 
-      const andClauses = [tenantClause, usersClause];
+      const andClauses = [usersClause];
+
+      if (!isAllTenants) {
+        andClauses.push({ $or: [{ tenant_id: tenant }, { organization_id: tenant }] });
+      }
 
       if (Object.keys(timeRange).length) {
         andClauses.push({
