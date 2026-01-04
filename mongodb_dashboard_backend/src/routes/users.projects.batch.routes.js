@@ -94,49 +94,34 @@ router.post(
       }
 
       // Build match filter on session_tracking
-      // We assume collection name "session_tracking" based on existing codebase
-      const db = getDb ? getDb() : mongoose.connection.db;
+      // We assume collection name "session_tracking" based on existing codebase.
+      //
+      // IMPORTANT: getDb() is async. Calling it without await returns a Promise which
+      // then causes "db.collection is not a function" (500). We must await it.
+      const db = getDb ? await getDb() : mongoose.connection.db;
       if (!db) {
         return res.status(503).json({ error: 'Database not connected' });
       }
 
-      const match = {
-        // tenant scope
-        $or: [
-          { tenant_id: tenant },
-          { organization_id: tenant },
-        ],
-        // user scope; user_id normalized to string
-        $expr: { $in: [{ $toString: '$user_id' }, userIds] },
-      };
+      // Base filters that must ALWAYS apply.
+      const tenantClause = { $or: [{ tenant_id: tenant }, { organization_id: tenant }] };
+      const usersClause = { $expr: { $in: [{ $toString: '$user_id' }, userIds] } };
 
-      // Time window: prefer last_updated if available; else session_start
+      // Optional time window: treat a session as "in range" if EITHER last_updated OR session_start
+      // is within the range. This matches prior single-user logic and avoids field alias ambiguity.
       const timeRange = {};
       if (fromDate) timeRange.$gte = fromDate;
       if (toDate) timeRange.$lte = toDate;
+
+      const andClauses = [tenantClause, usersClause];
+
       if (Object.keys(timeRange).length) {
-        match.$or = [
-          {
-            $and: [
-              { last_updated: { $type: 'date' } },
-              { last_updated: timeRange },
-            ],
-          },
-          {
-            $and: [
-              { $or: [{ last_updated: { $exists: false } }, { last_updated: null }] },
-              { session_start: timeRange },
-            ],
-          },
-        ];
-        // include tenant and user filters too
-        match.$and = [
-          { $or: [{ tenant_id: tenant }, { organization_id: tenant }] },
-          { $expr: { $in: [{ $toString: '$user_id' }, userIds] } },
-        ];
-        // Remove earlier tenant/user keys to avoid conflicts
-        delete match.$or[2];
+        andClauses.push({
+          $or: [{ last_updated: timeRange }, { session_start: timeRange }],
+        });
       }
+
+      const match = andClauses.length === 1 ? andClauses[0] : { $and: andClauses };
 
       // Aggregation pipeline
       const pipeline = [
