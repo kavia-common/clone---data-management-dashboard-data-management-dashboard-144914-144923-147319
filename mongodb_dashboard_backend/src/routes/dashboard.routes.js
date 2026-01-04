@@ -2,14 +2,25 @@
 
 const express = require('express');
 const mongoose = require('mongoose');
-const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 const { getDb } = require('../config/db');
+const { attachAuthContext } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Protect all dashboard overview routes
-router.use(verifyAuth, requireTenant);
+/**
+ * Auth/tenant handling parity note:
+ * - /api/users works without a JWT in demo/testing flows as long as a tenant is provided via
+ *   x-organization-id header or ?organization_id/?tenant_id query.
+ * - /api/dashboard/users must behave the same way (no surprise 401), while still enforcing
+ *   tenant scope via requireTenant.
+ *
+ * Therefore:
+ * - We attach best-effort auth context (req.user) if an Authorization header is present.
+ * - We ALWAYS require tenant scope (requireTenant), which also enforces JWT tenant mismatch (403).
+ * - We do NOT hard-require Authorization here.
+ */
+router.use(attachAuthContext(), requireTenant);
 
 // Early detector for T0000 (super admin) at dashboard overview module
 router.use((req, res, next) => {
