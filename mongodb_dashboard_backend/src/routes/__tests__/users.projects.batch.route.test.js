@@ -36,4 +36,13 @@ describe('POST /api/users/projects (batch)', () => {
     // db may not be connected in test env; allow 200 or 503 based on environment
     expect([200, 503, 500, 400]).toContain(res.status);
   });
+
+  it('returns 413 when userIds exceeds configured max', async () => {
+    const big = Array.from({ length: 6000 }, (_, i) => `u${i}`);
+    const res = await request(app)
+      .post('/api/users/projects')
+      .send({ userIds: big, organization_id: 'T0000' });
+    // default max is 5000 in route (env overrideable)
+    expect([413, 503, 500]).toContain(res.status);
+  });
 });

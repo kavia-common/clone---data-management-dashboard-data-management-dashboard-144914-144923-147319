@@ -31,9 +31,12 @@ describe('POST /api/users/projects (batch) - T0000 all-tenants wildcard', () => 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.tenant_id).toBe('T0000');
-    expect(res.body.data).toEqual({ u1: [], u2: [] });
+    expect(res.body.data).toEqual({
+      u1: { total_count: 0, projects: [] },
+      u2: { total_count: 0, projects: [] },
+    });
 
-    // Validate pipeline $match
+    // Validate pipeline $match for the single chunk used in this test
     expect(aggregate).toHaveBeenCalledTimes(1);
     const pipeline = aggregate.mock.calls[0][0];
     expect(Array.isArray(pipeline)).toBe(true);
