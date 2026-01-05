@@ -139,6 +139,18 @@ router.get('/users', async (req, res) => {
       {
         $project: {
           userId: { $toString: '$user_id' },
+
+          // Prefer counting distinct logical sessions via session_id when available.
+          // Fallback: use the Mongo _id so each doc counts as one "session-like" unit
+          // rather than blowing up with duplicates created by $addToSet(null) etc.
+          sessionId: {
+            $cond: [
+              { $or: [{ $eq: ['$session_id', null] }, { $eq: ['$session_id', ''] }] },
+              { $toString: '$_id' },
+              { $toString: '$session_id' },
+            ],
+          },
+
           projectId: {
             $cond: [
               { $or: [{ $eq: ['$project_id', null] }, { $eq: ['$project_id', ''] }] },
@@ -153,9 +165,23 @@ router.get('/users', async (req, res) => {
       {
         $group: {
           _id: '$userId',
-          totalSessions: { $sum: 1 },
+          // FIX: Count distinct sessions, not raw event/docs.
+          sessionIds: { $addToSet: '$sessionId' },
           lastActivityAt: { $max: '$activityAt' },
           projectsSet: { $addToSet: '$projectId' },
+        },
+      },
+      {
+        $addFields: {
+          totalSessions: {
+            $size: {
+              $filter: {
+                input: '$sessionIds',
+                as: 's',
+                cond: { $and: [{ $ne: ['$$s', null] }, { $ne: ['$$s', ''] }] },
+              },
+            },
+          },
         },
       },
       {
