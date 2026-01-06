@@ -22,26 +22,22 @@ async function getLlmCostsAggregated(req, res) {
   const skip = (page - 1) * limit;
 
   // ---------------------------------------------------------------------------
-  // AUTHENTICATED USER SCOPING (SERVER-SIDE ENFORCED)
+  // SUPER ADMIN CONTEXT: NO AUTH REQUIRED FOR /api/llm_costs
   // ---------------------------------------------------------------------------
-  // The frontend must not be able to bypass user scoping by changing query params.
-  // We therefore derive user_id only from auth/session context, not from req.query.
+  // This endpoint is used by the Super Admin Costs module and must be callable
+  // without an Authorization header.
   //
-  // Supported sources (best-effort, depending on which auth middleware is active):
-  // - req.user.id (attachAuthContext)
-  // - req.auth.sub (verifyAuth JWT middleware)
-  //
-  // If no authenticated user is available, we reject with 401.
+  // Behavior:
+  // - If an authenticated user is present, we scope to that user's nested users.user_id
+  //   (backwards-compatible with prior hard-enforced scoping).
+  // - If no authenticated user is present, we do NOT apply user_id scoping and return
+  //   aggregated results across users (optionally filtered by organization_id).
   const authUserId =
     (req.user && (req.user.id || req.user._id)) ||
     (req.auth && (req.auth.sub || req.auth.user_id || req.auth.userId)) ||
     null;
 
-  if (!authUserId) {
-    return res.status(401).json({ success: false, message: 'Authentication required' });
-  }
-
-  const userIdStr = String(authUserId).trim();
+  const userIdStr = authUserId ? String(authUserId).trim() : null;
 
   // Optional filter
   const organization_id = (req.query.organization_id || '').toString().trim();
@@ -56,13 +52,17 @@ async function getLlmCostsAggregated(req, res) {
     // Unwind users for per-user grouping
     { $unwind: { path: '$users', preserveNullAndEmptyArrays: true } },
 
-    // Enforce user_id at the nested users level (string compare).
-    // IMPORTANT: This is the core server-side control that prevents client bypass.
-    {
-      $match: {
-        $expr: { $eq: [{ $toString: '$users.user_id' }, userIdStr] },
-      },
-    },
+    // If authenticated, enforce user_id at the nested users level (string compare).
+    // If unauthenticated (Super Admin Costs module context), do not apply user scoping.
+    ...(userIdStr
+      ? [
+          {
+            $match: {
+              $expr: { $eq: [{ $toString: '$users.user_id' }, userIdStr] },
+            },
+          },
+        ]
+      : []),
 
     // Parse user cost; keep user_id as string for join
     // {
@@ -231,7 +231,9 @@ async function getLlmCostsAggregated(req, res) {
     // Matched pre-group docs requires separate count; keep lightweight by echoing filter only
     res.setHeader('X-LLM-COSTS-MatchedPreGroup', JSON.stringify(matchStage?.$match || {}));
     res.setHeader('X-LLM-COSTS-PostGroupCount', String(postGroupCount));
-    res.setHeader('X-LLM-COSTS-UserId', userIdStr);
+    if (userIdStr) {
+      res.setHeader('X-LLM-COSTS-UserId', userIdStr);
+    }
     if (!enriched.length) {
       res.setHeader('X-LLM-COSTS-Reason', 'Empty rows after aggregation.');
     }
