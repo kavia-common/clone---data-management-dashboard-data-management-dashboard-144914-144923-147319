@@ -21,6 +21,28 @@ async function getLlmCostsAggregated(req, res) {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), maxLimit);
   const skip = (page - 1) * limit;
 
+  // ---------------------------------------------------------------------------
+  // AUTHENTICATED USER SCOPING (SERVER-SIDE ENFORCED)
+  // ---------------------------------------------------------------------------
+  // The frontend must not be able to bypass user scoping by changing query params.
+  // We therefore derive user_id only from auth/session context, not from req.query.
+  //
+  // Supported sources (best-effort, depending on which auth middleware is active):
+  // - req.user.id (attachAuthContext)
+  // - req.auth.sub (verifyAuth JWT middleware)
+  //
+  // If no authenticated user is available, we reject with 401.
+  const authUserId =
+    (req.user && (req.user.id || req.user._id)) ||
+    (req.auth && (req.auth.sub || req.auth.user_id || req.auth.userId)) ||
+    null;
+
+  if (!authUserId) {
+    return res.status(401).json({ success: false, message: 'Authentication required' });
+  }
+
+  const userIdStr = String(authUserId).trim();
+
   // Optional filter
   const organization_id = (req.query.organization_id || '').toString().trim();
   const matchStage = organization_id
@@ -33,6 +55,14 @@ async function getLlmCostsAggregated(req, res) {
 
     // Unwind users for per-user grouping
     { $unwind: { path: '$users', preserveNullAndEmptyArrays: true } },
+
+    // Enforce user_id at the nested users level (string compare).
+    // IMPORTANT: This is the core server-side control that prevents client bypass.
+    {
+      $match: {
+        $expr: { $eq: [{ $toString: '$users.user_id' }, userIdStr] },
+      },
+    },
 
     // Parse user cost; keep user_id as string for join
     // {
@@ -201,6 +231,7 @@ async function getLlmCostsAggregated(req, res) {
     // Matched pre-group docs requires separate count; keep lightweight by echoing filter only
     res.setHeader('X-LLM-COSTS-MatchedPreGroup', JSON.stringify(matchStage?.$match || {}));
     res.setHeader('X-LLM-COSTS-PostGroupCount', String(postGroupCount));
+    res.setHeader('X-LLM-COSTS-UserId', userIdStr);
     if (!enriched.length) {
       res.setHeader('X-LLM-COSTS-Reason', 'Empty rows after aggregation.');
     }
