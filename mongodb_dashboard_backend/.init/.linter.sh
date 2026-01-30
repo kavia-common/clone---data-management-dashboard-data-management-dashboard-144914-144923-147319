@@ -1,0 +1,1 @@
+cd copy-of-data-management-dashboard-data-management-dashboard-144914-144923-146864/mongodb_dashboard_backend && npm run lint
