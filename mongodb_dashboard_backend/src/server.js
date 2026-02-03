@@ -18,17 +18,27 @@ const HOST = process.env.HOST || '0.0.0.0';
 // Defensive: ensure PORT is a positive integer
 const normalizedPort = Number.isFinite(PORT) && PORT > 0 ? PORT : 3001;
 
-// Early startup banner to aid diagnostics
-try {
-  // eslint-disable-next-line no-console
-  console.log(
-    `[startup] Initializing server on ${HOST}:${normalizedPort} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
-  );
-} catch {}
+/**
+ * Attempt to listen on `startPort`, and if it's already in use, automatically
+ * try the next ports. This prevents preview/orchestrator readiness failures
+ * when a stale process is still bound to the default port (3001).
+ */
+function listenWithPortFallback(startPort, maxAttempts = 10) {
+  let currentPort = startPort;
+  let attemptsLeft = maxAttempts;
 
-// Start listening unconditionally; Mongo connection is handled inside app.js and must not block server startup.
-const server = app
-  .listen(normalizedPort, HOST, () => {
+  const banner = () => {
+    try {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[startup] Initializing server on ${HOST}:${currentPort} (NODE_ENV=${process.env.NODE_ENV || 'development'})`
+      );
+    } catch {}
+  };
+
+  banner();
+
+  const server = app.listen(currentPort, HOST, () => {
     try {
       const dbName =
         mongoose?.connection?.db?.databaseName ||
@@ -39,34 +49,49 @@ const server = app
     } catch {
       // ignore logging failure
     }
+
     // eslint-disable-next-line no-console
     console.log(
-      `[ready] Server listening on http://${HOST}:${normalizedPort} (ENV=${process.env.NODE_ENV || 'development'})`
+      `[ready] Server listening on http://${HOST}:${currentPort} (ENV=${process.env.NODE_ENV || 'development'})`
     );
-    // Emit an explicit readiness banner the preview system can scrape
+
+    // Emit explicit readiness pointers (useful for preview health probes)
     try {
-      console.log(`[ready] Health endpoint: http://${HOST}:${normalizedPort}/health`);
-      console.log(`[ready] Docs endpoint:   http://${HOST}:${normalizedPort}/api-docs`);
+      console.log(`[ready] Health endpoint: http://${HOST}:${currentPort}/health`);
+      console.log(`[ready] Docs endpoint:   http://${HOST}:${currentPort}/api-docs`);
+      console.log(`[startup] Health: curl http://127.0.0.1:${currentPort}/health`);
+      console.log(`[startup] Swagger UI: http://127.0.0.1:${currentPort}/api-docs`);
     } catch {}
-    try {
-      // Helpful hint: echo how to curl health and docs
-      console.log(`[startup] Health: curl http://127.0.0.1:${normalizedPort}/health`);
-      console.log(`[startup] Swagger UI: http://127.0.0.1:${normalizedPort}/api-docs`);
-    } catch {}
-  })
-  .on('error', (err) => {
-    if (err && err.code === 'EADDRINUSE') {
+  });
+
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE' && attemptsLeft > 0) {
       // eslint-disable-next-line no-console
-      console.error(
-        `[startup] Port ${normalizedPort} is already in use. Ensure no other process is running on this port.`
+      console.warn(
+        `[startup] Port ${currentPort} is already in use; trying ${currentPort + 1}...`
       );
-    } else {
-      // eslint-disable-next-line no-console
-      console.error('[startup] Server failed to start:', err);
+      attemptsLeft -= 1;
+      currentPort += 1;
+      // Close this server handle and retry.
+      try {
+        server.close(() => listenWithPortFallback(currentPort, attemptsLeft));
+      } catch {
+        listenWithPortFallback(currentPort, attemptsLeft);
+      }
+      return;
     }
-    // Exit so orchestrator/CI can restart
+
+    // eslint-disable-next-line no-console
+    console.error('[startup] Server failed to start:', err);
+    // Exit so orchestrator/CI can restart if we cannot recover.
     process.exit(1);
   });
+
+  return server;
+}
+
+// Start listening; Mongo connection is handled inside app.js and must not block server startup.
+const server = listenWithPortFallback(normalizedPort, 10);
 
 // Graceful shutdown
 const shutdown = (signal) => {
