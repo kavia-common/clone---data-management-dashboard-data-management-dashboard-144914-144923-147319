@@ -174,30 +174,40 @@ function corsMiddleware() {
   const hasBetaApiAllowed =
     whitelist.has(betaApiOrigin) || allowedOriginsFromManifest.includes(betaApiOrigin);
 
-  if (hasBetaApiAllowed) {
-    const previewWildcard = wildcardOriginToRegex(
-      'https://vscode-internal-*-beta.beta01.cloud.kavia.ai:3000'
-    );
-    if (previewWildcard) {
-      originMatchers.push(previewWildcard);
-    }
+  /**
+   * Add Kavia preview wildcard matcher when:
+   * - beta API origin is explicitly allowlisted (common), OR
+   * - the server is running behind the beta API host but env allowlist is empty/misconfigured.
+   *
+   * This prevents persistent credentialed CORS failures for preview frontends where the
+   * browser Origin is the vscode-internal host.
+   *
+   * Still strict: only allows the known Kavia preview hostname pattern.
+   */
+  const previewWildcardMatcher = wildcardOriginToRegex(
+    'https://vscode-internal-*-beta.beta01.cloud.kavia.ai:3000'
+  );
+
+  // Heuristic: if the request Host is the beta API host, treat this as beta deployment context.
+  // (Works with/without scheme and with/without port.)
+  const isBetaApiHost = (hostHeader) => {
+    const h = String(hostHeader || '').toLowerCase();
+    return h === 'kavia-dashboard-kavia-beta.cloud.kavia.ai' || h.startsWith('kavia-dashboard-kavia-beta.cloud.kavia.ai:');
+  };
+
+  if (hasBetaApiAllowed && previewWildcardMatcher) {
+    originMatchers.push(previewWildcardMatcher);
   }
 
   if (!hasAnyConfiguredOrigins) {
     // Deployed beta domain(s) (API host itself may appear as Origin in some same-site flows)
     whitelist.add(betaApiOrigin);
 
-    // Common Kavia preview frontend origins (vscode-internal) seen in beta validation.
-    // We include:
-    // - an exact observed origin for immediate compatibility
-    // - a wildcard pattern so new preview instances do not regress CORS
+    // Common Kavia preview frontend origin observed in reports/logs (safe exact allow).
     whitelist.add('https://vscode-internal-27924-beta.beta01.cloud.kavia.ai:3000');
 
-    const previewWildcard = wildcardOriginToRegex(
-      'https://vscode-internal-*-beta.beta01.cloud.kavia.ai:3000'
-    );
-    if (previewWildcard) {
-      originMatchers.push(previewWildcard);
+    if (previewWildcardMatcher) {
+      originMatchers.push(previewWildcardMatcher);
     }
   }
 
@@ -269,11 +279,25 @@ function corsMiddleware() {
   // eslint-disable-next-line no-console
   console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
 
+  // We may need access to the live request host header inside the origin callback.
+  // The `cors` package only provides (origin, cb), so we capture the current host via closure
+  // in our wrapper middleware below.
+  let currentRequestHost = null;
+
   const corsInstance = cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true); // SSR / curl / same-origin
 
       if (whitelist.has(origin)) return callback(null, true);
+
+      // If we are serving from the beta API host, allow the preview wildcard even if env is incomplete.
+      if (
+        previewWildcardMatcher &&
+        isBetaApiHost(currentRequestHost) &&
+        previewWildcardMatcher.test(origin)
+      ) {
+        return callback(null, true);
+      }
 
       // Wildcard/pattern match (useful for preview domains whose subdomain varies)
       if (originMatchers.some((re) => re.test(origin))) {
@@ -309,6 +333,9 @@ function corsMiddleware() {
   });
 
   return (req, res, next) => {
+    // Capture live host for the origin decision (beta host heuristic).
+    currentRequestHost = req.headers.host;
+
     corsInstance(req, res, (err) => {
       // Ensure multi-origin CORS responses are cached safely by intermediaries.
       // (Without this, a CDN/proxy could cache a response with Allow-Origin for A
