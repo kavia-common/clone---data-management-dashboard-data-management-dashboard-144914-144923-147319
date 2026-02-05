@@ -1,4 +1,3 @@
-
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -8,14 +7,31 @@ const rateLimit = require('express-rate-limit');
  * Returns null if it cannot be interpreted as an origin.
  */
 function toOriginMaybe(urlLike) {
-  if (!urlLike) {return null;}
+  if (!urlLike) {
+    return null;
+  }
   try {
     const u = new URL(urlLike);
     return `${u.protocol}//${u.host}`;
   } catch {
-    if (/^https?:\/\/[^/]+$/i.test(urlLike)) {return urlLike;}
+    if (/^https?:\/\/[^/]+$/i.test(urlLike)) {
+      return urlLike;
+    }
     return null;
   }
+}
+
+/**
+ * Normalize a comma-separated env var containing origins into a list of valid origins.
+ */
+function parseOriginsEnv(value) {
+  if (!value || typeof value !== 'string') {
+    return [];
+  }
+  return value
+    .split(',')
+    .map((o) => toOriginMaybe(o.trim()))
+    .filter(Boolean);
 }
 
 /**
@@ -23,20 +39,26 @@ function toOriginMaybe(urlLike) {
  * Build a CORS middleware with a computed whitelist derived from env configuration.
  *
  * Env vars supported:
+ * - ALLOWED_ORIGINS: Comma-separated list of origins to allow (preferred).
  * - REACT_APP_API_BASE_URL: If set, its origin is allowed (e.g., https://api.example.com/api -> https://api.example.com).
  * - CORS_ORIGIN: A single explicit origin to allow.
- * - CORS_ORIGINS: Comma-separated list of origins to allow.
+ * - CORS_ORIGINS: Comma-separated list of origins to allow (legacy).
  * - FRONTEND_ORIGIN: Convenience single origin for the frontend host.
  * - CORS_CREDENTIALS: "true" to enable credentialed requests.
+ *   Also supports aliases: CORS_ALLOW_CREDENTIALS, CORS_ALLOW_CREDENTIAL, CORS_WITH_CREDENTIALS
+ * - ALLOWED_METHODS: Optional comma-separated list of methods (default: GET,POST,PUT,DELETE,PATCH,OPTIONS)
+ * - ALLOWED_HEADERS: Optional comma-separated list of headers.
+ * - CORS_MAX_AGE: Optional max-age for preflight caching in seconds.
  *
  * Default allowances:
  * - http://localhost:3000
  * - https://localhost:3000
- * - A known preview environment origin (cloud preview).
+ * - vscode-internal preview origin(s) when present in inferred allowlist
  *
  * Behavior:
  * - Allows exact whitelisted origins.
  * - If not an exact match, allows same-host across different ports (helps dev/proxy scenarios).
+ * - Allows Kavia preview origins of the form: https://vscode-internal-<port>-<stage>.<...>:3000
  * - Returns 403 JSON on CORS rejection with a clear message.
  * - Handles OPTIONS preflight with 204 status.
  */
@@ -46,24 +68,29 @@ function corsMiddleware() {
 
   const singleOrigin = toOriginMaybe((process.env.CORS_ORIGIN || '').trim());
   const frontendOrigin = toOriginMaybe((process.env.FRONTEND_ORIGIN || '').trim());
-  const listOrigins = (process.env.CORS_ORIGINS || '')
-    .split(',')
-    .map((o) => toOriginMaybe(o.trim()))
-    .filter(Boolean);
+
+  // Prefer ALLOWED_ORIGINS but support older CORS_ORIGINS too.
+  const allowedOriginsEnv = parseOriginsEnv(process.env.ALLOWED_ORIGINS);
+  const corsOriginsEnv = parseOriginsEnv(process.env.CORS_ORIGINS);
 
   const whitelist = new Set();
 
   // Explicit values
-  listOrigins.forEach((o) => whitelist.add(o));
-  if (singleOrigin) {whitelist.add(singleOrigin);}
-  if (frontendOrigin) {whitelist.add(frontendOrigin);}
+  [...allowedOriginsEnv, ...corsOriginsEnv].forEach((o) => whitelist.add(o));
+  if (singleOrigin) {
+    whitelist.add(singleOrigin);
+  }
+  if (frontendOrigin) {
+    whitelist.add(frontendOrigin);
+  }
 
-  // Infer from API base
+  // Infer from API base (useful when env contains full /api URL)
   if (inferredFromApiBase) {
     whitelist.add(inferredFromApiBase);
     try {
       const u = new URL(inferredFromApiBase);
       const protoHost = `${u.protocol}//${u.hostname}`;
+      // Common dev/preview ports
       whitelist.add(`${protoHost}:3000`);
       whitelist.add(`${protoHost}:4000`);
     } catch {
@@ -75,20 +102,6 @@ function corsMiddleware() {
   whitelist.add('http://localhost:3000');
   whitelist.add('https://localhost:3000');
 
-  // Preview environment frontend
-  // Preview environment frontends
-  // whitelist.add('https://kavia-dashboard-kavia-dev.cloud.kavia.ai');
-  // whitelist.add('https://kavia-dashboard-kavia-beta.cloud.kavia.ai');
-  // Explicitly allow VSCode internal preview origin used by frontend
-  whitelist.add('https://vscode-internal-27924-beta.beta01.cloud.kavia.ai:3000');
-  
-
-
-
-  // Credentialed requests (cookies) require:
-  // - Access-Control-Allow-Credentials: true
-  // - Access-Control-Allow-Origin must be an explicit origin (never '*')
-  //
   // Support common env var aliases to avoid deployments accidentally disabling credentials.
   const allowCredentialsRaw =
     process.env.CORS_CREDENTIALS ??
@@ -100,70 +113,124 @@ function corsMiddleware() {
   const allowCredentials =
     String(allowCredentialsRaw ?? 'true').toLowerCase() === 'true';
 
-   
-  console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
+  const allowedMethodsRaw = process.env.ALLOWED_METHODS;
+  const methods =
+    allowedMethodsRaw && typeof allowedMethodsRaw === 'string' && allowedMethodsRaw.trim() !== ''
+      ? allowedMethodsRaw
+          .split(',')
+          .map((m) => m.trim().toUpperCase())
+          .filter(Boolean)
+      : ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'];
 
-  // Build dynamic CORS instance with robust error tolerance in dev preview environments.
+  const allowedHeadersRaw = process.env.ALLOWED_HEADERS;
+  const allowedHeaders =
+    allowedHeadersRaw && typeof allowedHeadersRaw === 'string' && allowedHeadersRaw.trim() !== ''
+      ? allowedHeadersRaw
+          .split(',')
+          .map((h) => h.trim())
+          .filter(Boolean)
+      : [
+          'x-organization-id',
+          'Content-Type',
+          'Authorization',
+          'Accept',
+          'sec-ch-ua',
+          'sec-ch-ua-mobile',
+          'sec-ch-ua-platform',
+          'Referer',
+          'User-Agent',
+          'Origin',
+          'Cache-Control',
+          'Pragma',
+        ];
+
+  const maxAgeRaw = process.env.CORS_MAX_AGE;
+  const maxAge =
+    maxAgeRaw && String(maxAgeRaw).trim() !== '' ? parseInt(String(maxAgeRaw), 10) : undefined;
+
+  try {
+    // eslint-disable-next-line no-console
+    console.log(
+      '[CORS] Whitelist:',
+      Array.from(whitelist),
+      '| credentials=',
+      allowCredentials,
+      '| methods=',
+      methods.join(','),
+      '| headers=',
+      allowedHeaders.join(',')
+    );
+  } catch {}
+
+  const kaviaPreviewOriginRegex =
+    /^https:\/\/vscode-internal-\d+-[a-z0-9-]+\.[a-z0-9.-]+(?::\d+)?$/i;
+
+  // Build dynamic CORS instance.
   const corsInstance = cors({
     origin: (origin, callback) => {
-      if (!origin) {return callback(null, true);} // SSR / curl / same-origin
-      if (whitelist.has(origin)) {return callback(null, true);}
+      if (!origin) {
+        return callback(null, true); // SSR / curl / same-origin
+      }
+      if (whitelist.has(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow Kavia preview origins (for beta preview frontends).
+      if (kaviaPreviewOriginRegex.test(origin)) {
+        return callback(null, true);
+      }
 
       // Check same hostname, different port
       try {
         const o = new URL(origin);
-        if (
-          Array.from(whitelist).some((w) => {
+        const whitelistHosts = Array.from(whitelist)
+          .map((w) => {
             try {
-              return new URL(w).hostname === o.hostname;
+              return new URL(w).hostname;
             } catch {
-              return false;
+              return null;
             }
           })
-        ) {
+          .filter(Boolean);
+
+        if (whitelistHosts.includes(o.hostname)) {
           return callback(null, true);
         }
       } catch {
         // ignore
       }
 
-      // Explicitly reject with proper CORS message
-
-      console.log('[CORS] Origin received:', origin);
-      return callback(null, true); // temporarily allow all
-
-      // return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
+      return callback(new Error(`CORS: Origin ${origin} not allowed by server`));
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: [
-      'x-organization-id',
-      'Content-Type',
-      'Authorization',
-      'Accept',
-      'sec-ch-ua',
-      'sec-ch-ua-mobile',
-      'sec-ch-ua-platform',
-      'Referer',
-      'User-Agent',
-      'Origin',
-      'Cache-Control',
-      'Pragma'
-    ],
+    methods,
+    allowedHeaders,
     exposedHeaders: ['Content-Length', 'Content-Type', 'x-effective-tenant'],
     credentials: allowCredentials,
     optionsSuccessStatus: 204,
+    maxAge,
   });
 
   return (req, res, next) => {
     corsInstance(req, res, (err) => {
       if (err) {
-         
         console.warn(`[CORS] Blocked origin: ${req.headers.origin}`);
         return res.status(403).json({
           success: false,
           message: err.message,
         });
       }
+
+      /**
+       * Ensure ACAC is present when credentials are enabled.
+       *
+       * In some proxy/deployment situations, relying on downstream behavior can lead to
+       * missing `Access-Control-Allow-Credentials` even when configured. Since this backend
+       * is intended to support cookie auth, we make this explicit.
+       */
+      if (allowCredentials) {
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
+
       if (req.method === 'OPTIONS') {
         return res.sendStatus(204);
       }
@@ -198,7 +265,8 @@ function helmetMiddleware() {
 function rateLimiter() {
   const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10);
   const max = parseInt(process.env.RATE_LIMIT_MAX || '200', 10);
-  const skipGet = String(process.env.RATE_LIMIT_SKIP_GET ?? 'true').toLowerCase() !== 'false';
+  const skipGet =
+    String(process.env.RATE_LIMIT_SKIP_GET ?? 'true').toLowerCase() !== 'false';
 
   return rateLimit({
     windowMs,
@@ -207,7 +275,9 @@ function rateLimiter() {
     legacyHeaders: false,
     skip: (req) => {
       // By default, skip throttling for GET endpoints (listing, sorting, pagination)
-      if (skipGet && req.method === 'GET') {return true;}
+      if (skipGet && req.method === 'GET') {
+        return true;
+      }
       return false;
     },
     message: { success: false, message: 'Too many requests, please try again later.' },
