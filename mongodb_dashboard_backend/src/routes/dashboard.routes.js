@@ -146,19 +146,15 @@ router.get('/users', async (req, res) => {
       return res.status(503).json({ success: false, message: 'Database not connected' });
     }
 
-    const timeRange = {};
-    if (from) timeRange.$gte = from;
-    if (to) timeRange.$lte = to;
-
-    // Activity time is derived from last_updated (preferred) then session_start then timestamp.
-    // For filtering, we include a session if ANY of these fields is within the window.
-    const timeOr = Object.keys(timeRange).length
-      ? [
-          { last_updated: timeRange },
-          { session_start: timeRange },
-          { timestamp: timeRange },
-        ]
-      : [];
+    // NOTE(product requirement): For /api/dashboard/users we intentionally filter ONLY on
+    // `session_start` (UTC-normalized bounds), not on last_updated/timestamp.
+    const sessionStartRange = {};
+    if (from) sessionStartRange.$gte = from;
+    if (to) {
+      // Use strict upper bound per requested pattern while still including the full "to" day,
+      // since resolveUtcWindow expands date-only inputs to 23:59:59.999Z.
+      sessionStartRange.$lt = to;
+    }
 
     const matchAnd = [];
     if (!isAllTenants) {
@@ -173,8 +169,8 @@ router.get('/users', async (req, res) => {
         ],
       });
     }
-    if (timeOr.length) {
-      matchAnd.push({ $or: timeOr });
+    if (Object.keys(sessionStartRange).length) {
+      matchAnd.push({ session_start: sessionStartRange });
     }
 
     const matchStage = matchAnd.length ? { $match: { $and: matchAnd } } : { $match: {} };
