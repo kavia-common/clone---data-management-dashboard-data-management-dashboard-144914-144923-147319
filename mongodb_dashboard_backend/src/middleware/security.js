@@ -98,27 +98,47 @@ function corsMiddleware() {
     .map((m) => m.trim())
     .filter(Boolean);
 
-  // If ALLOWED_HEADERS is provided, use it; otherwise allow a safe superset commonly used by browsers/apps.
-  const allowedHeaders =
-    (process.env.ALLOWED_HEADERS || '').trim() !== ''
-      ? (process.env.ALLOWED_HEADERS || '')
+  // If ALLOWED_HEADERS is provided, honor it BUT always union with required baseline headers
+  // used across the app (e.g., x-organization-id for tenant scoping).
+  //
+  // Why: a too-restrictive ALLOWED_HEADERS (like only Content-Type/Authorization) will cause
+  // browsers to fail preflight for routes that require custom headers, which looks like a
+  // "CORS issue" only on some endpoints.
+  const baselineHeaders = [
+    'x-organization-id',
+    'Content-Type',
+    'Authorization',
+    'Accept',
+    'X-Requested-With',
+    'sec-ch-ua',
+    'sec-ch-ua-mobile',
+    'sec-ch-ua-platform',
+    'Referer',
+    'User-Agent',
+    'Origin',
+    'Cache-Control',
+    'Pragma',
+  ];
+
+  const envHeadersRaw = (process.env.ALLOWED_HEADERS || '').trim();
+  const envHeaders =
+    envHeadersRaw !== ''
+      ? envHeadersRaw
           .split(',')
           .map((h) => h.trim())
           .filter(Boolean)
-      : [
-          'x-organization-id',
-          'Content-Type',
-          'Authorization',
-          'Accept',
-          'sec-ch-ua',
-          'sec-ch-ua-mobile',
-          'sec-ch-ua-platform',
-          'Referer',
-          'User-Agent',
-          'Origin',
-          'Cache-Control',
-          'Pragma',
-        ];
+      : [];
+
+  // Normalize to lowercase for reliable de-dupe, then preserve original casing via baseline list.
+  const allowedHeaders = Array.from(
+    new Set(
+      [...envHeaders, ...baselineHeaders]
+        .filter(Boolean)
+        .map((h) => String(h).trim())
+        .filter(Boolean)
+        .map((h) => h.toLowerCase())
+    )
+  );
 
   // eslint-disable-next-line no-console
   console.log('[CORS] Whitelist:', Array.from(whitelist), '| credentials=', allowCredentials);
