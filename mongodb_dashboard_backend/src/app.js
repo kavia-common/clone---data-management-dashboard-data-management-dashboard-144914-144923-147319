@@ -32,10 +32,21 @@ const strictCors = corsMiddleware();
 app.use(strictCors);
 
 /**
- * Explicit preflight handling for all /api paths using the SAME strict CORS config.
- * This ensures Access-Control-Allow-Headers includes x-organization-id and other requested headers.
+ * Explicit preflight handling for ALL paths using the SAME strict CORS config.
+ *
+ * Why not `/api/*`?
+ * - In Express, `/api/*` only matches a single path segment after `/api/` and can
+ *   miss deeper endpoints like `/api/service-type/summary`.
+ *
+ * A global OPTIONS handler guarantees that every browser preflight request gets:
+ * - Access-Control-Allow-Origin (echoed for whitelisted origin)
+ * - Access-Control-Allow-Credentials (when enabled)
+ * - Access-Control-Allow-Headers/Methods (env-driven + baseline union)
+ *
+ * Note: `corsMiddleware()` already short-circuits OPTIONS with `204`, so this
+ * handler is safe and will not fall through to routes.
  */
-app.options('/api/*', strictCors);
+app.options('*', strictCors);
 
 app.use(rateLimiter());
 
@@ -86,15 +97,15 @@ const buildDynamicSpec = (req) => {
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
     // Use same-origin server so Swagger calls hit this backend instance
-    url: `${protocol}://${fullHost}`,
-    // servers: [
-    //   {
-    //     // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-    //     url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
-    //     // description: 'Predefined dev server',
-    //     description: 'Predefined beta server',
-    //   },
-    // ],
+    // url: `${protocol}://${fullHost}`,
+    servers: [
+      {
+        // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+        url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
+        // description: 'Predefined dev server',
+        description: 'Predefined beta server',
+      },
+    ],
   };
 };
 
