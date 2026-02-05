@@ -154,9 +154,38 @@ function corsMiddleware() {
     Boolean(frontendOrigin) ||
     Boolean(inferredFromApiBase);
 
+  /**
+   * Beta preview safeguard
+   *
+   * In beta, it is common to set:
+   *   ALLOWED_ORIGINS=https://kavia-dashboard-kavia-beta.cloud.kavia.ai
+   * but forget to include the actual *browser* origin:
+   *   https://vscode-internal-<id>-beta.beta01.cloud.kavia.ai:3000
+   *
+   * Since this backend supports credentialed CORS (cookies), the Origin must be explicitly
+   * allowed and echoed. To avoid a persistent CORS failure on preview frontends, we add
+   * the preview wildcard matcher when the beta API domain is allowlisted but the preview
+   * origin isn't.
+   *
+   * This remains strict: we still only allow the specific Kavia preview hostname pattern,
+   * not arbitrary origins.
+   */
+  const betaApiOrigin = 'https://kavia-dashboard-kavia-beta.cloud.kavia.ai';
+  const hasBetaApiAllowed =
+    whitelist.has(betaApiOrigin) || allowedOriginsFromManifest.includes(betaApiOrigin);
+
+  if (hasBetaApiAllowed) {
+    const previewWildcard = wildcardOriginToRegex(
+      'https://vscode-internal-*-beta.beta01.cloud.kavia.ai:3000'
+    );
+    if (previewWildcard) {
+      originMatchers.push(previewWildcard);
+    }
+  }
+
   if (!hasAnyConfiguredOrigins) {
     // Deployed beta domain(s) (API host itself may appear as Origin in some same-site flows)
-    whitelist.add('https://kavia-dashboard-kavia-beta.cloud.kavia.ai');
+    whitelist.add(betaApiOrigin);
 
     // Common Kavia preview frontend origins (vscode-internal) seen in beta validation.
     // We include:
