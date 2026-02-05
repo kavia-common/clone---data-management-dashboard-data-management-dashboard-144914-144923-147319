@@ -55,7 +55,7 @@ router.use((req, res, next) => {
  * - If date-only "YYYY-MM-DD" is provided, expands to full-day bounds in UTC.
  */
 function resolveUtcWindow(fromRaw, toRaw) {
-  const parseMaybeYmd = (s, mode) => {
+  const parseMaybeYmd = (s) => {
     if (!s) return null;
     const str = String(s).trim();
 
@@ -70,9 +70,8 @@ function resolveUtcWindow(fromRaw, toRaw) {
       const y = Number(ymd[1]);
       const m0 = Number(ymd[2]) - 1;
       const d = Number(ymd[3]);
-      return mode === 'from'
-        ? new Date(Date.UTC(y, m0, d, 0, 0, 0, 0))
-        : new Date(Date.UTC(y, m0, d, 23, 59, 59, 999));
+      // Date-only inputs are interpreted as that day in UTC.
+      return new Date(Date.UTC(y, m0, d, 0, 0, 0, 0));
     }
 
     const dt = new Date(unwrapped);
@@ -83,19 +82,36 @@ function resolveUtcWindow(fromRaw, toRaw) {
   const hasFrom = fromRaw !== undefined && fromRaw !== null && String(fromRaw).trim() !== '';
   const hasTo = toRaw !== undefined && toRaw !== null && String(toRaw).trim() !== '';
 
-  // Default: TODAY in UTC
+  // Default: TODAY in UTC (inclusive start, exclusive end-next-day)
   if (!hasFrom && !hasTo) {
     const now = new Date();
     const y = now.getUTCFullYear();
     const m = now.getUTCMonth();
     const d = now.getUTCDate();
     const from = new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
-    const to = new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
+    const to = new Date(Date.UTC(y, m, d + 1, 0, 0, 0, 0)); // exclusive upper bound
     return { from, to, appliedDefault: true };
   }
 
-  const from = parseMaybeYmd(fromRaw, 'from');
-  const to = parseMaybeYmd(toRaw, 'to');
+  // For explicit inputs:
+  // - from: normalize to UTC start-of-day
+  // - to: normalize to *exclusive* end-of-day by taking (UTC start-of-day of provided date) + 1 day
+  const fromParsed = parseMaybeYmd(fromRaw);
+  const toParsed = parseMaybeYmd(toRaw);
+
+  const startOfDayUtc = (date) => {
+    const d = new Date(date);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+  };
+  const addDaysUtc = (date, days) => {
+    const d = new Date(date);
+    const out = new Date(d);
+    out.setUTCDate(d.getUTCDate() + days);
+    return out;
+  };
+
+  const from = fromParsed ? startOfDayUtc(fromParsed) : null;
+  const to = toParsed ? addDaysUtc(startOfDayUtc(toParsed), 1) : null;
 
   // If caller provided only one side, do not invent the other; match will use only provided bound.
   return { from, to, appliedDefault: false };
@@ -147,14 +163,11 @@ router.get('/users', async (req, res) => {
     }
 
     // NOTE(product requirement): For /api/dashboard/users we intentionally filter ONLY on
-    // `session_start` (UTC-normalized bounds), not on last_updated/timestamp.
+    // `session_start` with UTC-normalized day bounds:
+    // session_start: { $gte: <start-of-day UTC>, $lt: <start-of-next-day UTC> }
     const sessionStartRange = {};
     if (from) sessionStartRange.$gte = from;
-    if (to) {
-      // Use strict upper bound per requested pattern while still including the full "to" day,
-      // since resolveUtcWindow expands date-only inputs to 23:59:59.999Z.
-      sessionStartRange.$lt = to;
-    }
+    if (to) sessionStartRange.$lt = to;
 
     const matchAnd = [];
     if (!isAllTenants) {
