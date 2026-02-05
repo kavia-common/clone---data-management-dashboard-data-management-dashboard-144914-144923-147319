@@ -195,6 +195,11 @@ safeUse('/api/projects', require('./routes/projects.summary.routes'));
 
 // Service-type summary (used by Overview -> "Sessions by Service Type").
 // This endpoint MUST exist under /api and inherit the same CORS behavior as other overview endpoints.
+//
+// IMPORTANT: If we have any route-scoped middleware for this subtree, mount it BEFORE the router.
+// This ensures the middleware chain is deterministic and matches the behavior of other working endpoints.
+const { serviceTypeSummaryCorsMiddleware } = require('./middleware/serviceTypeSummaryCors');
+app.use('/api/service-type', serviceTypeSummaryCorsMiddleware);
 safeUse('/api/service-type', require('./routes/serviceType.summary.routes'));
 
 safeUse('/api/projects', require('./routes/projects.routes'));
@@ -207,14 +212,6 @@ safeUse('/api/dashboard', require('./routes/dashboard.routes'));
 safeUse('/api/metrics/users', require('./routes/metrics.users.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
 safeUse('/api/auth', require('./routes/auth.routes'));
-
-/**
- * Service-type summary route-specific CORS fix
- * - Do NOT alter global CORS for other APIs.
- * - Enable credentialed CORS only for /api/service-type/summary.
- */
-const { serviceTypeSummaryCorsMiddleware } = require('./middleware/serviceTypeSummaryCors');
-app.use('/api/service-type', serviceTypeSummaryCorsMiddleware);
 
 // ---------------------------------------------
 // 404 + Error handler
