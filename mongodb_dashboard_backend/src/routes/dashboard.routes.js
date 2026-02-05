@@ -49,72 +49,105 @@ router.use((req, res, next) => {
  */
 
 /**
- * Normalize the incoming date range parameters and apply default UTC "today" bounds.
- * - If neither from nor to is provided, uses today's UTC full-day window:
- *   from = 00:00:00.000Z, to = 23:59:59.999Z
- * - If date-only "YYYY-MM-DD" is provided, expands to full-day bounds in UTC.
+ * Resolve the incoming date range parameters as IST (Asia/Kolkata) calendar days,
+ * then convert to UTC bounds suitable for MongoDB matching.
+ *
+ * Behavior:
+ * - `from` / `to` are typically passed as YYYY-MM-DD (Quick Range inputs).
+ * - We interpret these as IST-local days:
+ *    - fromIST: YYYY-MM-DD 00:00:00.000 IST
+ *    - toISTExclusive: (YYYY-MM-DD + 1 day) 00:00:00.000 IST
+ * - We convert both instants to UTC and apply to `session_start` as:
+ *    session_start: { $gte: fromUtc, $lt: toUtcExclusive }
+ *
+ * Notes:
+ * - We use $lt with an exclusive upper bound (next-day start) which avoids
+ *   millisecond precision issues and matches common range semantics.
+ * - If neither from nor to is provided, we default to "today" in IST.
  */
-function resolveUtcWindow(fromRaw, toRaw) {
-  const parseMaybeYmd = (s) => {
-    if (!s) return null;
-    const str = String(s).trim();
+function resolveIstDayWindowToUtcBounds(fromRaw, toRaw) {
+  const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000; // UTC+05:30
 
+  const unwrapInput = (s) => {
+    if (s === undefined || s === null) return '';
+    const str = String(s).trim();
     // Accept ISODate("...") wrapper (some clients use this style)
     const isoDateWrapped = /^ISODate\((.*)\)$/i.exec(str);
-    const unwrapped = isoDateWrapped && isoDateWrapped[1]
+    return isoDateWrapped && isoDateWrapped[1]
       ? isoDateWrapped[1].trim().replace(/^['"]|['"]$/g, '')
       : str;
+  };
 
-    const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(unwrapped);
-    if (ymd) {
-      const y = Number(ymd[1]);
-      const m0 = Number(ymd[2]) - 1;
-      const d = Number(ymd[3]);
-      // Date-only inputs are interpreted as that day in UTC.
-      return new Date(Date.UTC(y, m0, d, 0, 0, 0, 0));
-    }
+  const parseYmd = (s) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!m) return null;
+    return { y: Number(m[1]), m0: Number(m[2]) - 1, d: Number(m[3]) };
+  };
+
+  // Build a Date representing the specified IST-local time expressed as a UTC instant.
+  // Example: 2026-01-01 00:00 IST == 2025-12-31 18:30Z
+  const istLocalToUtcInstant = (y, m0, d, hh, mm, ss, ms) => {
+    // Construct the instant as if the inputs were UTC, then subtract the IST offset.
+    // This is safe here because IST has no DST transitions.
+    const asUtc = Date.UTC(y, m0, d, hh, mm, ss, ms);
+    return new Date(asUtc - IST_OFFSET_MS);
+  };
+
+  const hasFrom = unwrapInput(fromRaw) !== '';
+  const hasTo = unwrapInput(toRaw) !== '';
+
+  // Default: TODAY in IST
+  if (!hasFrom && !hasTo) {
+    const nowUtc = new Date();
+    // Convert "now" instant to IST-local time by adding offset, then read UTC fields.
+    const nowIstInstant = new Date(nowUtc.getTime() + IST_OFFSET_MS);
+    const y = nowIstInstant.getUTCFullYear();
+    const m0 = nowIstInstant.getUTCMonth();
+    const d = nowIstInstant.getUTCDate();
+
+    const fromUtc = istLocalToUtcInstant(y, m0, d, 0, 0, 0, 0);
+    const toUtcExclusive = istLocalToUtcInstant(y, m0, d + 1, 0, 0, 0, 0);
+
+    return {
+      fromUtc,
+      toUtcExclusive,
+      fromIst: new Date(fromUtc.getTime() + IST_OFFSET_MS),
+      toIstExclusive: new Date(toUtcExclusive.getTime() + IST_OFFSET_MS),
+      appliedDefault: true,
+    };
+  }
+
+  // Explicit inputs: prefer YYYY-MM-DD.
+  // If callers send full ISO timestamps, we still attempt to accept them by converting the instant
+  // to IST and extracting the IST day (this preserves "calendar day" intent as best as possible).
+  const parseToIstDay = (raw) => {
+    const unwrapped = unwrapInput(raw);
+    if (!unwrapped) return null;
+
+    const ymd = parseYmd(unwrapped);
+    if (ymd) return ymd;
 
     const dt = new Date(unwrapped);
     if (Number.isNaN(dt.getTime())) return null;
-    return dt;
+
+    const istInstant = new Date(dt.getTime() + IST_OFFSET_MS);
+    return { y: istInstant.getUTCFullYear(), m0: istInstant.getUTCMonth(), d: istInstant.getUTCDate() };
   };
 
-  const hasFrom = fromRaw !== undefined && fromRaw !== null && String(fromRaw).trim() !== '';
-  const hasTo = toRaw !== undefined && toRaw !== null && String(toRaw).trim() !== '';
+  const fromDay = parseToIstDay(fromRaw);
+  const toDay = parseToIstDay(toRaw);
 
-  // Default: TODAY in UTC (inclusive start, exclusive end-next-day)
-  if (!hasFrom && !hasTo) {
-    const now = new Date();
-    const y = now.getUTCFullYear();
-    const m = now.getUTCMonth();
-    const d = now.getUTCDate();
-    const from = new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
-    const to = new Date(Date.UTC(y, m, d + 1, 0, 0, 0, 0)); // exclusive upper bound
-    return { from, to, appliedDefault: true };
-  }
+  // Only apply bounds that were provided; do not invent the missing side.
+  const fromUtc = fromDay ? istLocalToUtcInstant(fromDay.y, fromDay.m0, fromDay.d, 0, 0, 0, 0) : null;
+  const toUtcExclusive = toDay ? istLocalToUtcInstant(toDay.y, toDay.m0, toDay.d + 1, 0, 0, 0, 0) : null;
 
-  // For explicit inputs:
-  // - from: normalize to UTC start-of-day
-  // - to: normalize to *exclusive* end-of-day by taking (UTC start-of-day of provided date) + 1 day
-  const fromParsed = parseMaybeYmd(fromRaw);
-  const toParsed = parseMaybeYmd(toRaw);
-
-  const startOfDayUtc = (date) => {
-    const d = new Date(date);
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+  return {
+    fromUtc,
+    toUtcExclusive,
+    fromIst: fromUtc ? new Date(fromUtc.getTime() + IST_OFFSET_MS) : null,
+    toIstExclusive: toUtcExclusive ? new Date(toUtcExclusive.getTime() + IST_OFFSET_MS) : null,
+    appliedDefault: false,
   };
-  const addDaysUtc = (date, days) => {
-    const d = new Date(date);
-    const out = new Date(d);
-    out.setUTCDate(d.getUTCDate() + days);
-    return out;
-  };
-
-  const from = fromParsed ? startOfDayUtc(fromParsed) : null;
-  const to = toParsed ? addDaysUtc(startOfDayUtc(toParsed), 1) : null;
-
-  // If caller provided only one side, do not invent the other; match will use only provided bound.
-  return { from, to, appliedDefault: false };
 }
 
 /**
@@ -150,10 +183,11 @@ router.get('/users', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing tenant scope' });
     }
 
-    const { from, to, appliedDefault } = resolveUtcWindow(req.query?.from, req.query?.to);
+    const { fromUtc, toUtcExclusive, fromIst, toIstExclusive, appliedDefault } =
+      resolveIstDayWindowToUtcBounds(req.query?.from, req.query?.to);
 
     // If caller provided an invalid date string, fail fast with 400
-    if ((req.query?.from && !from) || (req.query?.to && !to)) {
+    if ((req.query?.from && !fromUtc) || (req.query?.to && !toUtcExclusive)) {
       return res.status(400).json({ success: false, message: 'Invalid from/to date value(s)' });
     }
 
@@ -163,11 +197,11 @@ router.get('/users', async (req, res) => {
     }
 
     // NOTE(product requirement): For /api/dashboard/users we intentionally filter ONLY on
-    // `session_start` with UTC-normalized day bounds:
-    // session_start: { $gte: <start-of-day UTC>, $lt: <start-of-next-day UTC> }
+    // `session_start` using IST-derived calendar day bounds converted to UTC:
+    // session_start: { $gte: <fromIST start as UTC>, $lt: <toIST next-day start as UTC> }
     const sessionStartRange = {};
-    if (from) sessionStartRange.$gte = from;
-    if (to) sessionStartRange.$lt = to;
+    if (fromUtc) sessionStartRange.$gte = fromUtc;
+    if (toUtcExclusive) sessionStartRange.$lt = toUtcExclusive;
 
     const matchAnd = [];
     if (!isAllTenants) {
@@ -328,9 +362,14 @@ router.get('/users', async (req, res) => {
     }));
 
     try {
-      res.set('X-Date-Window-Applied', appliedDefault ? 'default_today_utc' : 'explicit');
-      if (from) res.set('X-Date-Window-From', from.toISOString());
-      if (to) res.set('X-Date-Window-To', to.toISOString());
+      res.set('X-Date-Window-Timezone', 'Asia/Kolkata');
+      res.set('X-Date-Window-Applied', appliedDefault ? 'default_today_ist' : 'explicit_ist');
+
+      if (fromIst) res.set('X-Date-Window-From-IST', fromIst.toISOString());
+      if (toIstExclusive) res.set('X-Date-Window-To-IST', toIstExclusive.toISOString());
+
+      if (fromUtc) res.set('X-Date-Window-From-UTC', fromUtc.toISOString());
+      if (toUtcExclusive) res.set('X-Date-Window-To-UTC', toUtcExclusive.toISOString());
     } catch (_) {}
 
     return res.status(200).json(out);
