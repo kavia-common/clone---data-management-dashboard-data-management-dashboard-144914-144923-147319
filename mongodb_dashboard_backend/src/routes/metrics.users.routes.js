@@ -45,6 +45,13 @@ router.get('/', verifyAuth, requireTenant, async (req, res, next) => {
     }
 
     const dbo = await getDb();
+    if (!dbo) {
+      return res.status(503).json({
+        success: false,
+        message:
+          'Database is not connected. Ensure MONGODB_URI is set and MongoDB is reachable.',
+      });
+    }
     const usersCol = dbo.collection('users');
 
     // Tenant filter

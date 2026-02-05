@@ -1,8 +1,16 @@
 /* Ensure environment variables from .env are loaded even if the process
  * is started without "-r dotenv/config" (e.g., by external orchestrators).
  * This guarantees preview/CI can boot without special node flags.
+ *
+ * We load from an explicit path (container root) to avoid surprises when the
+ * process working directory differs in CI/preview environments.
  */
-try { require('dotenv').config(); } catch {}
+try {
+  const path = require('path');
+  require('dotenv').config({
+    path: path.resolve(__dirname, '..', '.env'),
+  });
+} catch {}
 
 /**
  * PUBLIC_INTERFACE

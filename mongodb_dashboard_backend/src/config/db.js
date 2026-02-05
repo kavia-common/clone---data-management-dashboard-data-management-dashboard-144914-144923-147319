@@ -11,7 +11,7 @@ const mongoose = require('mongoose');
  *
  * ENVIRONMENT VARIABLES REQUIRED:
  * - MONGODB_URI: Mongo connection string (e.g. mongodb://user:pass@host:27017/db)
- * - MONGODB_DB (optional): Database name override
+ * - MONGODB_DB (optional): Database name override (otherwise uses URI path default)
  * - MONGOOSE_AUTO_INDEX (optional): 'true' to enable autoIndex
  */
 async function connectDB() {
@@ -19,7 +19,6 @@ async function connectDB() {
   const uri = process.env.MONGODB_URI;
 
   if (!uri || typeof uri !== 'string' || uri.trim() === '') {
-     
     console.warn(
       '[db] MONGODB_URI is not set. Skipping MongoDB connection. The API will start, health endpoints will report db=disconnected.'
     );
@@ -30,7 +29,7 @@ async function connectDB() {
   mongoose.set('strictQuery', true);
 
   // In test mode, prefer fast failures and no buffering to keep tests snappy.
-  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'pre_prod_kaviaroot';
+  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
   if (isTest) {
     try {
       mongoose.set('bufferCommands', false);
@@ -45,7 +44,9 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'pre_prod_kaviaroot'; // Optional; if not set, Mongo will use the URI/path default
+  // Optional; if not set, Mongo will use the URI/path default.
+  // IMPORTANT: do not hard-code DB name here (was causing confusion and could connect to wrong DB).
+  const dbName = (process.env.MONGODB_DB || '').toString().trim() || undefined;
 
   const options = {
     autoIndex,
@@ -53,7 +54,7 @@ async function connectDB() {
     serverSelectionTimeoutMS: isTest ? 250 : 5000,
     socketTimeoutMS: isTest ? 500 : 45000,
     family: 4,
-    dbName,
+    ...(dbName ? { dbName } : {}),
   };
 
   // Prepare a safe, masked log for the cluster host (never log credentials)
@@ -65,28 +66,28 @@ async function connectDB() {
     // swallow parse errors; we will still attempt to connect
   }
 
-  mongoose.connection.on('connected', () => {
-     
-    console.log(
-      `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
-    );
-    if (dbName) {
-       
-      console.log(`MongoDB dbName selected via env: ${dbName}`);
-    }
-     
-    console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
-  });
+  // Register event handlers once per process
+  if (!mongoose.connection.__kaviaHandlersInstalled) {
+    mongoose.connection.__kaviaHandlersInstalled = true;
 
-  mongoose.connection.on('error', (err) => {
-     
-    console.error('MongoDB connection error:', err.message);
-  });
+    mongoose.connection.on('connected', () => {
+      console.log(
+        `MongoDB connected to cluster host: ${clusterHost} (db: ${mongoose.connection?.name || 'default'})`
+      );
+      if (dbName) {
+        console.log(`MongoDB dbName override: ${dbName}`);
+      }
+      console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
+    });
 
-  mongoose.connection.on('disconnected', () => {
-     
-    console.warn('MongoDB disconnected');
-  });
+    mongoose.connection.on('error', (err) => {
+      console.error('MongoDB connection error:', err.message);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      console.warn('MongoDB disconnected');
+    });
+  }
 
   await mongoose.connect(uri, options);
   return mongoose.connection;
@@ -97,17 +98,24 @@ async function connectDB() {
  * getDb
  * Returns an active MongoDB Db instance from the current Mongoose connection.
  * Ensures a connection is established; if not connected, attempts to connect first.
+ *
+ * Returns null when DB is unavailable (e.g., MONGODB_URI missing or connect failed).
  */
 async function getDb() {
   // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
   if (mongoose.connection.readyState !== 1) {
     await connectDB();
   }
-  // In rare cases during connect, db might still be null; await a tick
+
+  // If connectDB() was skipped due to missing MONGODB_URI, or if connection failed,
+  // mongoose.connection.db will be undefined/null. Return null (not undefined) so
+  // callers can consistently guard.
   if (!mongoose.connection.db) {
+    // In rare cases during connect, db might still be null; await a tick then re-check
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
-  return mongoose.connection.db;
+
+  return mongoose.connection.db || null;
 }
 
 /**
@@ -117,11 +125,15 @@ async function getDb() {
  * or an array of candidate names and returns the first existing collection;
  * if none exist, returns the first candidate name as a collection handle.
  *
+ * Returns null when DB is unavailable.
+ *
  * Example:
  *  const col = await getCollection(['llm-costs', 'llm_costs']);
  */
 async function getCollection(nameOrNames) {
   const db = await getDb();
+  if (!db) return null;
+
   const candidates = Array.isArray(nameOrNames) ? nameOrNames : [nameOrNames];
 
   try {
