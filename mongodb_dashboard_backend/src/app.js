@@ -208,6 +208,14 @@ safeUse('/api/metrics/users', require('./routes/metrics.users.routes'));
 safeUse('/api/dashboard/overview', require('./routes/dashboard.modules.routes'));
 safeUse('/api/auth', require('./routes/auth.routes'));
 
+/**
+ * Service-type summary route-specific CORS fix
+ * - Do NOT alter global CORS for other APIs.
+ * - Enable credentialed CORS only for /api/service-type/summary.
+ */
+const { serviceTypeSummaryCorsMiddleware } = require('./middleware/serviceTypeSummaryCors');
+app.use('/api/service-type', serviceTypeSummaryCorsMiddleware);
+
 // ---------------------------------------------
 // 404 + Error handler
 // ---------------------------------------------
