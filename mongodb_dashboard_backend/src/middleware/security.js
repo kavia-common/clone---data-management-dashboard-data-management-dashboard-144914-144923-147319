@@ -82,6 +82,33 @@ function corsMiddleware() {
     }
   }
 
+  /**
+   * If no env-driven origins are configured, strict CORS would otherwise default to ONLY localhost
+   * (see defaults below), which breaks real deployments.
+   *
+   * Add a minimal, deployment-specific fallback set for Kavia beta environments so that:
+   * - https://kavia-dashboard-kavia-beta.cloud.kavia.ai can be called from
+   * - https://vscode-internal-*-beta.beta01.cloud.kavia.ai:* preview frontends
+   *
+   * These are only applied when the allowlist is otherwise empty (excluding localhost),
+   * so properly configured environments remain fully env-driven/strict.
+   */
+  const hasAnyConfiguredOrigins =
+    allowedOriginsFromManifest.length > 0 ||
+    listOrigins.length > 0 ||
+    Boolean(singleOrigin) ||
+    Boolean(frontendOrigin) ||
+    Boolean(inferredFromApiBase);
+
+  if (!hasAnyConfiguredOrigins) {
+    // Deployed beta domain(s)
+    whitelist.add('https://kavia-dashboard-kavia-beta.cloud.kavia.ai');
+
+    // Common Kavia preview frontend origins (vscode-internal) seen in beta validation.
+    // Note: We include the exact observed origin (port 3000) to satisfy credentialed CORS.
+    whitelist.add('https://vscode-internal-27924-beta.beta01.cloud.kavia.ai:3000');
+  }
+
   // Localhost defaults (safe dev defaults)
   whitelist.add('http://localhost:3000');
   whitelist.add('https://localhost:3000');
