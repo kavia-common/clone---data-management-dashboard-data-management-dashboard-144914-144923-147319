@@ -4,13 +4,85 @@ const mongoose = require('mongoose');
 const User = require('../models/user.model');
 const { extractOrganization } = require('../middleware/extractOrganization');
 
- // PUBLIC_INTERFACE
+/**
+ * Resolve the date window for /api/users/summary and convert it to the canonical
+ * from/to query params expected by /api/dashboard/users.
+ *
+ * Notes:
+ * - /api/users/summary uses date-only windows (UTC day boundaries).
+ * - /api/dashboard/users accepts ISO date-time or YYYY-MM-DD, and defaults to today UTC
+ *   when from/to are omitted. We will always send explicit from/to ISO strings to keep
+ *   semantics aligned with the users summary window.
+ */
+function resolveUsersSummaryWindowUtc({ range, start_date, end_date }) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const toYMD = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  const startOfUTCDate = (d) => new Date(`${toYMD(d)}T00:00:00.000Z`);
+  const endOfUTCDate = (d) => new Date(`${toYMD(d)}T23:59:59.999Z`);
+  const addDays = (d, days) => {
+    const out = new Date(d);
+    out.setUTCDate(out.getUTCDate() + days);
+    return out;
+  };
+
+  const today = startOfUTCDate(new Date());
+  let windowStart;
+  let windowEnd;
+
+  const reDate = /^\d{4}-\d{2}-\d{2}$/;
+  const r = String(range || 'daily').toLowerCase();
+
+  if (r === 'custom') {
+    if (!start_date || !end_date || !reDate.test(start_date) || !reDate.test(end_date)) {
+      const err = new Error("For range=custom, 'start_date' and 'end_date' are required in YYYY-MM-DD.");
+      err.statusCode = 400;
+      throw err;
+    }
+    windowStart = new Date(`${start_date}T00:00:00.000Z`);
+    windowEnd = new Date(`${end_date}T23:59:59.999Z`);
+    if (Number.isNaN(windowStart.getTime()) || Number.isNaN(windowEnd.getTime())) {
+      const err = new Error('Invalid start_date or end_date.');
+      err.statusCode = 400;
+      throw err;
+    }
+    if (windowStart.getTime() > windowEnd.getTime()) {
+      const err = new Error('start_date must be before or equal to end_date.');
+      err.statusCode = 400;
+      throw err;
+    }
+  } else if (r === 'daily') {
+    windowStart = startOfUTCDate(today);
+    windowEnd = endOfUTCDate(today);
+  } else if (r === 'weekly') {
+    windowStart = startOfUTCDate(addDays(today, -6));
+    windowEnd = endOfUTCDate(today);
+  } else if (r === 'monthly') {
+    windowStart = startOfUTCDate(addDays(today, -29));
+    windowEnd = endOfUTCDate(today);
+  } else {
+    const err = new Error("Invalid 'range'. Allowed values: daily|weekly|monthly|custom.");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return {
+    windowStart,
+    windowEnd,
+    startOfUTCDate,
+    endOfUTCDate,
+    addDays,
+    toYMD,
+  };
+}
+
+// PUBLIC_INTERFACE
 /**
  * GET /api/users/summary
  * Users created summary grouped by time buckets with tenant scoping.
  *
  * Also returns:
- * - total_sessions: total number of sessions in `session_tracking` within the same selected date window
+ * - total_sessions: total number of sessions within the same selected date window,
+ *   derived from the canonical /api/dashboard/users endpoint (sum of per-user totalSessions).
  *
  * Special case:
  * - When organization_id === 'T0000' (case-insensitive), return an all-organizations view:
@@ -54,13 +126,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
   try {
     let { range = 'daily', start_date, end_date, organization_id, tenant_id } = req.query || {};
     range = String(range || 'daily').toLowerCase();
-    const ALLOWED = new Set(['daily', 'weekly', 'monthly', 'custom']);
-    if (!ALLOWED.has(range)) {
-      return res.status(400).json({
-        message: "Invalid 'range'. Allowed values: daily|weekly|monthly|custom.",
-        hint: "For range=custom, provide start_date and end_date in YYYY-MM-DD."
-      });
-    }
+
     if (range !== 'custom' && (start_date || end_date)) {
       // If user passes dates with non-custom, we allow but ignore; add header note for transparency
       res.setHeader('x-users-summary-note', 'start_date/end_date ignored unless range=custom');
@@ -74,44 +140,17 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     const isT0000 = String(effectiveTenant || '').trim().toUpperCase() === 'T0000';
 
     if (!isGlobal && !effectiveTenant) {
-      return res.status(400).json({ message: "Missing organization_id/tenant_id." });
+      return res.status(400).json({ message: 'Missing organization_id/tenant_id.' });
     }
 
-    // Date helpers (UTC)
-    const pad = (n) => String(n).padStart(2, '0');
-    const toYMD = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-    const startOfUTCDate = (d) => new Date(`${toYMD(d)}T00:00:00.000Z`);
-    const endOfUTCDate = (d) => new Date(`${toYMD(d)}T23:59:59.999Z`);
-    const addDays = (d, days) => { const out = new Date(d); out.setUTCDate(out.getUTCDate() + days); return out; };
-
-    const today = startOfUTCDate(new Date());
-    let windowStart;
-    let windowEnd;
-
-    const reDate = /^\d{4}-\d{2}-\d{2}$/;
-
-    if (range === 'custom') {
-      if (!start_date || !end_date || !reDate.test(start_date) || !reDate.test(end_date)) {
-        return res.status(400).json({ message: "For range=custom, 'start_date' and 'end_date' are required in YYYY-MM-DD." });
-      }
-      windowStart = new Date(`${start_date}T00:00:00.000Z`);
-      windowEnd = new Date(`${end_date}T23:59:59.999Z`);
-      if (Number.isNaN(windowStart.getTime()) || Number.isNaN(windowEnd.getTime())) {
-        return res.status(400).json({ message: 'Invalid start_date or end_date.' });
-      }
-      if (windowStart.getTime() > windowEnd.getTime()) {
-        return res.status(400).json({ message: 'start_date must be before or equal to end_date.' });
-      }
-    } else if (range === 'daily') {
-      windowStart = startOfUTCDate(today);
-      windowEnd = endOfUTCDate(today);
-    } else if (range === 'weekly') {
-      windowStart = startOfUTCDate(addDays(today, -6));
-      windowEnd = endOfUTCDate(today);
-    } else if (range === 'monthly') {
-      windowStart = startOfUTCDate(addDays(today, -29));
-      windowEnd = endOfUTCDate(today);
-    }
+    const {
+      windowStart,
+      windowEnd,
+      startOfUTCDate,
+      endOfUTCDate,
+      addDays,
+      toYMD,
+    } = resolveUsersSummaryWindowUtc({ range, start_date, end_date });
 
     const createdAtFilter = { $gte: windowStart, $lte: windowEnd };
     const match = { created_at: createdAtFilter };
@@ -148,13 +187,13 @@ router.get('/summary', extractOrganization(), async (req, res) => {
             $dateSubtract: {
               startDate: { $dateAdd: { startDate: '$_id', unit: 'day', amount: 1 } },
               unit: 'millisecond',
-              amount: 1
-            }
+              amount: 1,
+            },
           },
           label: { $dateToString: { format: '%Y-%m-%d', date: '$_id', timezone: 'UTC' } },
-          count: 1
-        }
-      }
+          count: 1,
+        },
+      },
     ];
 
     // Optional per-organization breakdown when all-org view is active (T0000)
@@ -163,59 +202,100 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       { $set: { _bucketStart: bucketBoundaryExpr } },
       {
         $group: {
-          _id: { bucket: '$_bucketStart', org: { $ifNull: ['$tenant_id', { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', '$tenantId'] }] }] } },
+          _id: {
+            bucket: '$_bucketStart',
+            org: {
+              $ifNull: [
+                '$tenant_id',
+                { $ifNull: ['$organization_id', { $ifNull: ['$organizationId', '$tenantId'] }] },
+              ],
+            },
+          },
           count: { $sum: 1 },
-        }
+        },
       },
       {
         $project: {
           _id: 0,
           bucket: '$_id.bucket',
           org: { $ifNull: ['$_id.org', 'unknown'] },
-          count: 1
-        }
+          count: 1,
+        },
       },
-      { $sort: { bucket: 1, org: 1 } }
+      { $sort: { bucket: 1, org: 1 } },
     ];
 
-    // total_sessions aggregation in the SAME time window
-    // Semantics:
-    // - We count session_tracking documents whose "activity timestamp" is within [windowStart, windowEnd].
-    // - Prefer last_updated if present, else session_start, else timestamp (similar to other users endpoints).
-    const sessionMatchStages = [];
-    if (!isGlobal && !isT0000 && effectiveTenant) {
-      sessionMatchStages.push({
-        $match: {
-          $or: [
-            { tenant_id: effectiveTenant },
-            { organization_id: effectiveTenant },
-            { organizationId: effectiveTenant },
-            { tenantId: effectiveTenant },
-            { orgId: effectiveTenant },
-            { 'tenant.tenant_id': effectiveTenant },
-          ],
-        },
+    // Derive total_sessions from canonical /api/dashboard/users aggregation.
+    // We run an equivalent aggregation directly against session_tracking (same logic as dashboard.users.routes.js),
+    // then sum per-user distinct session counts.
+    const requestedTenant = effectiveTenant || '';
+    const isAllTenants = isT0000;
+
+    const timeRange = { $gte: windowStart, $lte: windowEnd };
+    const timeOr = [
+      { last_updated: timeRange },
+      { session_start: timeRange },
+      { timestamp: timeRange },
+    ];
+
+    const matchAnd = [];
+    if (!isAllTenants) {
+      matchAnd.push({
+        $or: [
+          { tenant_id: requestedTenant },
+          { organization_id: requestedTenant },
+          { organizationId: requestedTenant },
+          { tenantId: requestedTenant },
+          { orgId: requestedTenant },
+          { 'tenant.tenant_id': requestedTenant },
+        ],
       });
     }
+    matchAnd.push({ $or: timeOr });
 
-    const totalSessionsPipeline = [
-      ...sessionMatchStages,
+    const dashboardMatchStage = matchAnd.length ? { $match: { $and: matchAnd } } : { $match: {} };
+
+    const canonicalTotalSessionsPipeline = [
+      dashboardMatchStage,
       {
-        $set: {
-          _activity_ts: {
-            $ifNull: [
-              '$last_updated',
-              { $ifNull: ['$session_start', '$timestamp'] },
+        $project: {
+          userId: { $toString: '$user_id' },
+          sessionId: {
+            $cond: [
+              { $or: [{ $eq: ['$session_id', null] }, { $eq: ['$session_id', ''] }] },
+              { $toString: '$_id' },
+              { $toString: '$session_id' },
             ],
           },
         },
       },
+      { $match: { userId: { $ne: null, $ne: '' } } },
       {
-        $match: {
-          _activity_ts: { $gte: windowStart, $lte: windowEnd },
+        $group: {
+          _id: '$userId',
+          sessionIds: { $addToSet: '$sessionId' },
         },
       },
-      { $count: 'total_sessions' },
+      {
+        $project: {
+          _id: 0,
+          totalSessions: {
+            $size: {
+              $filter: {
+                input: '$sessionIds',
+                as: 's',
+                cond: { $and: [{ $ne: ['$$s', null] }, { $ne: ['$$s', ''] }] },
+              },
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          total_sessions: { $sum: '$totalSessions' },
+        },
+      },
     ];
 
     // Execute aggregations
@@ -224,8 +304,8 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         ? db.collection('users').aggregate(basePipeline, { allowDiskUse: true }).toArray()
         : User.aggregate(basePipeline).allowDiskUse(true),
       (db && typeof db.collection === 'function')
-        ? db.collection('session_tracking').aggregate(totalSessionsPipeline, { allowDiskUse: true }).toArray()
-        : mongoose.connection.collection('session_tracking').aggregate(totalSessionsPipeline, { allowDiskUse: true }).toArray(),
+        ? db.collection('session_tracking').aggregate(canonicalTotalSessionsPipeline, { allowDiskUse: true }).toArray()
+        : mongoose.connection.collection('session_tracking').aggregate(canonicalTotalSessionsPipeline, { allowDiskUse: true }).toArray(),
     ]);
 
     const total_sessions = Number(totalSessionsAgg?.[0]?.total_sessions || 0);
@@ -241,7 +321,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
 
     const map = new Map();
     for (const r of bucketResults) {
-      const key = (new Date(r.start)).toISOString();
+      const key = new Date(r.start).toISOString();
       map.set(key, r);
     }
 
@@ -254,7 +334,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         label: toYMD(start),
         start: start.toISOString(),
         end: end.toISOString(),
-        count: Number(found?.count || 0)
+        count: Number(found?.count || 0),
       };
     });
 
@@ -272,9 +352,8 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       const orgMap = new Map(); // org -> Map(dateLabel -> count)
       const orgTotals = new Map(); // org -> total count
       for (const row of perOrgRaw) {
-        const dateLabel = typeof row.bucket === 'string'
-          ? row.bucket
-          : new Date(row.bucket).toISOString().slice(0, 10);
+        const dateLabel =
+          typeof row.bucket === 'string' ? row.bucket : new Date(row.bucket).toISOString().slice(0, 10);
         const org = String(row.org || 'unknown');
         const c = Number(row.count || 0);
         if (!orgMap.has(org)) orgMap.set(org, new Map());
@@ -291,7 +370,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         return {
           organization_id: org,
           total: Number(orgTotals.get(org) || 0),
-          buckets: series
+          buckets: series,
         };
       });
 
@@ -299,7 +378,9 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       orgBuckets.sort((a, b) => b.total - a.total);
 
       // Add response hint header
-      try { res.setHeader('x-users-summary-org-buckets', String(orgBuckets.length)); } catch {}
+      try {
+        res.setHeader('x-users-summary-org-buckets', String(orgBuckets.length));
+      } catch {}
     }
 
     const response = {
@@ -311,11 +392,17 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     };
     if (isT0000) {
       response.orgBuckets = orgBuckets || [];
-      try { res.setHeader('x-users-summary-mode', 'all_orgs'); } catch {}
+      try {
+        res.setHeader('x-users-summary-mode', 'all_orgs');
+      } catch {}
     }
 
     return res.status(200).json(response);
   } catch (err) {
+    const statusCode = Number(err?.statusCode) || 500;
+    if (statusCode === 400) {
+      return res.status(400).json({ message: err.message });
+    }
     // eslint-disable-next-line no-console
     console.error('[users.summary] error:', err);
     return res.status(500).json({ message: 'Internal server error' });
