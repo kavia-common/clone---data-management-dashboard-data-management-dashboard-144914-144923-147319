@@ -3,7 +3,7 @@ const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
 const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
-const { connectDB } = require('./config/db');
+const { connectDB, isDbConnected } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
 const cors = require('cors');
@@ -122,6 +122,47 @@ try {
   // eslint-disable-next-line no-console
   console.log('[routes] Health endpoints registered at: /health, /api/health, /healthz, /ready, /live');
 } catch {}
+
+// ---------------------------------------------
+// DB readiness gate (prevents Mongoose buffering timeouts)
+// ---------------------------------------------
+app.use('/api', (req, res, next) => {
+  // Allow unauthenticated endpoints regardless of DB state
+  const allowPaths = new Set([
+    '/health',
+    '/api/health',
+    '/docs',
+    '/api/docs',
+    '/api-docs',
+    '/openapi.json',
+    '/api-docs.json',
+    '/api/docs.json',
+  ]);
+
+  // Allow auth endpoints to respond (some may not require DB)
+  if (req.path.startsWith('/auth')) {
+    return next();
+  }
+
+  // Allow any of the above exact endpoints
+  if (allowPaths.has(req.path) || allowPaths.has(req.originalUrl)) {
+    return next();
+  }
+
+  // If Mongo is not connected, fail fast with 503 instead of buffering for 10s.
+  if (!isDbConnected()) {
+    res.set('Cache-Control', 'no-store');
+    return res.status(503).json({
+      success: false,
+      message: 'Database not connected',
+      hint: 'Ensure MONGODB_URI is configured and MongoDB is reachable.',
+      dbReadyState: mongoose?.connection?.readyState,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  return next();
+});
 
 // ---------------------------------------------
 // Root path handler (landing)

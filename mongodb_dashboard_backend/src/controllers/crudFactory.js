@@ -291,20 +291,14 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         // Run a fast existence probe to help disambiguate empty responses: filter vs model/collection mismatch.
         let existsSample = 'unknown';
         try {
+          // Note: Model.exists() returns either null or a doc containing _id, and does not support .lean().
+          // Also, if DB is disconnected, this can throw; we swallow and record 'error' only for diagnostics.
           const existsDoc = await Model.exists(
             appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
-          ).lean?.();
+          );
           existsSample = existsDoc ? 'true' : 'false';
         } catch {
-          // Some Mongoose versions don't support .lean on exists result; fallback
-          try {
-            const existsDoc = await Model.exists(
-              appliedFilter && typeof appliedFilter === 'object' ? appliedFilter : {}
-            );
-            existsSample = existsDoc ? 'true' : 'false';
-          } catch {
-            existsSample = 'error';
-          }
+          existsSample = 'error';
         }
         try {
           res.set('X-Exists-Sample', existsSample);

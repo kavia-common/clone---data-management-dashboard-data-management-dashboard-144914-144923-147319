@@ -29,15 +29,18 @@ async function connectDB() {
 
   mongoose.set('strictQuery', true);
 
-  // In test mode, prefer fast failures and no buffering to keep tests snappy.
-  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'pre_prod_kaviaroot';
-  if (isTest) {
-    try {
-      mongoose.set('bufferCommands', false);
-    } catch {
-      // ignore
-    }
+  // IMPORTANT:
+  // Disable buffering globally so we fail fast when DB is not connected.
+  // Buffering leads to the observed "buffering timed out after 10000ms" for aggregate/find.
+  // Instead, routes will return 503 (via app middleware) or a clear error immediately.
+  try {
+    mongoose.set('bufferCommands', false);
+  } catch {
+    // ignore
   }
+
+  // In "test" mode we also prefer fast server selection timeouts.
+  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
 
   // Connection options recommended for modern Mongoose
   // - Disable autoIndex by default to avoid failures on clusters with existing duplicate data.
@@ -45,7 +48,10 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'pre_prod_kaviaroot'; // Optional; if not set, Mongo will use the URI/path default
+  const dbName =
+    typeof process.env.MONGODB_DB === 'string' && process.env.MONGODB_DB.trim()
+      ? process.env.MONGODB_DB.trim()
+      : undefined; // if unset, Mongo will use the URI/path default
 
   const options = {
     autoIndex,
@@ -53,7 +59,7 @@ async function connectDB() {
     serverSelectionTimeoutMS: isTest ? 250 : 5000,
     socketTimeoutMS: isTest ? 500 : 45000,
     family: 4,
-    dbName,
+    ...(dbName ? { dbName } : {}),
   };
 
   // Prepare a safe, masked log for the cluster host (never log credentials)
