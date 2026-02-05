@@ -5,6 +5,8 @@ const rateLimit = require('express-rate-limit');
 /**
  * Normalize a URL-like string to an origin (scheme://host[:port]).
  * Returns null if it cannot be interpreted as an origin.
+ *
+ * Note: this is intentionally strict and only returns a concrete origin, not a pattern.
  */
 function toOriginMaybe(urlLike) {
   if (!urlLike) {
@@ -19,6 +21,40 @@ function toOriginMaybe(urlLike) {
     }
     return null;
   }
+}
+
+/**
+ * Convert a wildcard origin pattern into a RegExp.
+ *
+ * Supported syntax:
+ * - '*' matches any sequence of characters except '/' (we only expect origins, so no '/')
+ *
+ * Examples:
+ * - 'https://vscode-internal-*-beta.beta01.cloud.kavia.ai:3000'
+ * - 'https://*.cloud.kavia.ai'
+ *
+ * Returns null when the input is not a recognizable wildcard origin pattern.
+ */
+function wildcardOriginToRegex(pattern) {
+  if (!pattern || typeof pattern !== 'string') {
+    return null;
+  }
+  const p = pattern.trim();
+  // We only support http(s) schemes for security/clarity.
+  if (!/^https?:\/\//i.test(p)) {
+    return null;
+  }
+  // Treat as wildcard pattern only if it contains '*'
+  if (!p.includes('*')) {
+    return null;
+  }
+
+  // Escape regex meta chars other than '*', then expand '*' to a safe wildcard.
+  const escaped = p
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '[^/]*');
+
+  return new RegExp(`^${escaped}$`, 'i');
 }
 
 /**
@@ -45,13 +81,30 @@ function toOriginMaybe(urlLike) {
 function corsMiddleware() {
   const inferredFromApiBase = toOriginMaybe(process.env.REACT_APP_API_BASE_URL);
 
-  // Manifest-first allowlist
-  const allowedOriginsFromManifest = (process.env.ALLOWED_ORIGINS || '')
+  /**
+   * Manifest-first allowlist
+   *
+   * We support:
+   * 1) exact origins: 'https://example.com:3000'
+   * 2) wildcard patterns: 'https://vscode-internal-*-beta.beta01.cloud.kavia.ai:3000'
+   *
+   * Wildcards are compiled into RegExp matchers and are only consulted if the origin
+   * is not an exact match.
+   */
+  const allowedOriginsRaw = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
-    .map((o) => toOriginMaybe(o.trim()))
+    .map((o) => String(o || '').trim())
     .filter(Boolean);
 
-  // Backward-compatible allowlist sources
+  const allowedOriginsFromManifest = allowedOriginsRaw
+    .map((o) => toOriginMaybe(o))
+    .filter(Boolean);
+
+  const allowedOriginPatternsFromManifest = allowedOriginsRaw
+    .map((o) => wildcardOriginToRegex(o))
+    .filter(Boolean);
+
+  // Backward-compatible allowlist sources (exact only)
   const singleOrigin = toOriginMaybe((process.env.CORS_ORIGIN || '').trim());
   const frontendOrigin = toOriginMaybe((process.env.FRONTEND_ORIGIN || '').trim());
   const listOrigins = (process.env.CORS_ORIGINS || '')
@@ -60,6 +113,7 @@ function corsMiddleware() {
     .filter(Boolean);
 
   const whitelist = new Set();
+  const originMatchers = [...allowedOriginPatternsFromManifest];
 
   // Explicit values (manifest first)
   allowedOriginsFromManifest.forEach((o) => whitelist.add(o));
@@ -101,12 +155,21 @@ function corsMiddleware() {
     Boolean(inferredFromApiBase);
 
   if (!hasAnyConfiguredOrigins) {
-    // Deployed beta domain(s)
+    // Deployed beta domain(s) (API host itself may appear as Origin in some same-site flows)
     whitelist.add('https://kavia-dashboard-kavia-beta.cloud.kavia.ai');
 
     // Common Kavia preview frontend origins (vscode-internal) seen in beta validation.
-    // Note: We include the exact observed origin (port 3000) to satisfy credentialed CORS.
+    // We include:
+    // - an exact observed origin for immediate compatibility
+    // - a wildcard pattern so new preview instances do not regress CORS
     whitelist.add('https://vscode-internal-27924-beta.beta01.cloud.kavia.ai:3000');
+
+    const previewWildcard = wildcardOriginToRegex(
+      'https://vscode-internal-*-beta.beta01.cloud.kavia.ai:3000'
+    );
+    if (previewWildcard) {
+      originMatchers.push(previewWildcard);
+    }
   }
 
   // Localhost defaults (safe dev defaults)
@@ -182,6 +245,11 @@ function corsMiddleware() {
       if (!origin) return callback(null, true); // SSR / curl / same-origin
 
       if (whitelist.has(origin)) return callback(null, true);
+
+      // Wildcard/pattern match (useful for preview domains whose subdomain varies)
+      if (originMatchers.some((re) => re.test(origin))) {
+        return callback(null, true);
+      }
 
       // Same-host across different ports (dev/proxy scenarios)
       try {

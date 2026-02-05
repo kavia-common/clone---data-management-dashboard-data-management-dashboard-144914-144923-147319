@@ -1,4 +1,4 @@
-<!-- # CORS fix: /api/service-type/summary
+# CORS fix: /api/service-type/summary
 
 This change aligns backend CORS behavior with `.project_manifest.yaml` env vars:
 
@@ -18,4 +18,4 @@ is allowed to call:
 
 including when cookies/credentials are used.
 
-Also updated `TRUST_PROXY` handling in `src/app.js` so `req.secure` and proxy-related behavior are correct in cloud preview deployments. -->
+Also updated `TRUST_PROXY` handling in `src/app.js` so `req.secure` and proxy-related behavior are correct in cloud preview deployments.
