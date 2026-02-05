@@ -110,6 +110,13 @@ function corsMiddleware() {
     'Authorization',
     'Accept',
     'X-Requested-With',
+
+    // Common preflight headers. While these are primarily *request* headers, allowing
+    // them makes the allowlist resilient across browser/proxy variations.
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers',
+
+    // Browser client hints / common browser headers sometimes appear in preflight allowlists
     'sec-ch-ua',
     'sec-ch-ua-mobile',
     'sec-ch-ua-platform',
@@ -179,6 +186,11 @@ function corsMiddleware() {
 
   return (req, res, next) => {
     corsInstance(req, res, (err) => {
+      // Ensure multi-origin CORS responses are cached safely by intermediaries.
+      // (Without this, a CDN/proxy could cache a response with Allow-Origin for A
+      // and serve it to origin B, appearing as a "random" CORS failure.)
+      res.vary('Origin');
+
       if (err) {
         console.warn(`[CORS] Blocked origin: ${req.headers.origin}`);
         return res.status(403).json({
