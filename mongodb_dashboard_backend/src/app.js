@@ -22,6 +22,9 @@ app.use(corsMiddleware());
  // Explicit preflight handling for all /api paths (including summary and users)
  // Single wildcard path is sufficient; ensure it is registered early.
  app.options('/api/*', cors());
+ // Belt-and-suspenders: some proxies/browsers can behave differently with wildcard matching;
+ // register a subtree OPTIONS for the service-type endpoints explicitly.
+ app.options('/api/service-type/*', cors());
 app.use(rateLimiter());
 
 // Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION
@@ -190,9 +193,10 @@ safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/llm_costs', require('./routes/costs.llm_costs.routes'));
 safeUse('/api/projects', require('./routes/projects.summary.routes'));
 
-// NOTE: service-type routes are already mounted under '/api' via baseRouter (src/routes/index.js).
-// Mounting them again here can change middleware/OPTIONS precedence and lead to CORS inconsistencies.
-// Keep a single mount point to match other overview APIs behavior.
+// Service-type summary (used by Overview -> "Sessions by Service Type").
+// This endpoint MUST exist under /api and inherit the same CORS behavior as other overview endpoints.
+safeUse('/api/service-type', require('./routes/serviceType.summary.routes'));
+
 safeUse('/api/projects', require('./routes/projects.routes'));
 try {
   // eslint-disable-next-line no-console
