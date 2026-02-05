@@ -2,52 +2,102 @@
 
 const express = require('express');
 const router = express.Router();
-const { getDb } = require('../config/db');
+
+const { getDb, isDbConnected } = require('../config/db');
 const { verifyAuth } = require('../middleware/verifyAuth');
 const { requireTenant } = require('../middleware/requireTenant');
 
 /**
  * PUBLIC_INTERFACE
  * GET /api/metrics/users
- * Returns user metrics counts:
- *  - totalUsers: total DISTINCT users in scope
- *  - activeUsers: DISTINCT users with status 'active'
  *
- * Tenant scoping rules:
- *  - If organization_id (or tenant_id) = 'T0000' then return counts across ALL tenants.
- *  - Otherwise, return counts only within the resolved tenant.
+ * Returns user metrics:
+ *  - totalUsers: DISTINCT users in scope
+ *  - activeUsers: DISTINCT active users in scope
+ *
+ * Tenant rules:
+ *  - T0000 is allowed ONLY for super-admins → all tenants
+ *  - Otherwise scoped to resolved tenant
  */
 router.get('/', verifyAuth, requireTenant, async (req, res, next) => {
   try {
-    // Support both organization_id and tenant_id as inputs (headers take precedence)
-    const headerOrg = (req.headers?.['x-organization-id'] || req.headers?.['x-tenant-id'] || '').toString().trim();
+    /* ------------------------------------------------------------------
+     * 1️⃣ HARD STOP if DB is not connected
+     * ------------------------------------------------------------------ */
+    if (!isDbConnected()) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected',
+        code: 'DB_DISCONNECTED',
+      });
+    }
+
+    /* ------------------------------------------------------------------
+     * 2️⃣ Resolve tenant inputs
+     * ------------------------------------------------------------------ */
+    const headerOrg =
+      (req.headers?.['x-organization-id'] ||
+        req.headers?.['x-tenant-id'] ||
+        '')
+        .toString()
+        .trim();
+
     const queryOrg = (req.query?.organization_id || '').toString().trim();
     const queryTid = (req.query?.tenant_id || '').toString().trim();
     const authTenant = (req.auth?.tenantId || '').toString().trim();
 
-    // Effective requested org (used only to detect T0000)
-    const requestedOrg = headerOrg || queryOrg || queryTid || authTenant;
+    const requestedOrg =
+      headerOrg || queryOrg || queryTid || authTenant;
 
-    // Super-admin override
+    /* ------------------------------------------------------------------
+     * 3️⃣ Secure T0000 super-admin bypass
+     * ------------------------------------------------------------------ */
+    const isSuperAdmin =
+      Array.isArray(req.auth?.roles) &&
+      req.auth.roles.includes('SUPER_ADMIN');
+
     const isAllTenantsBypass =
-      requestedOrg && String(requestedOrg).toUpperCase() === 'T0000';
+      isSuperAdmin &&
+      requestedOrg &&
+      requestedOrg.toUpperCase() === 'T0000';
 
-    // Resolve effective tenant
     const effectiveTenant = isAllTenantsBypass
-      ? undefined
-      : (req.tenantId || authTenant || headerOrg || queryOrg || queryTid || '').toString().trim();
+      ? null
+      : (req.tenantId ||
+          authTenant ||
+          headerOrg ||
+          queryOrg ||
+          queryTid ||
+          '')
+          .toString()
+          .trim();
 
     if (!isAllTenantsBypass && !effectiveTenant) {
       return res.status(400).json({
         success: false,
-        message: 'organization_id (tenant) is required unless using T0000 super-admin override',
+        message:
+          'organization_id (tenant) is required unless using T0000 with super-admin role',
       });
     }
 
-    const dbo = await getDb();
-    const usersCol = dbo.collection('users');
+    /* ------------------------------------------------------------------
+     * 4️⃣ Mongo access (safe)
+     * ------------------------------------------------------------------ */
+    const db = await getDb();
 
-    // Tenant filter
+    if (!db) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database unavailable',
+        code: 'DB_UNAVAILABLE',
+      });
+    }
+
+    const usersCol = db.collection('users');
+
+    /* ------------------------------------------------------------------
+     * 5️⃣ Query filters
+     * ------------------------------------------------------------------ */
     const tenantFilter = isAllTenantsBypass
       ? {}
       : {
@@ -61,8 +111,7 @@ router.get('/', verifyAuth, requireTenant, async (req, res, next) => {
           ],
         };
 
-    // Active status filter (strict)
-    const statusActiveExpr = {
+    const activeStatusFilter = {
       $or: [
         { status: { $in: ['active', 'ACTIVE', 'Active'] } },
         { 'profile.status': { $in: ['active', 'ACTIVE', 'Active'] } },
@@ -70,27 +119,24 @@ router.get('/', verifyAuth, requireTenant, async (req, res, next) => {
       ],
     };
 
-    /**
-     * IMPORTANT:
-     * We count DISTINCT users, not documents.
-     * `_id` is assumed to be the unique user identifier.
-     * Change this to `email`, `user_id`, etc. if needed.
-     */
+    /* ------------------------------------------------------------------
+     * 6️⃣ Aggregation pipelines
+     * ------------------------------------------------------------------ */
     const USER_ID_FIELD = '_id';
 
-    const baseMatchStage = isAllTenantsBypass
+    const baseMatch = isAllTenantsBypass
       ? []
       : [{ $match: tenantFilter }];
 
     const totalUsersPipeline = [
-      ...baseMatchStage,
+      ...baseMatch,
       { $group: { _id: `$${USER_ID_FIELD}` } },
       { $count: 'count' },
     ];
 
     const activeUsersPipeline = [
-      ...baseMatchStage,
-      { $match: statusActiveExpr },
+      ...baseMatch,
+      { $match: activeStatusFilter },
       { $group: { _id: `$${USER_ID_FIELD}` } },
       { $count: 'count' },
     ];
@@ -103,13 +149,26 @@ router.get('/', verifyAuth, requireTenant, async (req, res, next) => {
     const totalUsers = totalAgg[0]?.count || 0;
     const activeUsers = activeAgg[0]?.count || 0;
 
-    // Diagnostics headers
+    /* ------------------------------------------------------------------
+     * 7️⃣ Diagnostics headers
+     * ------------------------------------------------------------------ */
     try {
-      res.set('X-Users-Tenant-Mode', isAllTenantsBypass ? 'all-tenants' : 'scoped');
-      res.set('X-Effective-Tenant', isAllTenantsBypass ? 'T0000' : String(effectiveTenant));
+      res.set(
+        'X-Users-Tenant-Mode',
+        isAllTenantsBypass ? 'all-tenants' : 'scoped'
+      );
+      res.set(
+        'X-Effective-Tenant',
+        isAllTenantsBypass ? 'T0000' : effectiveTenant
+      );
       res.set('X-Users-Count-Mode', 'distinct');
-    } catch {}
+    } catch {
+      // ignore header failures
+    }
 
+    /* ------------------------------------------------------------------
+     * 8️⃣ Response
+     * ------------------------------------------------------------------ */
     return res.status(200).json({
       success: true,
       totalUsers,
