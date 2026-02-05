@@ -9,6 +9,9 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  * GET /api/users/summary
  * Users created summary grouped by time buckets with tenant scoping.
  *
+ * Also returns:
+ * - total_sessions: total number of sessions in `session_tracking` within the same selected date window
+ *
  * Special case:
  * - When organization_id === 'T0000' (case-insensitive), return an all-organizations view:
  *   - buckets: daily totals across ALL orgs
@@ -28,6 +31,7 @@ const { extractOrganization } = require('../middleware/extractOrganization');
  * Returns 200 JSON:
  * {
  *   buckets: [{ label, count, start, end }],
+ *   total_sessions: number,
  *   orgBuckets?: [{
  *     organization_id: string,
  *     total: number,
@@ -174,13 +178,57 @@ router.get('/summary', extractOrganization(), async (req, res) => {
       { $sort: { bucket: 1, org: 1 } }
     ];
 
-    // Execute aggregations
-    let bucketResults;
-    if (db && typeof db.collection === 'function') {
-      bucketResults = await db.collection('users').aggregate(basePipeline, { allowDiskUse: true }).toArray();
-    } else {
-      bucketResults = await User.aggregate(basePipeline).allowDiskUse(true);
+    // total_sessions aggregation in the SAME time window
+    // Semantics:
+    // - We count session_tracking documents whose "activity timestamp" is within [windowStart, windowEnd].
+    // - Prefer last_updated if present, else session_start, else timestamp (similar to other users endpoints).
+    const sessionMatchStages = [];
+    if (!isGlobal && !isT0000 && effectiveTenant) {
+      sessionMatchStages.push({
+        $match: {
+          $or: [
+            { tenant_id: effectiveTenant },
+            { organization_id: effectiveTenant },
+            { organizationId: effectiveTenant },
+            { tenantId: effectiveTenant },
+            { orgId: effectiveTenant },
+            { 'tenant.tenant_id': effectiveTenant },
+          ],
+        },
+      });
     }
+
+    const totalSessionsPipeline = [
+      ...sessionMatchStages,
+      {
+        $set: {
+          _activity_ts: {
+            $ifNull: [
+              '$last_updated',
+              { $ifNull: ['$session_start', '$timestamp'] },
+            ],
+          },
+        },
+      },
+      {
+        $match: {
+          _activity_ts: { $gte: windowStart, $lte: windowEnd },
+        },
+      },
+      { $count: 'total_sessions' },
+    ];
+
+    // Execute aggregations
+    const [bucketResults, totalSessionsAgg] = await Promise.all([
+      (db && typeof db.collection === 'function')
+        ? db.collection('users').aggregate(basePipeline, { allowDiskUse: true }).toArray()
+        : User.aggregate(basePipeline).allowDiskUse(true),
+      (db && typeof db.collection === 'function')
+        ? db.collection('session_tracking').aggregate(totalSessionsPipeline, { allowDiskUse: true }).toArray()
+        : mongoose.connection.collection('session_tracking').aggregate(totalSessionsPipeline, { allowDiskUse: true }).toArray(),
+    ]);
+
+    const total_sessions = Number(totalSessionsAgg?.[0]?.total_sessions || 0);
 
     // Ensure contiguous buckets with zero fill
     const ticks = [];
@@ -256,6 +304,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
 
     const response = {
       buckets,
+      total_sessions,
       range,
       start_date: toYMD(windowStart),
       end_date: toYMD(windowEnd),
