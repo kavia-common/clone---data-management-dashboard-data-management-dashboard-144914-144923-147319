@@ -14,7 +14,11 @@ const app = express();
 // ---------------------------------------------
 // Middleware
 // ---------------------------------------------
-app.set('trust proxy', 1);
+/**
+ * Honor TRUST_PROXY env var (manifest-driven) to ensure correct req.secure and client IP handling
+ * when running behind reverse proxies (common in cloud preview/deployments).
+ */
+app.set('trust proxy', String(process.env.TRUST_PROXY || 'false').toLowerCase() === 'true' ? 1 : false);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
  // Apply our permissive echo-origin CORS for all /api paths (after security cors for broad handling)
@@ -71,15 +75,15 @@ const buildDynamicSpec = (req) => {
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
     // Use same-origin server so Swagger calls hit this backend instance
-    // url: `${protocol}://${fullHost}`,
-    servers: [
-      {
-        // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-        url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
-        // description: 'Predefined dev server',
-        description: 'Predefined beta server',
-      },
-    ],
+    url: `${protocol}://${fullHost}`,
+    // servers: [
+    //   {
+    //     // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //     url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
+    //     // description: 'Predefined dev server',
+    //     description: 'Predefined beta server',
+    //   },
+    // ],
   };
 };
 
