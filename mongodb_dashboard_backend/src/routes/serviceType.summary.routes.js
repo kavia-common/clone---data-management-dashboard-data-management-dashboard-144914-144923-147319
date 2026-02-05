@@ -26,7 +26,11 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     // Inputs and aliases, robust parsing
     let {
       range = 'daily',
+      // Accept multiple aliases for date windows. Historically only custom used these,
+      // but clients expect daily to cover recent buckets (not "today only").
       startDate, endDate, start_date, end_date, start, end,
+      // New: optional number-of-days window for range=daily (and can be used for others too).
+      days,
       tenant_id, organizationId, organization_id,
       service_type,
       zero_fill,
@@ -96,11 +100,32 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     const today = startOfUTCDate(new Date());
     let windowStart;
     let windowEnd;
+
+    // Parse optional days=N
+    const parsedDays = (() => {
+      if (days === undefined || days === null || days === '') return null;
+      const n = Number(days);
+      if (!Number.isFinite(n)) return null;
+      const i = Math.floor(n);
+      if (i <= 0) return null;
+      // Guardrails: avoid accidental huge windows
+      return Math.min(i, 365);
+    })();
+
+    // For daily/weekly/monthly/custom:
+    // - custom keeps existing flexible behavior
+    // - daily now defaults to a recent multi-day window (last 30 days) to match client expectations
+    // - for ALL ranges, if start/end are provided, treat them as an explicit override
+    const overrideStart = parseFlexibleDate(customStartRaw, 'start');
+    const overrideEnd = parseFlexibleDate(customEndRaw, 'end');
+
     if (range === 'custom') {
-      const parsedStart = parseFlexibleDate(customStartRaw, 'start');
-      const parsedEnd = parseFlexibleDate(customEndRaw, 'end');
+      const parsedStart = overrideStart;
+      const parsedEnd = overrideEnd;
       if (!parsedStart && !parsedEnd) {
-        return res.status(400).json({ message: "For range=custom, provide startDate and/or endDate (ISO or YYYY-MM-DD)." });
+        return res.status(400).json({
+          message: "For range=custom, provide startDate and/or endDate (ISO or YYYY-MM-DD)."
+        });
       }
       if (parsedStart && !parsedEnd) {
         windowStart = parsedStart;
@@ -113,24 +138,44 @@ router.get('/summary', extractOrganization(), async (req, res) => {
         windowStart = parsedStart;
         windowEnd = parsedEnd;
       }
-      if (!windowStart || Number.isNaN(windowStart.getTime())) {
-        return res.status(400).json({ message: 'Invalid startDate. Use ISO or YYYY-MM-DD.' });
+    } else if (overrideStart || overrideEnd) {
+      // Override window for non-custom ranges when explicit dates are provided
+      if (overrideStart && overrideEnd) {
+        windowStart = overrideStart;
+        windowEnd = overrideEnd;
+      } else if (overrideStart && !overrideEnd) {
+        windowStart = overrideStart;
+        windowEnd = endOfUTCDate(new Date());
+      } else if (!overrideStart && overrideEnd) {
+        const defaultDays = parsedDays || 30;
+        windowStart = startOfUTCDate(addDays(overrideEnd, -(defaultDays - 1)));
+        windowEnd = overrideEnd;
       }
-      if (!windowEnd || Number.isNaN(windowEnd.getTime())) {
-        return res.status(400).json({ message: 'Invalid endDate. Use ISO or YYYY-MM-DD.' });
-      }
-      if (windowStart.getTime() > windowEnd.getTime()) {
-        return res.status(400).json({ message: 'startDate must be before or equal to endDate.' });
-      }
+      try {
+        res.setHeader('x-service-type-summary-note', 'startDate/endDate override applied for non-custom range');
+      } catch {}
     } else if (range === 'daily') {
-      windowStart = startOfUTCDate(today);
+      const defaultDays = parsedDays || 30;
+      windowStart = startOfUTCDate(addDays(today, -(defaultDays - 1)));
       windowEnd = endOfUTCDate(today);
     } else if (range === 'weekly') {
-      windowStart = startOfUTCDate(addDays(today, -6));
+      const defaultDays = parsedDays || 7;
+      windowStart = startOfUTCDate(addDays(today, -(defaultDays - 1)));
       windowEnd = endOfUTCDate(today);
     } else if (range === 'monthly') {
-      windowStart = startOfUTCDate(addDays(today, -29));
+      const defaultDays = parsedDays || 30;
+      windowStart = startOfUTCDate(addDays(today, -(defaultDays - 1)));
       windowEnd = endOfUTCDate(today);
+    }
+
+    if (!windowStart || Number.isNaN(windowStart.getTime())) {
+      return res.status(400).json({ message: 'Invalid startDate. Use ISO or YYYY-MM-DD.' });
+    }
+    if (!windowEnd || Number.isNaN(windowEnd.getTime())) {
+      return res.status(400).json({ message: 'Invalid endDate. Use ISO or YYYY-MM-DD.' });
+    }
+    if (windowStart.getTime() > windowEnd.getTime()) {
+      return res.status(400).json({ message: 'startDate must be before or equal to endDate.' });
     }
 
     // Optional service_type filter value
@@ -275,6 +320,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
             // zeroFill behavior: default false globally, but for T0000 we zero-fill internally to ensure proper stacks.
             zero_fill: true,
             field: 'created_at',
+            days: parsedDays,
           },
         },
       };
@@ -437,6 +483,7 @@ router.get('/summary', extractOrganization(), async (req, res) => {
           service_type: serviceTypeFilterValue || null,
           zero_fill: zeroFillFlag,
           field: 'created_at',
+          days: parsedDays,
         },
       },
     };
