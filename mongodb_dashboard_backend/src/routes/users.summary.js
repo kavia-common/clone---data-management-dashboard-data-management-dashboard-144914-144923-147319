@@ -130,6 +130,14 @@ router.get('/summary', extractOrganization(), async (req, res) => {
     // Prefer native driver db handle if available
     const db = req.app.get('db');
 
+    // If no native db handle was installed AND Mongoose isn't connected, fail fast (avoid buffering timeout).
+    if ((!db || typeof db.collection !== 'function') && mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        message: 'Database not connected. Ensure MONGODB_URI is set.',
+        code: 'DB_NOT_CONNECTED',
+      });
+    }
+
     // Base pipeline for bucketed counts
     const basePipeline = [
       { $match: match },

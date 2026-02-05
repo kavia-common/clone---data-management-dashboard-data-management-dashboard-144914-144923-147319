@@ -19,7 +19,15 @@ async function connectDB() {
   const uri = process.env.MONGODB_URI;
 
   if (!uri || typeof uri !== 'string' || uri.trim() === '') {
-     
+    // IMPORTANT:
+    // If we are not going to connect, we must prevent Mongoose from buffering commands.
+    // Otherwise, aggregate/find/etc. will "hang" and eventually throw buffering timeout errors.
+    try {
+      mongoose.set('bufferCommands', false);
+    } catch {
+      // ignore
+    }
+
     console.warn(
       '[db] MONGODB_URI is not set. Skipping MongoDB connection. The API will start, health endpoints will report db=disconnected.'
     );
@@ -30,7 +38,7 @@ async function connectDB() {
   mongoose.set('strictQuery', true);
 
   // In test mode, prefer fast failures and no buffering to keep tests snappy.
-  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'pre_prod_kaviaroot';
+  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
   if (isTest) {
     try {
       mongoose.set('bufferCommands', false);
@@ -45,7 +53,7 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'pre_prod_kaviaroot'; // Optional; if not set, Mongo will use the URI/path default
+  const dbName = 'test'; // Optional; if not set, Mongo will use the URI/path default
 
   const options = {
     autoIndex,
@@ -99,14 +107,32 @@ async function connectDB() {
  * Ensures a connection is established; if not connected, attempts to connect first.
  */
 async function getDb() {
+  /**
+   * Returns a native MongoDB Db handle from the active Mongoose connection.
+   *
+   * NOTE:
+   * - If MONGODB_URI is missing or connection is not established, this MUST NOT return undefined,
+   *   because downstream code will crash on dbo.collection(...).
+   * - Callers can catch the thrown error and return HTTP 503.
+   */
   // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
   if (mongoose.connection.readyState !== 1) {
     await connectDB();
   }
+
   // In rare cases during connect, db might still be null; await a tick
   if (!mongoose.connection.db) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+
+  if (!mongoose.connection.db) {
+    const err = new Error(
+      'MongoDB is not connected (mongoose.connection.db is undefined). Ensure MONGODB_URI is set and connection succeeds.'
+    );
+    err.code = 'DB_NOT_CONNECTED';
+    throw err;
+  }
+
   return mongoose.connection.db;
 }
 

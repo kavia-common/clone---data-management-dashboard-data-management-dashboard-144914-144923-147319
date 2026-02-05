@@ -44,7 +44,18 @@ router.get('/', verifyAuth, requireTenant, async (req, res, next) => {
       });
     }
 
-    const dbo = await getDb();
+    let dbo;
+    try {
+      dbo = await getDb();
+    } catch (e) {
+      // If DB is not connected, return a clean 503 so the frontend can render an error state.
+      return res.status(503).json({
+        success: false,
+        message: 'Database not connected. Ensure MONGODB_URI is set.',
+        code: e?.code || 'DB_NOT_CONNECTED',
+      });
+    }
+
     const usersCol = dbo.collection('users');
 
     // Tenant filter
