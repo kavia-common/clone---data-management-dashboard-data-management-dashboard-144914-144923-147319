@@ -25,68 +25,17 @@
  * - OPTIONS preflight terminates with 204.
  */
 function serviceTypeSummaryCorsMiddleware(req, res, next) {
-  const origin = req.headers.origin;
-
-  // Only apply to the exact endpoint we were asked to fix.
-  // (Mounted at /api/service-type, this should only see /summary, but keep it defensive.)
-  const path = req.originalUrl || req.url || '';
-  const isTargetEndpoint = path.includes('/api/service-type/summary') || path === '/summary' || path.startsWith('/summary?');
-  if (!isTargetEndpoint) {
-    return next();
-  }
-
-  const allowedExact = new Set([
-    'http://localhost:3000',
-    'https://localhost:3000',
-    'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
-  ]);
-
-  const isAllowedPreviewOrigin = (o) => {
-    if (!o || typeof o !== 'string') return false;
-    // Example: https://vscode-internal-29822-beta.beta01.cloud.kavia.ai:3000
-    // Allow any subdomain that starts with "vscode-internal-" under *.cloud.kavia.ai:3000
-    return /^https:\/\/vscode-internal-[a-z0-9-]+\.beta\d+\.cloud\.kavia\.ai:3000$/i.test(o)
-      || /^https:\/\/vscode-internal-[a-z0-9-]+\.cloud\.kavia\.ai:3000$/i.test(o);
-  };
-
-  const originAllowed = !origin || allowedExact.has(origin) || isAllowedPreviewOrigin(origin);
-
-  if (origin && originAllowed) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    // Cache correctness when origin is echoed
-    res.setHeader('Vary', 'Origin');
-    // Credentialed CORS (cookies)
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-  }
-
-  // Reflect requested headers (preferred), else allow a safe superset.
-  const requestedHeaders = req.headers['access-control-request-headers'];
-  const defaultAllowHeaders = [
-    'x-organization-id',
-    'content-type',
-    'authorization',
-    'accept',
-    'origin',
-    'cache-control',
-    'pragma',
-    'referer',
-    'user-agent',
-    'sec-ch-ua',
-    'sec-ch-ua-mobile',
-    'sec-ch-ua-platform',
-  ].join(',');
-
-  res.setHeader('Access-Control-Allow-Headers', (requestedHeaders && String(requestedHeaders).trim()) ? requestedHeaders : defaultAllowHeaders);
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-  res.setHeader('Access-Control-Max-Age', '600');
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Type,Content-Length,x-effective-tenant');
-
-  // If the browser preflights, respond directly.
-  if (req.method === 'OPTIONS') {
-    // If origin is not allowed, we still return 204 without CORS headers (browser will block).
-    return res.status(204).send();
-  }
-
+  /**
+   * The application already has global CORS + preflight handling for all `/api/*`
+   * routes (see `src/app.js` mounting `permissiveCorsMiddleware` and `app.options('/api/*', ...)`).
+   *
+   * To ensure `/api/service-type/summary` follows the same working structure as
+   * the other APIs, this route-scoped middleware is intentionally a no-op.
+   *
+   * Keeping the function (instead of deleting the file) avoids changing imports
+   * or wiring elsewhere while ensuring we do not introduce endpoint-specific
+   * CORS logic or static/dynamic origin allowlists.
+   */
   return next();
 }
 
