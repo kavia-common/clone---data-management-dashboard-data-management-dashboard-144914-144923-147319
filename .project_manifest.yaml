@@ -1,0 +1,131 @@
+overview:
+  project_name: mongodb_dashboard
+  description: A fullstack dashboard application to visualize and manage data stored
+    in a MongoDB database, using Express.js for the backend and React JS for the frontend.
+  third_party_services: []
+  env:
+    MONGODB_URI: mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData
+    AUTH_SECRET_SALT: 67486f90cb935d7165b796ba397e1c23
+    TRUST_PROXY: 'true'
+    LOG_LEVEL: info
+    HEALTHCHECK_PATH: /healthz
+    FEATURE_FLAGS: '{}'
+    EXPERIMENTS_ENABLED: 'false'
+containers:
+- container_name: mongodb_dashboard_backend
+  description: Handles business logic, API endpoints, and communicates with MongoDB.
+  interfaces: RESTful APIs for dashboard data, user management, authentication
+  container_type: backend
+  dependent_containers:
+  - mongodb_dashboard_db
+  workspace: data-management-dashboard-144914-144923
+  container_root: data-management-dashboard-144914-144923/mongodb_dashboard_backend
+  port: '3001'
+  framework: express
+  type: ''
+  buildCommand: npm install
+  startCommand: CI=true PORT=<port> HOST=<host> npm run dev
+  testCommand: npm run test
+  installCommand: npm install
+  lintCommand: ./../.init/.linter.sh
+  generateOpenapiCommand: npm install && node generate_openapi.js
+  visual_edit_enabled: ''
+  visual_edit_port: ''
+  container_details:
+    features:
+    - User authentication
+    - Dynamic data visualization (charts, tables)
+    - CRUD operations on MongoDB collections
+    - Search and filter data
+    - Responsive layout
+  lintConfig: {}
+  routes: []
+  apiSpec: openapi.json
+  auth: null
+  schema: ''
+  migrations: ''
+  seed: ''
+  env:
+    MONGODB_URI: mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData
+    AUTH_SECRET_SALT: 67486f90cb935d7165b796ba397e1c23
+    BACKEND_URL: https://vscode-internal-42374-beta.beta01.cloud.kavia.ai:3001
+    FRONTEND_URL: https://vscode-internal-42374-beta.beta01.cloud.kavia.ai:3000
+    WS_URL: ws://vscode-internal-42374-beta.beta01.cloud.kavia.ai:3001/ws
+    SITE_URL: https://vscode-internal-42374-beta.beta01.cloud.kavia.ai:3000
+    ALLOWED_ORIGINS: https://vscode-internal-42374-beta.beta01.cloud.kavia.ai:3000,http://localhost:3000,http://localhost:4000
+    ALLOWED_HEADERS: Content-Type,Authorization,X-Requested-With
+    ALLOWED_METHODS: GET,POST,PUT,DELETE,PATCH,OPTIONS
+    CORS_MAX_AGE: '3600'
+    COOKIE_DOMAIN: .vscode-internal-42374-beta.beta01.cloud.kavia.ai
+    TRUST_PROXY: 'true'
+    HOST: 0.0.0.0
+    UVICORN_HOST: 0.0.0.0
+    UVICORN_WORKERS: '1'
+    NODE_ENV: development
+    REQUEST_TIMEOUT_MS: '30000'
+    RATE_LIMIT_WINDOW_S: '60'
+    RATE_LIMIT_MAX: '100'
+    PORT: '3001'
+    SERVER_REQUEST_TIMEOUT_MS: '300000'
+    SERVER_HEADERS_TIMEOUT_MS: '310000'
+    SERVER_KEEPALIVE_TIMEOUT_MS: '120000'
+    EXPRESS_ROUTE_TIMEOUT_MS: '300000'
+- container_name: mongodb_dashboard_frontend
+  description: User interface for interacting with the dashboard and visualizing MongoDB
+    data.
+  interfaces: Web UI, HTTPS requests to backend REST API
+  container_type: frontend
+  dependent_containers:
+  - mongodb_dashboard_backend
+  workspace: data-management-dashboard-144914-144924
+  container_root: data-management-dashboard-144914-144924/mongodb_dashboard_frontend
+  port: '3000'
+  framework: react
+  type: ''
+  buildCommand: npm install && npx tsc --noEmit && npm test -- --ci
+  startCommand: PORT=<port> HOST=<host> BROWSER=none npm start
+  testCommand: npm run test
+  installCommand: npm install
+  lintCommand: ./../.init/.linter.sh
+  generateOpenapiCommand: ''
+  visual_edit_enabled: ''
+  visual_edit_port: ''
+  container_details:
+    features:
+    - User authentication
+    - Dynamic data visualization (charts, tables)
+    - CRUD operations on MongoDB collections
+    - Search and filter data
+    - Responsive layout
+    theme: light
+    layout_description: Top navigation bar with dashboard sections, sidebar for navigation,
+      main content area for charts/tables, modals for CRUD operations.
+    style: modern minimalistic
+  lintConfig: {}
+  routes: []
+  apiSpec: ''
+  auth: null
+  schema: ''
+  migrations: ''
+  seed: ''
+  env:
+    API_BASE_URL: http://localhost:3001
+    DANGEROUSLY_DISABLE_HOST_CHECK: 'true'
+    MONGODB_URI: mongodb+srv://govindarajmalaiarasu_db_user:MGRaj2005@phaseonedata.qlyhyxu.mongodb.net/?retryWrites=true&w=majority&appName=PhaseOneData
+    AUTH_SECRET_SALT: 67486f90cb935d7165b796ba397e1c23
+    API_BASE: https://vscode-internal-42374-beta.beta01.cloud.kavia.ai:3001
+    BACKEND_URL: https://vscode-internal-42374-beta.beta01.cloud.kavia.ai:3001
+    FRONTEND_URL: https://vscode-internal-42374-beta.beta01.cloud.kavia.ai:3000
+    WS_URL: ws://vscode-internal-42374-beta.beta01.cloud.kavia.ai:3001/ws
+    NODE_ENV: development
+    NEXT_TELEMETRY_DISABLED: '1'
+    ENABLE_SOURCE_MAPS: 'true'
+    PORT: '3000'
+    TRUST_PROXY: 'true'
+    LOG_LEVEL: info
+    HEALTHCHECK_PATH: /healthz
+    FEATURE_FLAGS: '{}'
+    EXPERIMENTS_ENABLED: 'false'
+    PROXY_TIMEOUT_MS: '330000'
+    AXIOS_TIMEOUT_MS: '330000'
+    FETCH_TIMEOUT_MS: '330000'
