@@ -2,11 +2,9 @@ const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const { getBaseOpenApiSpec } = require('../swagger');
 const { corsMiddleware, helmetMiddleware, rateLimiter } = require('./middleware/security');
-const { permissiveCorsMiddleware } = require('./middleware/permissiveCors');
 const { connectDB } = require('./config/db');
 const mongoose = require('mongoose');
 const { errorHandler } = require('./middleware/standardHandlers');
-const cors = require('cors');
 const compression = require('compression');
 
 const app = express();
@@ -20,12 +18,25 @@ const app = express();
  */
 app.set('trust proxy', String(process.env.TRUST_PROXY || 'false').toLowerCase() === 'true' ? 1 : false);
 app.use(helmetMiddleware());
-app.use(corsMiddleware());
- // Apply our permissive echo-origin CORS for all /api paths (after security cors for broad handling)
- app.use('/api', permissiveCorsMiddleware);
- // Explicit preflight handling for all /api paths (including summary and users)
- // Single wildcard path is sufficient; ensure it is registered early.
- app.options('/api/*', cors());
+
+/**
+ * Apply a single, strict CORS middleware globally BEFORE any routes.
+ * This middleware is credential-aware (cookies/Authorization) and uses env-driven allowlists:
+ * - ALLOWED_ORIGINS, ALLOWED_HEADERS, ALLOWED_METHODS, CORS_MAX_AGE, CORS_CREDENTIALS
+ *
+ * IMPORTANT:
+ * Do not stack a second "permissive" CORS middleware, as it can override headers and break
+ * credentialed CORS (e.g., missing Access-Control-Allow-Credentials or using '*').
+ */
+const strictCors = corsMiddleware();
+app.use(strictCors);
+
+/**
+ * Explicit preflight handling for all /api paths using the SAME strict CORS config.
+ * This ensures Access-Control-Allow-Headers includes x-organization-id and other requested headers.
+ */
+app.options('/api/*', strictCors);
+
 app.use(rateLimiter());
 
 // Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION
