@@ -189,7 +189,10 @@ safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/llm_costs', require('./routes/costs.llm_costs.routes'));
 safeUse('/api/projects', require('./routes/projects.summary.routes'));
-safeUse('/api/service-type', require('./routes/serviceType.summary.routes'));
+
+// NOTE: service-type routes are already mounted under '/api' via baseRouter (src/routes/index.js).
+// Mounting them again here can change middleware/OPTIONS precedence and lead to CORS inconsistencies.
+// Keep a single mount point to match other overview APIs behavior.
 safeUse('/api/projects', require('./routes/projects.routes'));
 try {
   // eslint-disable-next-line no-console
