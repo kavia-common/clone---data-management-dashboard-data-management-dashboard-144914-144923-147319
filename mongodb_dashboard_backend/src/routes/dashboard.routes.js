@@ -159,8 +159,17 @@ function resolveIstDayWindowToUtcBounds(fromRaw, toRaw) {
  * joins user metadata, and sorts by activity (lastActivityAt desc).
  *
  * Query params:
- *  - from?: ISO date-time OR YYYY-MM-DD (expanded to UTC 00:00:00.000Z)
- *  - to?:   ISO date-time OR YYYY-MM-DD (expanded to UTC 23:59:59.999Z)
+ *  - from?: ISO date-time OR YYYY-MM-DD
+ *  - to?:   ISO date-time OR YYYY-MM-DD
+ *
+ * Notes on date handling:
+ *  - If YYYY-MM-DD is provided (Quick Range/custom date inputs), the backend interprets the
+ *    values as IST (Asia/Kolkata) calendar days and converts them to UTC bounds for matching
+ *    against session_start:
+ *      from => YYYY-MM-DD 00:00:00.000 IST (converted to UTC)
+ *      to   => (YYYY-MM-DD + 1 day) 00:00:00.000 IST (converted to UTC, exclusive)
+ *  - If ISO timestamps are provided, the backend extracts the IST calendar day and applies
+ *    the same IST-day semantics.
  *
  * Default behavior:
  *  - If both from and to are omitted, defaults to TODAY in UTC:
