@@ -34,7 +34,9 @@ router.use((req, res, next) => {
       req.tenantScopeDisabled = true;
       req.allTenants = true;
       req.dashboardAllTenantsBypass = true;
-      try { res.set('X-All-Tenants', 'true'); } catch (_) {}
+      try {
+        res.set('X-All-Tenants', 'true');
+      } catch (_) {}
     }
     console.log('[dashboard.routes] bypass check', { requestedTenant, isT0000, bypassApplied: !!isT0000 });
   } catch (_) {}
@@ -152,12 +154,12 @@ function resolveIstDayWindowToUtcBounds(fromRaw, toRaw) {
 
 /**
  * Decide bucket granularity based on the requested from/to window length.
- * Requirement:
+ * Requirement (backend-driven inference):
  *  - day-range   => bucket by hour
  *  - month-range => bucket by day
  *  - year-range  => bucket by month
  *
- * We infer based on the number of days between the effective bounds (IST day window in UTC instants).
+ * We infer based on the number of days between the effective bounds.
  */
 function inferBucketGranularityFromWindow(fromUtc, toUtcExclusive) {
   const fromMs = fromUtc?.getTime?.();
@@ -210,33 +212,93 @@ function keyFromBucketDate(granularity, dt) {
 }
 
 /**
+ * Ensure chart readability by returning evenly spaced intervals.
+ * - hour:  00..23 (24 buckets)
+ * - day:   each calendar day from start..end (inclusive)
+ * - month: Jan..Dec for any year-range; for multi-year windows we still output all months present
+ *
+ * We build the full bucket list and fill missing counts with 0 so the frontend never needs to aggregate
+ * or generate ticks.
+ */
+function buildExpectedBucketStartsUtc(granularity, fromUtc, toUtcExclusive) {
+  if (!fromUtc || !toUtcExclusive) return [];
+
+  const starts = [];
+  const from = new Date(fromUtc);
+  const toExclusive = new Date(toUtcExclusive);
+
+  if (granularity === 'hour') {
+    // For "day range", UI expects 00-23 (hours of day). We emit all 24 hours across the range start day in UTC.
+    // Note: because our range semantics are IST-day converted to UTC instants, this UTC-day could straddle two UTC dates,
+    // but the X-axis requirement is "00-23". We choose the first UTC day intersecting the range: fromUtc's UTC date.
+    const y = from.getUTCFullYear();
+    const m0 = from.getUTCMonth();
+    const d = from.getUTCDate();
+    for (let h = 0; h < 24; h += 1) {
+      starts.push(new Date(Date.UTC(y, m0, d, h, 0, 0, 0)));
+    }
+    return starts;
+  }
+
+  if (granularity === 'day') {
+    // Iterate days (UTC) from start day to last day inclusive.
+    const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), 0, 0, 0, 0));
+    const endInclusive = new Date(toExclusive.getTime() - 1); // last instant included
+    const endDay = new Date(Date.UTC(endInclusive.getUTCFullYear(), endInclusive.getUTCMonth(), endInclusive.getUTCDate(), 0, 0, 0, 0));
+    while (cur.getTime() <= endDay.getTime()) {
+      starts.push(new Date(cur));
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    return starts;
+  }
+
+  // month
+  const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1, 0, 0, 0, 0));
+  const endInclusive = new Date(toExclusive.getTime() - 1);
+  const endMonth = new Date(Date.UTC(endInclusive.getUTCFullYear(), endInclusive.getUTCMonth(), 1, 0, 0, 0, 0));
+  while (cur.getTime() <= endMonth.getTime()) {
+    starts.push(new Date(cur));
+    cur.setUTCMonth(cur.getUTCMonth() + 1);
+  }
+  return starts;
+}
+
+/**
  * PUBLIC_INTERFACE
  * GET /api/dashboard/users
  *
- * Returns fully aggregated per-user analytics for the requested date window,
- * plus interval-based buckets for the "Activity by User" chart.
+ * Standardized response contract (always an envelope):
+ *  - 200: {
+ *      success: true,
+ *      data: {
+ *        users: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>,
+ *        buckets: Array<{ key, label, count }>,
+ *        totals: { totalUsers, totalSessions, distinctProjects }
+ *      },
+ *      meta: {
+ *        interval: "hour"|"day"|"month",
+ *        fromUtc: string|null,
+ *        toUtcExclusive: string|null,
+ *        fromIst: string|null,
+ *        toIstExclusive: string|null,
+ *        tenant: string|null,
+ *        allTenants: boolean,
+ *        appliedDefault: boolean
+ *      }
+ *    }
  *
- * Backward compatibility:
- *  - If BOTH `from` and `to` are omitted, the response remains the legacy array of per-user rows.
- *  - If `from` or `to` is provided, response becomes an object containing:
- *      { users, buckets, totals, meta }
- *
- * Interval inference (based on inferred range length from effective from/to):
- *  - day-range   => buckets hourly
- *  - month-range => buckets daily
- *  - year-range  => buckets monthly
+ * Backend-driven aggregation rules (mandatory):
+ * - Day range   => hourly buckets (00-23)
+ * - Month range => daily buckets (1-31 shown via YYYY-MM-DD keys/labels)
+ * - Year range  => monthly buckets (Jan-Dec labels)
  *
  * Query params:
  *  - from?: ISO date-time OR YYYY-MM-DD (interpreted as IST calendar day)
  *  - to?:   ISO date-time OR YYYY-MM-DD (interpreted as IST calendar day; exclusive next day for filtering)
  *
- * Response (when from/to present):
- *  - 200: {
- *      users: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>,
- *      buckets: Array<{ key, label, count }>,
- *      totals: { totalUsers, totalSessions, distinctProjects },
- *      meta: { bucketGranularity, fromUtc, toUtcExclusive, fromIst, toIstExclusive }
- *    }
+ * Notes:
+ * - This endpoint does NOT send raw session records; it returns already bucketed counts.
+ * - Frontend should not aggregate; it should consume buckets directly.
  */
 router.get('/users', async (req, res) => {
   try {
@@ -254,10 +316,11 @@ router.get('/users', async (req, res) => {
 
     const hasFrom = req.query?.from !== undefined && req.query?.from !== null && String(req.query.from).trim() !== '';
     const hasTo = req.query?.to !== undefined && req.query?.to !== null && String(req.query.to).trim() !== '';
-    const wantsIntervalResponse = hasFrom || hasTo;
 
-    const { fromUtc, toUtcExclusive, fromIst, toIstExclusive, appliedDefault } =
-      resolveIstDayWindowToUtcBounds(req.query?.from, req.query?.to);
+    const { fromUtc, toUtcExclusive, fromIst, toIstExclusive, appliedDefault } = resolveIstDayWindowToUtcBounds(
+      req.query?.from,
+      req.query?.to
+    );
 
     // If caller provided an invalid date string, fail fast with 400
     if ((hasFrom && !fromUtc) || (hasTo && !toUtcExclusive)) {
@@ -269,9 +332,7 @@ router.get('/users', async (req, res) => {
       return res.status(503).json({ success: false, message: 'Database not connected' });
     }
 
-    // NOTE(product requirement): For /api/dashboard/users we intentionally filter ONLY on
-    // `session_start` using IST-derived calendar day bounds converted to UTC:
-    // session_start: { $gte: <fromIST start as UTC>, $lt: <toIST next-day start as UTC> }
+    // For /api/dashboard/users we filter ONLY on `session_start` using IST-derived calendar day bounds converted to UTC
     const sessionStartRange = {};
     if (fromUtc) sessionStartRange.$gte = fromUtc;
     if (toUtcExclusive) sessionStartRange.$lt = toUtcExclusive;
@@ -295,10 +356,8 @@ router.get('/users', async (req, res) => {
 
     const matchStage = matchAnd.length ? { $match: { $and: matchAnd } } : { $match: {} };
 
-    // Per-user totals (existing endpoint behavior; keep fields stable).
-    // Note: We continue to count documents as sessions here to avoid changing semantics unexpectedly.
-    // (The newer /api/dashboard/users in src/routes/dashboard.users.routes.js uses distinct session_ids.)
-    const pipeline = [
+    // Per-user totals (list table content).
+    const usersPipeline = [
       matchStage,
       {
         $project: {
@@ -391,12 +450,7 @@ router.get('/users', async (req, res) => {
                   {
                     $ifNull: [
                       '$userDoc.fullName',
-                      {
-                        $ifNull: [
-                          '$userDoc.displayName',
-                          { $ifNull: ['$userDoc.display_name', '$userDoc.user_name'] },
-                        ],
-                      },
+                      { $ifNull: ['$userDoc.displayName', { $ifNull: ['$userDoc.display_name', '$userDoc.user_name'] }] },
                     ],
                   },
                 ],
@@ -420,10 +474,10 @@ router.get('/users', async (req, res) => {
       { $sort: { lastActivityAt: -1, totalSessions: -1 } },
     ];
 
-    const rows = await db.collection('session_tracking').aggregate(pipeline, { allowDiskUse: true }).toArray();
+    const userRows = await db.collection('session_tracking').aggregate(usersPipeline, { allowDiskUse: true }).toArray();
 
-    // Normalize lastActivityAt to ISO for a stable frontend contract.
-    const usersOut = (rows || []).map((r) => ({
+    // Normalize lastActivityAt to ISO for stable contract
+    const usersOut = (userRows || []).map((r) => ({
       ...r,
       lastActivityAt: r?.lastActivityAt ? new Date(r.lastActivityAt).toISOString() : null,
       totalSessions: Number(r?.totalSessions || 0),
@@ -433,24 +487,10 @@ router.get('/users', async (req, res) => {
       email: r?.email ? String(r.email) : '',
     }));
 
-    // If no explicit window provided, preserve the legacy response contract (array).
-    // This avoids breaking any clients/tests that expect an array.
-    if (!wantsIntervalResponse) {
-      try {
-        res.set('X-Date-Window-Timezone', 'Asia/Kolkata');
-        res.set('X-Date-Window-Applied', appliedDefault ? 'default_today_ist' : 'explicit_ist');
-        if (fromIst) res.set('X-Date-Window-From-IST', fromIst.toISOString());
-        if (toIstExclusive) res.set('X-Date-Window-To-IST', toIstExclusive.toISOString());
-        if (fromUtc) res.set('X-Date-Window-From-UTC', fromUtc.toISOString());
-        if (toUtcExclusive) res.set('X-Date-Window-To-UTC', toUtcExclusive.toISOString());
-      } catch (_) {}
-      return res.status(200).json(usersOut);
-    }
+    const interval = inferBucketGranularityFromWindow(fromUtc, toUtcExclusive);
 
-    const bucketGranularity = inferBucketGranularityFromWindow(fromUtc, toUtcExclusive);
-
-    // Buckets: distinct active users per bucket (this is what the chart needs).
-    // Implement using $dateTrunc for true interval bucketing.
+    // Buckets: distinct active users per bucket (chart series).
+    // We use $dateTrunc for correct bucketing; then fill missing buckets with 0 for readability.
     const bucketPipeline = [
       matchStage,
       {
@@ -465,7 +505,7 @@ router.get('/users', async (req, res) => {
           bucketStart: {
             $dateTrunc: {
               date: '$activityAt',
-              unit: bucketGranularity,
+              unit: interval,
               timezone: 'UTC',
             },
           },
@@ -487,18 +527,23 @@ router.get('/users', async (req, res) => {
       { $sort: { bucketStart: 1 } },
     ];
 
-    const bucketRows = await db
-      .collection('session_tracking')
-      .aggregate(bucketPipeline, { allowDiskUse: true })
-      .toArray();
+    const bucketRows = await db.collection('session_tracking').aggregate(bucketPipeline, { allowDiskUse: true }).toArray();
 
-    const bucketsOut = (bucketRows || []).map((b) => ({
-      key: keyFromBucketDate(bucketGranularity, b?.bucketStart),
-      label: labelFromBucketDate(bucketGranularity, b?.bucketStart),
-      count: Number(b?.count || 0),
-    }));
+    const countByKey = new Map(
+      (bucketRows || []).map((b) => [keyFromBucketDate(interval, b?.bucketStart), Number(b?.count || 0)])
+    );
 
-    // Current totals (for the selected window).
+    const expectedStarts = buildExpectedBucketStartsUtc(interval, fromUtc, toUtcExclusive);
+    const bucketsOut = expectedStarts.map((dt) => {
+      const key = keyFromBucketDate(interval, dt);
+      return {
+        key,
+        label: labelFromBucketDate(interval, dt),
+        count: countByKey.get(key) || 0,
+      };
+    });
+
+    // Current totals (for the selected window)
     const totals = usersOut.reduce(
       (acc, u) => {
         acc.totalUsers += 1;
@@ -516,19 +561,25 @@ router.get('/users', async (req, res) => {
       if (toIstExclusive) res.set('X-Date-Window-To-IST', toIstExclusive.toISOString());
       if (fromUtc) res.set('X-Date-Window-From-UTC', fromUtc.toISOString());
       if (toUtcExclusive) res.set('X-Date-Window-To-UTC', toUtcExclusive.toISOString());
-      res.set('X-Users-Analytics-Bucket-Granularity', bucketGranularity);
+      res.set('X-Users-Analytics-Interval', interval);
     } catch (_) {}
 
     return res.status(200).json({
-      users: usersOut,
-      buckets: bucketsOut,
-      totals,
+      success: true,
+      data: {
+        users: usersOut,
+        buckets: bucketsOut,
+        totals,
+      },
       meta: {
-        bucketGranularity,
+        interval,
         fromUtc: fromUtc ? fromUtc.toISOString() : null,
         toUtcExclusive: toUtcExclusive ? toUtcExclusive.toISOString() : null,
         fromIst: fromIst ? fromIst.toISOString() : null,
         toIstExclusive: toIstExclusive ? toIstExclusive.toISOString() : null,
+        tenant: requestedTenant || null,
+        allTenants: !!isAllTenants,
+        appliedDefault: !!appliedDefault,
       },
     });
   } catch (err) {
