@@ -59,21 +59,84 @@ function resolveUtcWindow(fromRaw, toRaw) {
   return { from, to, appliedDefault: false };
 }
 
+/**
+ * Decide bucket granularity for the UI selection.
+ * Mapping required by task:
+ *  - selection=days   => bucket by hour
+ *  - selection=months => bucket by day
+ *  - selection=years  => bucket by month
+ */
+function resolveBucketGranularity(selection) {
+  const s = String(selection || '').trim().toLowerCase();
+  if (s === 'days') return 'hour';
+  if (s === 'months') return 'day';
+  if (s === 'years') return 'month';
+  // Default: safest for typical quick ranges (7/14/30/90): daily buckets.
+  return 'day';
+}
+
+/**
+ * Build a MongoDB $dateToString format string for a granularity.
+ * We include hour when needed, in UTC, so labels are stable across environments.
+ */
+function dateToStringFormat(granularity) {
+  if (granularity === 'hour') return '%Y-%m-%dT%H:00:00Z';
+  if (granularity === 'month') return '%Y-%m';
+  // day
+  return '%Y-%m-%d';
+}
+
+/**
+ * Produce a human-readable label for a bucket key.
+ * Note: keys are already in UTC-based formats, so we can derive label from the key itself.
+ */
+function labelFromKey(granularity, key) {
+  const k = String(key || '');
+  if (granularity === 'hour') {
+    // Example: 2026-02-06T13:00:00Z => 13:00
+    const m = /T(\d{2}):00:00Z$/.exec(k);
+    return m ? `${m[1]}:00` : k;
+  }
+  if (granularity === 'month') {
+    // Example: 2026-02 => Feb 2026
+    const [yy, mm] = k.split('-');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const idx = Number(mm) - 1;
+    return yy && Number.isInteger(idx) && idx >= 0 && idx < 12 ? `${monthNames[idx]} ${yy}` : k;
+  }
+  // day: keep YYYY-MM-DD (compact and sortable)
+  return k;
+}
+
 // PUBLIC_INTERFACE
 /**
  * PUBLIC_INTERFACE
  * GET /api/dashboard/users
  *
- * Returns fully aggregated per-user analytics for the requested date window.
+ * Returns server-aggregated user analytics for the requested date window.
+ *
+ * Supports two modes (backward-compatible):
+ *  1) Default (no selection): returns per-user totals (existing behavior)
+ *  2) Interval-aware (selection=days|months|years):
+ *     additionally returns time buckets where the backend aggregates distinct active users per bucket.
  *
  * Query params:
  *  - from?: ISO date-time OR YYYY-MM-DD (expanded to UTC 00:00:00.000Z)
  *  - to?:   ISO date-time OR YYYY-MM-DD (expanded to UTC 23:59:59.999Z)
+ *  - selection?: "days" | "months" | "years"
  *
- * Default behavior:
- *  - If both from and to are omitted, defaults to TODAY in UTC.
+ * Tenant scoping:
+ *  - Uses x-organization-id header OR organization_id/tenant_id query OR req.auth tenant.
+ *  - Special "T0000" (case-insensitive) means "all tenants" (superadmin/testing).
  *
- * Response:
+ * Response (selection provided):
+ *  - 200: {
+ *      users: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>,
+ *      buckets: Array<{ key, label, count }>,
+ *      meta: { selection, bucketGranularity, from, to }
+ *    }
+ *
+ * Response (no selection):
  *  - 200: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>
  */
 router.get('/users', async (req, res) => {
@@ -96,6 +159,9 @@ router.get('/users', async (req, res) => {
     if ((req.query?.from && !from) || (req.query?.to && !to)) {
       return res.status(400).json({ success: false, message: 'Invalid from/to date value(s)' });
     }
+
+    const selection = (req.query?.selection || '').toString().trim();
+    const wantsBuckets = !!selection;
 
     const db = getDb ? await getDb() : mongoose.connection.db;
     if (!db) {
@@ -134,6 +200,7 @@ router.get('/users', async (req, res) => {
 
     const matchStage = matchAnd.length ? { $match: { $and: matchAnd } } : { $match: {} };
 
+    // --- Existing per-user totals aggregation (kept as-is for backward compatibility) ---
     const pipeline = [
       matchStage,
       {
@@ -277,7 +344,7 @@ router.get('/users', async (req, res) => {
 
     const rows = await db.collection('session_tracking').aggregate(pipeline, { allowDiskUse: true }).toArray();
 
-    const out = (rows || []).map((r) => ({
+    const usersOut = (rows || []).map((r) => ({
       ...r,
       lastActivityAt: r?.lastActivityAt ? new Date(r.lastActivityAt).toISOString() : null,
       totalSessions: Number(r?.totalSessions || 0),
@@ -287,13 +354,84 @@ router.get('/users', async (req, res) => {
       email: r?.email ? String(r.email) : '',
     }));
 
+    let bucketsOut = [];
+    let bucketGranularity = null;
+
+    if (wantsBuckets) {
+      bucketGranularity = resolveBucketGranularity(selection);
+
+      const bucketPipeline = [
+        matchStage,
+        {
+          $project: {
+            userId: { $toString: '$user_id' },
+            activityAt: { $ifNull: ['$last_updated', { $ifNull: ['$session_start', '$timestamp'] }] },
+          },
+        },
+        { $match: { userId: { $ne: null, $ne: '' }, activityAt: { $ne: null } } },
+        {
+          $addFields: {
+            bucketKey: {
+              $dateToString: {
+                format: dateToStringFormat(bucketGranularity),
+                date: '$activityAt',
+                timezone: 'UTC',
+              },
+            },
+          },
+        },
+        {
+          $group: {
+            _id: '$bucketKey',
+            users: { $addToSet: '$userId' },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            key: '$_id',
+            count: { $size: '$users' },
+          },
+        },
+        { $sort: { key: 1 } },
+      ];
+
+      const bucketRows = await db
+        .collection('session_tracking')
+        .aggregate(bucketPipeline, { allowDiskUse: true })
+        .toArray();
+
+      bucketsOut = (bucketRows || []).map((b) => ({
+        key: String(b?.key || ''),
+        label: labelFromKey(bucketGranularity, b?.key),
+        count: Number(b?.count || 0),
+      }));
+    }
+
     try {
       res.set('X-Date-Window-Applied', appliedDefault ? 'default_today_utc' : 'explicit');
       if (from) res.set('X-Date-Window-From', from.toISOString());
       if (to) res.set('X-Date-Window-To', to.toISOString());
+      if (wantsBuckets) {
+        res.set('X-Users-Analytics-Selection', selection);
+        res.set('X-Users-Analytics-Bucket-Granularity', bucketGranularity);
+      }
     } catch (_) {}
 
-    return res.status(200).json(out);
+    if (!wantsBuckets) {
+      return res.status(200).json(usersOut);
+    }
+
+    return res.status(200).json({
+      users: usersOut,
+      buckets: bucketsOut,
+      meta: {
+        selection,
+        bucketGranularity,
+        from: from ? from.toISOString() : null,
+        to: to ? to.toISOString() : null,
+      },
+    });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[dashboard.users] error:', err?.message || err);
