@@ -154,10 +154,10 @@ function resolveIstDayWindowToUtcBounds(fromRaw, toRaw) {
 
 /**
  * Decide bucket granularity based on the requested from/to window length.
- * Requirement (backend-driven inference):
- *  - day-range   => bucket by hour
- *  - month-range => bucket by day
- *  - year-range  => bucket by month
+ * Requirements (Schema C interval rules):
+ *  - window <= 1 day   => hourly buckets
+ *  - window <= 31 days => daily buckets
+ *  - window >  31 days => monthly buckets
  *
  * We infer based on the number of days between the effective bounds.
  */
@@ -171,12 +171,8 @@ function inferBucketGranularityFromWindow(fromUtc, toUtcExclusive) {
 
   const days = (toMs - fromMs) / (24 * 60 * 60 * 1000);
 
-  // Heuristics:
-  // - up to ~2 days => hourly
-  // - up to ~62 days (~2 months) => daily
-  // - above that => monthly
-  if (days <= 2.1) return 'hour';
-  if (days <= 62) return 'day';
+  if (days <= 1) return 'hour';
+  if (days <= 31) return 'day';
   return 'month';
 }
 
@@ -267,38 +263,26 @@ function buildExpectedBucketStartsUtc(granularity, fromUtc, toUtcExclusive) {
  * PUBLIC_INTERFACE
  * GET /api/dashboard/users
  *
- * Standardized response contract (always an envelope):
+ * Schema C response (backend-driven aggregation; directly consumable by UI chart):
  *  - 200: {
- *      success: true,
- *      data: {
- *        users: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>,
- *        buckets: Array<{ key, label, count }>,
- *        totals: { totalUsers, totalSessions, distinctProjects }
- *      },
- *      meta: {
- *        interval: "hour"|"day"|"month",
- *        fromUtc: string|null,
- *        toUtcExclusive: string|null,
- *        fromIst: string|null,
- *        toIstExclusive: string|null,
- *        tenant: string|null,
- *        allTenants: boolean,
- *        appliedDefault: boolean
- *      }
+ *      interval: "hour"|"day"|"month",
+ *      buckets: Array<{ key: string, totalSessions: number }>,
+ *      users: Array<{ userId, name, totalSessions }>,
+ *      meta: { from: string|null, to: string|null }
  *    }
  *
- * Backend-driven aggregation rules (mandatory):
- * - Day range   => hourly buckets (00-23)
- * - Month range => daily buckets (1-31 shown via YYYY-MM-DD keys/labels)
- * - Year range  => monthly buckets (Jan-Dec labels)
+ * Interval selection rules (mandatory):
+ * - window <= 1 day   => hourly buckets (00-23)
+ * - window <= 31 days => daily buckets (YYYY-MM-DD)
+ * - window >  31 days => monthly buckets (YYYY-MM)
  *
  * Query params:
  *  - from?: ISO date-time OR YYYY-MM-DD (interpreted as IST calendar day)
  *  - to?:   ISO date-time OR YYYY-MM-DD (interpreted as IST calendar day; exclusive next day for filtering)
  *
  * Notes:
- * - This endpoint does NOT send raw session records; it returns already bucketed counts.
- * - Frontend should not aggregate; it should consume buckets directly.
+ * - Backend must return evenly spaced buckets with zeros for missing intervals.
+ * - Frontend must not aggregate; it should consume buckets directly.
  */
 router.get('/users', async (req, res) => {
   try {
@@ -332,7 +316,7 @@ router.get('/users', async (req, res) => {
       return res.status(503).json({ success: false, message: 'Database not connected' });
     }
 
-    // For /api/dashboard/users we filter ONLY on `session_start` using IST-derived calendar day bounds converted to UTC
+    // Filter ONLY on `session_start` using IST-derived calendar day bounds converted to UTC
     const sessionStartRange = {};
     if (fromUtc) sessionStartRange.$gte = fromUtc;
     if (toUtcExclusive) sessionStartRange.$lt = toUtcExclusive;
@@ -356,40 +340,39 @@ router.get('/users', async (req, res) => {
 
     const matchStage = matchAnd.length ? { $match: { $and: matchAnd } } : { $match: {} };
 
-    // Per-user totals (list table content).
+    // Per-user totals (Schema C users array: minimal fields needed by UI).
+    // Note: We count distinct logical sessions via session_id when available, otherwise fallback to doc _id.
     const usersPipeline = [
       matchStage,
       {
         $project: {
           userId: { $toString: '$user_id' },
-          projectId: {
+          sessionId: {
             $cond: [
-              { $or: [{ $eq: ['$project_id', null] }, { $eq: ['$project_id', ''] }] },
-              null,
-              { $toString: '$project_id' },
+              { $or: [{ $eq: ['$session_id', null] }, { $eq: ['$session_id', ''] }] },
+              { $toString: '$_id' },
+              { $toString: '$session_id' },
             ],
           },
           activityAt: { $ifNull: ['$last_updated', { $ifNull: ['$session_start', '$timestamp'] }] },
         },
       },
-      // Guard: sessions without a user id should not be included.
       { $match: { userId: { $ne: null, $ne: '' } } },
       {
         $group: {
           _id: '$userId',
-          totalSessions: { $sum: 1 },
+          sessionIds: { $addToSet: '$sessionId' },
           lastActivityAt: { $max: '$activityAt' },
-          projectsSet: { $addToSet: '$projectId' },
         },
       },
       {
         $addFields: {
-          distinctProjects: {
+          totalSessions: {
             $size: {
               $filter: {
-                input: '$projectsSet',
-                as: 'p',
-                cond: { $and: [{ $ne: ['$$p', null] }, { $ne: ['$$p', ''] }] },
+                input: '$sessionIds',
+                as: 's',
+                cond: { $and: [{ $ne: ['$$s', null] }, { $ne: ['$$s', ''] }] },
               },
             },
           },
@@ -402,18 +385,12 @@ router.get('/users', async (req, res) => {
           pipeline: [
             {
               $match: {
-                // Match either _id(ObjectId) == uid OR user_id(string) == uid
                 $expr: {
                   $or: [
                     {
                       $and: [
                         { $eq: [{ $type: '$_id' }, 'objectId'] },
-                        {
-                          $eq: [
-                            '$_id',
-                            { $convert: { input: '$$uid', to: 'objectId', onError: null, onNull: null } },
-                          ],
-                        },
+                        { $eq: ['$_id', { $convert: { input: '$$uid', to: 'objectId', onError: null, onNull: null } }] },
                       ],
                     },
                     { $eq: ['$user_id', '$$uid'] },
@@ -425,7 +402,6 @@ router.get('/users', async (req, res) => {
             {
               $project: {
                 _id: 1,
-                email: 1,
                 name: 1,
                 full_name: 1,
                 fullName: 1,
@@ -457,49 +433,47 @@ router.get('/users', async (req, res) => {
               },
             ],
           },
-          email: { $ifNull: ['$userDoc.email', null] },
         },
       },
       {
         $project: {
           _id: 0,
           userId: '$_id',
-          name: 1,
-          email: 1,
+          name: { $ifNull: ['$name', ''] },
           totalSessions: 1,
-          distinctProjects: 1,
           lastActivityAt: 1,
         },
       },
-      { $sort: { lastActivityAt: -1, totalSessions: -1 } },
+      { $sort: { totalSessions: -1, lastActivityAt: -1 } },
     ];
 
     const userRows = await db.collection('session_tracking').aggregate(usersPipeline, { allowDiskUse: true }).toArray();
 
-    // Normalize lastActivityAt to ISO for stable contract
     const usersOut = (userRows || []).map((r) => ({
-      ...r,
-      lastActivityAt: r?.lastActivityAt ? new Date(r.lastActivityAt).toISOString() : null,
-      totalSessions: Number(r?.totalSessions || 0),
-      distinctProjects: Number(r?.distinctProjects || 0),
       userId: String(r?.userId || ''),
       name: r?.name ? String(r.name) : '',
-      email: r?.email ? String(r.email) : '',
+      totalSessions: Number(r?.totalSessions || 0),
     }));
 
     const interval = inferBucketGranularityFromWindow(fromUtc, toUtcExclusive);
 
-    // Buckets: distinct active users per bucket (chart series).
-    // We use $dateTrunc for correct bucketing; then fill missing buckets with 0 for readability.
+    // Buckets: total sessions per interval (Schema C buckets[].totalSessions).
+    // Use $dateTrunc and count distinct session IDs in each bucket; fill missing buckets with 0.
     const bucketPipeline = [
       matchStage,
       {
         $project: {
-          userId: { $toString: '$user_id' },
+          sessionId: {
+            $cond: [
+              { $or: [{ $eq: ['$session_id', null] }, { $eq: ['$session_id', ''] }] },
+              { $toString: '$_id' },
+              { $toString: '$session_id' },
+            ],
+          },
           activityAt: { $ifNull: ['$last_updated', { $ifNull: ['$session_start', '$timestamp'] }] },
         },
       },
-      { $match: { userId: { $ne: null, $ne: '' }, activityAt: { $ne: null } } },
+      { $match: { sessionId: { $ne: null, $ne: '' }, activityAt: { $ne: null } } },
       {
         $addFields: {
           bucketStart: {
@@ -514,14 +488,22 @@ router.get('/users', async (req, res) => {
       {
         $group: {
           _id: '$bucketStart',
-          users: { $addToSet: '$userId' },
+          sessionIds: { $addToSet: '$sessionId' },
         },
       },
       {
         $project: {
           _id: 0,
           bucketStart: '$_id',
-          count: { $size: '$users' },
+          totalSessions: {
+            $size: {
+              $filter: {
+                input: '$sessionIds',
+                as: 's',
+                cond: { $and: [{ $ne: ['$$s', null] }, { $ne: ['$$s', ''] }] },
+              },
+            },
+          },
         },
       },
       { $sort: { bucketStart: 1 } },
@@ -529,8 +511,8 @@ router.get('/users', async (req, res) => {
 
     const bucketRows = await db.collection('session_tracking').aggregate(bucketPipeline, { allowDiskUse: true }).toArray();
 
-    const countByKey = new Map(
-      (bucketRows || []).map((b) => [keyFromBucketDate(interval, b?.bucketStart), Number(b?.count || 0)])
+    const totalsByKey = new Map(
+      (bucketRows || []).map((b) => [keyFromBucketDate(interval, b?.bucketStart), Number(b?.totalSessions || 0)])
     );
 
     const expectedStarts = buildExpectedBucketStartsUtc(interval, fromUtc, toUtcExclusive);
@@ -538,21 +520,9 @@ router.get('/users', async (req, res) => {
       const key = keyFromBucketDate(interval, dt);
       return {
         key,
-        label: labelFromBucketDate(interval, dt),
-        count: countByKey.get(key) || 0,
+        totalSessions: totalsByKey.get(key) || 0,
       };
     });
-
-    // Current totals (for the selected window)
-    const totals = usersOut.reduce(
-      (acc, u) => {
-        acc.totalUsers += 1;
-        acc.totalSessions += Number(u?.totalSessions || 0);
-        acc.distinctProjects += Number(u?.distinctProjects || 0);
-        return acc;
-      },
-      { totalUsers: 0, totalSessions: 0, distinctProjects: 0 }
-    );
 
     try {
       res.set('X-Date-Window-Timezone', 'Asia/Kolkata');
@@ -565,21 +535,12 @@ router.get('/users', async (req, res) => {
     } catch (_) {}
 
     return res.status(200).json({
-      success: true,
-      data: {
-        users: usersOut,
-        buckets: bucketsOut,
-        totals,
-      },
+      interval,
+      buckets: bucketsOut,
+      users: usersOut,
       meta: {
-        interval,
-        fromUtc: fromUtc ? fromUtc.toISOString() : null,
-        toUtcExclusive: toUtcExclusive ? toUtcExclusive.toISOString() : null,
-        fromIst: fromIst ? fromIst.toISOString() : null,
-        toIstExclusive: toIstExclusive ? toIstExclusive.toISOString() : null,
-        tenant: requestedTenant || null,
-        allTenants: !!isAllTenants,
-        appliedDefault: !!appliedDefault,
+        from: fromUtc ? fromUtc.toISOString() : null,
+        to: toUtcExclusive ? toUtcExclusive.toISOString() : null,
       },
     });
   } catch (err) {
