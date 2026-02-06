@@ -290,19 +290,27 @@ router.get('/users', async (req, res) => {
     // group counts by selected interval => totals of sessions (docs) and distinct users.
     const activityPipeline = [
       matchStage,
+
+      // Preserve computed bucket fields by carrying them forward explicitly.
+      // IMPORTANT: do NOT drop bucketKey/bucketLabel/bucketSort before the $group stage,
+      // otherwise all docs collapse into a single empty key bucket.
       {
-        $project: {
+        $addFields: {
           userId: { $toString: '$user_id' },
           sessionStart: '$session_start',
         },
       },
       { $match: { userId: { $ne: null, $ne: '' }, sessionStart: { $ne: null } } },
+
+      // Materialize bucketing fields based on the chosen interval.
       {
         $addFields: {
           session_start: '$sessionStart',
           ...bucketProject,
         },
       },
+
+      // Group by bucket key and compute totals.
       {
         $group: {
           _id: '$bucketKey',
@@ -325,7 +333,40 @@ router.get('/users', async (req, res) => {
           },
         },
       },
-      { $project: { _id: 0, key: '$_id', label: 1, sessions: 1, users: 1, sort: 1 } },
+
+      // Return a stable key format consumable by the frontend templating logic:
+      // - hour: "00".."23"
+      // - day:  "1".."31"
+      // - month:"1".."12"
+      {
+        $project: {
+          _id: 0,
+          key:
+            interval === 'hour'
+              ? '$label'
+              : interval === 'day'
+                ? { $toString: { $toInt: '$label' } }
+                : interval === 'month'
+                  ? {
+                      $toString: {
+                        $add: [
+                          1,
+                          {
+                            $indexOfArray: [
+                              ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                              '$label',
+                            ],
+                          },
+                        ],
+                      },
+                    }
+                  : '$_id',
+          label: 1,
+          sessions: 1,
+          users: 1,
+          sort: 1,
+        },
+      },
       { $sort: { sort: 1 } },
     ];
 
