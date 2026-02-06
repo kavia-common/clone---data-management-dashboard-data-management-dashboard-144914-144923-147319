@@ -24,12 +24,34 @@ function resolveTenantScope(req, _res, next) {
 
 // PUBLIC_INTERFACE
 function buildTenantScopeFilter(req) {
-  const tenantId = req?.tenantScope?.tenantId || req?.auth?.tenantId || req?.headers['x-organization-id'] || req?.query?.tenant_id || req?.query?.organization_id || null;
-  const source = req?.tenantScope?.source || (req?.auth?.tenantId ? 'auth' : (req?.headers['x-organization-id'] ? 'header' : (req?.query?.tenant_id || req?.query?.organization_id ? 'query' : null)));
+  const tenantId =
+    req?.tenantScope?.tenantId ||
+    req?.auth?.tenantId ||
+    req?.headers['x-organization-id'] ||
+    req?.query?.tenant_id ||
+    req?.query?.organization_id ||
+    null;
+
+  const source =
+    req?.tenantScope?.source ||
+    (req?.auth?.tenantId
+      ? 'auth'
+      : req?.headers['x-organization-id']
+        ? 'header'
+        : req?.query?.tenant_id || req?.query?.organization_id
+          ? 'query'
+          : null);
+
+  // Special-case: T0000 (or any T followed by only zeros) is the Super Admin "all tenants" selector.
+  // In that mode we must NOT inject a tenant filter, otherwise results are always empty.
+  const isAllTenantsSelector =
+    typeof tenantId === 'string' && /^T0+$/i.test(String(tenantId).trim());
+
   return {
     tenantId,
-    filter: tenantId ? { tenant_id: tenantId } : {},
-    source
+    filter: !tenantId || isAllTenantsSelector ? {} : { tenant_id: tenantId },
+    source,
+    isAllTenantsSelector,
   };
 }
 

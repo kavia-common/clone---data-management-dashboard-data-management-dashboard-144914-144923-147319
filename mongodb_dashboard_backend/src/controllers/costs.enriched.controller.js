@@ -33,13 +33,24 @@ async function listEnrichedCosts(req, res, next) {
     const MAX_LIMIT = 200;
 
     // Tenant scope
-    const {
-      tenantId,
-      source: tenantSource
-    } = buildTenantScopeFilter(req, { headerName: 'x-organization-id' });
+    const { tenantId, source: tenantSource, isAllTenantsSelector } = buildTenantScopeFilter(req, {
+      headerName: 'x-organization-id',
+    });
 
-    if (!tenantId) {
+    // Tenant is required unless Super Admin selected the "all tenants" selector (T0000).
+    if (!tenantId && !isAllTenantsSelector) {
       return res.status(400).json({ success: false, error: 'Missing tenant (organization) id' });
+    }
+
+    if (isAllTenantsSelector) {
+      // Mark bypass for consistency with other routes and avoid accidental tenant enforcement.
+      req.tenantScopeDisabled = true;
+      req.allTenants = true;
+      try {
+        res.setHeader('X-All-Tenants', 'true');
+        res.setHeader('X-Applied-Tenant', 'all-tenants');
+        res.setHeader('x-effective-tenant', 'all-tenants');
+      } catch {}
     }
 
     // Pagination and sort
@@ -68,7 +79,11 @@ async function listEnrichedCosts(req, res, next) {
     Object.keys(rawFilter).forEach((k) => {
       if (ALLOWED_FILTER.has(k)) filter[k] = rawFilter[k];
     });
-    filter.tenant_id = tenantId;
+
+    // Apply tenant scoping unless in Super Admin all-tenants mode.
+    if (!isAllTenantsSelector) {
+      filter.tenant_id = tenantId;
+    }
 
     // Aggregation:
     // 1) $match by filter
