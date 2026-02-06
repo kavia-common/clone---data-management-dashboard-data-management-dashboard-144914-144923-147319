@@ -235,11 +235,11 @@ router.get('/users', async (req, res) => {
      * Decide aggregation interval based on overall date-range length.
      *
      * Interval Rules (per requirement):
-     * - Day range selected  => hourly (00-23)
-     * - Month range selected => daily (1-31)
-     * - Year range selected  => monthly (Jan-Dec)
+     * - Day range selected   => hourly (00-23)
+     * - Month-like range     => daily (1-31)
+     * - Longer ranges        => monthly (Jan-Dec)
      *
-     * We infer "day/month/year" by the number of days covered by [fromUtc, toUtcExclusive).
+     * We infer this by the number of days covered by [fromUtc, toUtcExclusive).
      */
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
     const effectiveFrom = fromUtc || new Date();
@@ -251,9 +251,13 @@ router.get('/users', async (req, res) => {
       rangeDays <= 2 ? 'hour' : rangeDays <= 62 ? 'day' : 'month';
 
     // Requirement change:
-    // - For ranges < 30 days: return per-user bucket series with user display names (stacked chart).
-    // - For ranges >= 30 days: keep aggregated buckets (sessions + distinct users) as before.
-    const activityMode = rangeDays < 30 ? 'per_user' : 'aggregated';
+    // - For ranges <= 31 days: return per-user bucket series with user display names (stacked chart).
+    // - For ranges > 31 days: keep aggregated buckets (sessions + distinct users) as before.
+    //
+    // Notes:
+    // - This is inherently calendar-aware: full-month selections (30 or 31 days) stay in per-user mode
+    //   because they are <= 31 days.
+    const activityMode = rangeDays <= 31 ? 'per_user' : 'aggregated';
 
     // Bucket key + label expressions (UTC).
     // Important: since we match on session_start bounded by IST-derived UTC instants,
