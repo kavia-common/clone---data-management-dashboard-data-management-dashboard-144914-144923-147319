@@ -151,23 +151,92 @@ function resolveIstDayWindowToUtcBounds(fromRaw, toRaw) {
 }
 
 /**
+ * Decide bucket granularity based on the requested from/to window length.
+ * Requirement:
+ *  - day-range   => bucket by hour
+ *  - month-range => bucket by day
+ *  - year-range  => bucket by month
+ *
+ * We infer based on the number of days between the effective bounds (IST day window in UTC instants).
+ */
+function inferBucketGranularityFromWindow(fromUtc, toUtcExclusive) {
+  const fromMs = fromUtc?.getTime?.();
+  const toMs = toUtcExclusive?.getTime?.();
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) {
+    // If missing/invalid bounds, default to day buckets (safe).
+    return 'day';
+  }
+
+  const days = (toMs - fromMs) / (24 * 60 * 60 * 1000);
+
+  // Heuristics:
+  // - up to ~2 days => hourly
+  // - up to ~62 days (~2 months) => daily
+  // - above that => monthly
+  if (days <= 2.1) return 'hour';
+  if (days <= 62) return 'day';
+  return 'month';
+}
+
+function labelFromBucketDate(granularity, dt) {
+  if (!dt) return '';
+  const d = new Date(dt);
+  if (granularity === 'hour') {
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    return `${hh}:00`;
+  }
+  if (granularity === 'month') {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${monthNames[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  }
+  // day
+  return d.toISOString().slice(0, 10);
+}
+
+function keyFromBucketDate(granularity, dt) {
+  if (!dt) return '';
+  const d = new Date(dt);
+  if (granularity === 'hour') {
+    // YYYY-MM-DDTHH:00:00Z
+    const iso = d.toISOString();
+    return `${iso.slice(0, 13)}:00:00Z`;
+  }
+  if (granularity === 'month') {
+    // YYYY-MM
+    return d.toISOString().slice(0, 7);
+  }
+  // day: YYYY-MM-DD
+  return d.toISOString().slice(0, 10);
+}
+
+/**
  * PUBLIC_INTERFACE
  * GET /api/dashboard/users
  *
- * Returns fully aggregated per-user analytics for the requested date window.
- * The backend is the sole source of analytics data: it filters, groups, counts,
- * joins user metadata, and sorts by activity (lastActivityAt desc).
+ * Returns fully aggregated per-user analytics for the requested date window,
+ * plus interval-based buckets for the "Activity by User" chart.
+ *
+ * Backward compatibility:
+ *  - If BOTH `from` and `to` are omitted, the response remains the legacy array of per-user rows.
+ *  - If `from` or `to` is provided, response becomes an object containing:
+ *      { users, buckets, totals, meta }
+ *
+ * Interval inference (based on inferred range length from effective from/to):
+ *  - day-range   => buckets hourly
+ *  - month-range => buckets daily
+ *  - year-range  => buckets monthly
  *
  * Query params:
- *  - from?: ISO date-time OR YYYY-MM-DD (expanded to UTC 00:00:00.000Z)
- *  - to?:   ISO date-time OR YYYY-MM-DD (expanded to UTC 23:59:59.999Z)
+ *  - from?: ISO date-time OR YYYY-MM-DD (interpreted as IST calendar day)
+ *  - to?:   ISO date-time OR YYYY-MM-DD (interpreted as IST calendar day; exclusive next day for filtering)
  *
- * Default behavior:
- *  - If both from and to are omitted, defaults to TODAY in UTC:
- *    00:00:00.000Z -> 23:59:59.999Z
- *
- * Response:
- *  - 200: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt, projects?: [...] }>
+ * Response (when from/to present):
+ *  - 200: {
+ *      users: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>,
+ *      buckets: Array<{ key, label, count }>,
+ *      totals: { totalUsers, totalSessions, distinctProjects },
+ *      meta: { bucketGranularity, fromUtc, toUtcExclusive, fromIst, toIstExclusive }
+ *    }
  */
 router.get('/users', async (req, res) => {
   try {
@@ -183,11 +252,15 @@ router.get('/users', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing tenant scope' });
     }
 
+    const hasFrom = req.query?.from !== undefined && req.query?.from !== null && String(req.query.from).trim() !== '';
+    const hasTo = req.query?.to !== undefined && req.query?.to !== null && String(req.query.to).trim() !== '';
+    const wantsIntervalResponse = hasFrom || hasTo;
+
     const { fromUtc, toUtcExclusive, fromIst, toIstExclusive, appliedDefault } =
       resolveIstDayWindowToUtcBounds(req.query?.from, req.query?.to);
 
     // If caller provided an invalid date string, fail fast with 400
-    if ((req.query?.from && !fromUtc) || (req.query?.to && !toUtcExclusive)) {
+    if ((hasFrom && !fromUtc) || (hasTo && !toUtcExclusive)) {
       return res.status(400).json({ success: false, message: 'Invalid from/to date value(s)' });
     }
 
@@ -222,13 +295,9 @@ router.get('/users', async (req, res) => {
 
     const matchStage = matchAnd.length ? { $match: { $and: matchAnd } } : { $match: {} };
 
-    // Aggregation pipeline:
-    // - match by tenant + time window (default TODAY UTC if omitted)
-    // - project normalized ids, project_id, and activity time
-    // - group by user => totalSessions, distinctProjects, lastActivityAt
-    // - lookup user metadata
-    // - shape stable response fields
-    // - sort by activity
+    // Per-user totals (existing endpoint behavior; keep fields stable).
+    // Note: We continue to count documents as sessions here to avoid changing semantics unexpectedly.
+    // (The newer /api/dashboard/users in src/routes/dashboard.users.routes.js uses distinct session_ids.)
     const pipeline = [
       matchStage,
       {
@@ -280,7 +349,12 @@ router.get('/users', async (req, res) => {
                     {
                       $and: [
                         { $eq: [{ $type: '$_id' }, 'objectId'] },
-                        { $eq: ['$_id', { $convert: { input: '$$uid', to: 'objectId', onError: null, onNull: null } }] },
+                        {
+                          $eq: [
+                            '$_id',
+                            { $convert: { input: '$$uid', to: 'objectId', onError: null, onNull: null } },
+                          ],
+                        },
                       ],
                     },
                     { $eq: ['$user_id', '$$uid'] },
@@ -341,8 +415,6 @@ router.get('/users', async (req, res) => {
           totalSessions: 1,
           distinctProjects: 1,
           lastActivityAt: 1,
-          // Optional for future use; keep stable response but do not include heavy arrays by default.
-          // projects: '$projectsSet',
         },
       },
       { $sort: { lastActivityAt: -1, totalSessions: -1 } },
@@ -351,7 +423,7 @@ router.get('/users', async (req, res) => {
     const rows = await db.collection('session_tracking').aggregate(pipeline, { allowDiskUse: true }).toArray();
 
     // Normalize lastActivityAt to ISO for a stable frontend contract.
-    const out = (rows || []).map((r) => ({
+    const usersOut = (rows || []).map((r) => ({
       ...r,
       lastActivityAt: r?.lastActivityAt ? new Date(r.lastActivityAt).toISOString() : null,
       totalSessions: Number(r?.totalSessions || 0),
@@ -361,18 +433,104 @@ router.get('/users', async (req, res) => {
       email: r?.email ? String(r.email) : '',
     }));
 
+    // If no explicit window provided, preserve the legacy response contract (array).
+    // This avoids breaking any clients/tests that expect an array.
+    if (!wantsIntervalResponse) {
+      try {
+        res.set('X-Date-Window-Timezone', 'Asia/Kolkata');
+        res.set('X-Date-Window-Applied', appliedDefault ? 'default_today_ist' : 'explicit_ist');
+        if (fromIst) res.set('X-Date-Window-From-IST', fromIst.toISOString());
+        if (toIstExclusive) res.set('X-Date-Window-To-IST', toIstExclusive.toISOString());
+        if (fromUtc) res.set('X-Date-Window-From-UTC', fromUtc.toISOString());
+        if (toUtcExclusive) res.set('X-Date-Window-To-UTC', toUtcExclusive.toISOString());
+      } catch (_) {}
+      return res.status(200).json(usersOut);
+    }
+
+    const bucketGranularity = inferBucketGranularityFromWindow(fromUtc, toUtcExclusive);
+
+    // Buckets: distinct active users per bucket (this is what the chart needs).
+    // Implement using $dateTrunc for true interval bucketing.
+    const bucketPipeline = [
+      matchStage,
+      {
+        $project: {
+          userId: { $toString: '$user_id' },
+          activityAt: { $ifNull: ['$last_updated', { $ifNull: ['$session_start', '$timestamp'] }] },
+        },
+      },
+      { $match: { userId: { $ne: null, $ne: '' }, activityAt: { $ne: null } } },
+      {
+        $addFields: {
+          bucketStart: {
+            $dateTrunc: {
+              date: '$activityAt',
+              unit: bucketGranularity,
+              timezone: 'UTC',
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: '$bucketStart',
+          users: { $addToSet: '$userId' },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          bucketStart: '$_id',
+          count: { $size: '$users' },
+        },
+      },
+      { $sort: { bucketStart: 1 } },
+    ];
+
+    const bucketRows = await db
+      .collection('session_tracking')
+      .aggregate(bucketPipeline, { allowDiskUse: true })
+      .toArray();
+
+    const bucketsOut = (bucketRows || []).map((b) => ({
+      key: keyFromBucketDate(bucketGranularity, b?.bucketStart),
+      label: labelFromBucketDate(bucketGranularity, b?.bucketStart),
+      count: Number(b?.count || 0),
+    }));
+
+    // Current totals (for the selected window).
+    const totals = usersOut.reduce(
+      (acc, u) => {
+        acc.totalUsers += 1;
+        acc.totalSessions += Number(u?.totalSessions || 0);
+        acc.distinctProjects += Number(u?.distinctProjects || 0);
+        return acc;
+      },
+      { totalUsers: 0, totalSessions: 0, distinctProjects: 0 }
+    );
+
     try {
       res.set('X-Date-Window-Timezone', 'Asia/Kolkata');
       res.set('X-Date-Window-Applied', appliedDefault ? 'default_today_ist' : 'explicit_ist');
-
       if (fromIst) res.set('X-Date-Window-From-IST', fromIst.toISOString());
       if (toIstExclusive) res.set('X-Date-Window-To-IST', toIstExclusive.toISOString());
-
       if (fromUtc) res.set('X-Date-Window-From-UTC', fromUtc.toISOString());
       if (toUtcExclusive) res.set('X-Date-Window-To-UTC', toUtcExclusive.toISOString());
+      res.set('X-Users-Analytics-Bucket-Granularity', bucketGranularity);
     } catch (_) {}
 
-    return res.status(200).json(out);
+    return res.status(200).json({
+      users: usersOut,
+      buckets: bucketsOut,
+      totals,
+      meta: {
+        bucketGranularity,
+        fromUtc: fromUtc ? fromUtc.toISOString() : null,
+        toUtcExclusive: toUtcExclusive ? toUtcExclusive.toISOString() : null,
+        fromIst: fromIst ? fromIst.toISOString() : null,
+        toIstExclusive: toIstExclusive ? toIstExclusive.toISOString() : null,
+      },
+    });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[dashboard.users] error:', err?.message || err);
