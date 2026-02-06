@@ -241,6 +241,11 @@ router.get('/users', async (req, res) => {
     const interval =
       rangeDays <= 2 ? 'hour' : rangeDays <= 62 ? 'day' : 'month';
 
+    // Requirement change:
+    // - For ranges < 30 days: return per-user bucket series with user display names (stacked chart).
+    // - For ranges >= 30 days: keep aggregated buckets (sessions + distinct users) as before.
+    const activityMode = rangeDays < 30 ? 'per_user' : 'aggregated';
+
     // Bucket key + label expressions (UTC).
     // Important: since we match on session_start bounded by IST-derived UTC instants,
     // grouping is still done in UTC instants. That's OK: the requirement is about
@@ -286,14 +291,12 @@ router.get('/users', async (req, res) => {
               bucketSort: { $toLong: { $dateTrunc: { date: '$session_start', unit: 'month' } } },
             };
 
-    // Aggregation pipeline for "Activity by User" chart:
-    // group counts by selected interval => totals of sessions (docs) and distinct users.
-    const activityPipeline = [
+    /**
+     * Aggregated-mode buckets: identical to prior behavior.
+     * Output: Array<{ key, label, sessions, users }>
+     */
+    const aggregatedActivityPipeline = [
       matchStage,
-
-      // Preserve computed bucket fields by carrying them forward explicitly.
-      // IMPORTANT: do NOT drop bucketKey/bucketLabel/bucketSort before the $group stage,
-      // otherwise all docs collapse into a single empty key bucket.
       {
         $addFields: {
           userId: { $toString: '$user_id' },
@@ -301,16 +304,12 @@ router.get('/users', async (req, res) => {
         },
       },
       { $match: { userId: { $ne: null, $ne: '' }, sessionStart: { $ne: null } } },
-
-      // Materialize bucketing fields based on the chosen interval.
       {
         $addFields: {
           session_start: '$sessionStart',
           ...bucketProject,
         },
       },
-
-      // Group by bucket key and compute totals.
       {
         $group: {
           _id: '$bucketKey',
@@ -333,11 +332,6 @@ router.get('/users', async (req, res) => {
           },
         },
       },
-
-      // Return a stable key format consumable by the frontend templating logic:
-      // - hour: "00".."23"
-      // - day:  "1".."31"
-      // - month:"1".."12"
       {
         $project: {
           _id: 0,
@@ -370,17 +364,215 @@ router.get('/users', async (req, res) => {
       { $sort: { sort: 1 } },
     ];
 
-    const buckets = await db
-      .collection('session_tracking')
-      .aggregate(activityPipeline, { allowDiskUse: true })
-      .toArray();
+    /**
+     * Per-user-mode buckets (<30 days):
+     * Output: {
+     *   buckets: Array<{ key, label }>,
+     *   series: Array<{ userId, name, sessionsByKey: { [key]: number } }>
+     * }
+     *
+     * Notes:
+     * - We keep bucket "key" compatible with the existing frontend templating logic (00-23, 1-31, 1-12).
+     * - We join user display names via users collection.
+     */
+    const perUserActivityPipeline = [
+      matchStage,
+      {
+        $addFields: {
+          userId: { $toString: '$user_id' },
+          sessionStart: '$session_start',
+        },
+      },
+      { $match: { userId: { $ne: null, $ne: '' }, sessionStart: { $ne: null } } },
+      {
+        $addFields: {
+          session_start: '$sessionStart',
+          ...bucketProject,
+        },
+      },
+      // 1) Count sessions per (userId, bucketKey)
+      {
+        $group: {
+          _id: { userId: '$userId', bucketKey: '$bucketKey' },
+          label: { $first: '$bucketLabel' },
+          sort: { $max: '$bucketSort' },
+          sessions: { $sum: 1 },
+        },
+      },
+      // 2) Remap bucketKey to frontend-stable key (00-23, 1-31, 1-12)
+      {
+        $addFields: {
+          key:
+            interval === 'hour'
+              ? '$label'
+              : interval === 'day'
+                ? { $toString: { $toInt: '$label' } }
+                : interval === 'month'
+                  ? {
+                      $toString: {
+                        $add: [
+                          1,
+                          {
+                            $indexOfArray: [
+                              ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                              '$label',
+                            ],
+                          },
+                        ],
+                      },
+                    }
+                  : '$_id.bucketKey',
+          userId: '$_id.userId',
+        },
+      },
+      // 3) Join user metadata for display name
+      {
+        $lookup: {
+          from: 'users',
+          let: { uid: '$userId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $or: [
+                    {
+                      $and: [
+                        { $eq: [{ $type: '$_id' }, 'objectId'] },
+                        {
+                          $eq: [
+                            '$_id',
+                            { $convert: { input: '$$uid', to: 'objectId', onError: null, onNull: null } },
+                          ],
+                        },
+                      ],
+                    },
+                    { $eq: ['$user_id', '$$uid'] },
+                    { $eq: [{ $toString: '$_id' }, '$$uid'] },
+                  ],
+                },
+              },
+            },
+            {
+              $project: {
+                _id: 1,
+                email: 1,
+                name: 1,
+                full_name: 1,
+                fullName: 1,
+                displayName: 1,
+                display_name: 1,
+                user_name: 1,
+              },
+            },
+          ],
+          as: 'userDoc',
+        },
+      },
+      { $unwind: { path: '$userDoc', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          userName: {
+            $ifNull: [
+              '$userDoc.name',
+              {
+                $ifNull: [
+                  '$userDoc.full_name',
+                  {
+                    $ifNull: [
+                      '$userDoc.fullName',
+                      {
+                        $ifNull: [
+                          '$userDoc.displayName',
+                          { $ifNull: ['$userDoc.display_name', '$userDoc.user_name'] },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          userEmail: { $ifNull: ['$userDoc.email', null] },
+        },
+      },
+      // 4) Reshape into per-user rows with a sessionsByKey object and a buckets list
+      {
+        $group: {
+          _id: '$userId',
+          name: { $first: '$userName' },
+          email: { $first: '$userEmail' },
+          totalSessions: { $sum: '$sessions' },
+          points: { $push: { key: '$key', label: '$label', sort: '$sort', sessions: '$sessions' } },
+          buckets: { $addToSet: { key: '$key', label: '$label', sort: '$sort' } },
+        },
+      },
+      { $sort: { totalSessions: -1 } },
+    ];
 
-    const normalizedBuckets = (buckets || []).map((b) => ({
-      key: String(b?.key || ''),
-      label: String(b?.label || ''),
-      sessions: Number(b?.sessions || 0),
-      users: Number(b?.users || 0),
-    }));
+    let normalizedBuckets = [];
+    let perUserActivity = null;
+
+    if (activityMode === 'aggregated') {
+      const buckets = await db
+        .collection('session_tracking')
+        .aggregate(aggregatedActivityPipeline, { allowDiskUse: true })
+        .toArray();
+
+      normalizedBuckets = (buckets || []).map((b) => ({
+        key: String(b?.key || ''),
+        label: String(b?.label || ''),
+        sessions: Number(b?.sessions || 0),
+        users: Number(b?.users || 0),
+      }));
+    } else {
+      const perUserRows = await db
+        .collection('session_tracking')
+        .aggregate(perUserActivityPipeline, { allowDiskUse: true })
+        .toArray();
+
+      // Buckets are duplicated across users; consolidate and sort by bucket.sort
+      const bucketMap = new Map();
+      (perUserRows || []).forEach((u) => {
+        (u?.buckets || []).forEach((b) => {
+          const key = String(b?.key || '').trim();
+          if (!key) return;
+          if (!bucketMap.has(key)) {
+            bucketMap.set(key, { key, label: String(b?.label || ''), sort: Number(b?.sort || 0) });
+          }
+        });
+      });
+
+      const sortedBuckets = Array.from(bucketMap.values()).sort((a, b) => a.sort - b.sort);
+
+      const series = (perUserRows || []).map((u) => {
+        const sessionsByKey = {};
+        (u?.points || []).forEach((p) => {
+          const k = String(p?.key || '').trim();
+          if (!k) return;
+          sessionsByKey[k] = (sessionsByKey[k] || 0) + Number(p?.sessions || 0);
+        });
+
+        const display =
+          (u?.name && String(u.name).trim()) ||
+          (u?.email && String(u.email).trim()) ||
+          (u?._id ? `User ${String(u._id).slice(0, 8)}` : 'User');
+
+        return {
+          userId: String(u?._id || ''),
+          name: String(display),
+          totalSessions: Number(u?.totalSessions || 0),
+          sessionsByKey,
+        };
+      });
+
+      perUserActivity = {
+        buckets: sortedBuckets.map((b) => ({ key: b.key, label: b.label })),
+        series,
+      };
+
+      // In per-user mode, we return `activity` as null and use `activityByUser` instead.
+      normalizedBuckets = [];
+    }
 
     // Keep the prior per-user analytics response available for backward compatibility
     // (other screens may rely on it). The frontend chart change in this task will read `activity`.
@@ -531,14 +723,22 @@ router.get('/users', async (req, res) => {
 
       res.set('X-Aggregation-Interval', interval);
       res.set('X-Aggregation-Range-Days', String(rangeDays));
+      res.set('X-Activity-Mode', activityMode);
     } catch (_) {}
 
     return res.status(200).json({
       success: true,
       interval,
+      mode: activityMode, // 'per_user' | 'aggregated'
       from: fromUtc ? fromUtc.toISOString() : null,
       to: toUtcExclusive ? toUtcExclusive.toISOString() : null,
-      activity: normalizedBuckets,
+
+      // Long ranges (>=30 days): keep existing aggregated buckets.
+      activity: activityMode === 'aggregated' ? normalizedBuckets : null,
+
+      // Short ranges (<30 days): return per-user stacked series.
+      activityByUser: activityMode === 'per_user' ? perUserActivity : null,
+
       // Backward compatibility: keep the previous response available.
       users: perUser,
     });
