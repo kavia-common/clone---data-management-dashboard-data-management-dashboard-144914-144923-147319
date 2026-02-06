@@ -222,14 +222,128 @@ router.get('/users', async (req, res) => {
 
     const matchStage = matchAnd.length ? { $match: { $and: matchAnd } } : { $match: {} };
 
-    // Aggregation pipeline:
-    // - match by tenant + time window (default TODAY UTC if omitted)
-    // - project normalized ids, project_id, and activity time
-    // - group by user => totalSessions, distinctProjects, lastActivityAt
-    // - lookup user metadata
-    // - shape stable response fields
-    // - sort by activity
-    const pipeline = [
+    /**
+     * Decide aggregation interval based on overall date-range length.
+     *
+     * Interval Rules (per requirement):
+     * - Day range selected  => hourly (00-23)
+     * - Month range selected => daily (1-31)
+     * - Year range selected  => monthly (Jan-Dec)
+     *
+     * We infer "day/month/year" by the number of days covered by [fromUtc, toUtcExclusive).
+     */
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const effectiveFrom = fromUtc || new Date();
+    const effectiveTo = toUtcExclusive || new Date(effectiveFrom.getTime() + MS_PER_DAY);
+    const rangeMs = Math.max(0, effectiveTo.getTime() - effectiveFrom.getTime());
+    const rangeDays = Math.max(1, Math.ceil(rangeMs / MS_PER_DAY));
+
+    const interval =
+      rangeDays <= 2 ? 'hour' : rangeDays <= 62 ? 'day' : 'month';
+
+    // Bucket key + label expressions (UTC).
+    // Important: since we match on session_start bounded by IST-derived UTC instants,
+    // grouping is still done in UTC instants. That's OK: the requirement is about
+    // readable x-axis intervals, not local-time bucketing.
+    const bucketProject =
+      interval === 'hour'
+        ? {
+            bucketKey: {
+              $dateToString: { format: '%Y-%m-%dT%H:00:00.000Z', date: '$session_start' },
+            },
+            bucketLabel: {
+              $dateToString: { format: '%H', date: '$session_start' },
+            },
+            bucketSort: { $toLong: { $dateTrunc: { date: '$session_start', unit: 'hour' } } },
+          }
+        : interval === 'day'
+          ? {
+              bucketKey: {
+                $dateToString: { format: '%Y-%m-%d', date: '$session_start' },
+              },
+              bucketLabel: {
+                // Day-of-month label: 1..31 (no leading 0)
+                $toString: { $dayOfMonth: '$session_start' },
+              },
+              bucketSort: { $toLong: { $dateTrunc: { date: '$session_start', unit: 'day' } } },
+            }
+          : {
+              bucketKey: {
+                $dateToString: { format: '%Y-%m', date: '$session_start' },
+              },
+              bucketLabel: {
+                // Month label short (Jan..Dec) using a fixed year to avoid locale inconsistencies in Mongo
+                $let: {
+                  vars: { m: { $month: '$session_start' } },
+                  in: {
+                    $arrayElemAt: [
+                      ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+                      { $subtract: ['$$m', 1] },
+                    ],
+                  },
+                },
+              },
+              bucketSort: { $toLong: { $dateTrunc: { date: '$session_start', unit: 'month' } } },
+            };
+
+    // Aggregation pipeline for "Activity by User" chart:
+    // group counts by selected interval => totals of sessions (docs) and distinct users.
+    const activityPipeline = [
+      matchStage,
+      {
+        $project: {
+          userId: { $toString: '$user_id' },
+          sessionStart: '$session_start',
+        },
+      },
+      { $match: { userId: { $ne: null, $ne: '' }, sessionStart: { $ne: null } } },
+      {
+        $addFields: {
+          session_start: '$sessionStart',
+          ...bucketProject,
+        },
+      },
+      {
+        $group: {
+          _id: '$bucketKey',
+          label: { $first: '$bucketLabel' },
+          sort: { $max: '$bucketSort' },
+          sessions: { $sum: 1 },
+          userIds: { $addToSet: '$userId' },
+        },
+      },
+      {
+        $addFields: {
+          users: {
+            $size: {
+              $filter: {
+                input: '$userIds',
+                as: 'u',
+                cond: { $and: [{ $ne: ['$$u', null] }, { $ne: ['$$u', ''] }] },
+              },
+            },
+          },
+        },
+      },
+      { $project: { _id: 0, key: '$_id', label: 1, sessions: 1, users: 1, sort: 1 } },
+      { $sort: { sort: 1 } },
+    ];
+
+    const buckets = await db
+      .collection('session_tracking')
+      .aggregate(activityPipeline, { allowDiskUse: true })
+      .toArray();
+
+    const normalizedBuckets = (buckets || []).map((b) => ({
+      key: String(b?.key || ''),
+      label: String(b?.label || ''),
+      sessions: Number(b?.sessions || 0),
+      users: Number(b?.users || 0),
+    }));
+
+    // Keep the prior per-user analytics response available for backward compatibility
+    // (other screens may rely on it). The frontend chart change in this task will read `activity`.
+    const perUserPipeline = [
       matchStage,
       {
         $project: {
@@ -244,7 +358,6 @@ router.get('/users', async (req, res) => {
           activityAt: { $ifNull: ['$last_updated', { $ifNull: ['$session_start', '$timestamp'] }] },
         },
       },
-      // Guard: sessions without a user id should not be included.
       { $match: { userId: { $ne: null, $ne: '' } } },
       {
         $group: {
@@ -274,13 +387,17 @@ router.get('/users', async (req, res) => {
           pipeline: [
             {
               $match: {
-                // Match either _id(ObjectId) == uid OR user_id(string) == uid
                 $expr: {
                   $or: [
                     {
                       $and: [
                         { $eq: [{ $type: '$_id' }, 'objectId'] },
-                        { $eq: ['$_id', { $convert: { input: '$$uid', to: 'objectId', onError: null, onNull: null } }] },
+                        {
+                          $eq: [
+                            '$_id',
+                            { $convert: { input: '$$uid', to: 'objectId', onError: null, onNull: null } },
+                          ],
+                        },
                       ],
                     },
                     { $eq: ['$user_id', '$$uid'] },
@@ -341,17 +458,17 @@ router.get('/users', async (req, res) => {
           totalSessions: 1,
           distinctProjects: 1,
           lastActivityAt: 1,
-          // Optional for future use; keep stable response but do not include heavy arrays by default.
-          // projects: '$projectsSet',
         },
       },
       { $sort: { lastActivityAt: -1, totalSessions: -1 } },
     ];
 
-    const rows = await db.collection('session_tracking').aggregate(pipeline, { allowDiskUse: true }).toArray();
+    const perUserRows = await db
+      .collection('session_tracking')
+      .aggregate(perUserPipeline, { allowDiskUse: true })
+      .toArray();
 
-    // Normalize lastActivityAt to ISO for a stable frontend contract.
-    const out = (rows || []).map((r) => ({
+    const perUser = (perUserRows || []).map((r) => ({
       ...r,
       lastActivityAt: r?.lastActivityAt ? new Date(r.lastActivityAt).toISOString() : null,
       totalSessions: Number(r?.totalSessions || 0),
@@ -370,9 +487,20 @@ router.get('/users', async (req, res) => {
 
       if (fromUtc) res.set('X-Date-Window-From-UTC', fromUtc.toISOString());
       if (toUtcExclusive) res.set('X-Date-Window-To-UTC', toUtcExclusive.toISOString());
+
+      res.set('X-Aggregation-Interval', interval);
+      res.set('X-Aggregation-Range-Days', String(rangeDays));
     } catch (_) {}
 
-    return res.status(200).json(out);
+    return res.status(200).json({
+      success: true,
+      interval,
+      from: fromUtc ? fromUtc.toISOString() : null,
+      to: toUtcExclusive ? toUtcExclusive.toISOString() : null,
+      activity: normalizedBuckets,
+      // Backward compatibility: keep the previous response available.
+      users: perUser,
+    });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[dashboard.users] error:', err?.message || err);
