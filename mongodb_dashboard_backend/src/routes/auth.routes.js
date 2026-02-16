@@ -258,8 +258,8 @@ router.post('/login', async (req, res) => {
     };
     const user = await User.findOne({ email, ...orgOrFilter }).lean();
     if (!user) {
-      // do not disclose email existence
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      // Do not disclose whether the email exists; required UX message.
+      return res.status(401).json({ success: false, message: 'Invalid username or password' });
     }
 
     // If user has no password hash (legacy/placeholder), issue token to avoid breaking flows
@@ -296,7 +296,7 @@ router.post('/login', async (req, res) => {
 
     const { valid, migrated, newHash, newVersion } = await verifyAndMigrate({ candidate: password, user, tenant });
     if (!valid) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'Invalid username or password' });
     }
 
     if (migrated && newHash && newVersion) {
@@ -320,9 +320,10 @@ router.post('/login', async (req, res) => {
       user: { id: String(user._id || ''), email: user.email },
     });
   } catch (e) {
-     
     console.error('[auth.login] failed', e?.message || e);
-    return res.status(400).json({ success: false, message: 'Login failed' });
+    // This is an unexpected server-side failure (DB, crypto lib, etc.)
+    // Keep it as 500 so the frontend can show "internal error" vs "invalid credentials".
+    return res.status(500).json({ success: false, message: 'Login failed' });
   }
 });
 
