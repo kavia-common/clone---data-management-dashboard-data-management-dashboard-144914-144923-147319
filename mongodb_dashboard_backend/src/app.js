@@ -17,18 +17,19 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(helmetMiddleware());
 app.use(corsMiddleware());
- // Apply our permissive echo-origin CORS for all /api paths (after security cors for broad handling)
- app.use('/api', permissiveCorsMiddleware);
- // Explicit preflight handling for all /api paths (including summary and users)
- // Single wildcard path is sufficient; ensure it is registered early.
- app.options('/api/*', cors());
- // Belt-and-suspenders: some proxies/browsers can behave differently with wildcard matching;
- // register a subtree OPTIONS for the service-type endpoints explicitly.
- app.options('/api/service-type/*', cors());
+// Apply our permissive echo-origin CORS for all /api paths (after security cors for broad handling)
+app.use('/api', permissiveCorsMiddleware);
+// Explicit preflight handling for all /api paths (including summary and users)
+// Single wildcard path is sufficient; ensure it is registered early.
+app.options('/api/*', cors());
+// Belt-and-suspenders: some proxies/browsers can behave differently with wildcard matching;
+// register a subtree OPTIONS for the service-type endpoints explicitly.
+app.options('/api/service-type/*', cors());
 app.use(rateLimiter());
 
 // Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION
-const ENABLE_RESPONSE_COMPRESSION = String(process.env.ENABLE_RESPONSE_COMPRESSION || 'true').toLowerCase() === 'true';
+const ENABLE_RESPONSE_COMPRESSION =
+  String(process.env.ENABLE_RESPONSE_COMPRESSION || 'true').toLowerCase() === 'true';
 if (ENABLE_RESPONSE_COMPRESSION) {
   app.use(
     compression({
@@ -40,7 +41,7 @@ if (ENABLE_RESPONSE_COMPRESSION) {
           return false;
         }
         return compression.filter(req, res);
-      }
+      },
     })
   );
 }
@@ -51,6 +52,14 @@ app.use(express.urlencoded({ extended: true }));
 // ---------------------------------------------
 // Swagger setup
 // ---------------------------------------------
+/**
+ * IMPORTANT ROUTING INVARIANT:
+ * These docs/spec endpoints should remain stable and must not throw (Swagger UI depends on them).
+ * In preview, the backend container is expected to open Swagger UI at /docs.
+ *
+ * We also include the current origin (preview/local) in `servers` so "Try it out"
+ * uses the same backend instance, even when deployed behind a proxy.
+ */
 const buildDynamicSpec = (req) => {
   const host = req.get('host');
   const protocol = req.secure ? 'https' : req.protocol;
@@ -58,10 +67,10 @@ const buildDynamicSpec = (req) => {
   const hasPort = host.includes(':');
   const needsPort =
     !hasPort &&
-    ((protocol === 'http' && actualPort !== 80) ||
-      (protocol === 'https' && actualPort !== 443));
+    ((protocol === 'http' && actualPort !== 80) || (protocol === 'https' && actualPort !== 443));
   const fullHost = hasPort ? host : `${host}${needsPort ? `:${actualPort}` : ''}`;
   const baseSpec = getBaseOpenApiSpec();
+
   return {
     ...baseSpec,
     info: {
@@ -73,23 +82,46 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    // Use same-origin server so Swagger calls hit this backend instance
-    // url: `${protocol}://${fullHost}`,
     servers: [
       {
-        // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-        url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
-        // description: 'Predefined dev server',
+        // Keep existing configured server for your deployed environment.
+        url: 'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
         description: 'Predefined beta server',
+      },
+      {
+        url: `${protocol}://${fullHost}`,
+        description: 'Current server (preview/local)',
       },
     ],
   };
 };
 
+/**
+ * Defensive spec endpoint: always return JSON (never 500) so swagger-ui does not break.
+ * This also disables caching to avoid stale specs in preview/proxy setups.
+ */
+function safeSendOpenApiJson(req, res) {
+  res.set('Cache-Control', 'no-store');
+  try {
+    return res.status(200).json(buildDynamicSpec(req));
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[swagger] Failed to build dynamic spec:', err);
+    return res.status(200).json({
+      openapi: '3.0.0',
+      info: {
+        title: 'Dashboard API (spec unavailable)',
+        version: '0.0.0',
+        description: 'OpenAPI generation failed on this instance. See server logs for details.',
+      },
+      paths: {},
+    });
+  }
+}
 
-app.get('/openapi.json', (req, res) => res.json(buildDynamicSpec(req)));
-app.get('/api-docs.json', (req, res) => res.json(buildDynamicSpec(req)));
-app.get('/api/docs.json', (req, res) => res.json(buildDynamicSpec(req)));
+app.get('/openapi.json', safeSendOpenApiJson);
+app.get('/api-docs.json', safeSendOpenApiJson);
+app.get('/api/docs.json', safeSendOpenApiJson);
 
 const swaggerUiHandler = swaggerUi.setup(null, {
   swaggerOptions: {
@@ -139,7 +171,7 @@ app.get('/', (req, res) => {
     message: 'Dashboard API backend. Visit /api-docs for Swagger UI or /api/health for health.',
     docs: '/api-docs',
     health: '/api/health',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -147,7 +179,9 @@ app.get('/', (req, res) => {
 // Routers
 // ---------------------------------------------
 const safeUse = (path, router) => {
-  if (router && typeof router === 'function') {app.use(path, router);}
+  if (router && typeof router === 'function') {
+    app.use(path, router);
+  }
 };
 
 const baseRouter = require('./routes');
@@ -167,7 +201,10 @@ safeUse('/api/dev', require('./routes/dev.routes'));
 // Protected routes (with auth + tenant)
 // ---------------------------------------------
 app.use((req, res, next) => {
-  if (process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true') {
+  if (
+    process.env.NODE_ENV !== 'production' ||
+    String(process.env.DEBUG || '').toLowerCase() === 'true'
+  ) {
     if (req.path.startsWith('/api/') && !req.path.startsWith('/api/auth')) {
       // Developer debug headers (disabled logs)
     }
@@ -181,6 +218,7 @@ safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
 
 safeUse('/api/analytics', require('./routes/analytics'));
+
 safeUse('/api/app-deployments', require('./routes/appDeployments.routes'));
 safeUse('/api/appDeployments', require('./routes/appDeployments.routes'));
 safeUse('/api/costs', require('./routes/costs.byAgent.routes'));
@@ -239,12 +277,12 @@ if (process.env.NODE_ENV !== 'test') {
           console.warn('[startup] ensureLlmCostsIndexes unavailable:', e?.message || e);
         }
       })
-      .catch((err) =>
-        console.error('Failed to connect to MongoDB on startup:', err.message)
-      );
+      .catch((err) => console.error('Failed to connect to MongoDB on startup:', err.message));
   }
 } else {
-  try { mongoose.set('bufferCommands', false); } catch { }
+  try {
+    mongoose.set('bufferCommands', false);
+  } catch {}
 }
 
 module.exports = app;
