@@ -594,6 +594,20 @@ router.get('/users', async (req, res) => {
       {
         $project: {
           userId: { $toString: '$user_id' },
+
+          // IMPORTANT:
+          // Some tenants/users emit multiple session_tracking documents per logical session_id
+          // (e.g., status transitions/heartbeats). Counting raw documents inflates session totals.
+          // We therefore count DISTINCT session_id values, falling back to the document _id when
+          // session_id is missing.
+          sessionId: {
+            $cond: [
+              { $or: [{ $eq: ['$session_id', null] }, { $eq: ['$session_id', ''] }] },
+              { $toString: '$_id' },
+              { $toString: '$session_id' },
+            ],
+          },
+
           projectId: {
             $cond: [
               { $or: [{ $eq: ['$project_id', null] }, { $eq: ['$project_id', ''] }] },
@@ -608,13 +622,22 @@ router.get('/users', async (req, res) => {
       {
         $group: {
           _id: '$userId',
-          totalSessions: { $sum: 1 },
+          sessionIds: { $addToSet: '$sessionId' },
           lastActivityAt: { $max: '$activityAt' },
           projectsSet: { $addToSet: '$projectId' },
         },
       },
       {
         $addFields: {
+          totalSessions: {
+            $size: {
+              $filter: {
+                input: '$sessionIds',
+                as: 's',
+                cond: { $and: [{ $ne: ['$$s', null] }, { $ne: ['$$s', ''] }] },
+              },
+            },
+          },
           distinctProjects: {
             $size: {
               $filter: {
