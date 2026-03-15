@@ -140,18 +140,17 @@ function resolveUtcDayWindowToUtcBounds(fromRaw, toRaw) {
  *  - from?: ISO date-time OR YYYY-MM-DD
  *  - to?:   ISO date-time OR YYYY-MM-DD
  *
- * Notes on date handling:
- *  - If YYYY-MM-DD is provided (Quick Range/custom date inputs), the backend interprets the
- *    values as IST (Asia/Kolkata) calendar days and converts them to UTC bounds for matching
- *    against session_start:
- *      from => YYYY-MM-DD 00:00:00.000 IST (converted to UTC)
- *      to   => (YYYY-MM-DD + 1 day) 00:00:00.000 IST (converted to UTC, exclusive)
- *  - If ISO timestamps are provided, the backend extracts the IST calendar day and applies
- *    the same IST-day semantics.
+ * Notes on date handling (UTC day bounds):
+ *  - If YYYY-MM-DD is provided (Quick Range/custom date inputs), the backend expands the
+ *    date to a full UTC day window:
+ *      from => YYYY-MM-DDT00:00:00.000Z (inclusive)
+ *      to   => YYYY-MM-DDT23:59:59.999Z (inclusive)
+ *  - If ISO timestamps are provided, they are used as-is as UTC instants (no timezone
+ *    reinterpretation or IST offset conversion is applied).
  *
  * Default behavior:
  *  - If both from and to are omitted, defaults to TODAY in UTC:
- *    00:00:00.000Z -> 23:59:59.999Z
+ *      00:00:00.000Z -> 23:59:59.999Z
  *
  * Response:
  *  - 200: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt, projects?: [...] }>
