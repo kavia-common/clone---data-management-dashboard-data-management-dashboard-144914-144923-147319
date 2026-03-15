@@ -49,25 +49,30 @@ router.use((req, res, next) => {
  */
 
 /**
- * Resolve the incoming date range parameters as IST (Asia/Kolkata) calendar days,
- * then convert to UTC bounds suitable for MongoDB matching.
+ * Resolve the incoming date range parameters as UTC calendar days, and return UTC bounds
+ * suitable for MongoDB matching against `session_start`.
  *
- * Behavior:
- * - `from` / `to` are typically passed as YYYY-MM-DD (Quick Range inputs).
- * - We interpret these as IST-local days:
- *    - fromIST: YYYY-MM-DD 00:00:00.000 IST
- *    - toISTExclusive: (YYYY-MM-DD + 1 day) 00:00:00.000 IST
- * - We convert both instants to UTC and apply to `session_start` as:
- *    session_start: { $gte: fromUtc, $lt: toUtcExclusive }
+ * PUBLIC CONTRACT
+ * - Inputs:
+ *   - fromRaw, toRaw: query params which may be:
+ *     - date-only "YYYY-MM-DD" (expanded to full UTC day bounds)
+ *     - ISO date-time string
+ *     - ISODate("...") wrapper
+ * - Outputs:
+ *   - { fromUtc, toUtc, appliedDefault }
+ *     - fromUtc is inclusive lower bound
+ *     - toUtc is inclusive upper bound (end-of-day 23:59:59.999Z when date-only input is used)
+ * - Errors:
+ *   - This function returns null bounds when parsing fails; callers must validate and return 400.
  *
- * Notes:
- * - We use $lt with an exclusive upper bound (next-day start) which avoids
- *   millisecond precision issues and matches common range semantics.
- * - If neither from nor to is provided, we default to "today" in IST.
+ * SEMANTICS (matches desired Mongo query):
+ *   session_start: { $gte: fromUtc, $lte: toUtc }
+ *
+ * Default behavior:
+ * - If both from and to are omitted, defaults to TODAY in UTC:
+ *     00:00:00.000Z -> 23:59:59.999Z
  */
-function resolveIstDayWindowToUtcBounds(fromRaw, toRaw) {
-  const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000; // UTC+05:30
-
+function resolveUtcDayWindowToUtcBounds(fromRaw, toRaw) {
   const unwrapInput = (s) => {
     if (s === undefined || s === null) return '';
     const str = String(s).trim();
@@ -84,70 +89,43 @@ function resolveIstDayWindowToUtcBounds(fromRaw, toRaw) {
     return { y: Number(m[1]), m0: Number(m[2]) - 1, d: Number(m[3]) };
   };
 
-  // Build a Date representing the specified IST-local time expressed as a UTC instant.
-  // Example: 2026-01-01 00:00 IST == 2025-12-31 18:30Z
-  const istLocalToUtcInstant = (y, m0, d, hh, mm, ss, ms) => {
-    // Construct the instant as if the inputs were UTC, then subtract the IST offset.
-    // This is safe here because IST has no DST transitions.
-    const asUtc = Date.UTC(y, m0, d, hh, mm, ss, ms);
-    return new Date(asUtc - IST_OFFSET_MS);
-  };
-
   const hasFrom = unwrapInput(fromRaw) !== '';
   const hasTo = unwrapInput(toRaw) !== '';
 
-  // Default: TODAY in IST
+  // Default: TODAY in UTC
   if (!hasFrom && !hasTo) {
-    const nowUtc = new Date();
-    // Convert "now" instant to IST-local time by adding offset, then read UTC fields.
-    const nowIstInstant = new Date(nowUtc.getTime() + IST_OFFSET_MS);
-    const y = nowIstInstant.getUTCFullYear();
-    const m0 = nowIstInstant.getUTCMonth();
-    const d = nowIstInstant.getUTCDate();
-
-    const fromUtc = istLocalToUtcInstant(y, m0, d, 0, 0, 0, 0);
-    const toUtcExclusive = istLocalToUtcInstant(y, m0, d + 1, 0, 0, 0, 0);
-
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m0 = now.getUTCMonth();
+    const d = now.getUTCDate();
     return {
-      fromUtc,
-      toUtcExclusive,
-      fromIst: new Date(fromUtc.getTime() + IST_OFFSET_MS),
-      toIstExclusive: new Date(toUtcExclusive.getTime() + IST_OFFSET_MS),
+      fromUtc: new Date(Date.UTC(y, m0, d, 0, 0, 0, 0)),
+      toUtc: new Date(Date.UTC(y, m0, d, 23, 59, 59, 999)),
       appliedDefault: true,
     };
   }
 
-  // Explicit inputs: prefer YYYY-MM-DD.
-  // If callers send full ISO timestamps, we still attempt to accept them by converting the instant
-  // to IST and extracting the IST day (this preserves "calendar day" intent as best as possible).
-  const parseToIstDay = (raw) => {
+  const parseSide = (raw, mode) => {
     const unwrapped = unwrapInput(raw);
     if (!unwrapped) return null;
 
     const ymd = parseYmd(unwrapped);
-    if (ymd) return ymd;
+    if (ymd) {
+      return mode === 'from'
+        ? new Date(Date.UTC(ymd.y, ymd.m0, ymd.d, 0, 0, 0, 0))
+        : new Date(Date.UTC(ymd.y, ymd.m0, ymd.d, 23, 59, 59, 999));
+    }
 
     const dt = new Date(unwrapped);
     if (Number.isNaN(dt.getTime())) return null;
-
-    const istInstant = new Date(dt.getTime() + IST_OFFSET_MS);
-    return { y: istInstant.getUTCFullYear(), m0: istInstant.getUTCMonth(), d: istInstant.getUTCDate() };
+    return dt;
   };
 
-  const fromDay = parseToIstDay(fromRaw);
-  const toDay = parseToIstDay(toRaw);
+  const fromUtc = parseSide(fromRaw, 'from');
+  const toUtc = parseSide(toRaw, 'to');
 
   // Only apply bounds that were provided; do not invent the missing side.
-  const fromUtc = fromDay ? istLocalToUtcInstant(fromDay.y, fromDay.m0, fromDay.d, 0, 0, 0, 0) : null;
-  const toUtcExclusive = toDay ? istLocalToUtcInstant(toDay.y, toDay.m0, toDay.d + 1, 0, 0, 0, 0) : null;
-
-  return {
-    fromUtc,
-    toUtcExclusive,
-    fromIst: fromUtc ? new Date(fromUtc.getTime() + IST_OFFSET_MS) : null,
-    toIstExclusive: toUtcExclusive ? new Date(toUtcExclusive.getTime() + IST_OFFSET_MS) : null,
-    appliedDefault: false,
-  };
+  return { fromUtc, toUtc, appliedDefault: false };
 }
 
 /**
@@ -192,11 +170,11 @@ router.get('/users', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing tenant scope' });
     }
 
-    const { fromUtc, toUtcExclusive, fromIst, toIstExclusive, appliedDefault } =
-      resolveIstDayWindowToUtcBounds(req.query?.from, req.query?.to);
+    const { fromUtc, toUtc, appliedDefault } =
+      resolveUtcDayWindowToUtcBounds(req.query?.from, req.query?.to);
 
     // If caller provided an invalid date string, fail fast with 400
-    if ((req.query?.from && !fromUtc) || (req.query?.to && !toUtcExclusive)) {
+    if ((req.query?.from && !fromUtc) || (req.query?.to && !toUtc)) {
       return res.status(400).json({ success: false, message: 'Invalid from/to date value(s)' });
     }
 
@@ -205,12 +183,14 @@ router.get('/users', async (req, res) => {
       return res.status(503).json({ success: false, message: 'Database not connected' });
     }
 
-    // NOTE(product requirement): For /api/dashboard/users we intentionally filter ONLY on
-    // `session_start` using IST-derived calendar day bounds converted to UTC:
-    // session_start: { $gte: <fromIST start as UTC>, $lt: <toIST next-day start as UTC> }
+    // IMPORTANT INVARIANT:
+    // /api/dashboard/users must filter ONLY on session_start using UTC full-day bounds when the
+    // client provides date-only inputs (YYYY-MM-DD), matching the desired Mongo query semantics:
+    //   { session_start: { $gte: ISODate("YYYY-MM-DDT00:00:00.000Z"),
+    //                      $lte: ISODate("YYYY-MM-DDT23:59:59.999Z") } }
     const sessionStartRange = {};
     if (fromUtc) sessionStartRange.$gte = fromUtc;
-    if (toUtcExclusive) sessionStartRange.$lt = toUtcExclusive;
+    if (toUtc) sessionStartRange.$lte = toUtc;
 
     const matchAnd = [];
     if (!isAllTenants) {
@@ -239,11 +219,11 @@ router.get('/users', async (req, res) => {
      * - Month-like range     => daily (1-31)
      * - Longer ranges        => monthly (Jan-Dec)
      *
-     * We infer this by the number of days covered by [fromUtc, toUtcExclusive).
+     * We infer this by the number of days covered by an approximate [fromUtc, toUtc] window.
      */
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
     const effectiveFrom = fromUtc || new Date();
-    const effectiveTo = toUtcExclusive || new Date(effectiveFrom.getTime() + MS_PER_DAY);
+    const effectiveTo = toUtc || new Date(effectiveFrom.getTime() + MS_PER_DAY);
     const rangeMs = Math.max(0, effectiveTo.getTime() - effectiveFrom.getTime());
     const rangeDays = Math.max(1, Math.ceil(rangeMs / MS_PER_DAY));
 
@@ -782,14 +762,11 @@ router.get('/users', async (req, res) => {
     }));
 
     try {
-      res.set('X-Date-Window-Timezone', 'Asia/Kolkata');
-      res.set('X-Date-Window-Applied', appliedDefault ? 'default_today_ist' : 'explicit_ist');
-
-      if (fromIst) res.set('X-Date-Window-From-IST', fromIst.toISOString());
-      if (toIstExclusive) res.set('X-Date-Window-To-IST', toIstExclusive.toISOString());
+      res.set('X-Date-Window-Timezone', 'UTC');
+      res.set('X-Date-Window-Applied', appliedDefault ? 'default_today_utc' : 'explicit_utc');
 
       if (fromUtc) res.set('X-Date-Window-From-UTC', fromUtc.toISOString());
-      if (toUtcExclusive) res.set('X-Date-Window-To-UTC', toUtcExclusive.toISOString());
+      if (toUtc) res.set('X-Date-Window-To-UTC', toUtc.toISOString());
 
       res.set('X-Aggregation-Interval', interval);
       res.set('X-Aggregation-Range-Days', String(rangeDays));
@@ -801,7 +778,7 @@ router.get('/users', async (req, res) => {
       interval,
       mode: activityMode, // 'per_user' | 'aggregated'
       from: fromUtc ? fromUtc.toISOString() : null,
-      to: toUtcExclusive ? toUtcExclusive.toISOString() : null,
+      to: toUtc ? toUtc.toISOString() : null,
 
       // Long ranges (>=30 days): keep existing aggregated buckets.
       activity: activityMode === 'aggregated' ? normalizedBuckets : null,
