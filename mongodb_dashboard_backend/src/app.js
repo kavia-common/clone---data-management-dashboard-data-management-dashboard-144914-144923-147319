@@ -77,7 +77,7 @@ const buildDynamicSpec = (req) => {
     // url: `${protocol}://${fullHost}`,
     servers: [
       {
-        // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+      //  url:'https://vscode-internal-11364-beta.beta01.cloud.kavia.ai',
         url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
         // description: 'Predefined dev server',
         description: 'Predefined beta server',
