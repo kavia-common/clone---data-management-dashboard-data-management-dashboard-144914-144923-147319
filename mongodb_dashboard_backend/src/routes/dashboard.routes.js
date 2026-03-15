@@ -89,6 +89,15 @@ function resolveUtcDayWindowToUtcBounds(fromRaw, toRaw) {
     return { y: Number(m[1]), m0: Number(m[2]) - 1, d: Number(m[3]) };
   };
 
+  const clampInstantToUtcDayBounds = (dt, mode) => {
+    const y = dt.getUTCFullYear();
+    const m0 = dt.getUTCMonth();
+    const d = dt.getUTCDate();
+    return mode === 'from'
+      ? new Date(Date.UTC(y, m0, d, 0, 0, 0, 0))
+      : new Date(Date.UTC(y, m0, d, 23, 59, 59, 999));
+  };
+
   const hasFrom = unwrapInput(fromRaw) !== '';
   const hasTo = unwrapInput(toRaw) !== '';
 
@@ -109,6 +118,7 @@ function resolveUtcDayWindowToUtcBounds(fromRaw, toRaw) {
     const unwrapped = unwrapInput(raw);
     if (!unwrapped) return null;
 
+    // Date-only input: already a UTC calendar day
     const ymd = parseYmd(unwrapped);
     if (ymd) {
       return mode === 'from'
@@ -116,9 +126,17 @@ function resolveUtcDayWindowToUtcBounds(fromRaw, toRaw) {
         : new Date(Date.UTC(ymd.y, ymd.m0, ymd.d, 23, 59, 59, 999));
     }
 
+    // ISO datetime input:
+    // Contract/invariant for this endpoint: we operate on UTC *calendar-day* windows.
+    // Some clients send "local midnight" converted to UTC (e.g. IST midnight => 18:30Z),
+    // which must still map to the intended UTC day bounds.
+    //
+    // Therefore, when a datetime instant is provided, we clamp it to that instant's UTC day:
+    // - from => 00:00:00.000Z of dt's UTC date
+    // - to   => 23:59:59.999Z of dt's UTC date
     const dt = new Date(unwrapped);
     if (Number.isNaN(dt.getTime())) return null;
-    return dt;
+    return clampInstantToUtcDayBounds(dt, mode);
   };
 
   const fromUtc = parseSide(fromRaw, 'from');
