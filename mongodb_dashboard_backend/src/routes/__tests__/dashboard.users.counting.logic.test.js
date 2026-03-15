@@ -115,6 +115,57 @@ describe('dashboard.users counting logic (distinct sessions/projects)', () => {
     );
   });
 
+  test('UTC day-window resolver contract: YYYY-MM-DD expands to full-day bounds, ISO instants are not clamped', () => {
+    // This mirrors the backend contract needed for the bug report:
+    // - If UI sends YYYY-MM-DD => expand to UTC 00:00..23:59:59.999
+    // - If UI sends instants (like 18:30Z) => treat as instants, not as "day selectors"
+    const resolveUtcDayWindowToUtcBounds = (fromRaw, toRaw) => {
+      const unwrapInput = (s) => {
+        if (s === undefined || s === null) return '';
+        const str = String(s).trim();
+        const isoDateWrapped = /^ISODate\((.*)\)$/i.exec(str);
+        return isoDateWrapped && isoDateWrapped[1]
+          ? isoDateWrapped[1].trim().replace(/^['"]|['"]$/g, '')
+          : str;
+      };
+
+      const parseYmd = (s) => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+        if (!m) return null;
+        return { y: Number(m[1]), m0: Number(m[2]) - 1, d: Number(m[3]) };
+      };
+
+      const parseSide = (raw, mode) => {
+        const unwrapped = unwrapInput(raw);
+        if (!unwrapped) return null;
+
+        const ymd = parseYmd(unwrapped);
+        if (ymd) {
+          return mode === 'from'
+            ? new Date(Date.UTC(ymd.y, ymd.m0, ymd.d, 0, 0, 0, 0))
+            : new Date(Date.UTC(ymd.y, ymd.m0, ymd.d, 23, 59, 59, 999));
+        }
+
+        const dt = new Date(unwrapped);
+        if (Number.isNaN(dt.getTime())) return null;
+        return dt;
+      };
+
+      return { fromUtc: parseSide(fromRaw, 'from'), toUtc: parseSide(toRaw, 'to') };
+    };
+
+    const day = resolveUtcDayWindowToUtcBounds('2026-03-15', '2026-03-15');
+    expect(day.fromUtc.toISOString()).toBe('2026-03-15T00:00:00.000Z');
+    expect(day.toUtc.toISOString()).toBe('2026-03-15T23:59:59.999Z');
+
+    const instants = resolveUtcDayWindowToUtcBounds(
+      '2026-03-14T18:30:00.000Z',
+      '2026-03-16T18:30:00.000Z'
+    );
+    expect(instants.fromUtc.toISOString()).toBe('2026-03-14T18:30:00.000Z');
+    expect(instants.toUtc.toISOString()).toBe('2026-03-16T18:30:00.000Z');
+  });
+
   test('activityByUser (per_user mode) counts DISTINCT session_id per bucket (not raw docs)', () => {
     // Two docs for the same logical session within the same hour bucket must count as 1.
     // Another session in another bucket counts as 1 there.

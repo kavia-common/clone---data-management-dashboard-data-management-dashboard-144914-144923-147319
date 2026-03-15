@@ -89,19 +89,10 @@ function resolveUtcDayWindowToUtcBounds(fromRaw, toRaw) {
     return { y: Number(m[1]), m0: Number(m[2]) - 1, d: Number(m[3]) };
   };
 
-  const clampInstantToUtcDayBounds = (dt, mode) => {
-    const y = dt.getUTCFullYear();
-    const m0 = dt.getUTCMonth();
-    const d = dt.getUTCDate();
-    return mode === 'from'
-      ? new Date(Date.UTC(y, m0, d, 0, 0, 0, 0))
-      : new Date(Date.UTC(y, m0, d, 23, 59, 59, 999));
-  };
-
   const hasFrom = unwrapInput(fromRaw) !== '';
   const hasTo = unwrapInput(toRaw) !== '';
 
-  // Default: TODAY in UTC
+  // Default: TODAY in UTC (full day bounds)
   if (!hasFrom && !hasTo) {
     const now = new Date();
     const y = now.getUTCFullYear();
@@ -118,7 +109,7 @@ function resolveUtcDayWindowToUtcBounds(fromRaw, toRaw) {
     const unwrapped = unwrapInput(raw);
     if (!unwrapped) return null;
 
-    // Date-only input: already a UTC calendar day
+    // Date-only input => expand to full UTC day bounds
     const ymd = parseYmd(unwrapped);
     if (ymd) {
       return mode === 'from'
@@ -126,17 +117,15 @@ function resolveUtcDayWindowToUtcBounds(fromRaw, toRaw) {
         : new Date(Date.UTC(ymd.y, ymd.m0, ymd.d, 23, 59, 59, 999));
     }
 
-    // ISO datetime input:
-    // Contract/invariant for this endpoint: we operate on UTC *calendar-day* windows.
-    // Some clients send "local midnight" converted to UTC (e.g. IST midnight => 18:30Z),
-    // which must still map to the intended UTC day bounds.
-    //
-    // Therefore, when a datetime instant is provided, we clamp it to that instant's UTC day:
-    // - from => 00:00:00.000Z of dt's UTC date
-    // - to   => 23:59:59.999Z of dt's UTC date
+    // ISO datetime input => treat as an instant (DO NOT clamp to day bounds).
+    // This is critical: some clients send "local midnight" converted to UTC (e.g. IST midnight
+    // is 18:30Z). Clamping such instants expands the range to *multiple* UTC days and inflates
+    // session counts. The contract for this endpoint is:
+    //   - YYYY-MM-DD means "that entire UTC day"
+    //   - ISO timestamps mean "exact instants"
     const dt = new Date(unwrapped);
     if (Number.isNaN(dt.getTime())) return null;
-    return clampInstantToUtcDayBounds(dt, mode);
+    return dt;
   };
 
   const fromUtc = parseSide(fromRaw, 'from');
