@@ -394,24 +394,56 @@ router.get('/users', async (req, res) => {
         $addFields: {
           userId: { $toString: '$user_id' },
           sessionStart: '$session_start',
+
+          // Normalize session identity:
+          // - Prefer logical session_id when present (dedupe across heartbeats/status changes).
+          // - Fallback to Mongo _id so a missing session_id still counts as one unit.
+          canonicalSessionId: {
+            $cond: [
+              { $or: [{ $eq: ['$session_id', null] }, { $eq: ['$session_id', ''] }] },
+              { $toString: '$_id' },
+              { $toString: '$session_id' },
+            ],
+          },
         },
       },
-      { $match: { userId: { $ne: null, $ne: '' }, sessionStart: { $ne: null } } },
+      {
+        $match: {
+          userId: { $ne: null, $ne: '' },
+          sessionStart: { $ne: null },
+          canonicalSessionId: { $ne: null, $ne: '' },
+        },
+      },
       {
         $addFields: {
           session_start: '$sessionStart',
           ...bucketProject,
         },
       },
-      // 1) Count sessions per (userId, bucketKey)
+
+      // 1) Dedupe session_tracking docs into distinct sessions per (userId, bucketKey).
       {
         $group: {
           _id: { userId: '$userId', bucketKey: '$bucketKey' },
           label: { $first: '$bucketLabel' },
           sort: { $max: '$bucketSort' },
-          sessions: { $sum: 1 },
+          sessionIds: { $addToSet: '$canonicalSessionId' },
         },
       },
+      {
+        $addFields: {
+          sessions: {
+            $size: {
+              $filter: {
+                input: '$sessionIds',
+                as: 's',
+                cond: { $and: [{ $ne: ['$$s', null] }, { $ne: ['$$s', ''] }] },
+              },
+            },
+          },
+        },
+      },
+
       // 2) Remap bucketKey to frontend-stable key (00-23, 1-31, 1-12)
       {
         $addFields: {
@@ -438,6 +470,7 @@ router.get('/users', async (req, res) => {
           userId: '$_id.userId',
         },
       },
+
       // 3) Join user metadata for display name
       {
         $lookup: {
@@ -508,6 +541,7 @@ router.get('/users', async (req, res) => {
           userEmail: { $ifNull: ['$userDoc.email', null] },
         },
       },
+
       // 4) Reshape into per-user rows with a sessionsByKey object and a buckets list
       {
         $group: {

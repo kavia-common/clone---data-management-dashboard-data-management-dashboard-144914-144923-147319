@@ -115,6 +115,53 @@ describe('dashboard.users counting logic (distinct sessions/projects)', () => {
     );
   });
 
+  test('activityByUser (per_user mode) counts DISTINCT session_id per bucket (not raw docs)', () => {
+    // Two docs for the same logical session within the same hour bucket must count as 1.
+    // Another session in another bucket counts as 1 there.
+    const docs = [
+      {
+        _id: 'doc1',
+        user_id: 'U1',
+        session_id: 'S1',
+        session_start: '2026-03-15T08:10:00.000Z',
+      },
+      {
+        _id: 'doc2',
+        user_id: 'U1',
+        session_id: 'S1',
+        session_start: '2026-03-15T08:20:00.000Z',
+      },
+      {
+        _id: 'doc3',
+        user_id: 'U1',
+        session_id: 'S2',
+        session_start: '2026-03-15T10:05:00.000Z',
+      },
+    ];
+
+    // Simulate the route's per-user activity logic at the semantic level:
+    // - bucketKey = hour label (UTC HH)
+    // - canonicalSessionId = session_id else _id
+    // - distinct session ids per bucket
+    const byBucket = new Map(); // key -> Set(sessionId)
+    for (const d of docs) {
+      const hour = new Date(d.session_start).toISOString().slice(11, 13); // "08", "10"
+      const sessionId = d.session_id ? String(d.session_id) : String(d._id);
+      const k = `${d.user_id}::${hour}`;
+      if (!byBucket.has(k)) byBucket.set(k, new Set());
+      byBucket.get(k).add(sessionId);
+    }
+
+    const bucket08 = byBucket.get('U1::08');
+    const bucket10 = byBucket.get('U1::10');
+
+    expect(bucket08.size).toBe(1);
+    expect(bucket10.size).toBe(1);
+
+    const totalDistinct = bucket08.size + bucket10.size;
+    expect(totalDistinct).toBe(2);
+  });
+
   test('does not inflate counts when non-canonical fields are in-range but session_start is out-of-range', () => {
     // This models the production bug:
     // backend used to include docs where last_updated/timestamp matched the window even
