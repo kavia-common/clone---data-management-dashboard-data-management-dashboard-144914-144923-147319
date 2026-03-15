@@ -106,15 +106,6 @@ router.get('/users', async (req, res) => {
     if (from) timeRange.$gte = from;
     if (to) timeRange.$lte = to;
 
-    // Include a session if ANY of these fields is within the window.
-    const timeOr = Object.keys(timeRange).length
-      ? [
-          { last_updated: timeRange },
-          { session_start: timeRange },
-          { timestamp: timeRange },
-        ]
-      : [];
-
     const matchAnd = [];
     if (!isAllTenants) {
       matchAnd.push({
@@ -128,8 +119,17 @@ router.get('/users', async (req, res) => {
         ],
       });
     }
-    if (timeOr.length) {
-      matchAnd.push({ $or: timeOr });
+
+    // IMPORTANT INVARIANT:
+    // The dashboard users "Sessions" metric must match the canonical Mongo query:
+    //   { session_start: { $gte: <from>, $lte: <to> } }
+    // for the selected tenant.
+    //
+    // Do NOT broaden the match using OR across last_updated/timestamp, because that can
+    // include documents whose session_start falls outside the requested day and inflate
+    // distinct session_id counts (even with dedupe).
+    if (Object.keys(timeRange).length) {
+      matchAnd.push({ session_start: timeRange });
     }
 
     const matchStage = matchAnd.length ? { $match: { $and: matchAnd } } : { $match: {} };

@@ -115,6 +115,70 @@ describe('dashboard.users counting logic (distinct sessions/projects)', () => {
     );
   });
 
+  test('does not inflate counts when non-canonical fields are in-range but session_start is out-of-range', () => {
+    // This models the production bug:
+    // backend used to include docs where last_updated/timestamp matched the window even
+    // if session_start did not, inflating distinct session_id counts.
+    const docs = [
+      // In-window by session_start => should count
+      {
+        _id: 'doc1',
+        user_id: 'U1',
+        session_id: 'S1',
+        project_id: 'P1',
+        session_start: '2026-03-15T10:00:00.000Z',
+        last_updated: '2026-03-15T10:10:00.000Z',
+      },
+      {
+        _id: 'doc2',
+        user_id: 'U1',
+        session_id: 'S2',
+        project_id: 'P1',
+        session_start: '2026-03-15T12:00:00.000Z',
+        last_updated: '2026-03-15T12:05:00.000Z',
+      },
+      // Out-of-window by session_start, but in-window by last_updated => MUST NOT be counted
+      {
+        _id: 'doc3',
+        user_id: 'U1',
+        session_id: 'S3',
+        project_id: 'P2',
+        session_start: '2026-03-14T23:00:00.000Z',
+        last_updated: '2026-03-15T01:00:00.000Z',
+      },
+      // Out-of-window by session_start, but in-window by timestamp => MUST NOT be counted
+      {
+        _id: 'doc4',
+        user_id: 'U1',
+        session_id: 'S4',
+        project_id: 'P3',
+        session_start: '2026-03-16T00:10:00.000Z',
+        timestamp: '2026-03-15T23:00:00.000Z',
+      },
+    ];
+
+    const from = new Date('2026-03-15T00:00:00.000Z');
+    const to = new Date('2026-03-15T23:59:59.999Z');
+
+    // Simulate the route's canonical filtering: session_start between from/to (inclusive)
+    const filtered = docs.filter((d) => {
+      if (!d.session_start) return false;
+      const t = new Date(d.session_start).getTime();
+      return t >= from.getTime() && t <= to.getTime();
+    });
+
+    const out = computeMetricsFromDocs(filtered);
+    const u1 = out.find((x) => x.userId === 'U1');
+
+    expect(u1).toEqual(
+      expect.objectContaining({
+        userId: 'U1',
+        totalSessions: 2, // S1 and S2 only
+        distinctProjects: 1, // P1 only
+      })
+    );
+  });
+
   test('matches the provided sample payload shape expectations (single activity)', () => {
     const docs = [
       {
