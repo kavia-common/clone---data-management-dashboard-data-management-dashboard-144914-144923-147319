@@ -127,22 +127,55 @@ router.get('/users', async (req, res) => {
       ]
     };
 
+    // IMPORTANT INVARIANT:
+    // Session counts must match Mongo validation semantics:
+    //  1) $match by tenant_id (aliases accepted) AND session_start within UTC day window
+    //  2) count DISTINCT session_id values
+    // Safe handling for missing session_id: treat each doc as its own logical session by
+    // falling back to the document _id (so we do not collapse multiple nulls into 1).
     const pipeline = [
-
       { $match: matchFilter },
 
       {
         $project: {
           userId: { $toString: '$user_id' },
-          sessionStart: '$session_start'
+          sessionStart: '$session_start',
+
+          // Canonical "logical session" identifier for distinct counting:
+          // - use session_id when present and non-empty
+          // - otherwise fallback to _id so each record still counts as one session
+          sessionId: {
+            $cond: [
+              { $or: [{ $eq: ['$session_id', null] }, { $eq: ['$session_id', ''] }] },
+              { $toString: '$_id' },
+              { $toString: '$session_id' }
+            ]
+          }
         }
       },
+
+      // Defensive: skip rows with missing/empty user_id after string coercion.
+      { $match: { userId: { $ne: null, $ne: '' } } },
 
       {
         $group: {
           _id: '$userId',
-          totalSessions: { $sum: 1 },
+          sessionIds: { $addToSet: '$sessionId' },
           lastActivityAt: { $max: '$sessionStart' }
+        }
+      },
+
+      {
+        $addFields: {
+          totalSessions: {
+            $size: {
+              $filter: {
+                input: '$sessionIds',
+                as: 's',
+                cond: { $and: [{ $ne: ['$$s', null] }, { $ne: ['$$s', ''] }] }
+              }
+            }
+          }
         }
       },
 
@@ -156,7 +189,6 @@ router.get('/users', async (req, res) => {
       },
 
       { $sort: { lastActivityAt: -1 } }
-
     ];
 
     const users = await db
