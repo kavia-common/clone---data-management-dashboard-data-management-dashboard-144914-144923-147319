@@ -140,6 +140,26 @@ router.get('/users', async (req, res) => {
         $project: {
           userId: { $toString: '$user_id' },
 
+          /**
+           * Tenant identifiers
+           * - session_tracking may contain multiple tenant field variants.
+           * - We carry BOTH tenant_id and organization_id through the pipeline so the UI can display
+           *   what is available and debug cross-tenant results (e.g., super-admin T0000 mode).
+           * - We intentionally do not force one to equal the other; we preserve source truth.
+           */
+          tenant_id: {
+            $ifNull: [
+              '$tenant_id',
+              { $ifNull: ['$tenantId', { $ifNull: ['$tenant.tenant_id', null] }] },
+            ],
+          },
+          organization_id: {
+            $ifNull: [
+              '$organization_id',
+              { $ifNull: ['$organizationId', { $ifNull: ['$orgId', null] }] },
+            ],
+          },
+
           // Prefer counting distinct logical sessions via session_id when available.
           // Fallback: use the Mongo _id so each doc counts as one "session-like" unit
           // rather than blowing up with duplicates created by $addToSet(null) etc.
@@ -169,6 +189,11 @@ router.get('/users', async (req, res) => {
           sessionIds: { $addToSet: '$sessionId' },
           lastActivityAt: { $max: '$activityAt' },
           projectsSet: { $addToSet: '$projectId' },
+
+          // Carry tenant identifiers to the output. We store distinct values because
+          // data can be messy in session_tracking (especially in multi-tenant/global views).
+          tenantIdsSet: { $addToSet: '$tenant_id' },
+          organizationIdsSet: { $addToSet: '$organization_id' },
         },
       },
       {
@@ -179,6 +204,44 @@ router.get('/users', async (req, res) => {
                 input: '$sessionIds',
                 as: 's',
                 cond: { $and: [{ $ne: ['$$s', null] }, { $ne: ['$$s', ''] }] },
+              },
+            },
+          },
+
+          /**
+           * Select a representative tenant_id / organization_id for this user from observed sessions.
+           * Invariant: if a non-empty identifier exists in the set, pick the first after filtering.
+           * If none exist, return null.
+           */
+          tenant_id: {
+            $let: {
+              vars: {
+                filtered: {
+                  $filter: {
+                    input: '$tenantIdsSet',
+                    as: 't',
+                    cond: { $and: [{ $ne: ['$$t', null] }, { $ne: ['$$t', ''] }] },
+                  },
+                },
+              },
+              in: {
+                $cond: [{ $gt: [{ $size: '$$filtered' }, 0] }, { $arrayElemAt: ['$$filtered', 0] }, null],
+              },
+            },
+          },
+          organization_id: {
+            $let: {
+              vars: {
+                filtered: {
+                  $filter: {
+                    input: '$organizationIdsSet',
+                    as: 'o',
+                    cond: { $and: [{ $ne: ['$$o', null] }, { $ne: ['$$o', ''] }] },
+                  },
+                },
+              },
+              in: {
+                $cond: [{ $gt: [{ $size: '$$filtered' }, 0] }, { $arrayElemAt: ['$$filtered', 0] }, null],
               },
             },
           },
@@ -265,6 +328,8 @@ router.get('/users', async (req, res) => {
         $project: {
           _id: 0,
           userId: '$_id',
+          tenant_id: 1,
+          organization_id: 1,
           name: 1,
           email: 1,
           totalSessions: 1,
@@ -283,6 +348,8 @@ router.get('/users', async (req, res) => {
       totalSessions: Number(r?.totalSessions || 0),
       distinctProjects: Number(r?.distinctProjects || 0),
       userId: String(r?.userId || ''),
+      tenant_id: r?.tenant_id != null ? String(r.tenant_id) : '',
+      organization_id: r?.organization_id != null ? String(r.organization_id) : '',
       name: r?.name ? String(r.name) : '',
       email: r?.email ? String(r.email) : '',
     }));
