@@ -121,29 +121,23 @@ function resolveUtcWindow(fromRaw, toRaw) {
  * PUBLIC_INTERFACE
  * GET /api/dashboard/users
  *
- * Returns fully aggregated per-user analytics for the requested date window.
- * The backend is the sole source of analytics data: it filters, groups, counts,
- * joins user metadata, and sorts by activity (lastActivityAt desc).
+ * Returns aggregated dashboard activity for the requested tenant and date window.
+ *
+ * Date window contract (important for correctness + debuggability):
+ * - Filtering:
+ *   - We parse `from`/`to` into UTC instants (JavaScript Date objects) and use those exact instants
+ *     in MongoDB filtering. There is no IST (Asia/Kolkata) conversion.
+ *   - If `from` and `to` are both omitted, we apply a default "today UTC" window for filtering.
+ * - Response echo:
+ *   - We echo back the *exact* `from`/`to` strings as passed by the caller (after only unwrapping
+ *     ISODate("...") if present). We do NOT replace them with server-derived ISO strings.
  *
  * Query params:
  *  - from?: ISO date-time OR YYYY-MM-DD
  *  - to?:   ISO date-time OR YYYY-MM-DD
  *
- * Notes on date handling:
- *  - If YYYY-MM-DD is provided (Quick Range/custom date inputs), the backend interprets the
- *    values as IST (Asia/Kolkata) calendar days and converts them to UTC bounds for matching
- *    against session_start:
- *      from => YYYY-MM-DD 00:00:00.000 IST (converted to UTC)
- *      to   => (YYYY-MM-DD + 1 day) 00:00:00.000 IST (converted to UTC, exclusive)
- *  - If ISO timestamps are provided, the backend extracts the IST calendar day and applies
- *    the same IST-day semantics.
- *
- * Default behavior:
- *  - If both from and to are omitted, defaults to TODAY in UTC:
- *    00:00:00.000Z -> 23:59:59.999Z
- *
  * Response:
- *  - 200: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt, projects?: [...] }>
+ *  - 200: { success, interval, mode, from, to, activity|activityByUser, users }
  */
 router.get('/users', async (req, res) => {
   try {
@@ -159,10 +153,29 @@ router.get('/users', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing tenant scope' });
     }
 
-    const { fromUtc, toUtc, appliedDefault } = resolveUtcWindow(req.query?.from, req.query?.to);
+    // Echo back EXACT input values (no timezone shifting, no default override).
+    const rawFrom = (req.query?.from === undefined || req.query?.from === null) ? null : String(req.query.from);
+    const rawTo = (req.query?.to === undefined || req.query?.to === null) ? null : String(req.query.to);
+
+    // Unwrap ISODate("...") -> "..." for both echo + parsing, but otherwise keep exact strings.
+    const unwrapIsoDate = (s) => {
+      if (s == null) return null;
+      const str = String(s).trim();
+      if (!str) return '';
+      const m = /^ISODate\((.*)\)$/i.exec(str);
+      if (m && m[1]) {
+        return m[1].trim().replace(/^['"]|['"]$/g, '');
+      }
+      return str;
+    };
+
+    const echoFrom = rawFrom == null ? null : unwrapIsoDate(rawFrom);
+    const echoTo = rawTo == null ? null : unwrapIsoDate(rawTo);
+
+    const { fromUtc, toUtc, appliedDefault } = resolveUtcWindow(echoFrom, echoTo);
 
     // If caller provided an invalid date string, fail fast with 400
-    if ((req.query?.from && !fromUtc) || (req.query?.to && !toUtc)) {
+    if ((echoFrom && !fromUtc) || (echoTo && !toUtc)) {
       return res.status(400).json({ success: false, message: 'Invalid from/to date value(s)' });
     }
 
@@ -693,6 +706,7 @@ router.get('/users', async (req, res) => {
       res.set('X-Date-Window-Timezone', 'UTC');
       res.set('X-Date-Window-Applied', appliedDefault ? 'default_today_utc' : 'explicit');
 
+      // Headers reflect effective filter instants (for debugging).
       if (fromUtc) res.set('X-Date-Window-From', fromUtc.toISOString());
       if (toUtc) res.set('X-Date-Window-To', toUtc.toISOString());
 
@@ -705,8 +719,10 @@ router.get('/users', async (req, res) => {
       success: true,
       interval,
       mode: activityMode, // 'per_user' | 'aggregated'
-      from: fromUtc ? fromUtc.toISOString() : null,
-      to: toUtc ? toUtc.toISOString() : null,
+
+      // IMPORTANT: echo exact input values (post ISODate(...) unwrap), not server-derived instants.
+      from: echoFrom,
+      to: echoTo,
 
       // Long ranges (>=30 days): keep existing aggregated buckets.
       activity: activityMode === 'aggregated' ? normalizedBuckets : null,

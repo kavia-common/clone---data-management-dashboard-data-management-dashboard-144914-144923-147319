@@ -33,4 +33,31 @@ describe('GET /api/dashboard/users auth gate', () => {
     // Downstream may return 503 if DB is disconnected; this test is only about auth gating.
     expect(res.status).not.toBe(401);
   });
+
+  test('echoes from/to exactly as passed (no timezone shifting or server override)', async () => {
+    const from = '2026-03-15T00:00:00.000Z';
+    const to = '2026-03-16T00:00:00.000Z';
+
+    const res = await request(app)
+      .get(`/api/dashboard/users?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .set('Authorization', 'Bearer ok')
+      .set('x-organization-id', 'DEMO');
+
+    // In test env without DB, we typically get 503 after parsing parameters.
+    // We assert the contract only when we do receive a 200 response (e.g. when DB is available).
+    if (res.status === 200) {
+      expect(res.body).toEqual(
+        expect.objectContaining({
+          success: true,
+          from,
+          to,
+        })
+      );
+    } else {
+      // If DB is not connected, ensure we did not fail due to date parsing (400) and that auth passed.
+      expect([503, 500]).toContain(res.status);
+      expect(res.status).not.toBe(400);
+      expect(res.status).not.toBe(401);
+    }
+  });
 });
