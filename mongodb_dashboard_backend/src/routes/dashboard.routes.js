@@ -11,75 +11,79 @@ const router = express.Router();
 router.use(attachAuthContext(), requireTenant);
 
 /**
- * Resolve date range strictly as UTC calendar days.
+ * Resolve date range for dashboard analytics.
  *
- * INPUT
- *  from=YYYY-MM-DD
- *  to=YYYY-MM-DD
- *
- * OUTPUT
- *  session_start: {
- *     $gte: ISODate("YYYY-MM-DDT00:00:00.000Z"),
- *     $lte: ISODate("YYYY-MM-DDT23:59:59.999Z")
- *  }
+ * IMPORTANT INVARIANT (matches Mongo validation semantics):
+ * - The date filter for /api/dashboard/users MUST be applied ONLY on session_start.
+ * - When the client sends a day selector (YYYY-MM-DD), it MUST expand to strict UTC day bounds:
+ *     fromUtc = 00:00:00.000Z
+ *     toUtc   = 23:59:59.999Z
+ * - When the client sends an ISO instant (date-time), it MUST be treated as an instant (no clamping).
+ * - Invalid provided date inputs must fail fast (400) so we never accidentally widen the query.
  */
-
 function resolveUtcDayWindowToUtcBounds(fromRaw, toRaw) {
+  const unwrapInput = (s) => {
+    if (s === undefined || s === null) return '';
+    const str = String(s).trim();
 
-  const parseYmd = (s) => {
-    if (!s) return null;
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s).trim());
-    if (!m) return null;
-
-    return {
-      y: Number(m[1]),
-      m0: Number(m[2]) - 1,
-      d: Number(m[3])
-    };
+    // Accept ISODate("...") wrapper (some clients/logs use Mongo-shell style)
+    const isoDateWrapped = /^ISODate\((.*)\)$/i.exec(str);
+    return isoDateWrapped && isoDateWrapped[1]
+      ? isoDateWrapped[1].trim().replace(/^['"]|['"]$/g, '')
+      : str;
   };
 
-  const fromYmd = parseYmd(fromRaw);
-  const toYmd = parseYmd(toRaw);
+  const parseYmd = (s) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!m) return null;
+    return { y: Number(m[1]), m0: Number(m[2]) - 1, d: Number(m[3]) };
+  };
 
-  // Default = today UTC
-  if (!fromYmd && !toYmd) {
+  const parseSide = (raw, mode) => {
+    const unwrapped = unwrapInput(raw);
+    if (!unwrapped) return null;
 
+    const ymd = parseYmd(unwrapped);
+    if (ymd) {
+      return mode === 'from'
+        ? new Date(Date.UTC(ymd.y, ymd.m0, ymd.d, 0, 0, 0, 0))
+        : new Date(Date.UTC(ymd.y, ymd.m0, ymd.d, 23, 59, 59, 999));
+    }
+
+    const dt = new Date(unwrapped);
+    if (Number.isNaN(dt.getTime())) return null;
+    return dt;
+  };
+
+  const hasFrom = fromRaw !== undefined && fromRaw !== null && String(fromRaw).trim() !== '';
+  const hasTo = toRaw !== undefined && toRaw !== null && String(toRaw).trim() !== '';
+
+  // Default = today UTC (only when both omitted)
+  if (!hasFrom && !hasTo) {
     const now = new Date();
     const y = now.getUTCFullYear();
     const m0 = now.getUTCMonth();
     const d = now.getUTCDate();
-
     return {
       fromUtc: new Date(Date.UTC(y, m0, d, 0, 0, 0, 0)),
       toUtc: new Date(Date.UTC(y, m0, d, 23, 59, 59, 999)),
-      appliedDefault: true
+      appliedDefault: true,
     };
   }
 
-  const fromUtc = fromYmd
-    ? new Date(Date.UTC(fromYmd.y, fromYmd.m0, fromYmd.d, 0, 0, 0, 0))
-    : null;
-
-  const toUtc = toYmd
-    ? new Date(Date.UTC(toYmd.y, toYmd.m0, toYmd.d, 23, 59, 59, 999))
-    : null;
-
   return {
-    fromUtc,
-    toUtc,
-    appliedDefault: false
+    fromUtc: parseSide(fromRaw, 'from'),
+    toUtc: parseSide(toRaw, 'to'),
+    appliedDefault: false,
   };
 }
-
 
 /**
  * PUBLIC_INTERFACE
  * GET /api/dashboard/users
  */
 router.get('/users', async (req, res) => {
-
   try {
-
     const tenantHdr = (req.headers?.['x-organization-id'] || '').toString();
     const tenantQuery = (req.query?.organization_id || req.query?.tenant_id || '').toString();
     const authTenant = (req.auth?.tenantId || req.tenantId || '').toString();
@@ -89,23 +93,31 @@ router.get('/users', async (req, res) => {
     if (!requestedTenant) {
       return res.status(400).json({
         success: false,
-        message: 'Missing tenant scope'
+        message: 'Missing tenant scope',
       });
     }
 
-    const { fromUtc, toUtc } =
-      resolveUtcDayWindowToUtcBounds(req.query?.from, req.query?.to);
+    const { fromUtc, toUtc } = resolveUtcDayWindowToUtcBounds(req.query?.from, req.query?.to);
+
+    // If caller provided from/to but parsing failed, do not silently widen the query.
+    if ((req.query?.from && !fromUtc) || (req.query?.to && !toUtc)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid from/to date value(s)',
+      });
+    }
 
     const db = getDb ? await getDb() : mongoose.connection.db;
 
     if (!db) {
       return res.status(503).json({
         success: false,
-        message: 'Database not connected'
+        message: 'Database not connected',
       });
     }
 
-    // Build Mongo filter EXACTLY as requested format
+    // Build Mongo filter EXACTLY as requested format:
+    // tenant + session_start bounds (UTC)
     const matchFilter = {
       $and: [
         {
@@ -115,21 +127,21 @@ router.get('/users', async (req, res) => {
             { organizationId: requestedTenant },
             { tenantId: requestedTenant },
             { orgId: requestedTenant },
-            { 'tenant.tenant_id': requestedTenant }
-          ]
+            { 'tenant.tenant_id': requestedTenant },
+          ],
         },
         {
           session_start: {
             ...(fromUtc && { $gte: fromUtc }),
-            ...(toUtc && { $lte: toUtc })
-          }
-        }
-      ]
+            ...(toUtc && { $lte: toUtc }),
+          },
+        },
+      ],
     };
 
     // IMPORTANT INVARIANT:
     // Session counts must match Mongo validation semantics:
-    //  1) $match by tenant_id (aliases accepted) AND session_start within UTC day window
+    //  1) $match by tenant AND session_start within UTC window
     //  2) count DISTINCT session_id values
     // Safe handling for missing session_id: treat each doc as its own logical session by
     // falling back to the document _id (so we do not collapse multiple nulls into 1).
@@ -148,10 +160,10 @@ router.get('/users', async (req, res) => {
             $cond: [
               { $or: [{ $eq: ['$session_id', null] }, { $eq: ['$session_id', ''] }] },
               { $toString: '$_id' },
-              { $toString: '$session_id' }
-            ]
-          }
-        }
+              { $toString: '$session_id' },
+            ],
+          },
+        },
       },
 
       // Defensive: skip rows with missing/empty user_id after string coercion.
@@ -161,8 +173,8 @@ router.get('/users', async (req, res) => {
         $group: {
           _id: '$userId',
           sessionIds: { $addToSet: '$sessionId' },
-          lastActivityAt: { $max: '$sessionStart' }
-        }
+          lastActivityAt: { $max: '$sessionStart' },
+        },
       },
 
       {
@@ -172,11 +184,11 @@ router.get('/users', async (req, res) => {
               $filter: {
                 input: '$sessionIds',
                 as: 's',
-                cond: { $and: [{ $ne: ['$$s', null] }, { $ne: ['$$s', ''] }] }
-              }
-            }
-          }
-        }
+                cond: { $and: [{ $ne: ['$$s', null] }, { $ne: ['$$s', ''] }] },
+              },
+            },
+          },
+        },
       },
 
       {
@@ -184,11 +196,11 @@ router.get('/users', async (req, res) => {
           _id: 0,
           userId: '$_id',
           totalSessions: 1,
-          lastActivityAt: 1
-        }
+          lastActivityAt: 1,
+        },
       },
 
-      { $sort: { lastActivityAt: -1 } }
+      { $sort: { lastActivityAt: -1 } },
     ];
 
     const users = await db
@@ -205,20 +217,16 @@ router.get('/users', async (req, res) => {
       success: true,
       from: fromUtc ? fromUtc.toISOString() : null,
       to: toUtc ? toUtc.toISOString() : null,
-      users
+      users,
     });
-
   } catch (err) {
-
     console.error('[dashboard.users] error:', err);
 
     return res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'Internal server error',
     });
-
   }
-
 });
 
 module.exports = router;
