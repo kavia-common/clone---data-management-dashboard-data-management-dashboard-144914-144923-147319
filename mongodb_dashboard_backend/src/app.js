@@ -126,20 +126,33 @@ try {
   console.log('[routes] Health endpoints registered at: /health, /api/health, /healthz, /ready, /live');
 } catch {}
 
-// ---------------------------------------------
-// Root path handler (landing)
-// ---------------------------------------------
-// PUBLIC_INTERFACE
-// Minimal root path handler that returns a simple JSON landing without interfering
-// with API routes or any static asset serving (none configured here).
+/**
+ * PUBLIC_INTERFACE
+ * Root path handler for the backend service.
+ *
+ * Contract:
+ * - If the caller looks like a browser navigation (Accept includes text/html), redirect to Swagger UI.
+ * - Otherwise, return a small JSON landing payload for API/non-browser clients.
+ *
+ * This ensures that preview systems (or users) opening the backend at its base URL
+ * are taken to API docs by default, without breaking programmatic callers.
+ */
 app.get('/', (req, res) => {
   res.set('Cache-Control', 'no-store');
+
+  const accept = String(req.headers.accept || '').toLowerCase();
+  const looksLikeBrowserNav = accept.includes('text/html');
+
+  if (looksLikeBrowserNav) {
+    return res.redirect(302, '/api-docs');
+  }
+
   return res.status(200).json({
     success: true,
     message: 'Dashboard API backend. Visit /api-docs for Swagger UI or /api/health for health.',
     docs: '/api-docs',
     health: '/api/health',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
