@@ -14,6 +14,8 @@ const ENABLE_ETAG = String(process.env.ENABLE_ETAG || 'true').toLowerCase() === 
 const CACHE_TTL_SECONDS = Number(process.env.CACHE_TTL_SECONDS || 60);
 const DEFAULT_CACHE_TTL_MS = Math.max(5, CACHE_TTL_SECONDS) * 1000;
 
+const { normalizeWhitespace } = require('../utils/string');
+
 // Helpers
 function roundToMinuteISO(value) {
   if (!value || typeof value !== 'string') return null;
@@ -21,6 +23,28 @@ function roundToMinuteISO(value) {
   if (Number.isNaN(d.getTime())) return null;
   d.setUTCSeconds(0, 0);
   return d.toISOString();
+}
+
+/**
+ * Build a safe case-insensitive RegExp for user-supplied text.
+ *
+ * Key behavior:
+ * - Escapes regex metacharacters to avoid accidental regex injection.
+ * - Normalizes all runs of whitespace in the user query into `\s+` so that
+ *   "Aditi S" matches "Aditi  S" and "Aditi\tS" in stored data.
+ *
+ * This is intentionally a small, reusable helper to keep search behavior
+ * consistent across `user_name` and the broader `q` search.
+ */
+function buildLooseTextRegex(input) {
+  if (typeof input !== 'string') return null;
+  const normalized = normalizeWhitespace(input);
+  if (!normalized) return null;
+
+  // Escape regex meta chars, then replace spaces with \s+ matcher.
+  const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const withLooseWhitespace = escaped.replace(/\s+/g, '\\s+');
+  return new RegExp(withLooseWhitespace, 'i');
 }
 
 const routeCache = new Map();
@@ -195,12 +219,15 @@ router.get(
        *
        * Contract:
        * - Input: query param `user_name` (string)
-       * - Behavior: case-insensitive regex match (substring) on user_name or User_name
+       * - Behavior: safe, case-insensitive match with loose whitespace:
+       *   "Aditi S" matches "Aditi  S" and "Aditi\tS"
        */
-      const regex = new RegExp(userName, 'i');
-      searchFilter = { $or: [{ user_name: regex }, { User_name: regex }] };
+      const regex = buildLooseTextRegex(userName);
+      if (regex) {
+        searchFilter = { $or: [{ user_name: regex }, { User_name: regex }] };
+      }
     } else if (q) {
-      const regex = new RegExp(q, 'i');
+      const regex = buildLooseTextRegex(q) || new RegExp(String(q).trim(), 'i');
       const looksLikeId = !/\s/.test(q); // single token
       const orParts = [
         { task_id: regex },

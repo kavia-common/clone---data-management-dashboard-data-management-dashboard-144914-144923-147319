@@ -146,14 +146,19 @@ describe('SessionTracking list filtering (date range, user)', () => {
     expect(itemsB[0].user_id).toBe('u2');
   });
 
-  test('filters by user_name (case-insensitive) and supports User_name variant', async () => {
+  test('filters by user_name (case-insensitive), supports User_name variant, and matches loose whitespace', async () => {
     const t = new Date();
     await SessionTracking.insertMany([
       { tenant_id: tenant, user_id: 'u1', user_name: 'Alice', status: 'completed', last_updated: t, session_start: t },
       { tenant_id: tenant, user_id: 'u2', User_name: 'Bob Builder', status: 'completed', last_updated: t, session_start: t },
       { tenant_id: tenant, user_id: 'u3', user_name: 'Carol', status: 'completed', last_updated: t, session_start: t },
+
+      // Realistic whitespace variance
+      { tenant_id: tenant, user_id: 'u4', user_name: 'Aditi  S', status: 'completed', last_updated: t, session_start: t },
+
       // cross-tenant noise
       { tenant_id: 'other', user_id: 'u9', user_name: 'Alice', status: 'completed', last_updated: t, session_start: t },
+      { tenant_id: 'other', user_id: 'u10', user_name: 'Aditi S', status: 'completed', last_updated: t, session_start: t },
     ]);
 
     const res = await request(app)
@@ -174,5 +179,15 @@ describe('SessionTracking list filtering (date range, user)', () => {
     expect(res2.status).toBe(200);
     const items2 = Array.isArray(res2.body) ? res2.body : res2.body.data;
     expect(items2.map((x) => x.user_id)).toEqual(['u2']);
+
+    // The key regression check: "Aditi S" should match stored "Aditi  S"
+    const res3 = await request(app)
+      .get('/api/session-tracking')
+      .query({ user_name: 'Aditi S', page: 1, limit: 50 })
+      .set(authHeaders(tenant));
+
+    expect(res3.status).toBe(200);
+    const items3 = Array.isArray(res3.body) ? res3.body : res3.body.data;
+    expect(items3.map((x) => x.user_id)).toEqual(['u4']); // tenant-scoped and whitespace-tolerant
   });
 });
