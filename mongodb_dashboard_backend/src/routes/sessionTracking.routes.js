@@ -4,6 +4,7 @@ const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
+const { escapeRegex } = require('../utils/regex');
 
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
@@ -186,7 +187,12 @@ router.get(
       // Exact equality on user_id
       searchFilter = { user_id: userId };
     } else if (q) {
-      const regex = new RegExp(q, 'i');
+      // IMPORTANT: Treat q as literal text search, not a regex pattern.
+      // This prevents invalid RegExp errors (e.g., q="["), and avoids surprising
+      // regex semantics. Makes search reliable when combined with tenant scoping.
+      const safePattern = escapeRegex(q);
+      const regex = new RegExp(safePattern, 'i');
+
       const looksLikeId = !/\s/.test(q); // single token
       const orParts = [
         { task_id: regex },
@@ -204,6 +210,7 @@ router.get(
         { 'session_data.llm_model': regex },
       ];
       if (looksLikeId) {
+        // Preserve exact match option for user_id when q is a token.
         orParts.unshift({ user_id: q });
       }
       searchFilter = { $or: orParts };

@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const SessionTracking = require('../models/sessionTracking.model');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
+const { escapeRegex } = require('../utils/regex');
 /**
  * NOTE:
  * sessions.aggregates.service was removed. Provide local safe stubs that either
@@ -229,7 +230,9 @@ function buildQueryState(req, enforcedTenant, bypass) {
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   let qFilter = {};
   if (q) {
-    const regex = new RegExp(q, 'i');
+    // IMPORTANT: Treat q as literal text search, not a regex pattern.
+    const safePattern = escapeRegex(q);
+    const regex = new RegExp(safePattern, 'i');
     qFilter = {
       $or: [
         { task_id: regex },
