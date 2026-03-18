@@ -30,6 +30,7 @@ function cacheKeyFromReq(req, enforcedTenant) {
   const sort = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : '-session_start';
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
+  const userName = typeof req.query.user_name === 'string' ? req.query.user_name.trim() : '';
   const start = roundToMinuteISO(req.query.start || req.query.from || '');
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
   const tenant = enforcedTenant ? String(enforcedTenant) : (req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : 'n/a');
@@ -41,6 +42,7 @@ function cacheKeyFromReq(req, enforcedTenant) {
     limit,
     q,
     userId,
+    userName,
     start,
     end,
     sort
@@ -177,14 +179,26 @@ router.get(
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
-    // Exact userId precedence; q fallback
+    // Exact userId precedence; then dedicated user_name; then q fallback
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
+    const userName = typeof req.query.user_name === 'string' ? req.query.user_name.trim() : '';
 
     let searchFilter = {};
     if (userId) {
       // Exact equality on user_id
       searchFilter = { user_id: userId };
+    } else if (userName) {
+      /**
+       * user_name filter is a dedicated, case-insensitive match against the user name fields.
+       * Some datasets store this as user_name, others as User_name; support both.
+       *
+       * Contract:
+       * - Input: query param `user_name` (string)
+       * - Behavior: case-insensitive regex match (substring) on user_name or User_name
+       */
+      const regex = new RegExp(userName, 'i');
+      searchFilter = { $or: [{ user_name: regex }, { User_name: regex }] };
     } else if (q) {
       const regex = new RegExp(q, 'i');
       const looksLikeId = !/\s/.test(q); // single token
@@ -264,7 +278,7 @@ router.get(
         const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
-          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q, userId });
+          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q, userId, userName });
           res.set('ETag', etag);
         }
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
@@ -284,7 +298,7 @@ router.get(
       const payload = docs;
       let etag = null;
       if (wantETag) {
-        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q, userId });
+        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q, userId, userName });
         res.set('ETag', etag);
       }
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);

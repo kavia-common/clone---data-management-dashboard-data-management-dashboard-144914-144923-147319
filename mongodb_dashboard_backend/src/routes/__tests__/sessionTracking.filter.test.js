@@ -145,4 +145,34 @@ describe('SessionTracking list filtering (date range, user)', () => {
     expect(itemsB.length).toBe(1);
     expect(itemsB[0].user_id).toBe('u2');
   });
+
+  test('filters by user_name (case-insensitive) and supports User_name variant', async () => {
+    const t = new Date();
+    await SessionTracking.insertMany([
+      { tenant_id: tenant, user_id: 'u1', user_name: 'Alice', status: 'completed', last_updated: t, session_start: t },
+      { tenant_id: tenant, user_id: 'u2', User_name: 'Bob Builder', status: 'completed', last_updated: t, session_start: t },
+      { tenant_id: tenant, user_id: 'u3', user_name: 'Carol', status: 'completed', last_updated: t, session_start: t },
+      // cross-tenant noise
+      { tenant_id: 'other', user_id: 'u9', user_name: 'Alice', status: 'completed', last_updated: t, session_start: t },
+    ]);
+
+    const res = await request(app)
+      .get('/api/session-tracking')
+      .query({ user_name: 'aLi', page: 1, limit: 50 })
+      .set(authHeaders(tenant));
+
+    expect(res.status).toBe(200);
+    const items = Array.isArray(res.body) ? res.body : res.body.data;
+    const userIds = items.map((x) => x.user_id).sort();
+    expect(userIds).toEqual(['u1']); // only tenant-scoped Alice
+
+    const res2 = await request(app)
+      .get('/api/session-tracking')
+      .query({ user_name: 'builder', page: 1, limit: 50 })
+      .set(authHeaders(tenant));
+
+    expect(res2.status).toBe(200);
+    const items2 = Array.isArray(res2.body) ? res2.body : res2.body.data;
+    expect(items2.map((x) => x.user_id)).toEqual(['u2']);
+  });
 });
