@@ -23,7 +23,7 @@ function authHeaders(tenant) {
 }
 
 // This test suite now only supports start/end for date range filtering
-describe('SessionTracking list filtering (date range, user)', () => {
+describe('SessionTracking list filtering (date range, userId, email)', () => {
   let app;
   const tenant = 'orgFilters';
 

@@ -188,12 +188,13 @@ router.get(
     } else if (q) {
       const regex = new RegExp(q, 'i');
       const looksLikeId = !/\s/.test(q); // single token
+
+      // NOTE: Username-based filtering/search has been removed from Session Tracking.
+      // We intentionally do not search across user_name / User_name.
       const orParts = [
         { task_id: regex },
         { tenant_id: regex },
         { organization_name: regex },
-        { user_name: regex },
-        { User_name: regex },
         { project_id: regex },
         { container_id: regex },
         { service_type: regex },
@@ -209,8 +210,8 @@ router.get(
       searchFilter = { $or: orParts };
     }
 
-    // Ignore client filter param for this route
-    if (typeof req.query.filter !== 'undefined') {
+    // Ignore client filter param for this route (including any attempted user_name filter)
+    if (typeof req.query.filter !== 'undefined' || typeof req.query.user_name !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch {}
     }
 
