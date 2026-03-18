@@ -221,16 +221,20 @@ router.get(
     } else if (userName) {
       /**
        * user_name filter is a dedicated, case-insensitive match against the user name fields.
-       * Some datasets store this as user_name, others as User_name; support both.
+       *
+       * Data reality:
+       * - Some datasets store this as `user_name` (snake_case)
+       * - Others store it as `User_name` (legacy/variant casing)
+       * - Others store it as `userName` (camelCase)
        *
        * Contract:
-       * - Input: query param `user_name` (string)
+       * - Input: query param `User_name` or `user_name` (string)
        * - Behavior: safe, case-insensitive match with loose whitespace:
        *   "Aditi S" matches "Aditi  S" and "Aditi\tS"
        */
       const regex = buildLooseTextRegex(userName);
       if (regex) {
-        searchFilter = { $or: [{ user_name: regex }, { User_name: regex }] };
+        searchFilter = { $or: [{ user_name: regex }, { User_name: regex }, { userName: regex }] };
       }
     } else if (q) {
       const regex = buildLooseTextRegex(q) || new RegExp(String(q).trim(), 'i');

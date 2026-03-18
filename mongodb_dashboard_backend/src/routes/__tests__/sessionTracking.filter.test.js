@@ -190,4 +190,27 @@ describe('SessionTracking list filtering (date range, user)', () => {
     const items3 = Array.isArray(res3.body) ? res3.body : res3.body.data;
     expect(items3.map((x) => x.user_id)).toEqual(['u4']); // tenant-scoped and whitespace-tolerant
   });
+
+  test('filters by User_name when stored field is camelCase userName (regression for unfiltered responses)', async () => {
+    const t = new Date();
+    const tenantT0000 = 'T0000';
+
+    await SessionTracking.insertMany([
+      { tenant_id: tenantT0000, user_id: 'd1', userName: 'Darssini', status: 'completed', last_updated: t, session_start: t },
+      { tenant_id: tenantT0000, user_id: 'd2', userName: 'OtherUser', status: 'completed', last_updated: t, session_start: t },
+      // cross-tenant noise
+      { tenant_id: 'other', user_id: 'd3', userName: 'Darssini', status: 'completed', last_updated: t, session_start: t },
+    ]);
+
+    const res = await request(app)
+      .get('/api/session-tracking')
+      .query({ page: 1, limit: 50, User_name: 'Darssini', tenant_id: tenantT0000 })
+      // This endpoint can use query/header tenant aliases; mimic non-JWT caller by setting header too.
+      .set({ 'x-tenant-id': tenantT0000 });
+
+    expect(res.status).toBe(200);
+    const items = Array.isArray(res.body) ? res.body : res.body.data;
+
+    expect(items.map((x) => x.user_id).sort()).toEqual(['d1']);
+  });
 });
