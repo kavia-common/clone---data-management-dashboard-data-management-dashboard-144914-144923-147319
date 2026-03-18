@@ -234,12 +234,24 @@ function buildQueryState(req, enforcedTenant, bypass) {
     const safePattern = escapeRegex(q);
     const regex = new RegExp(safePattern, 'i');
     qFilter = {
+      // Match the same user fields the frontend displays as "User name"
+      // (see frontend Sessions.jsx render fallback order).
       $or: [
         { task_id: regex },
         { tenant_id: regex },
         { organization_name: regex },
+
+        // Existing flattened/user_name variants
         { user_name: regex },
         { User_name: regex },
+
+        // Nested user fields + common auth profile fields
+        { 'user.name': regex },
+        { 'user.username': regex },
+        { 'user.email': regex },
+        { username: regex },
+        { email: regex },
+
         { project_id: regex },
         { container_id: regex },
         { service_type: regex },
