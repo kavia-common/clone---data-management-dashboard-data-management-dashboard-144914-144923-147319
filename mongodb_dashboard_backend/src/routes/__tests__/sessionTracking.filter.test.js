@@ -163,7 +163,7 @@ describe('SessionTracking list filtering (date range, user)', () => {
 
     const res = await request(app)
       .get('/api/session-tracking')
-      .query({ user_name: 'aLi', page: 1, limit: 50 })
+      .query({ User_name: 'aLi', page: 1, limit: 50 })
       .set(authHeaders(tenant));
 
     expect(res.status).toBe(200);
@@ -173,7 +173,7 @@ describe('SessionTracking list filtering (date range, user)', () => {
 
     const res2 = await request(app)
       .get('/api/session-tracking')
-      .query({ user_name: 'builder', page: 1, limit: 50 })
+      .query({ User_name: 'builder', page: 1, limit: 50 })
       .set(authHeaders(tenant));
 
     expect(res2.status).toBe(200);
@@ -183,7 +183,7 @@ describe('SessionTracking list filtering (date range, user)', () => {
     // The key regression check: "Aditi S" should match stored "Aditi  S"
     const res3 = await request(app)
       .get('/api/session-tracking')
-      .query({ user_name: 'Aditi S', page: 1, limit: 50 })
+      .query({ User_name: 'Aditi S', page: 1, limit: 50 })
       .set(authHeaders(tenant));
 
     expect(res3.status).toBe(200);

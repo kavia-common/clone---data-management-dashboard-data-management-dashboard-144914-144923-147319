@@ -54,7 +54,10 @@ function cacheKeyFromReq(req, enforcedTenant) {
   const sort = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : '-session_start';
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
-  const userName = typeof req.query.user_name === 'string' ? req.query.user_name.trim() : '';
+  const userName =
+    (typeof req.query.User_name === 'string' && req.query.User_name.trim()) ||
+    (typeof req.query.user_name === 'string' && req.query.user_name.trim()) ||
+    '';
   const start = roundToMinuteISO(req.query.start || req.query.from || '');
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
   const tenant = enforcedTenant ? String(enforcedTenant) : (req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : 'n/a');
@@ -206,7 +209,10 @@ router.get(
     // Exact userId precedence; then dedicated user_name; then q fallback
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
-    const userName = typeof req.query.user_name === 'string' ? req.query.user_name.trim() : '';
+    const userName =
+      (typeof req.query.User_name === 'string' && req.query.User_name.trim()) ||
+      (typeof req.query.user_name === 'string' && req.query.user_name.trim()) ||
+      '';
 
     let searchFilter = {};
     if (userId) {
