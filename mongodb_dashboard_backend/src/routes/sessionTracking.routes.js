@@ -194,37 +194,57 @@ router.get(
       const regex = new RegExp(safePattern, 'i');
 
       const looksLikeId = !/\s/.test(q); // single token
-      // Match the same user fields the frontend displays as "User name"
-      // (see frontend Sessions.jsx render fallback order).
+
+      /**
+       * The sessions UI renders "User name" using this fallback order:
+       *   row.User_name ?? row.user_name ?? row.user?.name ?? row.username ?? row.email
+       *
+       * To avoid backend/frontend mismatches (symptom: UI shows "Aditi S" but q=Ad returns no data),
+       * we ensure text search always covers the same real stored fields.
+       */
+      const userDisplayNameFields = [
+        'User_name',
+        'user_name',
+        'user.name',
+        'username',
+        'email',
+
+        // Common variants seen in other collections/ingests (safe to include; strict:false schema)
+        'userName',
+        'user.displayName',
+        'user.full_name',
+        'user.fullName',
+        'user.email',
+        'user.username',
+      ];
+
       const orParts = [
         { task_id: regex },
         { tenant_id: regex },
         { organization_name: regex },
 
-        // Existing flattened/user_name variants
-        { user_name: regex },
-        { User_name: regex },
-
-        // Nested user fields + common auth profile fields
-        { 'user.name': regex },
-        { 'user.username': regex },
-        { 'user.email': regex },
-        { username: regex },
-        { email: regex },
+        // User display fields (aligned with frontend)
+        ...userDisplayNameFields.map((path) => ({ [path]: regex })),
 
         { project_id: regex },
         { container_id: regex },
         { service_type: regex },
         { status: regex },
+
+        // user_id search (regex + optional exact token match below)
         { user_id: regex },
+
+        // Nested session details
         { 'session_data.session_name': regex },
         { 'session_data.description': regex },
         { 'session_data.llm_model': regex },
       ];
+
       if (looksLikeId) {
         // Preserve exact match option for user_id when q is a token.
         orParts.unshift({ user_id: q });
       }
+
       searchFilter = { $or: orParts };
     }
 
