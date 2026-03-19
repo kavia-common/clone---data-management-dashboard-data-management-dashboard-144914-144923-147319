@@ -26,7 +26,7 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('multi-word q search builds a valid AND-of-regex tokens for user_name/User_name', async () => {
+  test('multi-word q search builds a valid AND-of-regex tokens for user_name/User_name and uses safe literal regexes', async () => {
     // Arrange: return one matching doc.
     const docs = [{ _id: '1', user_name: 'Aditi S' }];
 
@@ -56,7 +56,6 @@ describe('GET /api/session-tracking/table q-search', () => {
       meta: { page: 1, limit: 10, total: 1 },
     });
 
-    // Assert filter shape: should include an $or that contains a token AND matcher for user_name/User_name.
     const filterArg = SessionTracking.find.mock.calls[0][0];
 
     // With T0000, bypass should avoid enforced tenant scope, so filter should be search-only.
@@ -68,12 +67,11 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(first).toHaveProperty('$or');
     expect(Array.isArray(first.$or)).toBe(true);
 
-    // Ensure the AND token constraints exist and are actual regexes on the fields (valid Mongo shape).
     const [variant1, variant2] = first.$or;
     expect(variant1).toHaveProperty('$and');
     expect(variant2).toHaveProperty('$and');
 
-    // Each $and element should be like { user_name: /Aditi/i } etc.
+    // Each $and element should be like { user_name: /Aditi/i } etc, and be regex instances.
     for (const cond of variant1.$and) {
       expect(cond).toHaveProperty('user_name');
       expect(cond.user_name).toBeInstanceOf(RegExp);
@@ -82,6 +80,12 @@ describe('GET /api/session-tracking/table q-search', () => {
       expect(cond).toHaveProperty('User_name');
       expect(cond.User_name).toBeInstanceOf(RegExp);
     }
+
+    // Also assert the "phrase" regex used in other OR parts is whitespace-tolerant.
+    // One of the standard orParts entries is { user_name: phraseRegex } (later in the array).
+    const phraseUserNamePart = filterArg.$or.find((p) => p && p.user_name instanceof RegExp);
+    expect(phraseUserNamePart).toBeTruthy();
+    expect(String(phraseUserNamePart.user_name)).toMatch(/Aditi\\s\+S/i);
 
     // Sanity check that DB chain was invoked for pagination
     expect(chain.sort).toHaveBeenCalled();

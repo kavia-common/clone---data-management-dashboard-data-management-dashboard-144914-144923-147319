@@ -23,6 +23,39 @@ function roundToMinuteISO(value) {
   return d.toISOString();
 }
 
+/**
+ * Escape user input so it is treated as literal text in a RegExp.
+ * This prevents regex injection and reduces the risk of catastrophic backtracking patterns.
+ */
+function escapeRegexLiteral(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Build a case-insensitive RegExp for user-supplied q.
+ *
+ * Contract:
+ * - Input: arbitrary user-provided string (already trimmed by caller)
+ * - Output: RegExp that matches the literal text, but treats whitespace runs as "\\s+"
+ * - Errors: none (always returns a valid RegExp)
+ *
+ * Why:
+ * - Avoids unescaped regex meta characters from causing slow queries or ReDoS-like behavior.
+ * - Makes multi-word queries resilient to inconsistent whitespace in stored values.
+ */
+function buildSafePhraseRegex(qTrimmed) {
+  // Split on any whitespace, escape each token, then join with \s+.
+  // Example: "Aditi   S" => /Aditi\s+S/i
+  const tokens = String(qTrimmed)
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map(escapeRegexLiteral);
+
+  const pattern = tokens.length ? tokens.join('\\s+') : '';
+  return new RegExp(pattern || escapeRegexLiteral(qTrimmed), 'i');
+}
+
 const routeCache = new Map();
 function cacheKeyFromReq(req, enforcedTenant) {
   const page = Number(req.query.page || 1);
@@ -210,35 +243,48 @@ router.get(
       searchFilter = { user_id: userId };
     } else if (q) {
       /**
-       * Make q-search resilient for multi-word names.
+       * Make q-search resilient and safe for multi-word names.
        *
-       * Problem this solves:
-       * - Stored user_name values often have inconsistent whitespace (double spaces, NBSP, etc).
-       * - A literal regex for `q` (e.g. "Aditi S") will not match "Aditi  S" or "Aditi S".
+       * Key invariant:
+       * - q is treated as literal text, not as a regex program.
+       *   (We escape regex metacharacters to avoid slow/unsafe patterns.)
        *
-       * Approach:
-       * - Keep the original "raw phrase" regex search across fields.
-       * - Additionally, when q has multiple tokens, add an AND-of-tokens condition for user_name fields.
-       *   This allows matching even if whitespace differs between tokens.
+       * Also:
+       * - Multi-word q is matched with whitespace-tolerant pattern across fields,
+       *   and an AND-of-tokens matcher for user_name fields.
        */
       const qTrimmed = q.trim();
-      const regex = new RegExp(qTrimmed, 'i');
-      const looksLikeId = !/\s/.test(qTrimmed); // single token
+
+      // Guardrail: avoid extremely long q creating huge regex scans.
+      // This endpoint can scan many fields (and with T0000 can scan across all tenants).
+      const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
+      if (qTrimmed.length > MAX_Q_LENGTH) {
+        return res.status(400).json({
+          success: false,
+          message: `q is too long (max ${MAX_Q_LENGTH} characters)`,
+        });
+      }
+
+      // Safe "phrase" regex: literal tokens joined by \s+ so "Aditi S" matches "Aditi  S".
+      const phraseRegex = buildSafePhraseRegex(qTrimmed);
+
+      // Single token: allow exact user_id equality fast-path.
+      const looksLikeId = !/\s/.test(qTrimmed);
 
       const orParts = [
-        { task_id: regex },
-        { tenant_id: regex },
-        { organization_name: regex },
-        { user_name: regex },
-        { User_name: regex },
-        { project_id: regex },
-        { container_id: regex },
-        { service_type: regex },
-        { status: regex },
-        { user_id: regex },
-        { 'session_data.session_name': regex },
-        { 'session_data.description': regex },
-        { 'session_data.llm_model': regex },
+        { task_id: phraseRegex },
+        { tenant_id: phraseRegex },
+        { organization_name: phraseRegex },
+        { user_name: phraseRegex },
+        { User_name: phraseRegex },
+        { project_id: phraseRegex },
+        { container_id: phraseRegex },
+        { service_type: phraseRegex },
+        { status: phraseRegex },
+        { user_id: phraseRegex },
+        { 'session_data.session_name': phraseRegex },
+        { 'session_data.description': phraseRegex },
+        { 'session_data.llm_model': phraseRegex },
       ];
 
       if (looksLikeId) {
@@ -247,23 +293,11 @@ router.get(
         // Tokenize on whitespace; ignore empty tokens.
         const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
 
-        /**
-         * If there are multiple tokens, require all tokens to appear in the name.
-         *
-         * MongoDB find queries support regex matching as:
-         *   { field: /pattern/i }
-         * or
-         *   { field: { $regex: 'pattern', $options: 'i' } }
-         *
-         * IMPORTANT:
-         * Do NOT nest a query fragment under $regex (e.g. { field: { $regex: { $regex: ... }}}),
-         * because it will never match.
-         */
         if (tokens.length >= 2) {
-          const tokenRegexes = tokens.map((t) => new RegExp(t, 'i'));
+          // Token regexes are literal-safe too.
+          const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
 
           // Match either user_name or User_name where *all* tokens match (in any order).
-          // This makes the search resilient to inconsistent whitespace between tokens.
           const userNameAllTokens = {
             $and: tokenRegexes.map((r) => ({ user_name: r })),
           };
