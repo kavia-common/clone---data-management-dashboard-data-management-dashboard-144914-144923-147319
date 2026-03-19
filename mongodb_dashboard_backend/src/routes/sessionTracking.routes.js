@@ -27,12 +27,18 @@ const routeCache = new Map();
 function cacheKeyFromReq(req, enforcedTenant) {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || req.query.pageSize || 20);
-  const sort = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : '-session_start';
+  const sort =
+    typeof req.query.sort === 'string' && req.query.sort.trim()
+      ? req.query.sort.trim()
+      : '-session_start';
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-  const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
   const start = roundToMinuteISO(req.query.start || req.query.from || '');
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
-  const tenant = enforcedTenant ? String(enforcedTenant) : (req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : 'n/a');
+  const tenant = enforcedTenant
+    ? String(enforcedTenant)
+    : req.tenantScopeDisabled || req.allTenants
+      ? 'all-tenants'
+      : 'n/a';
 
   return JSON.stringify({
     route: 'GET:/api/session-tracking',
@@ -40,10 +46,9 @@ function cacheKeyFromReq(req, enforcedTenant) {
     page,
     limit,
     q,
-    userId,
     start,
     end,
-    sort
+    sort,
   });
 }
 function cacheGet(key) {
@@ -177,15 +182,12 @@ router.get(
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
-    // Exact userId precedence; q fallback
+    // Text search (single input): `q`
+    // Note: Dedicated user filtering (e.g., userId/user_name filter params) is intentionally not supported.
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-    const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
 
     let searchFilter = {};
-    if (userId) {
-      // Exact equality on user_id
-      searchFilter = { user_id: userId };
-    } else if (q) {
+    if (q) {
       const regex = new RegExp(q, 'i');
       const looksLikeId = !/\s/.test(q); // single token
       const orParts = [
@@ -264,7 +266,13 @@ router.get(
         const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
-          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q, userId });
+          etag = computeETag(payload, {
+            tenant: bypass ? 'all-tenants' : enforcedTenant,
+            page,
+            limit,
+            sort,
+            q,
+          });
           res.set('ETag', etag);
         }
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
@@ -284,7 +292,11 @@ router.get(
       const payload = docs;
       let etag = null;
       if (wantETag) {
-        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q, userId });
+        etag = computeETag(payload, {
+          tenant: bypass ? 'all-tenants' : enforcedTenant,
+          sort,
+          q,
+        });
         res.set('ETag', etag);
       }
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
