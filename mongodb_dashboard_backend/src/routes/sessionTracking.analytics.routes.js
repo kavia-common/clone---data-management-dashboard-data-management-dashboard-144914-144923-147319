@@ -7,31 +7,17 @@ const {
   computeSessionsByTypeFlow,
   computeMostLeastUsedServicesFlow,
 } = require('../services/sessionTracking.analytics');
+const { resolveTenantContextFromRequest } = require('../services/tenantContextResolve');
 
 const router = express.Router();
 
 /**
- * Resolve tenant and bypass flags similarly to /api/session-tracking route.
+ * Resolve tenant and bypass flags (shared flow with T0000 sentinel support).
  * Contract:
- * - Returns { bypass:boolean, tenantId:string|null }
+ * - Returns { bypass:boolean, tenantId:string|null, requestedTenantRaw?:string|null }
  */
 function resolveTenantContext(req) {
-  const bypass = !!(
-    req.tenantScopeDisabled ||
-    req.allTenants ||
-    req.sessionsAllTenantsBypass ||
-    req?.user?.isSuperAdmin
-  );
-
-  const tenantId =
-    req.tenantId ||
-    (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-    (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
-    (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-    (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
-    null;
-
-  return { bypass, tenantId };
+  return resolveTenantContextFromRequest(req);
 }
 
 /**
