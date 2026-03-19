@@ -280,6 +280,51 @@ router.get(
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
     const wantETag = ENABLE_ETAG && req.method === 'GET';
 
+    // Debug logging (temporary): helps diagnose why filtering returns empty.
+    // Logs: query inputs, resolved tenant, and a sample of user_name values from returned records.
+    const DEBUG_SESSION_TRACKING_LOGS =
+      String(process.env.DEBUG_SESSION_TRACKING_LOGS || '').toLowerCase() === 'true';
+
+    if (DEBUG_SESSION_TRACKING_LOGS) {
+      try {
+        console.log('[sessionTracking:list] request', {
+          path: req.path,
+          query: {
+            page: req.query.page,
+            limit: req.query.limit,
+            pageSize: req.query.pageSize,
+            sort: req.query.sort,
+            q: req.query.q,
+            userId: req.query.userId,
+            start: req.query.start,
+            end: req.query.end,
+            from: req.query.from,
+            to: req.query.to,
+            // NOTE: filter is intentionally ignored by this route, but useful to see if clients send it
+            filter: typeof req.query.filter === 'undefined' ? undefined : req.query.filter,
+          },
+          tenant: {
+            bypass,
+            enforcedTenant,
+            reqTenantId: req.tenantId || null,
+            tenantScopeDisabled: !!req.tenantScopeDisabled,
+            allTenants: !!req.allTenants,
+            sessionsAllTenantsBypass: !!req.sessionsAllTenantsBypass,
+          },
+          derived: {
+            explicitPagination: !!explicit,
+            page,
+            limit,
+            skip,
+            sort,
+            q,
+            userId,
+          },
+          finalFilter,
+        });
+      } catch {}
+    }
+
     if (wantCache) {
       const hit = cacheGet(cacheKey);
       if (hit) {
@@ -294,6 +339,27 @@ router.get(
         res.set('X-Cache', 'HIT');
         if (wantETag && hit.etag) res.set('ETag', hit.etag);
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
+
+        if (DEBUG_SESSION_TRACKING_LOGS) {
+          try {
+            const cachedDocs = Array.isArray(hit.payload)
+              ? hit.payload
+              : Array.isArray(hit.payload?.data)
+                ? hit.payload.data
+                : [];
+            const sampleNames = cachedDocs
+              .slice(0, 50)
+              .map((d) => d?.user_name ?? d?.User_name ?? null)
+              .filter((v) => typeof v === 'string' && v.trim().length > 0);
+
+            console.log('[sessionTracking:list] cache HIT', {
+              cacheKey,
+              count: cachedDocs.length,
+              user_name_sample: sampleNames.slice(0, 20),
+            });
+          } catch {}
+        }
+
         return res.status(200).json(hit.payload);
       }
     }
@@ -305,6 +371,22 @@ router.get(
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
           SessionTracking.countDocuments(finalFilter),
         ]);
+
+        if (DEBUG_SESSION_TRACKING_LOGS) {
+          try {
+            const names = docs
+              .slice(0, 50)
+              .map((d) => d?.user_name ?? d?.User_name ?? null)
+              .filter((v) => typeof v === 'string' && v.trim().length > 0);
+
+            console.log('[sessionTracking:list] db result (paginated)', {
+              count: docs.length,
+              total,
+              user_name_sample: names.slice(0, 20),
+              hasAnyUserName: names.length > 0,
+            });
+          } catch {}
+        }
 
         const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
@@ -326,6 +408,22 @@ router.get(
       }
 
       const docs = await SessionTracking.find(finalFilter).sort(sort).lean();
+
+      if (DEBUG_SESSION_TRACKING_LOGS) {
+        try {
+          const names = docs
+            .slice(0, 50)
+            .map((d) => d?.user_name ?? d?.User_name ?? null)
+            .filter((v) => typeof v === 'string' && v.trim().length > 0);
+
+          console.log('[sessionTracking:list] db result (unpaginated)', {
+            count: docs.length,
+            user_name_sample: names.slice(0, 20),
+            hasAnyUserName: names.length > 0,
+          });
+        } catch {}
+      }
+
       const payload = docs;
       let etag = null;
       if (wantETag) {
@@ -342,6 +440,15 @@ router.get(
 
       return res.status(200).json(payload);
     } catch (err) {
+      if (DEBUG_SESSION_TRACKING_LOGS) {
+        try {
+          console.log('[sessionTracking:list] error', {
+            message: err?.message || String(err),
+            stack: err?.stack,
+          });
+        } catch {}
+      }
+
       return res.status(400).json({
         success: false,
         message: 'Request failed',
