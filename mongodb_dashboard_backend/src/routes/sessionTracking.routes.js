@@ -186,8 +186,22 @@ router.get(
       // Exact equality on user_id
       searchFilter = { user_id: userId };
     } else if (q) {
-      const regex = new RegExp(q, 'i');
-      const looksLikeId = !/\s/.test(q); // single token
+      /**
+       * Make q-search resilient for multi-word names.
+       *
+       * Problem this solves:
+       * - Stored user_name values often have inconsistent whitespace (double spaces, NBSP, etc).
+       * - A literal regex for `q` (e.g. "Aditi S") will not match "Aditi  S" or "Aditi S".
+       *
+       * Approach:
+       * - Keep the original "raw phrase" regex search across fields.
+       * - Additionally, when q has multiple tokens, add an AND-of-tokens condition for user_name fields.
+       *   This allows matching even if whitespace differs between tokens.
+       */
+      const qTrimmed = q.trim();
+      const regex = new RegExp(qTrimmed, 'i');
+      const looksLikeId = !/\s/.test(qTrimmed); // single token
+
       const orParts = [
         { task_id: regex },
         { tenant_id: regex },
@@ -203,9 +217,32 @@ router.get(
         { 'session_data.description': regex },
         { 'session_data.llm_model': regex },
       ];
+
       if (looksLikeId) {
-        orParts.unshift({ user_id: q });
+        orParts.unshift({ user_id: qTrimmed });
+      } else {
+        // Tokenize on whitespace; ignore empty tokens.
+        const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+
+        // If there are multiple tokens, require all tokens to appear somewhere in user_name.
+        if (tokens.length >= 2) {
+          const tokenAnd = tokens.map((t) => ({ $regex: new RegExp(t, 'i') }));
+          orParts.unshift({
+            $or: [
+              { user_name: { $all: [] } }, // no-op placeholder; kept out by $and below
+            ],
+          });
+          // Replace the placeholder with a proper $and wrapped in $or, to keep the overall structure stable.
+          orParts.shift();
+          orParts.unshift({
+            $or: [
+              { $and: tokenAnd.map((r) => ({ user_name: r })) },
+              { $and: tokenAnd.map((r) => ({ User_name: r })) },
+            ],
+          });
+        }
       }
+
       searchFilter = { $or: orParts };
     }
 

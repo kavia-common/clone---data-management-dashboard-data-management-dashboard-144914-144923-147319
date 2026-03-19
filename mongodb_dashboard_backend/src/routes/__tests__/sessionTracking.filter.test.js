@@ -145,4 +145,23 @@ describe('SessionTracking list filtering (date range, user)', () => {
     expect(itemsB.length).toBe(1);
     expect(itemsB[0].user_id).toBe('u2');
   });
+
+  test('q filter matches multi-word user_name despite inconsistent whitespace', async () => {
+    const t = new Date();
+    await SessionTracking.insertMany([
+      // Stored name has double-space; query will use single space.
+      { tenant_id: tenant, user_id: 'u-aditi', user_name: 'Aditi  S', status: 'completed', last_updated: t, session_start: t },
+      { tenant_id: tenant, user_id: 'u-other', user_name: 'Someone Else', status: 'completed', last_updated: t, session_start: t },
+    ]);
+
+    const res = await request(app)
+      .get('/api/session-tracking')
+      .query({ q: 'Aditi S', page: 1, limit: 50 })
+      .set(authHeaders(tenant));
+
+    expect(res.status).toBe(200);
+    const items = Array.isArray(res.body) ? res.body : res.body.data;
+    expect(items.length).toBe(1);
+    expect(items[0].user_id).toBe('u-aditi');
+  });
 });
