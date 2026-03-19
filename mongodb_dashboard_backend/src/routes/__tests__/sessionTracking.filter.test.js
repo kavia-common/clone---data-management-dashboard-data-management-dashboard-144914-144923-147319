@@ -164,4 +164,26 @@ describe('SessionTracking list filtering (date range, user)', () => {
     expect(items.length).toBe(1);
     expect(items[0].user_id).toBe('u-aditi');
   });
+
+  test('tenant_id=T0000 + q multi-word returns matching rows (no empty array)', async () => {
+    const t = new Date();
+    await SessionTracking.insertMany([
+      // This record should be returned when explicitly filtering for tenant_id=T0000.
+      { tenant_id: 'T0000', user_id: 'u-aditi-t0000', user_name: 'Aditi  S', status: 'completed', last_updated: t, session_start: t },
+      // Noise in other tenants
+      { tenant_id: 'ORG_X', user_id: 'u-noise', user_name: 'Aditi S', status: 'completed', last_updated: t, session_start: t },
+    ]);
+
+    // Note: this route has a special early bypass detector for T0000; we still expect it
+    // to return the matching row (and not erroneously return []).
+    const res = await request(app)
+      .get('/api/session-tracking')
+      .query({ tenant_id: 'T0000', q: 'Aditi S', page: 1, limit: 50 })
+      .set(authHeaders('T0000'));
+
+    expect(res.status).toBe(200);
+    const items = Array.isArray(res.body) ? res.body : res.body.data;
+    const ids = items.map((x) => x.user_id);
+    expect(ids).toContain('u-aditi-t0000');
+  });
 });

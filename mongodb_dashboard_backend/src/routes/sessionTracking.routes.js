@@ -224,22 +224,30 @@ router.get(
         // Tokenize on whitespace; ignore empty tokens.
         const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
 
-        // If there are multiple tokens, require all tokens to appear somewhere in user_name.
+        /**
+         * If there are multiple tokens, require all tokens to appear in the name.
+         *
+         * IMPORTANT: In MongoDB find queries, $regex must be used as:
+         *   { field: /pattern/i }  OR  { field: { $regex: 'pattern', $options: 'i' } }
+         *
+         * The previous implementation incorrectly created conditions like:
+         *   { user_name: { $regex: /Aditi/i } }
+         * where the inner object was itself a query fragment (not a valid $regex expression).
+         * That made the query never match for multi-word q searches.
+         */
         if (tokens.length >= 2) {
-          const tokenAnd = tokens.map((t) => ({ $regex: new RegExp(t, 'i') }));
-          orParts.unshift({
-            $or: [
-              { user_name: { $all: [] } }, // no-op placeholder; kept out by $and below
-            ],
-          });
-          // Replace the placeholder with a proper $and wrapped in $or, to keep the overall structure stable.
-          orParts.shift();
-          orParts.unshift({
-            $or: [
-              { $and: tokenAnd.map((r) => ({ user_name: r })) },
-              { $and: tokenAnd.map((r) => ({ User_name: r })) },
-            ],
-          });
+          const tokenRegexes = tokens.map((t) => new RegExp(t, 'i'));
+
+          // Match either user_name or User_name where *all* tokens match (in any order),
+          // even if the stored string contains inconsistent whitespace between tokens.
+          const userNameAllTokens = {
+            $and: tokenRegexes.map((r) => ({ user_name: r })),
+          };
+          const userNameAllTokensAlt = {
+            $and: tokenRegexes.map((r) => ({ User_name: r })),
+          };
+
+          orParts.unshift({ $or: [userNameAllTokens, userNameAllTokensAlt] });
         }
       }
 
