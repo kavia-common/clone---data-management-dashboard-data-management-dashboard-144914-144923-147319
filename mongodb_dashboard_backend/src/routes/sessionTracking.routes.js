@@ -183,8 +183,13 @@ router.get(
     const sort = req.query.sort || '-session_start';
 
     // Text search (single input): `q`
-    // Note: Dedicated user filtering (e.g., userId/user_name filter params) is intentionally not supported.
+    // Also supports a dedicated user-name filter: `user_name` (and aliases).
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const userNameParam =
+      (typeof req.query.user_name === 'string' && req.query.user_name.trim()) ||
+      (typeof req.query.userName === 'string' && req.query.userName.trim()) ||
+      (typeof req.query.username === 'string' && req.query.username.trim()) ||
+      '';
 
     let searchFilter = {};
     if (q) {
@@ -211,6 +216,16 @@ router.get(
       searchFilter = { $or: orParts };
     }
 
+    // Dedicated user_name filter: only match user name fields (case-insensitive).
+    // This is used by the Session Tracking module's "Search Users..." input.
+    let userNameFilter = {};
+    if (userNameParam) {
+      const userRegex = new RegExp(userNameParam, 'i');
+      userNameFilter = {
+        $or: [{ user_name: userRegex }, { User_name: userRegex }],
+      };
+    }
+
     // Ignore client filter param for this route
     if (typeof req.query.filter !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch {}
@@ -229,6 +244,7 @@ router.get(
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
     if (!isEmpty(searchFilter)) parts.push(searchFilter);
+    if (!isEmpty(userNameFilter)) parts.push(userNameFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
