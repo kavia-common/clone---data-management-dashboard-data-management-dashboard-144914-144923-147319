@@ -250,19 +250,20 @@ router.get(
         /**
          * If there are multiple tokens, require all tokens to appear in the name.
          *
-         * IMPORTANT: In MongoDB find queries, $regex must be used as:
-         *   { field: /pattern/i }  OR  { field: { $regex: 'pattern', $options: 'i' } }
+         * MongoDB find queries support regex matching as:
+         *   { field: /pattern/i }
+         * or
+         *   { field: { $regex: 'pattern', $options: 'i' } }
          *
-         * The previous implementation incorrectly created conditions like:
-         *   { user_name: { $regex: /Aditi/i } }
-         * where the inner object was itself a query fragment (not a valid $regex expression).
-         * That made the query never match for multi-word q searches.
+         * IMPORTANT:
+         * Do NOT nest a query fragment under $regex (e.g. { field: { $regex: { $regex: ... }}}),
+         * because it will never match.
          */
         if (tokens.length >= 2) {
           const tokenRegexes = tokens.map((t) => new RegExp(t, 'i'));
 
-          // Match either user_name or User_name where *all* tokens match (in any order),
-          // even if the stored string contains inconsistent whitespace between tokens.
+          // Match either user_name or User_name where *all* tokens match (in any order).
+          // This makes the search resilient to inconsistent whitespace between tokens.
           const userNameAllTokens = {
             $and: tokenRegexes.map((r) => ({ user_name: r })),
           };
