@@ -77,18 +77,36 @@ function computeETag(payload, context) {
   try {
     const basis = JSON.stringify({
       ctx: context,
-      len: Array.isArray(payload) ? payload.length : Array.isArray(payload?.data) ? payload.data.length : null,
-      first: Array.isArray(payload) && payload[0]?._id ? String(payload[0]._id) : Array.isArray(payload?.data) && payload.data[0]?._id ? String(payload.data[0]._id) : null,
-      last: Array.isArray(payload) && payload[payload.length - 1]?._id ? String(payload[payload.length - 1]._id) : Array.isArray(payload?.data) && payload.data[payload.data.length - 1]?._id ? String(payload.data[payload.data.length - 1]._id) : null,
+      len: Array.isArray(payload)
+        ? payload.length
+        : Array.isArray(payload?.data)
+          ? payload.data.length
+          : null,
+      first:
+        Array.isArray(payload) && payload[0]?._id
+          ? String(payload[0]._id)
+          : Array.isArray(payload?.data) && payload.data[0]?._id
+            ? String(payload.data[0]._id)
+            : null,
+      last:
+        Array.isArray(payload) && payload[payload.length - 1]?._id
+          ? String(payload[payload.length - 1]._id)
+          : Array.isArray(payload?.data) && payload.data[payload.data.length - 1]?._id
+            ? String(payload.data[payload.data.length - 1]._id)
+            : null,
       max_last_updated: (() => {
-        const arr = Array.isArray(payload) ? payload : (Array.isArray(payload?.data) ? payload.data : []);
+        const arr = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
         let max = 0;
         for (const it of arr) {
           const v = new Date(it?.last_updated || it?.timestamp || it?.session_start || 0).getTime();
           if (v > max) max = v;
         }
         return max || null;
-      })()
+      })(),
     });
     return crypto.createHash('sha1').update(basis).digest('hex');
   } catch {
@@ -106,13 +124,12 @@ router.use((req, res, next) => {
     } else if (req.tenantId) {
       const t = String(req.tenantId);
       res.set('X-Applied-Tenant', t);
-      res.set('X-Applied-Filter', JSON.stringify({
-        $or: [
-          { tenant_id: t },
-          { organization_id: t },
-          { organizationId: t },
-        ]
-      }));
+      res.set(
+        'X-Applied-Filter',
+        JSON.stringify({
+          $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }],
+        })
+      );
     }
   } catch {}
   next();
@@ -122,7 +139,8 @@ router.use((req, res, next) => {
 function sessionsEarlyBypassDetector(req, res, next) {
   if (req.method !== 'GET' || req.path !== '/') return next();
 
-  const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
+  const qOrg =
+    typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
   const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
 
   const hdrOrg =
@@ -156,17 +174,12 @@ router.get(
   '/',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
-    // Debug log to help track where user_name is coming from (query params).
-    // This is intentionally minimal and scoped to this endpoint only.
+    // This is the expected log trigger when typing in Session Tracking UI "Search users..."
     const _dbgReqId = Math.random().toString(36).slice(2, 8);
+
+    // Log raw query first so we can confirm the UI is calling this endpoint and what it passed.
     try {
-      // Log raw query and the specific fields we interpret as "user name".
       console.log(`[session-tracking][${_dbgReqId}] req.query=`, req.query);
-      console.log(`[session-tracking][${_dbgReqId}] user_name raw=`, {
-        user_name: req.query?.user_name,
-        userName: req.query?.userName,
-        username: req.query?.username,
-      });
     } catch {
       // Never fail the request due to logging.
     }
@@ -184,13 +197,14 @@ router.get(
       (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
       (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
       (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+      (typeof req.headers['x-organization-id'] === 'string' &&
+        req.headers['x-organization-id'].trim()) ||
       null;
 
     if (!bypass && !enforcedTenant) {
       return res.status(400).json({
         success: false,
-        message: 'tenant_id is required. Provide ?tenant_id=...'
+        message: 'tenant_id is required. Provide ?tenant_id=...',
       });
     }
 
@@ -208,6 +222,19 @@ router.get(
       (typeof req.query.userName === 'string' && req.query.userName.trim()) ||
       (typeof req.query.username === 'string' && req.query.username.trim()) ||
       '';
+
+    // Debug: show parsed values the backend will actually use.
+    try {
+      console.log(`[session-tracking][${_dbgReqId}] parsed=`, {
+        q,
+        userNameParam,
+        enforcedTenant,
+        bypass,
+        page,
+        limit,
+        sort,
+      });
+    } catch {}
 
     let searchFilter = {};
     if (q) {
@@ -246,10 +273,12 @@ router.get(
 
     // Ignore client filter param for this route
     if (typeof req.query.filter !== 'undefined') {
-      try { res.set('X-Filter-Ignored', 'true'); } catch {}
+      try {
+        res.set('X-Filter-Ignored', 'true');
+      } catch {}
     }
 
-    const enforcedScope = (!bypass && enforcedTenant)
+    const enforcedScope = !bypass && enforcedTenant
       ? {
           $or: [
             { tenant_id: enforcedTenant },
@@ -266,6 +295,11 @@ router.get(
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
+    // Debug: show the effective DB filter used (helps explain why UI results change/don't change).
+    try {
+      console.log(`[session-tracking][${_dbgReqId}] finalFilter=`, finalFilter);
+    } catch {}
+
     // Cache handling
     const cacheKey = cacheKeyFromReq(req, enforcedTenant);
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
@@ -278,13 +312,19 @@ router.get(
           const inm = req.headers['if-none-match'];
           if (inm && inm === hit.etag) {
             res.set('ETag', hit.etag);
-            res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
+            res.set(
+              'Cache-Control',
+              `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`
+            );
             return res.status(304).end();
           }
         }
         res.set('X-Cache', 'HIT');
         if (wantETag && hit.etag) res.set('ETag', hit.etag);
-        res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
+        res.set(
+          'Cache-Control',
+          `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`
+        );
         return res.status(200).json(hit.payload);
       }
     }
@@ -309,7 +349,10 @@ router.get(
           });
           res.set('ETag', etag);
         }
-        res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
+        res.set(
+          'Cache-Control',
+          `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`
+        );
         if (wantCache) {
           cacheSet(cacheKey, payload, etag);
         }
@@ -333,7 +376,10 @@ router.get(
         });
         res.set('ETag', etag);
       }
-      res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
+      res.set(
+        'Cache-Control',
+        `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`
+      );
       if (wantCache) cacheSet(cacheKey, payload, etag);
 
       const inm = req.headers['if-none-match'];
@@ -346,16 +392,49 @@ router.get(
       return res.status(400).json({
         success: false,
         message: 'Request failed',
-        details: err?.message || ''
+        details: err?.message || '',
       });
     }
   })
 );
 
 // CRUD operations invalidate cache
-router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
-router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
-router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
+router.post(
+  '/',
+  asyncHandler(async (req, res, next) => {
+    next();
+  }),
+  asyncHandler(controller.create),
+  async () => {
+    try {
+      invalidateAllSessionTrackingCache();
+    } catch {}
+  }
+);
+router.put(
+  '/:id',
+  asyncHandler(async (req, res, next) => {
+    next();
+  }),
+  asyncHandler(controller.update),
+  async () => {
+    try {
+      invalidateAllSessionTrackingCache();
+    } catch {}
+  }
+);
+router.delete(
+  '/:id',
+  asyncHandler(async (req, res, next) => {
+    next();
+  }),
+  asyncHandler(controller.remove),
+  async () => {
+    try {
+      invalidateAllSessionTrackingCache();
+    } catch {}
+  }
+);
 
 // Keep ID read unchanged
 router.get('/:id', asyncHandler(controller.getById));
