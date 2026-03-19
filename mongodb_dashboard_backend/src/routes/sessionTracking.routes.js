@@ -156,6 +156,21 @@ router.get(
   '/',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
+    // Debug log to help track where user_name is coming from (query params).
+    // This is intentionally minimal and scoped to this endpoint only.
+    const _dbgReqId = Math.random().toString(36).slice(2, 8);
+    try {
+      // Log raw query and the specific fields we interpret as "user name".
+      console.log(`[session-tracking][${_dbgReqId}] req.query=`, req.query);
+      console.log(`[session-tracking][${_dbgReqId}] user_name raw=`, {
+        user_name: req.query?.user_name,
+        userName: req.query?.userName,
+        username: req.query?.username,
+      });
+    } catch {
+      // Never fail the request due to logging.
+    }
+
     const bypass = !!(
       req.tenantScopeDisabled ||
       req.allTenants ||
