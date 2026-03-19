@@ -146,13 +146,27 @@ describe('SessionTracking list filtering (date range, user)', () => {
     expect(itemsB[0].user_id).toBe('u2');
   });
 
-  test('filters by user_name param (and aliases userName/username)', async () => {
+  test('filters by User_name param (exact match) and accepts aliases', async () => {
     const t = new Date();
     await SessionTracking.insertMany([
-      { tenant_id: tenant, user_id: 'ua', user_name: 'Ad', status: 'completed', last_updated: t, session_start: t },
-      { tenant_id: tenant, user_id: 'ub', user_name: 'Be', status: 'completed', last_updated: t, session_start: t },
+      // Canonical field used by UI/table
+      { tenant_id: tenant, user_id: 'ua', User_name: 'Ad', status: 'completed', last_updated: t, session_start: t },
+      { tenant_id: tenant, user_id: 'ub', User_name: 'Be', status: 'completed', last_updated: t, session_start: t },
+
+      // Near-match should NOT be returned when searching exact "Ad"
+      { tenant_id: tenant, user_id: 'ux', User_name: 'Adrian', status: 'completed', last_updated: t, session_start: t },
     ]);
 
+    const resCanonical = await request(app)
+      .get('/api/session-tracking')
+      .query({ User_name: 'Ad', page: 1, limit: 50 })
+      .set(authHeaders(tenant));
+    expect(resCanonical.status).toBe(200);
+    const itemsCanonical = Array.isArray(resCanonical.body) ? resCanonical.body : resCanonical.body.data;
+    expect(itemsCanonical.length).toBe(1);
+    expect(itemsCanonical[0].user_id).toBe('ua');
+
+    // Aliases should behave the same (exact match applied to canonical field)
     const resSnake = await request(app)
       .get('/api/session-tracking')
       .query({ user_name: 'Ad', page: 1, limit: 50 })

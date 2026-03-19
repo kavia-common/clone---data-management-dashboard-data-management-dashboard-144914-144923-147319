@@ -226,8 +226,10 @@ router.get(
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
 
     // Normalize to a single name so logs/filters are consistent.
-    // Prefer `user_name` (snake_case) but accept common aliases.
+    // Accept common aliases from older callers, but treat the dedicated user-name search
+    // as an EXACT match on the canonical field `User_name` (per UI requirement).
     const userName =
+      (typeof req.query.User_name === 'string' && req.query.User_name.trim()) ||
       (typeof req.query.user_name === 'string' && req.query.user_name.trim()) ||
       (typeof req.query.userName === 'string' && req.query.userName.trim()) ||
       (typeof req.query.username === 'string' && req.query.username.trim()) ||
@@ -271,14 +273,14 @@ router.get(
       searchFilter = { $or: orParts };
     }
 
-    // Dedicated user_name filter: only match user name fields (case-insensitive).
-    // This is used by the Session Tracking module's "Search Users..." input.
+    // Dedicated User_name filter: EXACT match (no regex).
+    // Contract/invariant:
+    // - If the user uses the "Search users..." input, we must ONLY return rows whose
+    //   canonical field `User_name` equals the searched value.
+    // - This avoids partial matches and eliminates regex-based filters (/i) in finalFilter.
     let userNameFilter = {};
     if (userName) {
-      const userRegex = new RegExp(userName, 'i');
-      userNameFilter = {
-        $or: [{ user_name: userRegex }, { User_name: userRegex }],
-      };
+      userNameFilter = { User_name: userName };
     }
 
     // Ignore client filter param for this route
