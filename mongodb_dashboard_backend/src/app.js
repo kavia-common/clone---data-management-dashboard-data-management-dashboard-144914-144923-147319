@@ -177,6 +177,11 @@ app.use((req, res, next) => {
 
 safeUse('/api/session-tracking/composite', require('./routes/sessionTracking.composite.routes'));
 safeUse('/api/session-tracking/analytics', require('./routes/sessionTracking.analytics.routes'));
+
+// Dedicated table endpoint (keeps table fetch isolated from analytics usage in the frontend)
+safeUse('/api/session-tracking/table', require('./routes/sessionTracking.table.routes'));
+safeUse('/api/sessionTracking/table', require('./routes/sessionTracking.table.routes'));
+
 safeUse('/api/session-tracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
