@@ -32,6 +32,8 @@ function cacheKeyFromReq(req, enforcedTenant) {
       ? req.query.sort.trim()
       : '-session_start';
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const user_name =
+    typeof req.query.user_name === 'string' ? req.query.user_name.trim() : '';
   const start = roundToMinuteISO(req.query.start || req.query.from || '');
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
   const tenant = enforcedTenant
@@ -46,6 +48,7 @@ function cacheKeyFromReq(req, enforcedTenant) {
     page,
     limit,
     q,
+    user_name,
     start,
     end,
     sort,
