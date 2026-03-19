@@ -145,4 +145,39 @@ describe('SessionTracking list filtering (date range, user)', () => {
     expect(itemsB.length).toBe(1);
     expect(itemsB[0].user_id).toBe('u2');
   });
+
+  test('filters by user_name param (and aliases userName/username)', async () => {
+    const t = new Date();
+    await SessionTracking.insertMany([
+      { tenant_id: tenant, user_id: 'ua', user_name: 'Ad', status: 'completed', last_updated: t, session_start: t },
+      { tenant_id: tenant, user_id: 'ub', user_name: 'Be', status: 'completed', last_updated: t, session_start: t },
+    ]);
+
+    const resSnake = await request(app)
+      .get('/api/session-tracking')
+      .query({ user_name: 'Ad', page: 1, limit: 50 })
+      .set(authHeaders(tenant));
+    expect(resSnake.status).toBe(200);
+    const itemsSnake = Array.isArray(resSnake.body) ? resSnake.body : resSnake.body.data;
+    expect(itemsSnake.length).toBe(1);
+    expect(itemsSnake[0].user_id).toBe('ua');
+
+    const resCamel = await request(app)
+      .get('/api/session-tracking')
+      .query({ userName: 'Ad', page: 1, limit: 50 })
+      .set(authHeaders(tenant));
+    expect(resCamel.status).toBe(200);
+    const itemsCamel = Array.isArray(resCamel.body) ? resCamel.body : resCamel.body.data;
+    expect(itemsCamel.length).toBe(1);
+    expect(itemsCamel[0].user_id).toBe('ua');
+
+    const resLower = await request(app)
+      .get('/api/session-tracking')
+      .query({ username: 'Ad', page: 1, limit: 50 })
+      .set(authHeaders(tenant));
+    expect(resLower.status).toBe(200);
+    const itemsLower = Array.isArray(resLower.body) ? resLower.body : resLower.body.data;
+    expect(itemsLower.length).toBe(1);
+    expect(itemsLower[0].user_id).toBe('ua');
+  });
 });

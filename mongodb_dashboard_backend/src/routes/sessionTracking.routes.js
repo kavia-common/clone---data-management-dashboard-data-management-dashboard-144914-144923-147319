@@ -32,8 +32,15 @@ function cacheKeyFromReq(req, enforcedTenant) {
       ? req.query.sort.trim()
       : '-session_start';
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-  const user_name =
-    typeof req.query.user_name === 'string' ? req.query.user_name.trim() : '';
+
+  // Normalize user-name params so cache keys don't vary by alias.
+  // Prefer `user_name` (snake_case) but accept common aliases.
+  const userName =
+    (typeof req.query.user_name === 'string' && req.query.user_name.trim()) ||
+    (typeof req.query.userName === 'string' && req.query.userName.trim()) ||
+    (typeof req.query.username === 'string' && req.query.username.trim()) ||
+    '';
+
   const start = roundToMinuteISO(req.query.start || req.query.from || '');
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
   const tenant = enforcedTenant
@@ -48,7 +55,7 @@ function cacheKeyFromReq(req, enforcedTenant) {
     page,
     limit,
     q,
-    user_name,
+    userName,
     start,
     end,
     sort,
@@ -217,7 +224,10 @@ router.get(
     // Text search (single input): `q`
     // Also supports a dedicated user-name filter: `user_name` (and aliases).
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-    const userNameParam =
+
+    // Normalize to a single name so logs/filters are consistent.
+    // Prefer `user_name` (snake_case) but accept common aliases.
+    const userName =
       (typeof req.query.user_name === 'string' && req.query.user_name.trim()) ||
       (typeof req.query.userName === 'string' && req.query.userName.trim()) ||
       (typeof req.query.username === 'string' && req.query.username.trim()) ||
@@ -227,7 +237,7 @@ router.get(
     try {
       console.log(`[session-tracking][${_dbgReqId}] parsed=`, {
         q,
-        userNameParam,
+        userName,
         enforcedTenant,
         bypass,
         page,
@@ -264,8 +274,8 @@ router.get(
     // Dedicated user_name filter: only match user name fields (case-insensitive).
     // This is used by the Session Tracking module's "Search Users..." input.
     let userNameFilter = {};
-    if (userNameParam) {
-      const userRegex = new RegExp(userNameParam, 'i');
+    if (userName) {
+      const userRegex = new RegExp(userName, 'i');
       userNameFilter = {
         $or: [{ user_name: userRegex }, { User_name: userRegex }],
       };
@@ -346,6 +356,7 @@ router.get(
             limit,
             sort,
             q,
+            userName,
           });
           res.set('ETag', etag);
         }
@@ -373,6 +384,7 @@ router.get(
           tenant: bypass ? 'all-tenants' : enforcedTenant,
           sort,
           q,
+          userName,
         });
         res.set('ETag', etag);
       }
