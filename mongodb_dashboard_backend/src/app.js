@@ -176,6 +176,7 @@ app.use((req, res, next) => {
 });
 
 safeUse('/api/session-tracking/composite', require('./routes/sessionTracking.composite.routes'));
+safeUse('/api/session-tracking/analytics', require('./routes/sessionTracking.analytics.routes'));
 safeUse('/api/session-tracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
