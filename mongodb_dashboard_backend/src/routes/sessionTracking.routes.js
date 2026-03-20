@@ -243,22 +243,25 @@ router.get(
       searchFilter = { user_id: userId };
     } else if (q) {
       /**
-       * SessionTrackingTableUserNameSearch (canonical flow behavior)
+       * SessionTrackingTableUserNameExactMatch (canonical flow behavior)
        *
        * Contract:
        * - Input: `q` query param (string)
-       * - Behavior: apply case-insensitive match ONLY against the MongoDB field `User_name`
-       * - Explicitly does NOT search email or any other fields/aliases/variants.
+       * - Behavior: return ONLY rows where MongoDB field `User_name` exactly equals `q` (string equality)
+       * - Explicitly does NOT:
+       *   - do partial/contains matching
+       *   - use regex
+       *   - search any other fields
+       *   - match other username field variants like `user_name`
        *
        * Why:
-       * - The Sessions table "Filter by User name" input is intended to match the session_tracking
-       *   document field `User_name` specifically (source of truth per requirement).
-       * - Keeping this single-field prevents surprising matches and avoids mismatches caused by
-       *   divergent field naming across collections.
+       * - Requirement: "/api/session-tracking/table?q=<name> filters strictly by User_name equals q".
+       * - Prevents surprising matches (e.g., "Ann" matching "Annie") and avoids accidental matches
+       *   in other fields.
        */
       const qTrimmed = q.trim();
 
-      // Guardrail: avoid extremely long q creating expensive regex scans.
+      // Guardrail: avoid extremely long q to prevent log/transport abuse and unexpected load.
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       if (qTrimmed.length > MAX_Q_LENGTH) {
         return res.status(400).json({
@@ -267,24 +270,8 @@ router.get(
         });
       }
 
-      // Safe literal phrase regex (whitespace-tolerant, regex-injection safe).
-      const userNameRegex = buildSafePhraseRegex(qTrimmed);
-
-      /**
-       * IMPORTANT: Restrict q-search to ONLY the username field.
-       *
-       * In practice the backing MongoDB documents are not schema-strict (strict:false) and we have
-       * observed username stored under different keys depending on ingest/source:
-       * - `user_name` (legacy / most common in existing tests and datasets)
-       * - `User_name` (alternate capitalization observed in some exports)
-       *
-       * Contract for this endpoint:
-       * - q-search MUST NOT search other fields.
-       * - q-search MUST filter results by "user name" reliably across these known variants.
-       */
-      searchFilter = {
-        $or: [{ User_name: userNameRegex }, { user_name: userNameRegex }],
-      };
+      // IMPORTANT: Exact match ONLY on `User_name`.
+      searchFilter = { User_name: qTrimmed };
     }
 
     // Ignore client filter param for this route
