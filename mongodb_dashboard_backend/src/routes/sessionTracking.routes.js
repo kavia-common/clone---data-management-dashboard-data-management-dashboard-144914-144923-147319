@@ -243,20 +243,22 @@ router.get(
       searchFilter = { user_id: userId };
     } else if (q) {
       /**
-       * Make q-search resilient and safe for multi-word names.
+       * SessionTrackingTableUserNameSearch (canonical flow behavior)
        *
-       * Key invariant:
-       * - q is treated as literal text, not as a regex program.
-       *   (We escape regex metacharacters to avoid slow/unsafe patterns.)
+       * Contract:
+       * - Input: `q` query param (string)
+       * - Behavior: apply case-insensitive match ONLY against the MongoDB field `User_name`
+       * - Explicitly does NOT search email or any other fields/aliases/variants.
        *
-       * Also:
-       * - Multi-word q is matched with whitespace-tolerant pattern across fields,
-       *   and an AND-of-tokens matcher for user_name fields.
+       * Why:
+       * - The Sessions table "Filter by User name" input is intended to match the session_tracking
+       *   document field `User_name` specifically (source of truth per requirement).
+       * - Keeping this single-field prevents surprising matches and avoids mismatches caused by
+       *   divergent field naming across collections.
        */
       const qTrimmed = q.trim();
 
-      // Guardrail: avoid extremely long q creating huge regex scans.
-      // This endpoint can scan many fields (and with T0000 can scan across all tenants).
+      // Guardrail: avoid extremely long q creating expensive regex scans.
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       if (qTrimmed.length > MAX_Q_LENGTH) {
         return res.status(400).json({
@@ -265,78 +267,11 @@ router.get(
         });
       }
 
-      // Safe "phrase" regex: literal tokens joined by \s+ so "Aditi S" matches "Aditi  S".
-      const phraseRegex = buildSafePhraseRegex(qTrimmed);
+      // Safe literal phrase regex (whitespace-tolerant, regex-injection safe).
+      const userNameRegex = buildSafePhraseRegex(qTrimmed);
 
-      // Single token: allow exact user_id equality fast-path.
-      const looksLikeId = !/\s/.test(qTrimmed);
-
-      /**
-       * q-search field coverage
-       *
-       * In the wild, session_tracking documents are not guaranteed to use a single canonical casing
-       * for user display name. We therefore include a small set of common variants. This is additive
-       * and safe: it only broadens matches when q is provided.
-       *
-       * IMPORTANT invariant:
-       * - We keep user_id exact-match fast-path when q is a single token (looksLikeId).
-       * - We continue to use literal-safe regexes (phraseRegex + escaped token regexes).
-       */
-      const orParts = [
-        { task_id: phraseRegex },
-        { tenant_id: phraseRegex },
-        { organization_name: phraseRegex },
-
-        // Common username/display-name variants
-        { user_name: phraseRegex },
-        { User_name: phraseRegex },
-        { userName: phraseRegex },
-        { username: phraseRegex },
-        { 'user.name': phraseRegex },
-        { 'user.profile.name': phraseRegex },
-
-        { project_id: phraseRegex },
-        { container_id: phraseRegex },
-        { service_type: phraseRegex },
-        { status: phraseRegex },
-        { user_id: phraseRegex },
-        { 'session_data.session_name': phraseRegex },
-        { 'session_data.description': phraseRegex },
-        { 'session_data.llm_model': phraseRegex },
-      ];
-
-      if (looksLikeId) {
-        orParts.unshift({ user_id: qTrimmed });
-      } else {
-        // Tokenize on whitespace; ignore empty tokens.
-        const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
-
-        if (tokens.length >= 2) {
-          // Token regexes are literal-safe too.
-          const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
-
-          // Match user name fields where *all* tokens match (in any order).
-          // We include common variants to avoid empty results when data uses a different casing.
-          const allTokensOn = (field) => ({
-            $and: tokenRegexes.map((r) => ({ [field]: r })),
-          });
-
-          const userNameVariants = [
-            'user_name',
-            'User_name',
-            'userName',
-            'username',
-            'user.name',
-            'user.profile.name',
-          ];
-
-          orParts.unshift({
-            $or: userNameVariants.map((f) => allTokensOn(f)),
-          });
-        }
-      }
-
-      searchFilter = { $or: orParts };
+      // IMPORTANT: Restrict q-search to ONLY `User_name`.
+      searchFilter = { User_name: userNameRegex };
     }
 
     // Ignore client filter param for this route

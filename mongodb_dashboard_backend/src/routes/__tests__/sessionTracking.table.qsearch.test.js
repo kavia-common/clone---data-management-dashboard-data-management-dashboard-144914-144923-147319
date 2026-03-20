@@ -26,9 +26,9 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('multi-word q search builds a valid AND-of-regex tokens for user_name variants and uses safe literal regexes', async () => {
+  test('q search matches ONLY the `User_name` field (safe literal regex), and no other fields', async () => {
     // Arrange: return one matching doc.
-    const docs = [{ _id: '1', user_name: 'Aditi S' }];
+    const docs = [{ _id: '1', User_name: 'Aditi S' }];
 
     // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
@@ -59,35 +59,16 @@ describe('GET /api/session-tracking/table q-search', () => {
     const filterArg = SessionTracking.find.mock.calls[0][0];
 
     // With T0000, bypass should avoid enforced tenant scope, so filter should be search-only.
-    expect(filterArg).toHaveProperty('$or');
-    expect(Array.isArray(filterArg.$or)).toBe(true);
+    // The contract is: ONLY `User_name` is searched.
+    expect(filterArg).toHaveProperty('User_name');
+    expect(filterArg.User_name instanceof RegExp).toBe(true);
 
-    // First item is our inserted token matcher (unshift).
-    const first = filterArg.$or[0];
-    expect(first).toHaveProperty('$or');
-    expect(Array.isArray(first.$or)).toBe(true);
+    // Ensure whitespace-tolerant phrase regex is used (Aditi\s+S)
+    expect(String(filterArg.User_name)).toMatch(/Aditi\\s\+S/i);
 
-    // Ensure we now generate token matchers for common user-name field variants.
-    // Each variant must be an {$and:[{field:/token/i},...]} structure.
-    const variantFields = new Set();
-    for (const variant of first.$or) {
-      expect(variant).toHaveProperty('$and');
-      expect(Array.isArray(variant.$and)).toBe(true);
-      const firstCond = variant.$and[0];
-      const keys = firstCond && typeof firstCond === 'object' ? Object.keys(firstCond) : [];
-      if (keys.length === 1) variantFields.add(keys[0]);
-    }
-
-    // We expect at least these variants to be present.
-    expect(variantFields.has('user_name')).toBe(true);
-    expect(variantFields.has('User_name')).toBe(true);
-    expect(variantFields.has('userName')).toBe(true);
-    expect(variantFields.has('username')).toBe(true);
-
-    // Also assert the "phrase" regex used in other OR parts is whitespace-tolerant.
-    const phraseUserNamePart = filterArg.$or.find((p) => p && p.user_name instanceof RegExp);
-    expect(phraseUserNamePart).toBeTruthy();
-    expect(String(phraseUserNamePart.user_name)).toMatch(/Aditi\\s\+S/i);
+    // Ensure we did NOT build any multi-field OR query.
+    expect(filterArg).not.toHaveProperty('$or');
+    expect(filterArg).not.toHaveProperty('$and');
 
     // Sanity check that DB chain was invoked for pagination
     expect(chain.sort).toHaveBeenCalled();
