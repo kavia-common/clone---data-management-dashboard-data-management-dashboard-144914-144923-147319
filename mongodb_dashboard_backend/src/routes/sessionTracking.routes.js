@@ -265,7 +265,9 @@ router.get(
        * Note: case-sensitivity depends on Mongo collation; this intentionally does not force
        * a regex-based case-insensitive query because the contract is "exact match".
        */
-      searchFilter = { User_name: qTrimmed };
+      // Canonical field in session_tracking is `user_name` (lowercase). Mongo field names are
+      // case-sensitive, so using `User_name` results in empty lists even when data exists.
+      searchFilter = { user_name: qTrimmed };
     }
 
     // Ignore client filter param for this route

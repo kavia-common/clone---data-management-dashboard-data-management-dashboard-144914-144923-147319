@@ -26,9 +26,9 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('q search matches ONLY `User_name` with exact equality (no partial, no other fields/aliases)', async () => {
-    // Arrange: return one matching doc.
-    const docs = [{ _id: '1', User_name: 'Aditi S' }];
+  test('q search matches ONLY `user_name` with exact equality (no partial, no other fields/aliases)', async () => {
+    // Arrange: return one matching doc with the canonical field name used in the collection.
+    const docs = [{ _id: '1', user_name: 'Aditi S' }];
 
     // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
@@ -59,8 +59,8 @@ describe('GET /api/session-tracking/table q-search', () => {
     const filterArg = SessionTracking.find.mock.calls[0][0];
 
     // With T0000, bypass should avoid enforced tenant scope, so filter should be search-only.
-    // Contract: ONLY exact equality on User_name.
-    expect(filterArg).toEqual({ User_name: 'Aditi S' });
+    // Contract: ONLY exact equality on canonical field `user_name`.
+    expect(filterArg).toEqual({ user_name: 'Aditi S' });
 
     // Sanity check that DB chain was invoked for pagination
     expect(chain.sort).toHaveBeenCalled();
