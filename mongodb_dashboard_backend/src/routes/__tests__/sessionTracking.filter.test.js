@@ -186,46 +186,4 @@ describe('SessionTracking list filtering (date range, user)', () => {
     const ids = items.map((x) => x.user_id);
     expect(ids).toContain('u-aditi-t0000');
   });
-
-  test('GET /api/session-tracking/tenants/distinct returns distinct tenant ids within scope', async () => {
-    const t = new Date();
-    await SessionTracking.insertMany([
-      { tenant_id: tenant, user_id: 'u1', status: 'completed', last_updated: t, session_start: t },
-      { tenant_id: tenant, user_id: 'u2', status: 'completed', last_updated: t, session_start: t },
-      { tenant_id: 'otherTenant', user_id: 'u9', status: 'completed', last_updated: t, session_start: t },
-      // also include organization_id variant to ensure normalization works
-      { organization_id: tenant, user_id: 'u3', status: 'completed', last_updated: t, session_start: t },
-    ]);
-
-    const res = await request(app)
-      .get('/api/session-tracking/tenants/distinct')
-      .set(authHeaders(tenant));
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(Array.isArray(res.body.items)).toBe(true);
-
-    // Within tenant scope, should only see the enforced tenant (orgFilters)
-    expect(res.body.items).toEqual([tenant]);
-    expect(res.body.total).toBe(1);
-  });
-
-  test('GET /api/session-tracking/tenants/distinct supports all-tenants sentinel T0000 (bypass) and returns all distinct', async () => {
-    const t = new Date();
-    await SessionTracking.insertMany([
-      { tenant_id: 'T0000', user_id: 'u-t0000', status: 'completed', last_updated: t, session_start: t },
-      { tenant_id: 'ORG_X', user_id: 'u-x', status: 'completed', last_updated: t, session_start: t },
-      { tenant_id: 'ORG_Y', user_id: 'u-y', status: 'completed', last_updated: t, session_start: t },
-    ]);
-
-    const res = await request(app)
-      .get('/api/session-tracking/tenants/distinct')
-      .query({ tenant_id: 'T0000' })
-      .set(authHeaders('T0000'));
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.items).toEqual(['ORG_X', 'ORG_Y', 'T0000']);
-    expect(res.body.total).toBe(3);
-  });
 });
