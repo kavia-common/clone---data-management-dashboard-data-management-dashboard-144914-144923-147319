@@ -139,7 +139,7 @@ router.use((req, res, next) => {
         ]
       }));
     }
-  } catch {}
+  } catch { }
   next();
 });
 
@@ -238,30 +238,13 @@ router.get(
     const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
 
     let searchFilter = {};
+
     if (userId) {
-      // Exact equality on user_id
       searchFilter = { user_id: userId };
-    } else if (q) {
-      /**
-       * SessionTrackingTableUserNameExactMatch (canonical flow behavior)
-       *
-       * Contract:
-       * - Input: `q` query param (string)
-       * - Behavior: return ONLY rows where MongoDB field `User_name` exactly equals `q` (string equality)
-       * - Explicitly does NOT:
-       *   - do partial/contains matching
-       *   - use regex
-       *   - search any other fields
-       *   - match other username field variants like `user_name`
-       *
-       * Why:
-       * - Requirement: "/api/session-tracking/table?q=<name> filters strictly by User_name equals q".
-       * - Prevents surprising matches (e.g., "Ann" matching "Annie") and avoids accidental matches
-       *   in other fields.
-       */
+
+    } else if (q && q.trim().length > 0) {
       const qTrimmed = q.trim();
 
-      // Guardrail: avoid extremely long q to prevent log/transport abuse and unexpected load.
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       if (qTrimmed.length > MAX_Q_LENGTH) {
         return res.status(400).json({
@@ -270,24 +253,35 @@ router.get(
         });
       }
 
-      // IMPORTANT: Exact match ONLY on `User_name`.
+      /**
+       * Contract (table endpoint / Sessions page):
+       * - q must filter by exact match on *only* the `User_name` field.
+       * - No partial matches, no regex, no additional aliases.
+       *
+       * Why exact match:
+       * - Prevents surprising results for partial typing.
+       * - Matches the backend test contract and the UI requirement.
+       *
+       * Note: case-sensitivity depends on Mongo collation; this intentionally does not force
+       * a regex-based case-insensitive query because the contract is "exact match".
+       */
       searchFilter = { User_name: qTrimmed };
     }
 
     // Ignore client filter param for this route
     if (typeof req.query.filter !== 'undefined') {
-      try { res.set('X-Filter-Ignored', 'true'); } catch {}
+      try { res.set('X-Filter-Ignored', 'true'); } catch { }
     }
 
     // Defense in depth: never enforce a literal scope for the "all tenants" sentinel.
     const enforcedScope = (!bypass && enforcedTenant && !isAllTenantsSentinel(enforcedTenant))
       ? {
-          $or: [
-            { tenant_id: enforcedTenant },
-            { organization_id: enforcedTenant },
-            { organizationId: enforcedTenant },
-          ],
-        }
+        $or: [
+          { tenant_id: enforcedTenant },
+          { organization_id: enforcedTenant },
+          { organizationId: enforcedTenant },
+        ],
+      }
       : {};
 
     const parts = [];
@@ -298,7 +292,8 @@ router.get(
 
     // Cache handling
     const cacheKey = cacheKeyFromReq(req, enforcedTenant);
-    const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
+    // const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
+    const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET' && !q;
     const wantETag = ENABLE_ETAG && req.method === 'GET';
 
     // Debug logging (temporary): helps diagnose why filtering returns empty.
@@ -343,7 +338,7 @@ router.get(
           },
           finalFilter,
         });
-      } catch {}
+      } catch { }
     }
 
     if (wantCache) {
@@ -378,7 +373,7 @@ router.get(
               count: cachedDocs.length,
               user_name_sample: sampleNames.slice(0, 20),
             });
-          } catch {}
+          } catch { }
         }
 
         return res.status(200).json(hit.payload);
@@ -406,7 +401,7 @@ router.get(
               user_name_sample: names.slice(0, 20),
               hasAnyUserName: names.length > 0,
             });
-          } catch {}
+          } catch { }
         }
 
         const payload = { success: true, data: docs, meta: { page, limit, total } };
@@ -442,7 +437,7 @@ router.get(
             user_name_sample: names.slice(0, 20),
             hasAnyUserName: names.length > 0,
           });
-        } catch {}
+        } catch { }
       }
 
       const payload = docs;
@@ -467,7 +462,7 @@ router.get(
             message: err?.message || String(err),
             stack: err?.stack,
           });
-        } catch {}
+        } catch { }
       }
 
       return res.status(400).json({
@@ -480,9 +475,9 @@ router.get(
 );
 
 // CRUD operations invalidate cache
-router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
-router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
-router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
+router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
+router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
+router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
 
 // Keep ID read unchanged
 router.get('/:id', asyncHandler(controller.getById));
