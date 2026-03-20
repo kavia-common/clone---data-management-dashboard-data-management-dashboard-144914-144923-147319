@@ -26,9 +26,9 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('q search matches ONLY the `User_name` field (safe literal regex), and no other fields', async () => {
+  test('q search matches ONLY username fields (`User_name` OR `user_name`) using a safe literal regex, and no other fields', async () => {
     // Arrange: return one matching doc.
-    const docs = [{ _id: '1', User_name: 'Aditi S' }];
+    const docs = [{ _id: '1', user_name: 'Aditi S' }];
 
     // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
@@ -59,15 +59,22 @@ describe('GET /api/session-tracking/table q-search', () => {
     const filterArg = SessionTracking.find.mock.calls[0][0];
 
     // With T0000, bypass should avoid enforced tenant scope, so filter should be search-only.
-    // The contract is: ONLY `User_name` is searched.
-    expect(filterArg).toHaveProperty('User_name');
-    expect(filterArg.User_name instanceof RegExp).toBe(true);
+    // The contract is: ONLY username fields are searched (no other fields).
+    expect(filterArg).toHaveProperty('$or');
+    expect(Array.isArray(filterArg.$or)).toBe(true);
+    expect(filterArg.$or).toHaveLength(2);
 
-    // Ensure whitespace-tolerant phrase regex is used (Aditi\s+S)
-    expect(String(filterArg.User_name)).toMatch(/Aditi\\s\+S/i);
+    const [a, b] = filterArg.$or;
+    expect(Object.keys(a)).toEqual(['User_name']);
+    expect(Object.keys(b)).toEqual(['user_name']);
+    expect(a.User_name instanceof RegExp).toBe(true);
+    expect(b.user_name instanceof RegExp).toBe(true);
 
-    // Ensure we did NOT build any multi-field OR query.
-    expect(filterArg).not.toHaveProperty('$or');
+    // Ensure whitespace-tolerant phrase regex is used (Aditi\\s+S)
+    expect(String(a.User_name)).toMatch(/Aditi\\s\+S/i);
+    expect(String(b.user_name)).toMatch(/Aditi\\s\+S/i);
+
+    // Ensure we did NOT build any broader multi-field AND query.
     expect(filterArg).not.toHaveProperty('$and');
 
     // Sanity check that DB chain was invoked for pagination

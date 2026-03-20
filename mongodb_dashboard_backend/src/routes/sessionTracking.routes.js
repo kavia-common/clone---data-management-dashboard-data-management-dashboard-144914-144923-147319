@@ -270,8 +270,21 @@ router.get(
       // Safe literal phrase regex (whitespace-tolerant, regex-injection safe).
       const userNameRegex = buildSafePhraseRegex(qTrimmed);
 
-      // IMPORTANT: Restrict q-search to ONLY `User_name`.
-      searchFilter = { User_name: userNameRegex };
+      /**
+       * IMPORTANT: Restrict q-search to ONLY the username field.
+       *
+       * In practice the backing MongoDB documents are not schema-strict (strict:false) and we have
+       * observed username stored under different keys depending on ingest/source:
+       * - `user_name` (legacy / most common in existing tests and datasets)
+       * - `User_name` (alternate capitalization observed in some exports)
+       *
+       * Contract for this endpoint:
+       * - q-search MUST NOT search other fields.
+       * - q-search MUST filter results by "user name" reliably across these known variants.
+       */
+      searchFilter = {
+        $or: [{ User_name: userNameRegex }, { user_name: userNameRegex }],
+      };
     }
 
     // Ignore client filter param for this route
