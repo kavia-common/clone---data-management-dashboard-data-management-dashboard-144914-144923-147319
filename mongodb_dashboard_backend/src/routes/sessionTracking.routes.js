@@ -271,12 +271,30 @@ router.get(
       // Single token: allow exact user_id equality fast-path.
       const looksLikeId = !/\s/.test(qTrimmed);
 
+      /**
+       * q-search field coverage
+       *
+       * In the wild, session_tracking documents are not guaranteed to use a single canonical casing
+       * for user display name. We therefore include a small set of common variants. This is additive
+       * and safe: it only broadens matches when q is provided.
+       *
+       * IMPORTANT invariant:
+       * - We keep user_id exact-match fast-path when q is a single token (looksLikeId).
+       * - We continue to use literal-safe regexes (phraseRegex + escaped token regexes).
+       */
       const orParts = [
         { task_id: phraseRegex },
         { tenant_id: phraseRegex },
         { organization_name: phraseRegex },
+
+        // Common username/display-name variants
         { user_name: phraseRegex },
         { User_name: phraseRegex },
+        { userName: phraseRegex },
+        { username: phraseRegex },
+        { 'user.name': phraseRegex },
+        { 'user.profile.name': phraseRegex },
+
         { project_id: phraseRegex },
         { container_id: phraseRegex },
         { service_type: phraseRegex },
@@ -297,15 +315,24 @@ router.get(
           // Token regexes are literal-safe too.
           const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
 
-          // Match either user_name or User_name where *all* tokens match (in any order).
-          const userNameAllTokens = {
-            $and: tokenRegexes.map((r) => ({ user_name: r })),
-          };
-          const userNameAllTokensAlt = {
-            $and: tokenRegexes.map((r) => ({ User_name: r })),
-          };
+          // Match user name fields where *all* tokens match (in any order).
+          // We include common variants to avoid empty results when data uses a different casing.
+          const allTokensOn = (field) => ({
+            $and: tokenRegexes.map((r) => ({ [field]: r })),
+          });
 
-          orParts.unshift({ $or: [userNameAllTokens, userNameAllTokensAlt] });
+          const userNameVariants = [
+            'user_name',
+            'User_name',
+            'userName',
+            'username',
+            'user.name',
+            'user.profile.name',
+          ];
+
+          orParts.unshift({
+            $or: userNameVariants.map((f) => allTokensOn(f)),
+          });
         }
       }
 

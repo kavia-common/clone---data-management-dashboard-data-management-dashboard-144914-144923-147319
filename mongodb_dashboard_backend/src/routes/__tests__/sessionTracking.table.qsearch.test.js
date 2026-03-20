@@ -26,7 +26,7 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('multi-word q search builds a valid AND-of-regex tokens for user_name/User_name and uses safe literal regexes', async () => {
+  test('multi-word q search builds a valid AND-of-regex tokens for user_name variants and uses safe literal regexes', async () => {
     // Arrange: return one matching doc.
     const docs = [{ _id: '1', user_name: 'Aditi S' }];
 
@@ -67,22 +67,24 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(first).toHaveProperty('$or');
     expect(Array.isArray(first.$or)).toBe(true);
 
-    const [variant1, variant2] = first.$or;
-    expect(variant1).toHaveProperty('$and');
-    expect(variant2).toHaveProperty('$and');
+    // Ensure we now generate token matchers for common user-name field variants.
+    // Each variant must be an {$and:[{field:/token/i},...]} structure.
+    const variantFields = new Set();
+    for (const variant of first.$or) {
+      expect(variant).toHaveProperty('$and');
+      expect(Array.isArray(variant.$and)).toBe(true);
+      const firstCond = variant.$and[0];
+      const keys = firstCond && typeof firstCond === 'object' ? Object.keys(firstCond) : [];
+      if (keys.length === 1) variantFields.add(keys[0]);
+    }
 
-    // Each $and element should be like { user_name: /Aditi/i } etc, and be regex instances.
-    for (const cond of variant1.$and) {
-      expect(cond).toHaveProperty('user_name');
-      expect(cond.user_name).toBeInstanceOf(RegExp);
-    }
-    for (const cond of variant2.$and) {
-      expect(cond).toHaveProperty('User_name');
-      expect(cond.User_name).toBeInstanceOf(RegExp);
-    }
+    // We expect at least these variants to be present.
+    expect(variantFields.has('user_name')).toBe(true);
+    expect(variantFields.has('User_name')).toBe(true);
+    expect(variantFields.has('userName')).toBe(true);
+    expect(variantFields.has('username')).toBe(true);
 
     // Also assert the "phrase" regex used in other OR parts is whitespace-tolerant.
-    // One of the standard orParts entries is { user_name: phraseRegex } (later in the array).
     const phraseUserNamePart = filterArg.$or.find((p) => p && p.user_name instanceof RegExp);
     expect(phraseUserNamePart).toBeTruthy();
     expect(String(phraseUserNamePart.user_name)).toMatch(/Aditi\\s\+S/i);
