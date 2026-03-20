@@ -178,9 +178,6 @@ app.use((req, res, next) => {
 safeUse('/api/session-tracking/composite', require('./routes/sessionTracking.composite.routes'));
 safeUse('/api/session-tracking/analytics', require('./routes/sessionTracking.analytics.routes'));
 
-// Session Tracking dataset-derived tenant list (for "Filter by Tenant ID" dropdown)
-safeUse('/api/session-tracking/tenants', require('./routes/sessionTracking.tenants.routes'));
-
 // Dedicated table endpoint (keeps table fetch isolated from analytics usage in the frontend)
 safeUse('/api/session-tracking/table', require('./routes/sessionTracking.table.routes'));
 safeUse('/api/sessionTracking/table', require('./routes/sessionTracking.table.routes'));
