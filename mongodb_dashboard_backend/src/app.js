@@ -74,15 +74,15 @@ const buildDynamicSpec = (req) => {
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
     // Use same-origin server so Swagger calls hit this backend instance
-    url: `${protocol}://${fullHost}`,
-    // servers: [
-    //   {
-    //     // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-    //     url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
-    //     // description: 'Predefined dev server',
-    //     description: 'Predefined beta server',
-    //   },
-    // ],
+    // url: `${protocol}://${fullHost}`,
+    servers: [
+      {
+        // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+        url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
+        // description: 'Predefined dev server',
+        description: 'Predefined beta server',
+      },
+    ],
   };
 };
 
@@ -177,9 +177,6 @@ app.use((req, res, next) => {
 
 safeUse('/api/session-tracking/composite', require('./routes/sessionTracking.composite.routes'));
 safeUse('/api/session-tracking/analytics', require('./routes/sessionTracking.analytics.routes'));
-
-// Session Tracking dataset-derived tenant list (for "Filter by Tenant ID" dropdown)
-safeUse('/api/session-tracking/tenants', require('./routes/sessionTracking.tenants.routes'));
 
 // Dedicated table endpoint (keeps table fetch isolated from analytics usage in the frontend)
 safeUse('/api/session-tracking/table', require('./routes/sessionTracking.table.routes'));
