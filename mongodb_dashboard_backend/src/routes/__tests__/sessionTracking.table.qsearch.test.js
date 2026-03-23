@@ -62,14 +62,26 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(filterArg).toHaveProperty('$and');
     expect(Array.isArray(filterArg.$and)).toBe(true);
 
-    const userNamePart = filterArg.$and.find((p) => p && p.$or && Array.isArray(p.$or) && p.$or.some((c) => 'User_name' in c || 'user_name' in c || 'userName' in c));
+    const userNamePart = filterArg.$and.find(
+      (p) =>
+        p &&
+        p.$or &&
+        Array.isArray(p.$or) &&
+        p.$or.some((c) => 'User_name' in c || 'user_name' in c || 'userName' in c)
+    );
     expect(userNamePart).toBeTruthy();
     expect(userNamePart.$or).toEqual(
       expect.arrayContaining([{ User_name: 'Sumi P' }, { user_name: 'Sumi P' }, { userName: 'Sumi P' }])
     );
 
     // Must include tenant scoping (aliases allowed)
-    const tenantPart = filterArg.$and.find((p) => p && p.$or && Array.isArray(p.$or) && p.$or.some((c) => 'tenant_id' in c || 'organization_id' in c || 'organizationId' in c));
+    const tenantPart = filterArg.$and.find(
+      (p) =>
+        p &&
+        p.$or &&
+        Array.isArray(p.$or) &&
+        p.$or.some((c) => 'tenant_id' in c || 'organization_id' in c || 'organizationId' in c)
+    );
     expect(tenantPart).toBeTruthy();
     expect(tenantPart.$or).toEqual(
       expect.arrayContaining([
