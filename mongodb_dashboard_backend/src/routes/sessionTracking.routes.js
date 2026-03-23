@@ -237,26 +237,29 @@ router.get(
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
 
+    /**
+     * SessionTrackingListFilterFlow
+     *
+     * Contract:
+     * - Inputs:
+     *   - userId: optional exact match for `user_id`
+     *   - q: optional string. When present, it filters ONLY by user name (user_name / User_name).
+     * - Output:
+     *   - searchFilter: MongoDB filter object (may be empty)
+     * - Invariants:
+     *   - No references to undefined qTrimmed outside the `q` branch.
+     *   - `q` is treated as literal text (regex-escaped) and supports multi-word whitespace tolerance.
+     * - Errors:
+     *   - Returns 400 if q exceeds SESSION_TRACKING_MAX_Q_LENGTH.
+     */
     let searchFilter = {};
     if (userId) {
       // Exact equality on user_id
       searchFilter = { user_id: userId };
     } else if (q) {
-      /**
-       * Make q-search resilient and safe for multi-word names.
-       *
-       * Key invariant:
-       * - q is treated as literal text, not as a regex program.
-       *   (We escape regex metacharacters to avoid slow/unsafe patterns.)
-       *
-       * Also:
-       * - Multi-word q is matched with whitespace-tolerant pattern across fields,
-       *   and an AND-of-tokens matcher for user_name fields.
-       */
       const qTrimmed = q.trim();
 
       // Guardrail: avoid extremely long q creating huge regex scans.
-      // This endpoint can scan many fields (and with T0000 can scan across all tenants).
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       if (qTrimmed.length > MAX_Q_LENGTH) {
         return res.status(400).json({
@@ -265,73 +268,54 @@ router.get(
         });
       }
 
-      // Safe "phrase" regex: literal tokens joined by \s+ so "Aditi S" matches "Aditi  S".
+      // Username-only search (requirement): match either user_name or User_name.
+      // Use a safe, whitespace-tolerant phrase regex.
       const phraseRegex = buildSafePhraseRegex(qTrimmed);
 
-      // Single token: allow exact user_id equality fast-path.
-      const looksLikeId = !/\s/.test(qTrimmed);
+      // For multi-token names, also add an AND-of-tokens matcher to improve matching
+      // when stored values contain extra punctuation or non-standard spacing.
+      const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+      const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
 
-      const orParts = [
-        { task_id: phraseRegex },
-        { tenant_id: phraseRegex },
-        { organization_name: phraseRegex },
-        { user_name: phraseRegex },
-        { User_name: phraseRegex },
-        { project_id: phraseRegex },
-        { container_id: phraseRegex },
-        { service_type: phraseRegex },
-        { status: phraseRegex },
-        { user_id: phraseRegex },
-        { 'session_data.session_name': phraseRegex },
-        { 'session_data.description': phraseRegex },
-        { 'session_data.llm_model': phraseRegex },
-      ];
+      const userNamePhrase = { $or: [{ user_name: phraseRegex }, { User_name: phraseRegex }] };
 
-      if (looksLikeId) {
-        orParts.unshift({ user_id: qTrimmed });
-      } else {
-        // Tokenize on whitespace; ignore empty tokens.
-        const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
-
-        if (tokens.length >= 2) {
-          // Token regexes are literal-safe too.
-          const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
-
-          // Match either user_name or User_name where *all* tokens match (in any order).
-          const userNameAllTokens = {
-            $and: tokenRegexes.map((r) => ({ user_name: r })),
-          };
-          const userNameAllTokensAlt = {
-            $and: tokenRegexes.map((r) => ({ User_name: r })),
-          };
-
-          orParts.unshift({ $or: [userNameAllTokens, userNameAllTokensAlt] });
-        }
+      let userNameAllTokens = null;
+      if (tokenRegexes.length >= 2) {
+        userNameAllTokens = {
+          $or: [
+            { $and: tokenRegexes.map((r) => ({ user_name: r })) },
+            { $and: tokenRegexes.map((r) => ({ User_name: r })) },
+          ],
+        };
       }
 
-      searchFilter = { $or: orParts };
+      searchFilter = userNameAllTokens ? { $or: [userNameAllTokens, userNamePhrase] } : userNamePhrase;
     }
 
     // Ignore client filter param for this route
     if (typeof req.query.filter !== 'undefined') {
-      try { res.set('X-Filter-Ignored', 'true'); } catch {}
+      try {
+        res.set('X-Filter-Ignored', 'true');
+      } catch {}
     }
 
     // Defense in depth: never enforce a literal scope for the "all tenants" sentinel.
-    const enforcedScope = (!bypass && enforcedTenant && !isAllTenantsSentinel(enforcedTenant))
-      ? {
-          $or: [
-            { tenant_id: enforcedTenant },
-            { organization_id: enforcedTenant },
-            { organizationId: enforcedTenant },
-          ],
-        }
-      : {};
+    const enforcedScope =
+      !bypass && enforcedTenant && !isAllTenantsSentinel(enforcedTenant)
+        ? {
+            $or: [
+              { tenant_id: enforcedTenant },
+              { organization_id: enforcedTenant },
+              { organizationId: enforcedTenant },
+            ],
+          }
+        : {};
 
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
     if (!isEmpty(searchFilter)) parts.push(searchFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
+
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
     // Cache handling
