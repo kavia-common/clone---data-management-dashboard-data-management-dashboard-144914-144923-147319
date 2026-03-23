@@ -25,7 +25,10 @@ function buildTextSearchFilter(q) {
   const qTrimmed = typeof q === 'string' ? q.trim() : '';
   if (!qTrimmed) return {};
 
-  const regex = new RegExp(qTrimmed, 'i');
+  // Escape user input so q behaves like a literal search string (not an arbitrary regex).
+  const escapeRegexLiteral = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(escapeRegexLiteral(qTrimmed), 'i');
+
   const looksLikeId = !/\s/.test(qTrimmed);
 
   const orParts = [
@@ -45,11 +48,13 @@ function buildTextSearchFilter(q) {
   ];
 
   if (looksLikeId) {
+    // Preserve the exact-ID shortcut, but still allow general regex matches above.
     orParts.unshift({ user_id: qTrimmed });
   } else {
     const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
     if (tokens.length >= 2) {
-      const tokenRegexes = tokens.map((t) => new RegExp(t, 'i'));
+      // Multi-token: require all tokens to appear somewhere in user_name/User_name.
+      const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
       const userNameAllTokens = { $and: tokenRegexes.map((r) => ({ user_name: r })) };
       const userNameAllTokensAlt = { $and: tokenRegexes.map((r) => ({ User_name: r })) };
       orParts.unshift({ $or: [userNameAllTokens, userNameAllTokensAlt] });
