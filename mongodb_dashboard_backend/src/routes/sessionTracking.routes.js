@@ -252,15 +252,18 @@ router.get(
        *   - searchFilter object to be AND-ed with enforced tenant scope (unless bypass/T0000).
        * - Behavior:
        *   - When `q` is provided (and `userId` is not), return ONLY records whose
-       *     SessionTracking.User_name is EXACTLY equal to q.
+       *     user name field is EXACTLY equal to q.
+       *   - We support multiple historical field spellings/casing used in session_tracking:
+       *       - User_name
+       *       - user_name
+       *       - userName
+       *     (Exact match across any of these).
        *   - Tenant scoping is handled separately via enforcedScope, so this filter is purely
        *     about the user name match.
        *
        * Notes:
-       * - This intentionally does NOT implement fuzzy/regex matching. The UI request requires
-       *   strict equality for names like "Harish V".
-       * - We match on the canonical field `User_name` (not `user_name`), consistent with
-       *   existing q-search behavior in this route.
+       * - This intentionally does NOT implement fuzzy/regex matching. The UI requirement is
+       *   strict equality for names like "Sumi P".
        */
       const qTrimmed = q.trim();
 
@@ -272,8 +275,10 @@ router.get(
         });
       }
 
-      // Exact match as requested.
-      searchFilter = { User_name: qTrimmed };
+      // Exact match across field variants (real-world data may use any of these).
+      searchFilter = {
+        $or: [{ User_name: qTrimmed }, { user_name: qTrimmed }, { userName: qTrimmed }],
+      };
     }
 
     // Ignore client filter param for this route

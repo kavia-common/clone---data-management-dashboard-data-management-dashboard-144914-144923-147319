@@ -26,9 +26,9 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('q search matches ONLY exact User_name and respects tenant_id scoping', async () => {
+  test('q search matches ONLY exact user name (across field variants) and respects tenant_id scoping', async () => {
     // Arrange: return one matching doc.
-    const docs = [{ _id: '1', User_name: 'Harish V', tenant_id: 'TENANT_X' }];
+    const docs = [{ _id: '1', User_name: 'Sumi P', tenant_id: 'TENANT_X' }];
 
     // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
@@ -46,7 +46,7 @@ describe('GET /api/session-tracking/table q-search', () => {
     // Act (non-bypass tenant)
     const res = await request(app)
       .get('/api/session-tracking/table')
-      .query({ page: 1, limit: 10, q: 'Harish V', tenant_id: 'TENANT_X' })
+      .query({ page: 1, limit: 10, q: 'Sumi P', tenant_id: 'TENANT_X' })
       .expect(200);
 
     // Assert payload
@@ -56,18 +56,20 @@ describe('GET /api/session-tracking/table q-search', () => {
       meta: { page: 1, limit: 10, total: 1 },
     });
 
-    // Assert generated filter: { $and: [ {User_name:'Harish V'}, { $or:[{tenant_id:'TENANT_X'}, ...] } ] }
+    // Assert generated filter:
+    // { $and: [ { $or:[{User_name:'Sumi P'},{user_name:'Sumi P'},{userName:'Sumi P'}] }, { $or:[{tenant_id:'TENANT_X'}, ...] } ] }
     const filterArg = SessionTracking.find.mock.calls[0][0];
     expect(filterArg).toHaveProperty('$and');
     expect(Array.isArray(filterArg.$and)).toBe(true);
 
-    // Must include exact username match
-    expect(filterArg.$and).toEqual(
-      expect.arrayContaining([expect.objectContaining({ User_name: 'Harish V' })])
+    const userNamePart = filterArg.$and.find((p) => p && p.$or && Array.isArray(p.$or) && p.$or.some((c) => 'User_name' in c || 'user_name' in c || 'userName' in c));
+    expect(userNamePart).toBeTruthy();
+    expect(userNamePart.$or).toEqual(
+      expect.arrayContaining([{ User_name: 'Sumi P' }, { user_name: 'Sumi P' }, { userName: 'Sumi P' }])
     );
 
     // Must include tenant scoping (aliases allowed)
-    const tenantPart = filterArg.$and.find((p) => p && p.$or && Array.isArray(p.$or));
+    const tenantPart = filterArg.$and.find((p) => p && p.$or && Array.isArray(p.$or) && p.$or.some((c) => 'tenant_id' in c || 'organization_id' in c || 'organizationId' in c));
     expect(tenantPart).toBeTruthy();
     expect(tenantPart.$or).toEqual(
       expect.arrayContaining([
