@@ -22,8 +22,15 @@ function makeApp() {
 }
 
 describe('GET /api/session-tracking/table q-search', () => {
+  const OLD_ENV = process.env;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env = { ...OLD_ENV };
+  });
+
+  afterAll(() => {
+    process.env = OLD_ENV;
   });
 
   test('q search matches ONLY exact User_name and respects tenant_id scoping', async () => {
@@ -129,5 +136,60 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(filterArg.$and).toEqual(
       expect.arrayContaining([{ User_name: 'Harish B' }])
     );
+  });
+
+  test('different q values do not reuse cached responses (cache key must include q and mount path)', async () => {
+    // Enable cache explicitly for this test.
+    process.env.ENABLE_ROUTE_CACHE = 'true';
+    process.env.ENABLE_ETAG = 'false';
+
+    const app = makeApp();
+
+    // First request returns docs for User_name = Alice
+    const docsAlice = [{ _id: 'a1', User_name: 'Alice', tenant_id: 'TENANT_X' }];
+    const chainAlice = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(docsAlice),
+    };
+
+    SessionTracking.find.mockReturnValueOnce(chainAlice);
+    SessionTracking.countDocuments.mockResolvedValueOnce(1);
+
+    const res1 = await request(app)
+      .get('/api/session-tracking/table')
+      .query({ page: 1, limit: 10, q: 'Alice', tenant_id: 'TENANT_X' })
+      .expect(200);
+
+    expect(res1.body.data).toEqual(docsAlice);
+
+    // Second request must NOT return Alice results when q=Bob.
+    const docsBob = [{ _id: 'b1', User_name: 'Bob', tenant_id: 'TENANT_X' }];
+    const chainBob = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(docsBob),
+    };
+
+    SessionTracking.find.mockReturnValueOnce(chainBob);
+    SessionTracking.countDocuments.mockResolvedValueOnce(1);
+
+    const res2 = await request(app)
+      .get('/api/session-tracking/table')
+      .query({ page: 1, limit: 10, q: 'Bob', tenant_id: 'TENANT_X' })
+      .expect(200);
+
+    expect(res2.body.data).toEqual(docsBob);
+
+    // Ensure the handler actually executed DB twice (i.e., not a cache HIT for the second query)
+    expect(SessionTracking.find).toHaveBeenCalledTimes(2);
+
+    // Ensure filters were different between calls
+    const filter1 = SessionTracking.find.mock.calls[0][0];
+    const filter2 = SessionTracking.find.mock.calls[1][0];
+    expect(JSON.stringify(filter1)).toContain('Alice');
+    expect(JSON.stringify(filter2)).toContain('Bob');
   });
 });

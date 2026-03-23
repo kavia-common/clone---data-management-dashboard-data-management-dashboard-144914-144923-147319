@@ -8,8 +8,18 @@ const { buildCrudController } = require('../controllers/crudFactory');
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
 
-// Flags
-const ENABLE_ROUTE_CACHE = String(process.env.ENABLE_ROUTE_CACHE || 'true').toLowerCase() === 'false';
+/**
+ * Flags
+ *
+ * IMPORTANT:
+ * ENABLE_ROUTE_CACHE is an opt-in performance feature and must follow the normal convention:
+ * - "true"  => caching enabled
+ * - "false" => caching disabled
+ *
+ * A previous implementation accidentally inverted this logic, which could cause unexpected cache
+ * HITs and return stale/unfiltered results even when q filters were applied.
+ */
+const ENABLE_ROUTE_CACHE = String(process.env.ENABLE_ROUTE_CACHE || 'true').toLowerCase() === 'true';
 const ENABLE_ETAG = String(process.env.ENABLE_ETAG || 'true').toLowerCase() === 'true';
 const CACHE_TTL_SECONDS = Number(process.env.CACHE_TTL_SECONDS || 60);
 const DEFAULT_CACHE_TTL_MS = Math.max(5, CACHE_TTL_SECONDS) * 1000;
@@ -67,8 +77,14 @@ function cacheKeyFromReq(req, enforcedTenant) {
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
   const tenant = enforcedTenant ? String(enforcedTenant) : (req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : 'n/a');
 
+  // Prevent cache-key collisions between the same router mounted at different base paths
+  // (e.g. /api/session-tracking vs /api/session-tracking/table).
+  const routePath =
+    `GET:${(req.baseUrl || '')}${(req.path || '')}` ||
+    `GET:${req.originalUrl || '/api/session-tracking'}`;
+
   return JSON.stringify({
-    route: 'GET:/api/session-tracking',
+    route: routePath,
     tenant,
     page,
     limit,
@@ -314,6 +330,10 @@ router.get(
 
     if (DEBUG_SESSION_TRACKING_LOGS) {
       try {
+        // The single most useful debug artifact for this bug report:
+        // print the final MongoDB filter that will be used for find()/countDocuments().
+        console.log('[sessionTracking:list] final MongoDB filter:', JSON.stringify(finalFilter));
+
         console.log('[sessionTracking:list] request', {
           path: req.path,
           query: {
