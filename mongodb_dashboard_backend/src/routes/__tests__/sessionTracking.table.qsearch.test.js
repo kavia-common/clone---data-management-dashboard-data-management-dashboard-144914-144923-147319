@@ -22,15 +22,21 @@ function makeApp() {
 }
 
 describe('GET /api/session-tracking/table q-search', () => {
+  const ORIGINAL_ENV = process.env;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env = { ...ORIGINAL_ENV };
+    delete process.env.SESSION_TRACKING_Q_EXACT;
+  });
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
   });
 
   test('multi-word q search applies ONLY to User_name, and is used for both find() and countDocuments()', async () => {
-    // Arrange: return one matching doc.
     const docs = [{ _id: '1', User_name: 'Aditi S' }];
 
-    // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
       sort: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
@@ -43,13 +49,11 @@ describe('GET /api/session-tracking/table q-search', () => {
 
     const app = makeApp();
 
-    // Act
     const res = await request(app)
       .get('/api/session-tracking/table')
       .query({ page: 1, limit: 10, q: 'Aditi S', organization_id: 'T0000' })
       .expect(200);
 
-    // Assert payload
     expect(res.body).toEqual({
       success: true,
       data: docs,
@@ -59,20 +63,12 @@ describe('GET /api/session-tracking/table q-search', () => {
     const findFilterArg = SessionTracking.find.mock.calls[0][0];
     const countFilterArg = SessionTracking.countDocuments.mock.calls[0][0];
 
-    // With T0000, bypass should avoid enforced tenant scope, so filter should be search-only.
     expect(findFilterArg).toBeTruthy();
-
-    // Ensure both find and count use the SAME filter object (behavioral requirement)
     expect(countFilterArg).toEqual(findFilterArg);
 
-    // Filter shape should be either:
-    // - { User_name: /.../i } for single token, OR
-    // - { $or: [ { $and: [...] }, { User_name: /phrase/ } ] } for multi-token
-    // We provided 2 tokens ("Aditi", "S"), so expect $or form.
     expect(findFilterArg).toHaveProperty('$or');
     expect(Array.isArray(findFilterArg.$or)).toBe(true);
 
-    // Should contain a token AND matcher that targets ONLY User_name.
     const tokenMatcher = findFilterArg.$or.find((p) => p && Array.isArray(p.$and));
     expect(tokenMatcher).toBeTruthy();
     for (const cond of tokenMatcher.$and) {
@@ -80,19 +76,53 @@ describe('GET /api/session-tracking/table q-search', () => {
       expect(cond.User_name).toBeInstanceOf(RegExp);
     }
 
-    // Should contain a phrase regex matcher that targets ONLY User_name and is whitespace-tolerant.
     const phraseMatcher = findFilterArg.$or.find((p) => p && p.User_name instanceof RegExp);
     expect(phraseMatcher).toBeTruthy();
     expect(String(phraseMatcher.User_name)).toMatch(/Aditi\\s\+S/i);
 
-    // And MUST NOT include user_name field matching anymore.
     const hasLowerUserName = JSON.stringify(findFilterArg).includes('user_name');
     expect(hasLowerUserName).toBe(false);
 
-    // Sanity check that DB chain was invoked for pagination
     expect(chain.sort).toHaveBeenCalled();
     expect(chain.skip).toHaveBeenCalled();
     expect(chain.limit).toHaveBeenCalled();
     expect(chain.lean).toHaveBeenCalled();
+  });
+
+  test('exact q search mode (SESSION_TRACKING_Q_EXACT=true) applies case-insensitive exact match ONLY on User_name', async () => {
+    process.env.SESSION_TRACKING_Q_EXACT = 'true';
+
+    const docs = [{ _id: '1', User_name: 'Aditi S' }];
+
+    const chain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(docs),
+    };
+
+    SessionTracking.find.mockReturnValue(chain);
+    SessionTracking.countDocuments.mockResolvedValue(1);
+
+    const app = makeApp();
+
+    await request(app)
+      .get('/api/session-tracking/table')
+      .query({ page: 1, limit: 10, q: 'Aditi S', organization_id: 'T0000' })
+      .expect(200);
+
+    const findFilterArg = SessionTracking.find.mock.calls[0][0];
+    expect(findFilterArg).toBeTruthy();
+
+    // Exact mode should produce { User_name: /^Aditi S$/i } (escaped)
+    expect(findFilterArg).toHaveProperty('User_name');
+    expect(findFilterArg.User_name).toBeInstanceOf(RegExp);
+    expect(String(findFilterArg.User_name)).toMatch(/^\^Aditi S\$\//i);
+
+    // Must not include any other fields (sanity)
+    const serialized = JSON.stringify(findFilterArg);
+    expect(serialized.includes('user_name')).toBe(false);
+    expect(serialized.includes('tenant_id')).toBe(false);
+    expect(serialized.includes('organization_name')).toBe(false);
   });
 });

@@ -57,6 +57,34 @@ function buildSafePhraseRegex(qTrimmed) {
 }
 
 const routeCache = new Map();
+
+/**
+ * SessionTrackingTableListFlow (supporting utilities)
+ *
+ * This endpoint is performance-sensitive, and may return large results without pagination,
+ * so we include caching/ETag logic. Because caching can mask filter mistakes, the debug logs
+ * emitted by this route include the full derived cache key inputs and the effective MongoDB filter.
+ */
+
+/**
+ * Safely stringify objects that may contain RegExp (MongoDB filter).
+ * JSON.stringify drops RegExp values to {} unless replaced.
+ */
+function stringifyWithRegex(value) {
+  try {
+    return JSON.stringify(value, (_k, v) => {
+      if (v instanceof RegExp) return String(v);
+      return v;
+    });
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return '[unstringifiable]';
+    }
+  }
+}
+
 function cacheKeyFromReq(req, enforcedTenant) {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || req.query.pageSize || 20);
@@ -67,12 +95,16 @@ function cacheKeyFromReq(req, enforcedTenant) {
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
   const tenant = enforcedTenant ? String(enforcedTenant) : (req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : 'n/a');
 
+  // Include exact-match mode in cache key so toggling env doesn't serve wrong cached responses.
+  const qExact = String(process.env.SESSION_TRACKING_Q_EXACT || '').toLowerCase() === 'true';
+
   return JSON.stringify({
     route: 'GET:/api/session-tracking',
     tenant,
     page,
     limit,
     q,
+    qExact,
     userId,
     start,
     end,
@@ -238,28 +270,40 @@ router.get(
     const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
 
     /**
-     * SessionTrackingListFilterFlow
+     * SessionTrackingTableListFlow
      *
-     * Contract:
-     * - Inputs:
-     *   - userId: optional exact match for `user_id`
-     *   - q: optional string. When present, it filters ONLY by `User_name` (capital U) per product requirement.
-     * - Output:
-     *   - searchFilter: MongoDB filter object (may be empty)
-     * - Invariants:
-     *   - `q` is treated as literal text (regex-escaped) and supports multi-word whitespace tolerance.
-     *   - The same `finalFilter` is used for both results and pagination/count.
-     * - Errors:
-     *   - Returns 400 if q exceeds SESSION_TRACKING_MAX_Q_LENGTH.
+     * PURPOSE
+     * - Provide a debuggable, stable list endpoint for the Sessions table (also re-used by /api/session-tracking/table).
+     * - Ensure q-search matches ONLY the session_tracking DB field used for username display.
+     *
+     * IMPORTANT DB FIELD
+     * - The canonical username field in session_tracking is `User_name` (capital U) based on production documents.
+     * - We intentionally do NOT search `user_name` or any other field when q is provided.
+     *
+     * OPTIONAL EXACT MATCH MODE (config)
+     * - If env SESSION_TRACKING_Q_EXACT=true, then q is matched as a case-insensitive exact string:
+     *     { User_name: /^<escaped q>$/i }
+     * - Otherwise, we do a whitespace-tolerant phrase search, with an additional multi-token AND matcher for robustness.
+     *
+     * CONTRACT
+     * Inputs:
+     * - userId: optional string. If present, exact match filter on `user_id` (takes precedence over q).
+     * - q: optional string. If present and userId is not present, filter by `User_name` only.
+     * Outputs:
+     * - searchFilter: MongoDB filter (object), suitable for find() and countDocuments().
+     * Errors:
+     * - 400 if q exceeds SESSION_TRACKING_MAX_Q_LENGTH.
+     * Side effects:
+     * - None (pure filter construction).
      */
+    const qExact = String(process.env.SESSION_TRACKING_Q_EXACT || '').toLowerCase() === 'true';
+
     let searchFilter = {};
     if (userId) {
-      // Exact equality on user_id
       searchFilter = { user_id: userId };
     } else if (q) {
       const qTrimmed = q.trim();
 
-      // Guardrail: avoid extremely long q creating huge regex scans.
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       if (qTrimmed.length > MAX_Q_LENGTH) {
         return res.status(400).json({
@@ -268,25 +312,25 @@ router.get(
         });
       }
 
-      /**
-       * Username-only search:
-       * Per requirement, `q` must apply ONLY to the `User_name` field (capital U),
-       * and must not match other fields (tenant_id, session_name, etc).
-       */
-      const phraseRegex = buildSafePhraseRegex(qTrimmed);
+      if (qExact) {
+        // Exact match (case-insensitive), but still treat q as literal text.
+        const pattern = `^${escapeRegexLiteral(qTrimmed)}$`;
+        searchFilter = { User_name: new RegExp(pattern, 'i') };
+      } else {
+        const phraseRegex = buildSafePhraseRegex(qTrimmed);
 
-      // For multi-token names, add an AND-of-tokens matcher for better matching robustness.
-      const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
-      const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
+        const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+        const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
 
-      const userNamePhrase = { User_name: phraseRegex };
+        const userNamePhrase = { User_name: phraseRegex };
 
-      let userNameAllTokens = null;
-      if (tokenRegexes.length >= 2) {
-        userNameAllTokens = { $and: tokenRegexes.map((r) => ({ User_name: r })) };
+        let userNameAllTokens = null;
+        if (tokenRegexes.length >= 2) {
+          userNameAllTokens = { $and: tokenRegexes.map((r) => ({ User_name: r })) };
+        }
+
+        searchFilter = userNameAllTokens ? { $or: [userNameAllTokens, userNamePhrase] } : userNamePhrase;
       }
-
-      searchFilter = userNameAllTokens ? { $or: [userNameAllTokens, userNamePhrase] } : userNamePhrase;
     }
 
     // Ignore client filter param for this route
@@ -320,15 +364,36 @@ router.get(
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
     const wantETag = ENABLE_ETAG && req.method === 'GET';
 
-    // Debug logging (temporary): helps diagnose why filtering returns empty.
-    // Logs: query inputs, resolved tenant, and a sample of user_name values from returned records.
+    /**
+     * Extensive debugging logs
+     *
+     * Enable with:
+     *   DEBUG_SESSION_TRACKING_LOGS=true
+     *
+     * Note: Logs are intentionally verbose to diagnose issues like:
+     * - q not being applied to the expected DB field (User_name)
+     * - cache serving stale results
+     * - tenant scope/bypass mismatches
+     * - auth token context not matching caller expectations
+     */
     const DEBUG_SESSION_TRACKING_LOGS =
       String(process.env.DEBUG_SESSION_TRACKING_LOGS || '').toLowerCase() === 'true';
 
     if (DEBUG_SESSION_TRACKING_LOGS) {
       try {
-        console.log('[sessionTracking:list] request', {
+        const hasAuthHeader = typeof req.headers?.authorization === 'string' && req.headers.authorization.length > 0;
+        const authPreview = hasAuthHeader ? String(req.headers.authorization).slice(0, 24) + '...' : null;
+
+        console.log('[SessionTrackingTableListFlow] request.start', {
+          method: req.method,
+          originalUrl: req.originalUrl,
           path: req.path,
+          headers: {
+            hasAuthorization: hasAuthHeader,
+            authorizationPreview: authPreview,
+            xOrganizationId: req.headers['x-organization-id'] || null,
+            xTenantId: req.headers['x-tenant-id'] || null,
+          },
           query: {
             page: req.query.page,
             limit: req.query.limit,
@@ -336,14 +401,21 @@ router.get(
             sort: req.query.sort,
             q: req.query.q,
             userId: req.query.userId,
+            tenant_id: req.query.tenant_id,
+            organization_id: req.query.organization_id,
             start: req.query.start,
             end: req.query.end,
             from: req.query.from,
             to: req.query.to,
-            // NOTE: filter is intentionally ignored by this route, but useful to see if clients send it
             filter: typeof req.query.filter === 'undefined' ? undefined : req.query.filter,
           },
-          tenant: {
+          authContext: {
+            // This is populated by middleware (verifyAuth/authTenant) when enabled on the route chain.
+            // For this route, it may be absent in demo mode.
+            auth: req.auth || null,
+            user: req.user || null,
+          },
+          tenantResolution: {
             bypass,
             enforcedTenant,
             reqTenantId: req.tenantId || null,
@@ -359,14 +431,30 @@ router.get(
             sort,
             q,
             userId,
+            qExact: String(process.env.SESSION_TRACKING_Q_EXACT || '').toLowerCase() === 'true',
           },
-          finalFilter,
+          filters: {
+            // Show both in case q is being overwritten/combined.
+            searchFilter: stringifyWithRegex(searchFilter),
+            enforcedScope: stringifyWithRegex(enforcedScope),
+            finalFilter: stringifyWithRegex(finalFilter),
+          },
         });
       } catch {}
     }
 
     if (wantCache) {
       const hit = cacheGet(cacheKey);
+
+      if (DEBUG_SESSION_TRACKING_LOGS) {
+        try {
+          console.log('[SessionTrackingTableListFlow] cache.check', {
+            cacheKey,
+            cache: hit ? 'HIT' : 'MISS',
+          });
+        } catch {}
+      }
+
       if (hit) {
         if (wantETag) {
           const inm = req.headers['if-none-match'];
@@ -387,15 +475,18 @@ router.get(
               : Array.isArray(hit.payload?.data)
                 ? hit.payload.data
                 : [];
+
             const sampleNames = cachedDocs
               .slice(0, 50)
-              .map((d) => d?.user_name ?? d?.User_name ?? null)
+              .map((d) => d?.User_name ?? null)
               .filter((v) => typeof v === 'string' && v.trim().length > 0);
 
-            console.log('[sessionTracking:list] cache HIT', {
+            console.log('[SessionTrackingTableListFlow] cache.hit', {
               cacheKey,
               count: cachedDocs.length,
+              user_name_field: 'User_name',
               user_name_sample: sampleNames.slice(0, 20),
+              note: 'If results look unfiltered, verify cacheKey includes q, qExact and tenant.',
             });
           } catch {}
         }
@@ -416,12 +507,14 @@ router.get(
           try {
             const names = docs
               .slice(0, 50)
-              .map((d) => d?.user_name ?? d?.User_name ?? null)
+              .map((d) => d?.User_name ?? null)
               .filter((v) => typeof v === 'string' && v.trim().length > 0);
 
-            console.log('[sessionTracking:list] db result (paginated)', {
+            console.log('[SessionTrackingTableListFlow] db.result.paginated', {
+              filterUsed: stringifyWithRegex(finalFilter),
               count: docs.length,
               total,
+              user_name_field: 'User_name',
               user_name_sample: names.slice(0, 20),
               hasAnyUserName: names.length > 0,
             });
@@ -453,11 +546,13 @@ router.get(
         try {
           const names = docs
             .slice(0, 50)
-            .map((d) => d?.user_name ?? d?.User_name ?? null)
+            .map((d) => d?.User_name ?? null)
             .filter((v) => typeof v === 'string' && v.trim().length > 0);
 
-          console.log('[sessionTracking:list] db result (unpaginated)', {
+          console.log('[SessionTrackingTableListFlow] db.result.unpaginated', {
+            filterUsed: stringifyWithRegex(finalFilter),
             count: docs.length,
+            user_name_field: 'User_name',
             user_name_sample: names.slice(0, 20),
             hasAnyUserName: names.length > 0,
           });
