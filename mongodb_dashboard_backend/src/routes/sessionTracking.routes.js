@@ -24,7 +24,14 @@ const ENABLE_ETAG = String(process.env.ENABLE_ETAG || 'true').toLowerCase() === 
 const CACHE_TTL_SECONDS = Number(process.env.CACHE_TTL_SECONDS || 60);
 const DEFAULT_CACHE_TTL_MS = Math.max(5, CACHE_TTL_SECONDS) * 1000;
 
-// Helpers
+/**
+ * Helpers
+ */
+
+/**
+ * Round an ISO date-time string down to the minute.
+ * Used to reduce cache key cardinality for time-bounded queries.
+ */
 function roundToMinuteISO(value) {
   if (!value || typeof value !== 'string') return null;
   const d = new Date(value);
@@ -34,8 +41,44 @@ function roundToMinuteISO(value) {
 }
 
 /**
+ * Flow: SessionTrackingUserNameExactMatchFilterFlow
+ *
+ * Contract:
+ * - Inputs:
+ *   - qRaw: any (typically req.query.q)
+ * - Output:
+ *   - { filter, qTrimmed, shouldReturnEmpty }
+ *     - filter: MongoDB filter object (either {} or { User_name: <exact> })
+ *     - qTrimmed: trimmed string
+ *     - shouldReturnEmpty: boolean; if true, caller should return empty results immediately
+ * - Behavior:
+ *   - If qRaw is not a string => no-op filter ({}).
+ *   - If qRaw is a string but trims to empty => caller should return empty results.
+ *   - Otherwise => exact match ONLY on canonical field `User_name`.
+ * - Errors: none
+ * - Side effects: none
+ */
+function buildExactUserNameFilterFromQ(qRaw) {
+  if (typeof qRaw !== 'string') {
+    return { filter: {}, qTrimmed: '', shouldReturnEmpty: false };
+  }
+
+  const qTrimmed = qRaw.trim();
+  if (!qTrimmed) {
+    // Explicit requirement: when "Filter by User name" has no usable value,
+    // do not return all sessions; return empty.
+    return { filter: {}, qTrimmed: '', shouldReturnEmpty: true };
+  }
+
+  return { filter: { User_name: qTrimmed }, qTrimmed, shouldReturnEmpty: false };
+}
+
+/**
  * Escape user input so it is treated as literal text in a RegExp.
  * This prevents regex injection and reduces the risk of catastrophic backtracking patterns.
+ *
+ * NOTE: This helper is kept for backwards compatibility and other potential query modes,
+ * but the "Filter by User name" flow below intentionally uses exact match only.
  */
 function escapeRegexLiteral(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -52,6 +95,8 @@ function escapeRegexLiteral(value) {
  * Why:
  * - Avoids unescaped regex meta characters from causing slow queries or ReDoS-like behavior.
  * - Makes multi-word queries resilient to inconsistent whitespace in stored values.
+ *
+ * NOTE: This is not used for the "Filter by User name" behavior; that flow requires exact match.
  */
 function buildSafePhraseRegex(qTrimmed) {
   // Split on any whitespace, escape each token, then join with \s+.
@@ -223,7 +268,6 @@ router.get(
       req?.user?.isSuperAdmin
     );
 
-    // Resolve tenant aliases
     // Resolve tenant aliases (normalized for consistent comparisons)
     const enforcedTenantRaw =
       req.tenantId ||
@@ -249,52 +293,55 @@ router.get(
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
-    // Exact userId precedence; q fallback
-    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    // Inputs for filtering
+    // IMPORTANT: For the Sessions table, `q` is treated as "Filter by User name" only.
+    // It must be an EXACT match on `User_name` and must not trigger other search filters.
     const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
+    const qRaw = req.query.q;
 
     let searchFilter = {};
+
+    // Keep explicit userId behavior when the client sends it.
+    // (This task only changes the "Filter by User name" behavior, i.e. q.)
     if (userId) {
       // Exact equality on user_id
       searchFilter = { user_id: userId };
-    } else if (q) {
-      /**
-       * Flow: SessionTrackingTableExactUserNameSearchFlow
-       *
-       * Contract:
-       * - Inputs:
-       *   - q: string (trimmed). Max length enforced by SESSION_TRACKING_MAX_Q_LENGTH.
-       * - Output:
-       *   - searchFilter object to be AND-ed with enforced tenant scope (unless bypass/T0000).
-       * - Behavior:
-       *   - When `q` is provided (and `userId` is not), return ONLY records whose
-       *     `User_name` field is EXACTLY equal to q.
-       *   - IMPORTANT: We intentionally do NOT fall back to `user_name` or `userName`.
-       *     The session_tracking collection uses `User_name` as the canonical field.
-       *   - Tenant scoping is handled separately via enforcedScope, so this filter is purely
-       *     about the `User_name` match.
-       *
-       * Observability:
-       * - Always logs the searched User_name input to the server console when q is present,
-       *   so mismatches are easy to debug.
-       */
-      const qTrimmed = q.trim();
+    } else {
+      const { filter, qTrimmed, shouldReturnEmpty } = buildExactUserNameFilterFromQ(qRaw);
 
-      // Required per request: log what the backend is searching for.
-      // (This is safe: it's already user-provided input; no secrets.)
-      console.log('[sessionTracking:list] searched User_name:', qTrimmed);
+      if (typeof qRaw === 'string') {
+        // Required per request: log what the backend is searching for.
+        // (Safe: already user-provided input; no secrets.)
+        console.log('[sessionTracking:list] searched User_name:', qTrimmed || '(empty)');
+      }
 
-      const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
-      if (qTrimmed.length > MAX_Q_LENGTH) {
-        return res.status(400).json({
-          success: false,
-          message: `q is too long (max ${MAX_Q_LENGTH} characters)`,
-        });
+      if (shouldReturnEmpty) {
+        // Return empty results when filter-by-username is present but has no exact-match value.
+        if (explicit) {
+          return res.status(200).json({ success: true, data: [], meta: { page, limit, total: 0 } });
+        }
+        return res.status(200).json([]);
+      }
+
+      if (qTrimmed) {
+        const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
+        if (qTrimmed.length > MAX_Q_LENGTH) {
+          return res.status(400).json({
+            success: false,
+            message: `q is too long (max ${MAX_Q_LENGTH} characters)`,
+          });
+        }
       }
 
       // Exact match ONLY on the canonical field name.
-      searchFilter = { User_name: qTrimmed };
+      searchFilter = filter;
     }
+
+    // Derive a stable q value for cache/etag/debug context.
+    const qContext =
+      (typeof qRaw === 'string' && qRaw.trim())
+        ? qRaw.trim()
+        : '';
 
     // Ignore client filter param for this route
     if (typeof req.query.filter !== 'undefined') {
@@ -364,7 +411,7 @@ router.get(
             limit,
             skip,
             sort,
-            q,
+            q: qContext,
             userId,
           },
           finalFilter,
@@ -438,7 +485,7 @@ router.get(
         const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
-          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q, userId });
+          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q: qContext, userId });
           res.set('ETag', etag);
         }
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
@@ -474,7 +521,7 @@ router.get(
       const payload = docs;
       let etag = null;
       if (wantETag) {
-        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q, userId });
+        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q: qContext, userId });
         res.set('ETag', etag);
       }
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
