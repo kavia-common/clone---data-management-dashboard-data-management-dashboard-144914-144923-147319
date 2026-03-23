@@ -243,12 +243,12 @@ router.get(
      * Contract:
      * - Inputs:
      *   - userId: optional exact match for `user_id`
-     *   - q: optional string. When present, it filters ONLY by user name (user_name / User_name).
+     *   - q: optional string. When present, it filters ONLY by `User_name` (capital U) per product requirement.
      * - Output:
      *   - searchFilter: MongoDB filter object (may be empty)
      * - Invariants:
-     *   - No references to undefined qTrimmed outside the `q` branch.
      *   - `q` is treated as literal text (regex-escaped) and supports multi-word whitespace tolerance.
+     *   - The same `finalFilter` is used for both results and pagination/count.
      * - Errors:
      *   - Returns 400 if q exceeds SESSION_TRACKING_MAX_Q_LENGTH.
      */
@@ -268,25 +268,22 @@ router.get(
         });
       }
 
-      // Username-only search (requirement): match either user_name or User_name.
-      // Use a safe, whitespace-tolerant phrase regex.
+      /**
+       * Username-only search:
+       * Per requirement, `q` must apply ONLY to the `User_name` field (capital U),
+       * and must not match other fields (tenant_id, session_name, etc).
+       */
       const phraseRegex = buildSafePhraseRegex(qTrimmed);
 
-      // For multi-token names, also add an AND-of-tokens matcher to improve matching
-      // when stored values contain extra punctuation or non-standard spacing.
+      // For multi-token names, add an AND-of-tokens matcher for better matching robustness.
       const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
       const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
 
-      const userNamePhrase = { $or: [{ user_name: phraseRegex }, { User_name: phraseRegex }] };
+      const userNamePhrase = { User_name: phraseRegex };
 
       let userNameAllTokens = null;
       if (tokenRegexes.length >= 2) {
-        userNameAllTokens = {
-          $or: [
-            { $and: tokenRegexes.map((r) => ({ user_name: r })) },
-            { $and: tokenRegexes.map((r) => ({ User_name: r })) },
-          ],
-        };
+        userNameAllTokens = { $and: tokenRegexes.map((r) => ({ User_name: r })) };
       }
 
       searchFilter = userNameAllTokens ? { $or: [userNameAllTokens, userNamePhrase] } : userNamePhrase;
