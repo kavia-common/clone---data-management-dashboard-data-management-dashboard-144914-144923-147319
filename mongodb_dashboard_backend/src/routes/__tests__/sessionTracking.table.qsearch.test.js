@@ -92,4 +92,42 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(chain.limit).toHaveBeenCalled();
     expect(chain.lean).toHaveBeenCalled();
   });
+
+  test('q search returns empty (and does not drop filter) when no exact User_name match exists', async () => {
+    // Arrange: DB returns no docs for the exact match filter.
+    const docs = [];
+
+    const chain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(docs),
+    };
+
+    SessionTracking.find.mockReturnValue(chain);
+    SessionTracking.countDocuments.mockResolvedValue(0);
+
+    const app = makeApp();
+
+    const res = await request(app)
+      .get('/api/session-tracking/table')
+      .query({ page: 1, limit: 10, q: 'Harish B', tenant_id: 'TENANT_X' })
+      .expect(200);
+
+    expect(res.body).toEqual({
+      success: true,
+      data: [],
+      meta: { page: 1, limit: 10, total: 0 },
+    });
+
+    const filterArg = SessionTracking.find.mock.calls[0][0];
+
+    // Critical invariant: when q is provided, we MUST include exact match on User_name,
+    // and MUST NOT fall back to an empty/unfiltered query.
+    expect(filterArg).toHaveProperty('$and');
+    expect(Array.isArray(filterArg.$and)).toBe(true);
+    expect(filterArg.$and).toEqual(
+      expect.arrayContaining([{ User_name: 'Harish B' }])
+    );
+  });
 });
