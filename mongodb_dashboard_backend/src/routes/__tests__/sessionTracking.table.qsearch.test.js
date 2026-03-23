@@ -26,7 +26,7 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('q search matches ONLY exact user name (across field variants) and respects tenant_id scoping', async () => {
+  test('q search matches ONLY exact User_name and respects tenant_id scoping', async () => {
     // Arrange: return one matching doc.
     const docs = [{ _id: '1', User_name: 'Sumi P', tenant_id: 'TENANT_X' }];
 
@@ -57,22 +57,17 @@ describe('GET /api/session-tracking/table q-search', () => {
     });
 
     // Assert generated filter:
-    // { $and: [ { $or:[{User_name:'Sumi P'},{user_name:'Sumi P'},{userName:'Sumi P'}] }, { $or:[{tenant_id:'TENANT_X'}, ...] } ] }
+    // { $and: [ { User_name:'Sumi P' }, { $or:[{tenant_id:'TENANT_X'}, ...] } ] }
     const filterArg = SessionTracking.find.mock.calls[0][0];
     expect(filterArg).toHaveProperty('$and');
     expect(Array.isArray(filterArg.$and)).toBe(true);
 
-    const userNamePart = filterArg.$and.find(
-      (p) =>
-        p &&
-        p.$or &&
-        Array.isArray(p.$or) &&
-        p.$or.some((c) => 'User_name' in c || 'user_name' in c || 'userName' in c)
-    );
+    const userNamePart = filterArg.$and.find((p) => p && p.User_name === 'Sumi P');
     expect(userNamePart).toBeTruthy();
-    expect(userNamePart.$or).toEqual(
-      expect.arrayContaining([{ User_name: 'Sumi P' }, { user_name: 'Sumi P' }, { userName: 'Sumi P' }])
-    );
+
+    // Ensure we did not add any fallback to other fields
+    expect(JSON.stringify(filterArg)).not.toContain('user_name');
+    expect(JSON.stringify(filterArg)).not.toContain('userName');
 
     // Must include tenant scoping (aliases allowed)
     const tenantPart = filterArg.$and.find(

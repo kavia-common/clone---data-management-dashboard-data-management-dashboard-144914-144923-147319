@@ -252,20 +252,21 @@ router.get(
        *   - searchFilter object to be AND-ed with enforced tenant scope (unless bypass/T0000).
        * - Behavior:
        *   - When `q` is provided (and `userId` is not), return ONLY records whose
-       *     user name field is EXACTLY equal to q.
-       *   - We support multiple historical field spellings/casing used in session_tracking:
-       *       - User_name
-       *       - user_name
-       *       - userName
-       *     (Exact match across any of these).
+       *     `User_name` field is EXACTLY equal to q.
+       *   - IMPORTANT: We intentionally do NOT fall back to `user_name` or `userName`.
+       *     The session_tracking collection uses `User_name` as the canonical field.
        *   - Tenant scoping is handled separately via enforcedScope, so this filter is purely
-       *     about the user name match.
+       *     about the `User_name` match.
        *
-       * Notes:
-       * - This intentionally does NOT implement fuzzy/regex matching. The UI requirement is
-       *   strict equality for names like "Sumi P".
+       * Observability:
+       * - Always logs the searched User_name input to the server console when q is present,
+       *   so mismatches are easy to debug.
        */
       const qTrimmed = q.trim();
+
+      // Required per request: log what the backend is searching for.
+      // (This is safe: it's already user-provided input; no secrets.)
+      console.log('[sessionTracking:list] searched User_name:', qTrimmed);
 
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       if (qTrimmed.length > MAX_Q_LENGTH) {
@@ -275,10 +276,8 @@ router.get(
         });
       }
 
-      // Exact match across field variants (real-world data may use any of these).
-      searchFilter = {
-        $or: [{ User_name: qTrimmed }, { user_name: qTrimmed }, { userName: qTrimmed }],
-      };
+      // Exact match ONLY on the canonical field name.
+      searchFilter = { User_name: qTrimmed };
     }
 
     // Ignore client filter param for this route
