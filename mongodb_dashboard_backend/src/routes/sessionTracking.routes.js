@@ -120,7 +120,16 @@ function cacheKeyFromReq(req, enforcedTenant) {
   const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
   const start = roundToMinuteISO(req.query.start || req.query.from || '');
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
-  const tenant = enforcedTenant ? String(enforcedTenant) : (req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : 'n/a');
+
+  // IMPORTANT:
+  // Cache keys MUST reflect the *effective* scope, not just the raw requested tenant.
+  // In particular, when the caller triggers "all tenants" behavior (T0000 sentinel),
+  // we must not cache under tenant="T0000" because the effective filter is unscoped
+  // and could be reused across other scoped requests.
+  const effectiveTenant =
+    (req.tenantScopeDisabled || req.allTenants || req.sessionsAllTenantsBypass)
+      ? 'all-tenants'
+      : (enforcedTenant ? String(enforcedTenant) : 'n/a');
 
   // Prevent cache-key collisions between the same router mounted at different base paths
   // (e.g. /api/session-tracking vs /api/session-tracking/table).
@@ -130,7 +139,7 @@ function cacheKeyFromReq(req, enforcedTenant) {
 
   return JSON.stringify({
     route: routePath,
-    tenant,
+    tenant: effectiveTenant,
     page,
     limit,
     q,
@@ -455,6 +464,16 @@ router.get(
         }
 
         return res.status(200).json(hit.payload);
+      }
+
+      if (DEBUG_SESSION_TRACKING_LOGS) {
+        try {
+          console.log('[sessionTracking:list] cache MISS', {
+            cacheKey,
+            effectiveTenant: (req.tenantScopeDisabled || req.allTenants || req.sessionsAllTenantsBypass) ? 'all-tenants' : (enforcedTenant || null),
+            q: qContext,
+          });
+        } catch {}
       }
     }
 

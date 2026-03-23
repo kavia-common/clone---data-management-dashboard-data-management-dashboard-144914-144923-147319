@@ -192,4 +192,49 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(JSON.stringify(filter1)).toContain('Alice');
     expect(JSON.stringify(filter2)).toContain('Bob');
   });
+
+  test('cache does not mix responses across tenants (tenant must be part of cache key)', async () => {
+    process.env.ENABLE_ROUTE_CACHE = 'true';
+    process.env.ENABLE_ETAG = 'false';
+
+    const app = makeApp();
+
+    const docsTenantX = [{ _id: 'x1', User_name: 'Alice', tenant_id: 'TENANT_X' }];
+    const chainX = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(docsTenantX),
+    };
+
+    SessionTracking.find.mockReturnValueOnce(chainX);
+    SessionTracking.countDocuments.mockResolvedValueOnce(1);
+
+    const res1 = await request(app)
+      .get('/api/session-tracking/table')
+      .query({ page: 1, limit: 10, q: 'Alice', tenant_id: 'TENANT_X' })
+      .expect(200);
+
+    expect(res1.body.data).toEqual(docsTenantX);
+
+    // Same q, different tenant must not reuse cached response from TENANT_X.
+    const docsTenantY = [{ _id: 'y1', User_name: 'Alice', tenant_id: 'TENANT_Y' }];
+    const chainY = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(docsTenantY),
+    };
+
+    SessionTracking.find.mockReturnValueOnce(chainY);
+    SessionTracking.countDocuments.mockResolvedValueOnce(1);
+
+    const res2 = await request(app)
+      .get('/api/session-tracking/table')
+      .query({ page: 1, limit: 10, q: 'Alice', tenant_id: 'TENANT_Y' })
+      .expect(200);
+
+    expect(res2.body.data).toEqual(docsTenantY);
+    expect(SessionTracking.find).toHaveBeenCalledTimes(2);
+  });
 });
