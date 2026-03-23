@@ -26,9 +26,9 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('multi-word q search matches ONLY User_name and uses safe literal regexes', async () => {
+  test('q search matches ONLY exact User_name and respects tenant_id scoping', async () => {
     // Arrange: return one matching doc.
-    const docs = [{ _id: '1', User_name: 'Aditi S' }];
+    const docs = [{ _id: '1', User_name: 'Harish V', tenant_id: 'TENANT_X' }];
 
     // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
@@ -43,10 +43,10 @@ describe('GET /api/session-tracking/table q-search', () => {
 
     const app = makeApp();
 
-    // Act
+    // Act (non-bypass tenant)
     const res = await request(app)
       .get('/api/session-tracking/table')
-      .query({ page: 1, limit: 10, q: 'Aditi S', organization_id: 'T0000' })
+      .query({ page: 1, limit: 10, q: 'Harish V', tenant_id: 'TENANT_X' })
       .expect(200);
 
     // Assert payload
@@ -56,32 +56,26 @@ describe('GET /api/session-tracking/table q-search', () => {
       meta: { page: 1, limit: 10, total: 1 },
     });
 
+    // Assert generated filter: { $and: [ {User_name:'Harish V'}, { $or:[{tenant_id:'TENANT_X'}, ...] } ] }
     const filterArg = SessionTracking.find.mock.calls[0][0];
+    expect(filterArg).toHaveProperty('$and');
+    expect(Array.isArray(filterArg.$and)).toBe(true);
 
-    // With T0000, bypass should avoid enforced tenant scope, so filter should be search-only.
-    expect(filterArg).toHaveProperty('$or');
-    expect(Array.isArray(filterArg.$or)).toBe(true);
+    // Must include exact username match
+    expect(filterArg.$and).toEqual(
+      expect.arrayContaining([expect.objectContaining({ User_name: 'Harish V' })])
+    );
 
-    // First item is our inserted token matcher (unshift) for multi-word:
-    // { $and: [ {User_name:/Aditi/i}, {User_name:/S/i} ] }
-    const first = filterArg.$or[0];
-    expect(first).toHaveProperty('$and');
-    expect(Array.isArray(first.$and)).toBe(true);
-
-    for (const cond of first.$and) {
-      expect(cond).toHaveProperty('User_name');
-      expect(cond.User_name).toBeInstanceOf(RegExp);
-    }
-
-    // Also assert the "phrase" regex used in the other OR part is whitespace-tolerant.
-    const phraseUserNamePart = filterArg.$or.find((p) => p && p.User_name instanceof RegExp);
-    expect(phraseUserNamePart).toBeTruthy();
-    expect(String(phraseUserNamePart.User_name)).toMatch(/Aditi\\s\+S/i);
-
-    // Ensure we are NOT searching other fields anymore (smoke-check).
-    expect(filterArg.$or.some((p) => p && Object.prototype.hasOwnProperty.call(p, 'tenant_id'))).toBe(false);
-    expect(filterArg.$or.some((p) => p && Object.prototype.hasOwnProperty.call(p, 'user_id'))).toBe(false);
-    expect(filterArg.$or.some((p) => p && Object.prototype.hasOwnProperty.call(p, 'user_name'))).toBe(false);
+    // Must include tenant scoping (aliases allowed)
+    const tenantPart = filterArg.$and.find((p) => p && p.$or && Array.isArray(p.$or));
+    expect(tenantPart).toBeTruthy();
+    expect(tenantPart.$or).toEqual(
+      expect.arrayContaining([
+        { tenant_id: 'TENANT_X' },
+        { organization_id: 'TENANT_X' },
+        { organizationId: 'TENANT_X' },
+      ])
+    );
 
     // Sanity check that DB chain was invoked for pagination
     expect(chain.sort).toHaveBeenCalled();

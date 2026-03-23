@@ -243,20 +243,27 @@ router.get(
       searchFilter = { user_id: userId };
     } else if (q) {
       /**
-       * Make q-search resilient and safe for multi-word names.
+       * Flow: SessionTrackingTableExactUserNameSearchFlow
        *
-       * Key invariant:
-       * - q is treated as literal text, not as a regex program.
-       *   (We escape regex metacharacters to avoid slow/unsafe patterns.)
+       * Contract:
+       * - Inputs:
+       *   - q: string (trimmed). Max length enforced by SESSION_TRACKING_MAX_Q_LENGTH.
+       * - Output:
+       *   - searchFilter object to be AND-ed with enforced tenant scope (unless bypass/T0000).
+       * - Behavior:
+       *   - When `q` is provided (and `userId` is not), return ONLY records whose
+       *     SessionTracking.User_name is EXACTLY equal to q.
+       *   - Tenant scoping is handled separately via enforcedScope, so this filter is purely
+       *     about the user name match.
        *
-       * Also:
-       * - Multi-word q is matched with whitespace-tolerant pattern across fields,
-       *   and an AND-of-tokens matcher for user_name fields.
+       * Notes:
+       * - This intentionally does NOT implement fuzzy/regex matching. The UI request requires
+       *   strict equality for names like "Harish V".
+       * - We match on the canonical field `User_name` (not `user_name`), consistent with
+       *   existing q-search behavior in this route.
        */
       const qTrimmed = q.trim();
 
-      // Guardrail: avoid extremely long q creating huge regex scans.
-      // This endpoint can scan many fields (and with T0000 can scan across all tenants).
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       if (qTrimmed.length > MAX_Q_LENGTH) {
         return res.status(400).json({
@@ -265,42 +272,8 @@ router.get(
         });
       }
 
-      // Safe "phrase" regex: literal tokens joined by \s+ so "Aditi S" matches "Aditi  S".
-      const phraseRegex = buildSafePhraseRegex(qTrimmed);
-
-      // Single token: allow exact user_id equality fast-path.
-      const looksLikeId = !/\s/.test(qTrimmed);
-
-      /**
-       * Username-only search contract:
-       * - Input: q (string), already trimmed and length-limited above
-       * - Behavior: case-insensitive match ONLY against SessionTracking.User_name
-       *   (no email/org/task/service/session_data matching).
-       * - Safety: q is treated as literal text; whitespace is made tolerant via buildSafePhraseRegex.
-       *
-       * Note: We intentionally do NOT search user_name (lowercase) because the UI/backend contract
-       * in this project is that the filter key is `User_name`.
-       */
-      const orParts = [{ User_name: phraseRegex }];
-
-      if (!looksLikeId) {
-        // Tokenize on whitespace; ignore empty tokens.
-        const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
-
-        if (tokens.length >= 2) {
-          // Token regexes are literal-safe too.
-          const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
-
-          // Match User_name where *all* tokens match (in any order).
-          const userNameAllTokens = {
-            $and: tokenRegexes.map((r) => ({ User_name: r })),
-          };
-
-          orParts.unshift(userNameAllTokens);
-        }
-      }
-
-      searchFilter = { $or: orParts };
+      // Exact match as requested.
+      searchFilter = { User_name: qTrimmed };
     }
 
     // Ignore client filter param for this route
