@@ -271,25 +271,19 @@ router.get(
       // Single token: allow exact user_id equality fast-path.
       const looksLikeId = !/\s/.test(qTrimmed);
 
-      const orParts = [
-        { task_id: phraseRegex },
-        { tenant_id: phraseRegex },
-        { organization_name: phraseRegex },
-        { user_name: phraseRegex },
-        { User_name: phraseRegex },
-        { project_id: phraseRegex },
-        { container_id: phraseRegex },
-        { service_type: phraseRegex },
-        { status: phraseRegex },
-        { user_id: phraseRegex },
-        { 'session_data.session_name': phraseRegex },
-        { 'session_data.description': phraseRegex },
-        { 'session_data.llm_model': phraseRegex },
-      ];
+      /**
+       * Username-only search contract:
+       * - Input: q (string), already trimmed and length-limited above
+       * - Behavior: case-insensitive match ONLY against SessionTracking.User_name
+       *   (no email/org/task/service/session_data matching).
+       * - Safety: q is treated as literal text; whitespace is made tolerant via buildSafePhraseRegex.
+       *
+       * Note: We intentionally do NOT search user_name (lowercase) because the UI/backend contract
+       * in this project is that the filter key is `User_name`.
+       */
+      const orParts = [{ User_name: phraseRegex }];
 
-      if (looksLikeId) {
-        orParts.unshift({ user_id: qTrimmed });
-      } else {
+      if (!looksLikeId) {
         // Tokenize on whitespace; ignore empty tokens.
         const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
 
@@ -297,15 +291,12 @@ router.get(
           // Token regexes are literal-safe too.
           const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
 
-          // Match either user_name or User_name where *all* tokens match (in any order).
+          // Match User_name where *all* tokens match (in any order).
           const userNameAllTokens = {
-            $and: tokenRegexes.map((r) => ({ user_name: r })),
-          };
-          const userNameAllTokensAlt = {
             $and: tokenRegexes.map((r) => ({ User_name: r })),
           };
 
-          orParts.unshift({ $or: [userNameAllTokens, userNameAllTokensAlt] });
+          orParts.unshift(userNameAllTokens);
         }
       }
 

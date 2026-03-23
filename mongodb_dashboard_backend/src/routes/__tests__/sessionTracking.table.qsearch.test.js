@@ -26,9 +26,9 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('multi-word q search builds a valid AND-of-regex tokens for user_name/User_name and uses safe literal regexes', async () => {
+  test('multi-word q search matches ONLY User_name and uses safe literal regexes', async () => {
     // Arrange: return one matching doc.
-    const docs = [{ _id: '1', user_name: 'Aditi S' }];
+    const docs = [{ _id: '1', User_name: 'Aditi S' }];
 
     // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
@@ -62,30 +62,26 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(filterArg).toHaveProperty('$or');
     expect(Array.isArray(filterArg.$or)).toBe(true);
 
-    // First item is our inserted token matcher (unshift).
+    // First item is our inserted token matcher (unshift) for multi-word:
+    // { $and: [ {User_name:/Aditi/i}, {User_name:/S/i} ] }
     const first = filterArg.$or[0];
-    expect(first).toHaveProperty('$or');
-    expect(Array.isArray(first.$or)).toBe(true);
+    expect(first).toHaveProperty('$and');
+    expect(Array.isArray(first.$and)).toBe(true);
 
-    const [variant1, variant2] = first.$or;
-    expect(variant1).toHaveProperty('$and');
-    expect(variant2).toHaveProperty('$and');
-
-    // Each $and element should be like { user_name: /Aditi/i } etc, and be regex instances.
-    for (const cond of variant1.$and) {
-      expect(cond).toHaveProperty('user_name');
-      expect(cond.user_name).toBeInstanceOf(RegExp);
-    }
-    for (const cond of variant2.$and) {
+    for (const cond of first.$and) {
       expect(cond).toHaveProperty('User_name');
       expect(cond.User_name).toBeInstanceOf(RegExp);
     }
 
-    // Also assert the "phrase" regex used in other OR parts is whitespace-tolerant.
-    // One of the standard orParts entries is { user_name: phraseRegex } (later in the array).
-    const phraseUserNamePart = filterArg.$or.find((p) => p && p.user_name instanceof RegExp);
+    // Also assert the "phrase" regex used in the other OR part is whitespace-tolerant.
+    const phraseUserNamePart = filterArg.$or.find((p) => p && p.User_name instanceof RegExp);
     expect(phraseUserNamePart).toBeTruthy();
-    expect(String(phraseUserNamePart.user_name)).toMatch(/Aditi\\s\+S/i);
+    expect(String(phraseUserNamePart.User_name)).toMatch(/Aditi\\s\+S/i);
+
+    // Ensure we are NOT searching other fields anymore (smoke-check).
+    expect(filterArg.$or.some((p) => p && Object.prototype.hasOwnProperty.call(p, 'tenant_id'))).toBe(false);
+    expect(filterArg.$or.some((p) => p && Object.prototype.hasOwnProperty.call(p, 'user_id'))).toBe(false);
+    expect(filterArg.$or.some((p) => p && Object.prototype.hasOwnProperty.call(p, 'user_name'))).toBe(false);
 
     // Sanity check that DB chain was invoked for pagination
     expect(chain.sort).toHaveBeenCalled();
