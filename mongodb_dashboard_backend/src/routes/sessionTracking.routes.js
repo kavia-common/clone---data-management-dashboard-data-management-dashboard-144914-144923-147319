@@ -162,6 +162,41 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
 
   return finalSearch;
 }
+
+/**
+ * Convert a MongoDB filter object into a JSON-safe structure for logging.
+ *
+ * Why:
+ * - RegExp values do not serialize to JSON well and often appear as `{}` when stringified.
+ * - We want logs like "FINAL FILTER BEFORE DB" to reflect the true filter passed to Mongo,
+ *   including regex patterns and options.
+ *
+ * Contract:
+ * - Input: any JS value (typically a MongoDB filter object)
+ * - Output: plain JSON-serializable value
+ * - Side effects: none
+ */
+function mongoFilterToLogObject(value) {
+  if (value instanceof RegExp) {
+    return {
+      $regex: value.source,
+      $options: value.flags,
+    };
+  }
+
+  if (Array.isArray(value)) return value.map(mongoFilterToLogObject);
+
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = mongoFilterToLogObject(v);
+    }
+    return out;
+  }
+
+  return value;
+}
+
 const routeCache = new Map();
 function cacheKeyFromReq(req, enforcedTenant) {
   /**
@@ -388,14 +423,25 @@ router.get(
       };
     }
 
+    // Build final Mongo filter (single canonical code path)
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
+
     if (!isEmpty(searchFilter)) parts.push(searchFilter);
-    // if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
-    console.log('Searchhhhhhhhhhhhhhh', searchFilter, "parts", parts)
-    // const finalFilter = { $and: parts };
-    const finalFilter = parts.length ? { $and: parts } : {};
+    if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
+
+    // If we only have a single part, avoid wrapping in $and (cleaner explain/logging),
+    // but keep semantics identical.
+    const finalFilter =
+      parts.length === 0 ? {} : parts.length === 1 ? parts[0] : { $and: parts };
+
     console.log('[FINAL FILTER]', util.inspect(finalFilter, { depth: null, colors: true }));
+    // This is the filter actually passed into Mongoose/Mongo. Use a serializer that does not drop RegExp.
+    console.log(
+      '[FINAL FILTER BEFORE DB]',
+      JSON.stringify(mongoFilterToLogObject(finalFilter))
+    );
+
     // Cache handling
     const cacheKey = cacheKeyFromReq(req, bypass ? null : tenantId);
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
