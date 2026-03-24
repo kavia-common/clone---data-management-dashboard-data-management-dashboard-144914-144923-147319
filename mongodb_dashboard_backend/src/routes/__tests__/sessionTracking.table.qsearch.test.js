@@ -26,9 +26,9 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('multi-word q search matches ONLY session_tracking.User_name (no tenant_id/organization_name/other-field searching) and uses safe literal regexes', async () => {
+  test('multi-word q search matches ONLY top-level User_name (no tenant_id/organization_name/other-field searching) and uses safe literal regexes', async () => {
     // Arrange: return one matching doc.
-    const docs = [{ _id: '1', session_tracking: { User_name: 'Aditi S' } }];
+    const docs = [{ _id: '1', User_name: 'Aditi S' }];
 
     // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
@@ -63,19 +63,19 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(Array.isArray(filterArg.$or)).toBe(true);
 
     // First item is our inserted token matcher (unshift):
-    // { $and: [ {'session_tracking.User_name':/Aditi/i}, {'session_tracking.User_name':/S/i} ] }
+    // { $and: [ {User_name:/Aditi/i}, {User_name:/S/i} ] }
     const first = filterArg.$or[0];
     expect(first).toHaveProperty('$and');
     expect(Array.isArray(first.$and)).toBe(true);
     for (const cond of first.$and) {
-      expect(cond).toHaveProperty('session_tracking.User_name');
-      expect(cond['session_tracking.User_name']).toBeInstanceOf(RegExp);
+      expect(cond).toHaveProperty('User_name');
+      expect(cond.User_name).toBeInstanceOf(RegExp);
     }
 
-    // Ensure there is a phraseRegex match part for session_tracking.User_name and it's whitespace-tolerant.
-    const phrasePart = filterArg.$or.find((p) => p && p['session_tracking.User_name'] instanceof RegExp);
+    // Ensure there is a phraseRegex match part for User_name and it's whitespace-tolerant.
+    const phrasePart = filterArg.$or.find((p) => p && p.User_name instanceof RegExp);
     expect(phrasePart).toBeTruthy();
-    expect(String(phrasePart['session_tracking.User_name'])).toMatch(/Aditi\\s\+S/i);
+    expect(String(phrasePart.User_name)).toMatch(/Aditi\\s\+S/i);
 
     // Ensure we are NOT searching other fields anymore.
     const forbiddenKeys = [
@@ -90,7 +90,7 @@ describe('GET /api/session-tracking/table q-search', () => {
       'session_data.session_name',
       'session_data.description',
       'session_data.llm_model',
-      // previously-supported user-name variants that must no longer be searched by q
+      // variants that must not be searched by q
       'user_name',
       'userName',
       'UserName',
@@ -98,8 +98,8 @@ describe('GET /api/session-tracking/table q-search', () => {
       'email',
       'user_email',
       'user',
-      // ensure we are not accidentally matching top-level legacy fields either
-      'User_name',
+      // nested path must not be searched either
+      'session_tracking.User_name',
     ];
     for (const key of forbiddenKeys) {
       const hit = filterArg.$or.find((p) => p && Object.prototype.hasOwnProperty.call(p, key));
