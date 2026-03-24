@@ -220,8 +220,10 @@ function cacheKeyFromReq(req, enforcedTenant) {
     typeof req.query.sort === 'string' && req.query.sort.trim()
       ? req.query.sort.trim()
       : '-session_start';
-  const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-  const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
+  const q = coerceQueryString(req.query.q);
+  // IMPORTANT: must match the same alias resolution used by the handler (deriveUserIdFromQuery),
+  // otherwise cache keys can collide and return stale/unfiltered results even when finalFilter is correct.
+  const userId = deriveUserIdFromQuery(req.query);
   const start = roundToMinuteISO(req.query.start || req.query.from || '');
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
 
