@@ -104,22 +104,26 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   const looksLikeId = !/\s/.test(qTrimmed);
 
   // IMPORTANT: Per current product requirement, q-search for the session-tracking table
-  // must match ONLY the `User_name` field in the session_tracking collection.
+  // must match ONLY the `session_tracking.User_name` field (case-insensitive).
   //
   // Notes:
   // - We intentionally do NOT search tenant_id, organization_name, or other fields here.
   // - We keep the existing safe regex behavior (escaped, whitespace-tolerant phrase match).
   // - We keep userId exact-match precedence unchanged (handled above).
-  const orParts = [{ User_name: phraseRegex }];
+  // - We target the nested path because many ingests store session details under a
+  //   `session_tracking` object (strict:false schema allows this).
+  const USER_NAME_PATH = 'session_tracking.User_name';
+
+  const orParts = [{ [USER_NAME_PATH]: phraseRegex }];
 
   // Do NOT add user_id exact match fast-path for q anymore; q is strictly a User_name search.
   // (userId query param remains the supported exact ID search mechanism.)
 
-  // Multi-token name matching: AND of token regexes for User_name.
+  // Multi-token name matching: AND of token regexes for session_tracking.User_name.
   const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
   if (tokens.length >= 2) {
     const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
-    const userNameAllTokens = { $and: tokenRegexes.map((r) => ({ User_name: r })) };
+    const userNameAllTokens = { $and: tokenRegexes.map((r) => ({ [USER_NAME_PATH]: r })) };
 
     // Boost the all-token match to the top.
     orParts.unshift(userNameAllTokens);
