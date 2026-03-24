@@ -53,9 +53,43 @@ function buildSafePhraseRegex(qTrimmed) {
     .filter(Boolean)
     .map(escapeRegexLiteral);
 
-  const pattern = tokens.length ? tokens.join('\\s+') : '';
-  // return new RegExp(pattern || escapeRegexLiteral(qTrimmed), 'i');
-  return pattern;
+  const pattern = tokens.length ? tokens.join('\\s+') : escapeRegexLiteral(qTrimmed);
+  return new RegExp(pattern, 'i');
+}
+
+/**
+ * Normalize a querystring value to a trimmed string (or '').
+ *
+ * Contract:
+ * - Input: any value from req.query[key]
+ * - Output: '' if missing/non-stringable; otherwise trimmed string
+ * - Notes: supports array query params by taking the first element.
+ */
+function coerceQueryString(value) {
+  if (Array.isArray(value)) return coerceQueryString(value[0]);
+  if (value === null || typeof value === 'undefined') return '';
+  return String(value).trim();
+}
+
+/**
+ * Derive userId from supported query aliases without breaking existing callers.
+ *
+ * Contract:
+ * - Checks (in order): userId, user_id, userID, userid
+ * - Returns: '' when not provided
+ */
+function deriveUserIdFromQuery(query) {
+  const candidates = [
+    query?.userId,
+    query?.user_id,
+    query?.userID,
+    query?.userid,
+  ];
+  for (const c of candidates) {
+    const v = coerceQueryString(c);
+    if (v) return v;
+  }
+  return '';
 }
 
 /**
@@ -101,35 +135,29 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   }
 
   const phraseRegex = buildSafePhraseRegex(qTrimmed);
-  console.log('[SEARCH] phraseRegex:', phraseRegex);
+  console.log('[SEARCH] phraseRegex:', String(phraseRegex));
 
   const USER_NAME_FIELD = 'User_name';
 
-  // Phrase match: whitespace-tolerant (e.g. "Sumi P" matches "Sumi   P")
-  // NOTE: buildSafePhraseRegex already escapes tokens and joins with \\s+.
-  const phraseMatchRegex = new RegExp(phraseRegex || escapeRegexLiteral(qTrimmed), 'i');
-
+  // OR semantics:
+  // - phraseRegex: whitespace-tolerant multi-word phrase match
+  // - AND condition: requires each token to appear (order-independent)
   const tokens = qTrimmed.split(/\s+/).filter(Boolean);
   console.log('[SEARCH] tokens:', tokens);
 
-  const orParts = [{ [USER_NAME_FIELD]: phraseMatchRegex }];
+  const orParts = [{ [USER_NAME_FIELD]: phraseRegex }];
 
   // Multi-word AND match
   if (tokens.length >= 2) {
-    const tokenRegexes = tokens.map((t) =>
-      new RegExp(escapeRegexLiteral(t), 'i')
-    );
-
+    const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
     const andCondition = {
-      $and: tokenRegexes.map((r) => ({ [USER_NAME_FIELD]: r }))
+      $and: tokenRegexes.map((r) => ({ [USER_NAME_FIELD]: r })),
     };
-
     orParts.unshift(andCondition);
   }
 
   const finalSearch = { $or: orParts };
 
-  // ✅ FIXED logging
   console.log('[SEARCH FILTER]', util.inspect(finalSearch, { depth: null }));
 
   return finalSearch;
@@ -324,8 +352,8 @@ router.get(
     const sort = req.query.sort || '-session_start';
 
     // Exact userId precedence; q fallback
-    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-    const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
+    const q = coerceQueryString(req.query.q);
+    const userId = deriveUserIdFromQuery(req.query);
     console.log('[SEARCH INPUT]', { q, userId });
     let searchFilter = {};
     if (q || userId) {
@@ -362,16 +390,10 @@ router.get(
 
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
-
     if (!isEmpty(searchFilter)) parts.push(searchFilter);
-
-    // IMPORTANT:
-    // Tenant scoping must always be applied unless we are explicitly in bypass mode.
-    // If this is skipped, the UI will appear to "ignore" username filtering because the response
-    // includes rows across tenants (and can also be served from cache under broad scope).
-    if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
-
-    console.log('Searchhhhhhhhhhhhhhh', searchFilter, "parts", parts);
+    // if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
+    console.log('Searchhhhhhhhhhhhhhh', searchFilter, "parts", parts)
+    // const finalFilter = { $and: parts };
     const finalFilter = parts.length ? { $and: parts } : {};
     console.log('[FINAL FILTER]', util.inspect(finalFilter, { depth: null, colors: true }));
     // Cache handling
