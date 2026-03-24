@@ -78,9 +78,9 @@ function corsMiddleware() {
   // Preview environment frontend
   // Preview environment frontends
   // whitelist.add('https://kavia-dashboard-kavia-dev.cloud.kavia.ai');
-  whitelist.add('https://kavia-dashboard-kavia-beta.cloud.kavia.ai');
+  // whitelist.add('https://kavia-dashboard-kavia-beta.cloud.kavia.ai');
   // Explicitly allow VSCode internal preview origin used by frontend
-  // whitelist.add('https://vscode-internal-36608-beta.beta01.cloud.kavia.ai:3000');
+  whitelist.add('https://vscode-internal-40432-beta.beta01.cloud.kavia.ai:3000');
   
 
 
