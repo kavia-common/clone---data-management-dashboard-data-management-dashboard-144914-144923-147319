@@ -131,25 +131,58 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
 
 const routeCache = new Map();
 function cacheKeyFromReq(req, enforcedTenant) {
+  /**
+   * Route cache key for session-tracking list/table endpoints.
+   *
+   * Contract:
+   * - Must vary by:
+   *   - actual mounted route (so /api/session-tracking and /api/session-tracking/table never collide)
+   *   - effective tenant scope / bypass state
+   *   - paging/sort/time window inputs
+   *   - q + userId search inputs
+   *
+   * Why:
+   * - The Sessions UI calls /api/session-tracking/table with different q values.
+   *   If the cache key collides across mounts or omits q/tenant, the UI can show
+   *   stale, unfiltered results.
+   */
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || req.query.pageSize || 20);
-  const sort = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : '-session_start';
+  const sort =
+    typeof req.query.sort === 'string' && req.query.sort.trim()
+      ? req.query.sort.trim()
+      : '-session_start';
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
   const start = roundToMinuteISO(req.query.start || req.query.from || '');
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
-  const tenant = enforcedTenant ? String(enforcedTenant) : (req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : 'n/a');
+
+  // Include the actual mount path to avoid collisions between:
+  // - /api/session-tracking
+  // - /api/session-tracking/table
+  // - /api/sessionTracking (legacy alias)
+  // - /api/sessionTracking/table (legacy alias)
+  const route = `GET:${req.baseUrl || ''}${req.path || ''}`;
+
+  // Include the canonical tenant/bypass resolution so cache never crosses scope boundaries.
+  // Note: We compute it here rather than relying solely on middleware-stamped flags,
+  // because those flags were historically route-specific and could be absent for some mounts.
+  const { bypass, tenantId, requestedTenantRaw } = resolveTenantContextFromRequest(req);
+
+  const effectiveTenantKey = bypass
+    ? `all-tenants:${String(requestedTenantRaw || 'T0000')}`
+    : String(enforcedTenant || tenantId || 'n/a');
 
   return JSON.stringify({
-    route: 'GET:/api/session-tracking',
-    tenant,
+    route,
+    tenant: effectiveTenantKey,
     page,
     limit,
     q,
     userId,
     start,
     end,
-    sort
+    sort,
   });
 }
 function cacheGet(key) {
