@@ -4,7 +4,8 @@ const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
-
+const { resolveTenantContextFromRequest, isAllTenantsSentinel } = require('../services/tenantContextResolve');
+const util = require('util');
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
 
@@ -52,31 +53,204 @@ function buildSafePhraseRegex(qTrimmed) {
     .filter(Boolean)
     .map(escapeRegexLiteral);
 
-  const pattern = tokens.length ? tokens.join('\\s+') : '';
-  return new RegExp(pattern || escapeRegexLiteral(qTrimmed), 'i');
+  const pattern = tokens.length ? tokens.join('\\s+') : escapeRegexLiteral(qTrimmed);
+  return new RegExp(pattern, 'i');
+}
+
+/**
+ * Normalize a querystring value to a trimmed string (or '').
+ *
+ * Contract:
+ * - Input: any value from req.query[key]
+ * - Output: '' if missing/non-stringable; otherwise trimmed string
+ * - Notes: supports array query params by taking the first element.
+ */
+function coerceQueryString(value) {
+  if (Array.isArray(value)) return coerceQueryString(value[0]);
+  if (value === null || typeof value === 'undefined') return '';
+  return String(value).trim();
+}
+
+/**
+ * Derive userId from supported query aliases without breaking existing callers.
+ *
+ * Contract:
+ * - Checks (in order): userId, user_id, userID, userid
+ * - Returns: '' when not provided
+ */
+function deriveUserIdFromQuery(query) {
+  const candidates = [
+    query?.userId,
+    query?.user_id,
+    query?.userID,
+    query?.userid,
+  ];
+  for (const c of candidates) {
+    const v = coerceQueryString(c);
+    if (v) return v;
+  }
+  return '';
+}
+
+/**
+ * Build an $or search filter for session tracking q/userId inputs.
+ *
+ * Contract:
+ * - Inputs:
+ *   - q: string (may be empty/whitespace)
+ *   - userId: string (may be empty/whitespace)
+ * - Output:
+ *   - {} when neither is provided
+ *   - { user_id: <userId> } when userId is provided (takes precedence)
+ *   - { $or: [...] } when q is provided
+ * - Errors:
+ *   - Throws an Error when q exceeds MAX_Q_LENGTH
+ *
+ * Invariants:
+ * - q-search for the session tracking table/list endpoint must match ONLY the top-level
+ *   `User_name` field (case-insensitive).
+ * - Full-phrase matching must be whitespace-tolerant (\"Aditi S\" matches \"Aditi   S\").
+ * - Multi-word q uses AND semantics across tokens (both tokens must appear in User_name).
+ */
+// PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
+function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
+  const qTrimmed = typeof q === 'string' ? q.trim() : '';
+  const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
+
+  console.log('[SEARCH] qTrimmed:', qTrimmed);
+  console.log('[SEARCH] userId:', userIdTrimmed);
+
+  // ✅ PRIORITY: userId exact match
+  if (userIdTrimmed) {
+    return { user_id: userIdTrimmed };
+  }
+
+  if (!qTrimmed) return {};
+
+  if (qTrimmed.length > maxQLength) {
+    const err = new Error(`q is too long (max ${maxQLength} characters)`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const phraseRegex = buildSafePhraseRegex(qTrimmed);
+  console.log('[SEARCH] phraseRegex:', String(phraseRegex));
+
+  const USER_NAME_FIELD = 'User_name';
+
+  // OR semantics:
+  // - phraseRegex: whitespace-tolerant multi-word phrase match
+  // - AND condition: requires each token to appear (order-independent)
+  const tokens = qTrimmed.split(/\s+/).filter(Boolean);
+  console.log('[SEARCH] tokens:', tokens);
+
+  const orParts = [{ [USER_NAME_FIELD]: phraseRegex }];
+
+  // Multi-word AND match
+  if (tokens.length >= 2) {
+    const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
+    const andCondition = {
+      $and: tokenRegexes.map((r) => ({ [USER_NAME_FIELD]: r })),
+    };
+    orParts.unshift(andCondition);
+  }
+
+  const finalSearch = { $or: orParts };
+
+  console.log('[SEARCH FILTER]', util.inspect(finalSearch, { depth: null }));
+
+  return finalSearch;
+}
+
+/**
+ * Convert a MongoDB filter object into a JSON-safe structure for logging.
+ *
+ * Why:
+ * - RegExp values do not serialize to JSON well and often appear as `{}` when stringified.
+ * - We want logs like "FINAL FILTER BEFORE DB" to reflect the true filter passed to Mongo,
+ *   including regex patterns and options.
+ *
+ * Contract:
+ * - Input: any JS value (typically a MongoDB filter object)
+ * - Output: plain JSON-serializable value
+ * - Side effects: none
+ */
+function mongoFilterToLogObject(value) {
+  if (value instanceof RegExp) {
+    // Important: JSON.stringify(RegExp) => {} (misleading).
+    // For logs, preserve the actual regex representation developers expect to see.
+    // Example: /Darssni/i
+    return String(value);
+  }
+
+  if (Array.isArray(value)) return value.map(mongoFilterToLogObject);
+
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = mongoFilterToLogObject(v);
+    }
+    return out;
+  }
+
+  return value;
 }
 
 const routeCache = new Map();
 function cacheKeyFromReq(req, enforcedTenant) {
+  /**
+   * Route cache key for session-tracking list/table endpoints.
+   *
+   * Contract:
+   * - Must vary by:
+   *   - actual mounted route (so /api/session-tracking and /api/session-tracking/table never collide)
+   *   - effective tenant scope / bypass state
+   *   - paging/sort/time window inputs
+   *   - q + userId search inputs
+   *
+   * Why:
+   * - The Sessions UI calls /api/session-tracking/table with different q values.
+   *   If the cache key collides across mounts or omits q/tenant, the UI can show
+   *   stale, unfiltered results.
+   */
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || req.query.pageSize || 20);
-  const sort = typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : '-session_start';
+  const sort =
+    typeof req.query.sort === 'string' && req.query.sort.trim()
+      ? req.query.sort.trim()
+      : '-session_start';
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
   const start = roundToMinuteISO(req.query.start || req.query.from || '');
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
-  const tenant = enforcedTenant ? String(enforcedTenant) : (req.tenantScopeDisabled || req.allTenants ? 'all-tenants' : 'n/a');
 
-  return JSON.stringify({
-    route: 'GET:/api/session-tracking',
-    tenant,
+  // Include the actual mount path to avoid collisions between:
+  // - /api/session-tracking
+  // - /api/session-tracking/table
+  // - /api/sessionTracking (legacy alias)
+  // - /api/sessionTracking/table (legacy alias)
+  const route = `GET:${req.baseUrl || ''}${req.path || ''}`;
+
+  // Include the canonical tenant/bypass resolution so cache never crosses scope boundaries.
+  // Note: We compute it here rather than relying solely on middleware-stamped flags,
+  // because those flags were historically route-specific and could be absent for some mounts.
+  const { bypass, tenantId, requestedTenantRaw } = resolveTenantContextFromRequest(req);
+
+  const effectiveTenantKey = bypass
+    ? `all-tenants:${String(requestedTenantRaw || 'T0000')}`
+    : String(enforcedTenant || tenantId || 'n/a');
+
+  return util.inspect({
+    route,
+    tenant: effectiveTenantKey,
     page,
     limit,
     q,
     userId,
     start,
     end,
-    sort
+    sort,
   });
 }
 function cacheGet(key) {
@@ -100,7 +274,7 @@ function invalidateAllSessionTrackingCache() {
 }
 function computeETag(payload, context) {
   try {
-    const basis = JSON.stringify({
+    const basis = util.inspect({
       ctx: context,
       len: Array.isArray(payload) ? payload.length : Array.isArray(payload?.data) ? payload.data.length : null,
       first: Array.isArray(payload) && payload[0]?._id ? String(payload[0]._id) : Array.isArray(payload?.data) && payload.data[0]?._id ? String(payload.data[0]._id) : null,
@@ -114,10 +288,10 @@ function computeETag(payload, context) {
         }
         return max || null;
       })()
-    });
+    }, { depth: null });
     return crypto.createHash('sha1').update(basis).digest('hex');
   } catch {
-    const s = typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+    const s = typeof payload === 'string' ? payload : util.inspect(payload || {});
     return crypto.createHash('sha1').update(s).digest('hex');
   }
 }
@@ -131,68 +305,44 @@ router.use((req, res, next) => {
     } else if (req.tenantId) {
       const t = String(req.tenantId);
       res.set('X-Applied-Tenant', t);
-      res.set('X-Applied-Filter', JSON.stringify({
+      res.set('X-Applied-Filter', util.inspect({
         $or: [
           { tenant_id: t },
           { organization_id: t },
           { organizationId: t },
         ]
-      }));
+      }, { depth: null }));
     }
-  } catch {}
+  } catch { }
   next();
 });
 
 /**
- * Normalize a tenant/org id for consistent comparisons.
- * - trims whitespace
- * - uppercases (tenant ids are treated case-insensitively for bypass sentinel)
+ * Early bypass detector.
+ *
+ * Contract:
+ * - Stamps request flags when the caller indicates the all-tenants sentinel (T0000),
+ *   so downstream code can skip tenant scoping.
+ * - Does not make authorization decisions; JWT mismatch enforcement is handled in the handler.
  */
-function normalizeTenantIdForCompare(value) {
-  if (typeof value !== 'string') return '';
-  return value.trim().toUpperCase();
-}
-
-/**
- * Returns true if the value indicates "all tenants" sentinel.
- * Currently supported sentinel: "T0000" (case-insensitive, whitespace-tolerant).
- */
-function isAllTenantsSentinel(value) {
-  return normalizeTenantIdForCompare(value) === 'T0000';
-}
-
-// Early bypass detector
 function sessionsEarlyBypassDetector(req, res, next) {
   if (req.method !== 'GET' || req.path !== '/') return next();
 
-  const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
-  const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
+  const { bypass, requestedTenantRaw } = resolveTenantContextFromRequest(req);
 
-  const hdrOrg =
-    (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id']) ||
-    (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id']) ||
-    (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id']) ||
-    undefined;
-
-  const authTenant =
-    (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId) ||
-    (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id) ||
-    undefined;
-
-  const requestedTenant = hdrOrg || qOrg || qTenant || authTenant;
-
-  // IMPORTANT: treat sentinel case-insensitively + trim, to avoid accidental empty results
-  // from enforcing a literal tenant_id="T0000" filter.
-  if (isAllTenantsSentinel(requestedTenant)) {
+  if (bypass && isAllTenantsSentinel(requestedTenantRaw || '')) {
     req.tenantScopeDisabled = true;
     req.allTenants = true;
     req.sessionsAllTenantsBypass = true;
 
-    res.set('X-Tenant-Bypass', 'true');
-    res.set('X-Requested-Tenant', 'T0000');
-    res.set('X-All-Tenants', 'true');
-    res.set('X-Applied-Tenant', 'all-tenants');
+    try {
+      res.set('X-Tenant-Bypass', 'true');
+      res.set('X-Requested-Tenant', 'T0000');
+      res.set('X-All-Tenants', 'true');
+      res.set('X-Applied-Tenant', 'all-tenants');
+    } catch { }
   }
+
   return next();
 }
 
@@ -200,27 +350,30 @@ router.get(
   '/',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
-    const bypass = !!(
-      req.tenantScopeDisabled ||
-      req.allTenants ||
-      req.sessionsAllTenantsBypass ||
-      req?.user?.isSuperAdmin
-    );
+    console.log('================ REQUEST START ================');
+    console.log('[REQ QUERY]', req.query);
+    // Canonical tenant/bypass resolution (shared flow)
+    const { bypass, tenantId, requestedTenantRaw } = resolveTenantContextFromRequest(req);
+    console.log('[TENANT]', {
+      bypass,
+      tenantId,
+      requestedTenantRaw,
+    });
 
-    // Resolve tenant aliases
-    // Resolve tenant aliases (normalized for consistent comparisons)
-    const enforcedTenantRaw =
-      req.tenantId ||
-      (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-      (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
-      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+    // Security: if JWT tenant is present, do NOT allow client to broaden scope to "all tenants".
+    const authTenant =
+      (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId.trim()) ||
+      (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id.trim()) ||
       null;
 
-    // Preserve original casing for real tenants, but normalize for sentinel detection.
-    const enforcedTenant = enforcedTenantRaw ? String(enforcedTenantRaw).trim() : null;
+    if (authTenant && isAllTenantsSentinel(requestedTenantRaw || '')) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: all-tenants (T0000) bypass is not allowed with Authorization',
+      });
+    }
 
-    if (!bypass && !enforcedTenant) {
+    if (!bypass && !tenantId) {
       return res.status(400).json({
         success: false,
         message: 'tenant_id is required. Provide ?tenant_id=...'
@@ -234,155 +387,65 @@ router.get(
     const sort = req.query.sort || '-session_start';
 
     // Exact userId precedence; q fallback
-    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-    const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
-
+    const q = coerceQueryString(req.query.q);
+    const userId = deriveUserIdFromQuery(req.query);
+    console.log('[SEARCH INPUT]', { q, userId });
     let searchFilter = {};
-    if (userId) {
-      // Exact equality on user_id
-      searchFilter = { user_id: userId };
-    } else if (q) {
-      /**
-       * Make q-search resilient and safe for multi-word names.
-       *
-       * Key invariant:
-       * - q is treated as literal text, not as a regex program.
-       *   (We escape regex metacharacters to avoid slow/unsafe patterns.)
-       *
-       * Also:
-       * - Multi-word q is matched with whitespace-tolerant pattern across fields,
-       *   and an AND-of-tokens matcher for user_name fields.
-       */
-      const qTrimmed = q.trim();
-
+    if (q || userId) {
       // Guardrail: avoid extremely long q creating huge regex scans.
       // This endpoint can scan many fields (and with T0000 can scan across all tenants).
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
-      if (qTrimmed.length > MAX_Q_LENGTH) {
-        return res.status(400).json({
-          success: false,
-          message: `q is too long (max ${MAX_Q_LENGTH} characters)`,
-        });
+      try {
+        searchFilter = buildSessionTrackingSearchFilter({ q, userId, maxQLength: MAX_Q_LENGTH });
+        console.log('[SEARCH FILTER]', util.inspect(searchFilter, { depth: null, colors: true }));
+      } catch (e) {
+        const status = e?.statusCode || 400;
+        return res.status(status).json({ success: false, message: e?.message || 'Invalid search input' });
       }
-
-      // Safe "phrase" regex: literal tokens joined by \s+ so "Aditi S" matches "Aditi  S".
-      const phraseRegex = buildSafePhraseRegex(qTrimmed);
-
-      // Single token: allow exact user_id equality fast-path.
-      const looksLikeId = !/\s/.test(qTrimmed);
-
-      const orParts = [
-        { task_id: phraseRegex },
-        { tenant_id: phraseRegex },
-        { organization_name: phraseRegex },
-        { user_name: phraseRegex },
-        { User_name: phraseRegex },
-        { project_id: phraseRegex },
-        { container_id: phraseRegex },
-        { service_type: phraseRegex },
-        { status: phraseRegex },
-        { user_id: phraseRegex },
-        { 'session_data.session_name': phraseRegex },
-        { 'session_data.description': phraseRegex },
-        { 'session_data.llm_model': phraseRegex },
-      ];
-
-      if (looksLikeId) {
-        orParts.unshift({ user_id: qTrimmed });
-      } else {
-        // Tokenize on whitespace; ignore empty tokens.
-        const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
-
-        if (tokens.length >= 2) {
-          // Token regexes are literal-safe too.
-          const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
-
-          // Match either user_name or User_name where *all* tokens match (in any order).
-          const userNameAllTokens = {
-            $and: tokenRegexes.map((r) => ({ user_name: r })),
-          };
-          const userNameAllTokensAlt = {
-            $and: tokenRegexes.map((r) => ({ User_name: r })),
-          };
-
-          orParts.unshift({ $or: [userNameAllTokens, userNameAllTokensAlt] });
-        }
-      }
-
-      searchFilter = { $or: orParts };
     }
 
     // Ignore client filter param for this route
     if (typeof req.query.filter !== 'undefined') {
-      try { res.set('X-Filter-Ignored', 'true'); } catch {}
+      try { res.set('X-Filter-Ignored', 'true'); } catch { }
     }
 
-    // Defense in depth: never enforce a literal scope for the "all tenants" sentinel.
-    const enforcedScope = (!bypass && enforcedTenant && !isAllTenantsSentinel(enforcedTenant))
-      ? {
-          $or: [
-            { tenant_id: enforcedTenant },
-            { organization_id: enforcedTenant },
-            { organizationId: enforcedTenant },
-          ],
-        }
-      : {};
+    // Tenant scope (only when not bypass)
+    // const enforcedScope = (!bypass && tenantId) ?? {};
+    let enforcedScope = {};
 
+    if (!bypass && tenantId) {
+      enforcedScope = {
+        $or: [
+          { tenant_id: tenantId },
+          { organization_id: tenantId },
+          { organizationId: tenantId }
+        ]
+      };
+    }
+
+    // Build final Mongo filter (single canonical code path)
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
+
     if (!isEmpty(searchFilter)) parts.push(searchFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
-    const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
+
+    // If we only have a single part, avoid wrapping in $and (cleaner explain/logging),
+    // but keep semantics identical.
+    const finalFilter =
+      parts.length === 0 ? {} : parts.length === 1 ? parts[0] : { $and: parts };
+
+    console.log('[FINAL FILTER]', util.inspect(finalFilter, { depth: null, colors: true }));
+    // This is the filter actually passed into Mongoose/Mongo. Use a serializer that does not drop RegExp.
+    console.log(
+      '[FINAL FILTER BEFORE DB]',
+      JSON.stringify(mongoFilterToLogObject(finalFilter))
+    );
 
     // Cache handling
-    const cacheKey = cacheKeyFromReq(req, enforcedTenant);
+    const cacheKey = cacheKeyFromReq(req, bypass ? null : tenantId);
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
     const wantETag = ENABLE_ETAG && req.method === 'GET';
-
-    // Debug logging (temporary): helps diagnose why filtering returns empty.
-    // Logs: query inputs, resolved tenant, and a sample of user_name values from returned records.
-    const DEBUG_SESSION_TRACKING_LOGS =
-      String(process.env.DEBUG_SESSION_TRACKING_LOGS || '').toLowerCase() === 'true';
-
-    if (DEBUG_SESSION_TRACKING_LOGS) {
-      try {
-        console.log('[sessionTracking:list] request', {
-          path: req.path,
-          query: {
-            page: req.query.page,
-            limit: req.query.limit,
-            pageSize: req.query.pageSize,
-            sort: req.query.sort,
-            q: req.query.q,
-            userId: req.query.userId,
-            start: req.query.start,
-            end: req.query.end,
-            from: req.query.from,
-            to: req.query.to,
-            // NOTE: filter is intentionally ignored by this route, but useful to see if clients send it
-            filter: typeof req.query.filter === 'undefined' ? undefined : req.query.filter,
-          },
-          tenant: {
-            bypass,
-            enforcedTenant,
-            reqTenantId: req.tenantId || null,
-            tenantScopeDisabled: !!req.tenantScopeDisabled,
-            allTenants: !!req.allTenants,
-            sessionsAllTenantsBypass: !!req.sessionsAllTenantsBypass,
-          },
-          derived: {
-            explicitPagination: !!explicit,
-            page,
-            limit,
-            skip,
-            sort,
-            q,
-            userId,
-          },
-          finalFilter,
-        });
-      } catch {}
-    }
 
     if (wantCache) {
       const hit = cacheGet(cacheKey);
@@ -398,27 +461,6 @@ router.get(
         res.set('X-Cache', 'HIT');
         if (wantETag && hit.etag) res.set('ETag', hit.etag);
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
-
-        if (DEBUG_SESSION_TRACKING_LOGS) {
-          try {
-            const cachedDocs = Array.isArray(hit.payload)
-              ? hit.payload
-              : Array.isArray(hit.payload?.data)
-                ? hit.payload.data
-                : [];
-            const sampleNames = cachedDocs
-              .slice(0, 50)
-              .map((d) => d?.user_name ?? d?.User_name ?? null)
-              .filter((v) => typeof v === 'string' && v.trim().length > 0);
-
-            console.log('[sessionTracking:list] cache HIT', {
-              cacheKey,
-              count: cachedDocs.length,
-              user_name_sample: sampleNames.slice(0, 20),
-            });
-          } catch {}
-        }
-
         return res.status(200).json(hit.payload);
       }
     }
@@ -429,28 +471,13 @@ router.get(
         const [docs, total] = await Promise.all([
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
           SessionTracking.countDocuments(finalFilter),
+
         ]);
-
-        if (DEBUG_SESSION_TRACKING_LOGS) {
-          try {
-            const names = docs
-              .slice(0, 50)
-              .map((d) => d?.user_name ?? d?.User_name ?? null)
-              .filter((v) => typeof v === 'string' && v.trim().length > 0);
-
-            console.log('[sessionTracking:list] db result (paginated)', {
-              count: docs.length,
-              total,
-              user_name_sample: names.slice(0, 20),
-              hasAnyUserName: names.length > 0,
-            });
-          } catch {}
-        }
 
         const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
-          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q, userId });
+          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, page, limit, sort, q, userId });
           res.set('ETag', etag);
         }
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
@@ -462,31 +489,17 @@ router.get(
         if (wantETag && inm && etag && inm === etag) {
           return res.status(304).end();
         }
-
         return res.status(200).json(payload);
       }
 
       const docs = await SessionTracking.find(finalFilter).sort(sort).lean();
-
-      if (DEBUG_SESSION_TRACKING_LOGS) {
-        try {
-          const names = docs
-            .slice(0, 50)
-            .map((d) => d?.user_name ?? d?.User_name ?? null)
-            .filter((v) => typeof v === 'string' && v.trim().length > 0);
-
-          console.log('[sessionTracking:list] db result (unpaginated)', {
-            count: docs.length,
-            user_name_sample: names.slice(0, 20),
-            hasAnyUserName: names.length > 0,
-          });
-        } catch {}
-      }
+      console.log('[DB RESULT COUNT]', docs.length);
+      console.log('[DB SAMPLE RESULT]', docs[0]);
 
       const payload = docs;
       let etag = null;
       if (wantETag) {
-        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q, userId });
+        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, sort, q, userId });
         res.set('ETag', etag);
       }
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
@@ -499,15 +512,6 @@ router.get(
 
       return res.status(200).json(payload);
     } catch (err) {
-      if (DEBUG_SESSION_TRACKING_LOGS) {
-        try {
-          console.log('[sessionTracking:list] error', {
-            message: err?.message || String(err),
-            stack: err?.stack,
-          });
-        } catch {}
-      }
-
       return res.status(400).json({
         success: false,
         message: 'Request failed',
@@ -518,9 +522,9 @@ router.get(
 );
 
 // CRUD operations invalidate cache
-router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
-router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
-router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
+router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
+router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
+router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
 
 // Keep ID read unchanged
 router.get('/:id', asyncHandler(controller.getById));
