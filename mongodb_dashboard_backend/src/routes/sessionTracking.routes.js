@@ -54,7 +54,8 @@ function buildSafePhraseRegex(qTrimmed) {
     .map(escapeRegexLiteral);
 
   const pattern = tokens.length ? tokens.join('\\s+') : '';
-  return new RegExp(pattern || escapeRegexLiteral(qTrimmed), 'i');
+  // return new RegExp(pattern || escapeRegexLiteral(qTrimmed), 'i');
+  return pattern;
 }
 
 /**
@@ -84,12 +85,12 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   console.log('[SEARCH] qTrimmed:', qTrimmed);
   const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
 
-  if (userIdTrimmed) {
-    // Exact equality on user_id
-    return { user_id: userIdTrimmed };
-  }
+  // if (userIdTrimmed) {
+  //   // Exact equality on user_id
+  //   return { user_id: userIdTrimmed };
+  // }
 
-  if (!qTrimmed) return {};
+  // if (!qTrimmed) return {};
 
   if (qTrimmed.length > maxQLength) {
     const err = new Error(`q is too long (max ${maxQLength} characters)`);
@@ -114,10 +115,10 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   // - userId query param remains the supported exact ID search mechanism (handled above).
   const USER_NAME_FIELD = 'User_name';
 
-  const orParts = [{ [USER_NAME_FIELD]: phraseRegex }];
+  const orParts = [{ [USER_NAME_FIELD]: 'Darssini' }];
 
   // Multi-token name matching: AND of token regexes for User_name.
-  const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+   const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
   console.log('[SEARCH] tokens:', tokens);
   if (tokens.length >= 2) {
     const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
@@ -332,6 +333,7 @@ router.get(
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       try {
         searchFilter = buildSessionTrackingSearchFilter({ q, userId, maxQLength: MAX_Q_LENGTH });
+        console.log('[SEARCH FILTER]', JSON.stringify(searchFilter, null, 2));
       } catch (e) {
         const status = e?.statusCode || 400;
         return res.status(status).json({ success: false, message: e?.message || 'Invalid search input' });
@@ -344,22 +346,15 @@ router.get(
     }
 
     // Tenant scope (only when not bypass)
-    const enforcedScope = (!bypass && tenantId)
-      ? {
-        $or: [
-          { tenant_id: tenantId },
-          { organization_id: tenantId },
-          { organizationId: tenantId },
-        ],
-      }
-      : {};
+    const enforcedScope = (!bypass && tenantId) ?? {};
 
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
     if (!isEmpty(searchFilter)) parts.push(searchFilter);
-    if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
-    const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
-
+    // if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
+    console.log('Searchhhhhhhhhhhhhhh', searchFilter, "parts", parts)
+    const finalFilter = { $and: parts };
+    console.log('[FINAL FILTER]', JSON.stringify(finalFilter, null, 2));
     // Cache handling
     const cacheKey = cacheKeyFromReq(req, bypass ? null : tenantId);
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
@@ -389,6 +384,7 @@ router.get(
         const [docs, total] = await Promise.all([
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
           SessionTracking.countDocuments(finalFilter),
+
         ]);
 
         const payload = { success: true, data: docs, meta: { page, limit, total } };
@@ -410,6 +406,8 @@ router.get(
       }
 
       const docs = await SessionTracking.find(finalFilter).sort(sort).lean();
+      console.log('[DB RESULT COUNT]', docs.length);
+      console.log('[DB SAMPLE RESULT]', docs[0]);
 
       const payload = docs;
       let etag = null;
