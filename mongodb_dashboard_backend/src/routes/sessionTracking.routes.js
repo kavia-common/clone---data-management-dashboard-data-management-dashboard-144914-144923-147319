@@ -81,6 +81,7 @@ function buildSafePhraseRegex(qTrimmed) {
 function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   /** Build the search filter used by GET /api/session-tracking. */
   const qTrimmed = typeof q === 'string' ? q.trim() : '';
+  console.log('[SEARCH] qTrimmed:', qTrimmed);
   const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
 
   if (userIdTrimmed) {
@@ -98,6 +99,7 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
 
   // Safe "phrase" regex: literal tokens joined by \s+ so "Aditi S" matches "Aditi  S".
   const phraseRegex = buildSafePhraseRegex(qTrimmed);
+  console.log('[SEARCH] phraseRegex:', phraseRegex);
 
   // Single token: allow exact user_id equality fast-path.
   const looksLikeId = !/\s/.test(qTrimmed);
@@ -116,6 +118,7 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
 
   // Multi-token name matching: AND of token regexes for User_name.
   const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+  console.log('[SEARCH] tokens:', tokens);
   if (tokens.length >= 2) {
     const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
     const userNameAllTokens = {
@@ -282,8 +285,15 @@ router.get(
   '/',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
+    console.log('================ REQUEST START ================');
+    console.log('[REQ QUERY]', req.query);
     // Canonical tenant/bypass resolution (shared flow)
     const { bypass, tenantId, requestedTenantRaw } = resolveTenantContextFromRequest(req);
+    console.log('[TENANT]', {
+      bypass,
+      tenantId,
+      requestedTenantRaw,
+    });
 
     // Security: if JWT tenant is present, do NOT allow client to broaden scope to "all tenants".
     const authTenant =
@@ -314,7 +324,7 @@ router.get(
     // Exact userId precedence; q fallback
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
-
+    console.log('[SEARCH INPUT]', { q, userId });
     let searchFilter = {};
     if (q || userId) {
       // Guardrail: avoid extremely long q creating huge regex scans.
