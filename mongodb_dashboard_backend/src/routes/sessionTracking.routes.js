@@ -56,6 +56,98 @@ function buildSafePhraseRegex(qTrimmed) {
   return new RegExp(pattern || escapeRegexLiteral(qTrimmed), 'i');
 }
 
+/**
+ * Build an $or search filter for session tracking q/userId inputs.
+ *
+ * Contract:
+ * - Inputs:
+ *   - q: string (may be empty/whitespace)
+ *   - userId: string (may be empty/whitespace)
+ * - Output:
+ *   - {} when neither is provided
+ *   - { user_id: <userId> } when userId is provided (takes precedence)
+ *   - { $or: [...] } when q is provided
+ * - Errors:
+ *   - Throws an Error when q exceeds MAX_Q_LENGTH
+ *
+ * Invariants:
+ * - For multi-word q, user name matching MUST work for both schemas:
+ *   - user_name (preferred)
+ *   - User_name (legacy)
+ * - Full-phrase matching must be whitespace-tolerant (\"Aditi S\" matches \"Aditi   S\").
+ * - Token matching for names uses AND semantics across tokens.
+ */
+// PUBLIC_INTERFACE
+function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
+  /** Build the search filter used by GET /api/session-tracking. */
+  const qTrimmed = typeof q === 'string' ? q.trim() : '';
+  const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
+
+  if (userIdTrimmed) {
+    // Exact equality on user_id
+    return { user_id: userIdTrimmed };
+  }
+
+  if (!qTrimmed) return {};
+
+  if (qTrimmed.length > maxQLength) {
+    const err = new Error(`q is too long (max ${maxQLength} characters)`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Safe "phrase" regex: literal tokens joined by \s+ so "Aditi S" matches "Aditi  S".
+  const phraseRegex = buildSafePhraseRegex(qTrimmed);
+
+  // Single token: allow exact user_id equality fast-path.
+  const looksLikeId = !/\s/.test(qTrimmed);
+
+  const orParts = [
+    // Broad text-like search across key columns
+    { task_id: phraseRegex },
+    { tenant_id: phraseRegex },
+    { organization_name: phraseRegex },
+
+    // IMPORTANT: match both casing variants
+    { user_name: phraseRegex },
+    { User_name: phraseRegex },
+
+    { project_id: phraseRegex },
+    { container_id: phraseRegex },
+    { service_type: phraseRegex },
+    { status: phraseRegex },
+
+    // user_id can be searched too (regex + exact fast-path below)
+    { user_id: phraseRegex },
+
+    // nested session data
+    { 'session_data.session_name': phraseRegex },
+    { 'session_data.description': phraseRegex },
+    { 'session_data.llm_model': phraseRegex },
+  ];
+
+  if (looksLikeId) {
+    orParts.unshift({ user_id: qTrimmed });
+    return { $or: orParts };
+  }
+
+  // Multi-token name matching: AND of token regexes for each name field.
+  // This fixes the previous bug where token matching only applied to phraseRegex and
+  // could miss user-name matches depending on spacing/casing.
+  const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+  if (tokens.length >= 2) {
+    const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
+
+    const userNameAllTokens = { $and: tokenRegexes.map((r) => ({ user_name: r })) };
+    const userNameAllTokensAlt = { $and: tokenRegexes.map((r) => ({ User_name: r })) };
+
+    // Boost the user-name all-token match to the top.
+    orParts.unshift({ $or: [userNameAllTokens, userNameAllTokensAlt] });
+  }
+
+  return { $or: orParts };
+}
+
 const routeCache = new Map();
 function cacheKeyFromReq(req, enforcedTenant) {
   const page = Number(req.query.page || 1);
@@ -139,7 +231,7 @@ router.use((req, res, next) => {
         ]
       }));
     }
-  } catch {}
+  } catch { }
   next();
 });
 
@@ -238,94 +330,32 @@ router.get(
     const userId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
 
     let searchFilter = {};
-    if (userId) {
-      // Exact equality on user_id
-      searchFilter = { user_id: userId };
-    } else if (q) {
-      /**
-       * Make q-search resilient and safe for multi-word names.
-       *
-       * Key invariant:
-       * - q is treated as literal text, not as a regex program.
-       *   (We escape regex metacharacters to avoid slow/unsafe patterns.)
-       *
-       * Also:
-       * - Multi-word q is matched with whitespace-tolerant pattern across fields,
-       *   and an AND-of-tokens matcher for user_name fields.
-       */
-      const qTrimmed = q.trim();
-
+    if (q || userId) {
       // Guardrail: avoid extremely long q creating huge regex scans.
       // This endpoint can scan many fields (and with T0000 can scan across all tenants).
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
-      if (qTrimmed.length > MAX_Q_LENGTH) {
-        return res.status(400).json({
-          success: false,
-          message: `q is too long (max ${MAX_Q_LENGTH} characters)`,
-        });
+      try {
+        searchFilter = buildSessionTrackingSearchFilter({ q, userId, maxQLength: MAX_Q_LENGTH });
+      } catch (e) {
+        const status = e?.statusCode || 400;
+        return res.status(status).json({ success: false, message: e?.message || 'Invalid search input' });
       }
-
-      // Safe "phrase" regex: literal tokens joined by \s+ so "Aditi S" matches "Aditi  S".
-      const phraseRegex = buildSafePhraseRegex(qTrimmed);
-
-      // Single token: allow exact user_id equality fast-path.
-      const looksLikeId = !/\s/.test(qTrimmed);
-
-      const orParts = [
-        { task_id: phraseRegex },
-        { tenant_id: phraseRegex },
-        { organization_name: phraseRegex },
-        { user_name: phraseRegex },
-        { User_name: phraseRegex },
-        { project_id: phraseRegex },
-        { container_id: phraseRegex },
-        { service_type: phraseRegex },
-        { status: phraseRegex },
-        { user_id: phraseRegex },
-        { 'session_data.session_name': phraseRegex },
-        { 'session_data.description': phraseRegex },
-        { 'session_data.llm_model': phraseRegex },
-      ];
-
-      if (looksLikeId) {
-        orParts.unshift({ user_id: qTrimmed });
-      } else {
-        // Tokenize on whitespace; ignore empty tokens.
-        const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
-
-        if (tokens.length >= 2) {
-          // Token regexes are literal-safe too.
-          const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
-
-          // Match either user_name or User_name where *all* tokens match (in any order).
-          const userNameAllTokens = {
-            $and: tokenRegexes.map((r) => ({ user_name: r })),
-          };
-          const userNameAllTokensAlt = {
-            $and: tokenRegexes.map((r) => ({ User_name: r })),
-          };
-
-          orParts.unshift({ $or: [userNameAllTokens, userNameAllTokensAlt] });
-        }
-      }
-
-      searchFilter = { $or: orParts };
     }
 
     // Ignore client filter param for this route
     if (typeof req.query.filter !== 'undefined') {
-      try { res.set('X-Filter-Ignored', 'true'); } catch {}
+      try { res.set('X-Filter-Ignored', 'true'); } catch { }
     }
 
     // Defense in depth: never enforce a literal scope for the "all tenants" sentinel.
     const enforcedScope = (!bypass && enforcedTenant && !isAllTenantsSentinel(enforcedTenant))
       ? {
-          $or: [
-            { tenant_id: enforcedTenant },
-            { organization_id: enforcedTenant },
-            { organizationId: enforcedTenant },
-          ],
-        }
+        $or: [
+          { tenant_id: enforcedTenant },
+          { organization_id: enforcedTenant },
+          { organizationId: enforcedTenant },
+        ],
+      }
       : {};
 
     const parts = [];
@@ -380,7 +410,6 @@ router.get(
         if (wantETag && inm && etag && inm === etag) {
           return res.status(304).end();
         }
-
         return res.status(200).json(payload);
       }
 
@@ -412,9 +441,9 @@ router.get(
 );
 
 // CRUD operations invalidate cache
-router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
-router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
-router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async () => { try { invalidateAllSessionTrackingCache(); } catch {} });
+router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
+router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
+router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
 
 // Keep ID read unchanged
 router.get('/:id', asyncHandler(controller.getById));
