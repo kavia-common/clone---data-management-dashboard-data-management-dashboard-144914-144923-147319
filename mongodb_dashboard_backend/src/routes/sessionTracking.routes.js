@@ -4,6 +4,8 @@ const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
+const { resolveTenantContextFromRequest, isAllTenantsSentinel } = require('../services/tenantContextResolve');
+const { resolveTenantContextFromRequest, isAllTenantsSentinel } = require('../services/tenantContextResolve');
 
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
@@ -253,55 +255,31 @@ router.use((req, res, next) => {
 });
 
 /**
- * Normalize a tenant/org id for consistent comparisons.
- * - trims whitespace
- * - uppercases (tenant ids are treated case-insensitively for bypass sentinel)
+ * Early bypass detector.
+ *
+ * Contract:
+ * - Stamps request flags when the caller indicates the all-tenants sentinel (T0000),
+ *   so downstream code can skip tenant scoping.
+ * - Does not make authorization decisions; JWT mismatch enforcement is handled in the handler.
  */
-function normalizeTenantIdForCompare(value) {
-  if (typeof value !== 'string') return '';
-  return value.trim().toUpperCase();
-}
-
-/**
- * Returns true if the value indicates "all tenants" sentinel.
- * Currently supported sentinel: "T0000" (case-insensitive, whitespace-tolerant).
- */
-function isAllTenantsSentinel(value) {
-  return normalizeTenantIdForCompare(value) === 'T0000';
-}
-
-// Early bypass detector
 function sessionsEarlyBypassDetector(req, res, next) {
   if (req.method !== 'GET' || req.path !== '/') return next();
 
-  const qOrg = typeof req.query?.organization_id === 'string' ? req.query.organization_id : undefined;
-  const qTenant = typeof req.query?.tenant_id === 'string' ? req.query.tenant_id : undefined;
+  const { bypass, requestedTenantRaw } = resolveTenantContextFromRequest(req);
 
-  const hdrOrg =
-    (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id']) ||
-    (typeof req.headers['x-org-id'] === 'string' && req.headers['x-org-id']) ||
-    (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id']) ||
-    undefined;
-
-  const authTenant =
-    (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId) ||
-    (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id) ||
-    undefined;
-
-  const requestedTenant = hdrOrg || qOrg || qTenant || authTenant;
-
-  // IMPORTANT: treat sentinel case-insensitively + trim, to avoid accidental empty results
-  // from enforcing a literal tenant_id="T0000" filter.
-  if (isAllTenantsSentinel(requestedTenant)) {
+  if (bypass && isAllTenantsSentinel(requestedTenantRaw || '')) {
     req.tenantScopeDisabled = true;
     req.allTenants = true;
     req.sessionsAllTenantsBypass = true;
 
-    res.set('X-Tenant-Bypass', 'true');
-    res.set('X-Requested-Tenant', 'T0000');
-    res.set('X-All-Tenants', 'true');
-    res.set('X-Applied-Tenant', 'all-tenants');
+    try {
+      res.set('X-Tenant-Bypass', 'true');
+      res.set('X-Requested-Tenant', 'T0000');
+      res.set('X-All-Tenants', 'true');
+      res.set('X-Applied-Tenant', 'all-tenants');
+    } catch { }
   }
+
   return next();
 }
 
@@ -309,27 +287,23 @@ router.get(
   '/',
   sessionsEarlyBypassDetector,
   asyncHandler(async (req, res) => {
-    const bypass = !!(
-      req.tenantScopeDisabled ||
-      req.allTenants ||
-      req.sessionsAllTenantsBypass ||
-      req?.user?.isSuperAdmin
-    );
+    // Canonical tenant/bypass resolution (shared flow)
+    const { bypass, tenantId, requestedTenantRaw } = resolveTenantContextFromRequest(req);
 
-    // Resolve tenant aliases
-    // Resolve tenant aliases (normalized for consistent comparisons)
-    const enforcedTenantRaw =
-      req.tenantId ||
-      (typeof req.query.tenant_id === 'string' && req.query.tenant_id.trim()) ||
-      (typeof req.query.organization_id === 'string' && req.query.organization_id.trim()) ||
-      (typeof req.headers['x-tenant-id'] === 'string' && req.headers['x-tenant-id'].trim()) ||
-      (typeof req.headers['x-organization-id'] === 'string' && req.headers['x-organization-id'].trim()) ||
+    // Security: if JWT tenant is present, do NOT allow client to broaden scope to "all tenants".
+    const authTenant =
+      (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId.trim()) ||
+      (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id.trim()) ||
       null;
 
-    // Preserve original casing for real tenants, but normalize for sentinel detection.
-    const enforcedTenant = enforcedTenantRaw ? String(enforcedTenantRaw).trim() : null;
+    if (authTenant && isAllTenantsSentinel(requestedTenantRaw || '')) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: all-tenants (T0000) bypass is not allowed with Authorization',
+      });
+    }
 
-    if (!bypass && !enforcedTenant) {
+    if (!bypass && !tenantId) {
       return res.status(400).json({
         success: false,
         message: 'tenant_id is required. Provide ?tenant_id=...'
@@ -364,13 +338,13 @@ router.get(
       try { res.set('X-Filter-Ignored', 'true'); } catch { }
     }
 
-    // Defense in depth: never enforce a literal scope for the "all tenants" sentinel.
-    const enforcedScope = (!bypass && enforcedTenant && !isAllTenantsSentinel(enforcedTenant))
+    // Tenant scope (only when not bypass)
+    const enforcedScope = (!bypass && tenantId)
       ? {
         $or: [
-          { tenant_id: enforcedTenant },
-          { organization_id: enforcedTenant },
-          { organizationId: enforcedTenant },
+          { tenant_id: tenantId },
+          { organization_id: tenantId },
+          { organizationId: tenantId },
         ],
       }
       : {};
@@ -382,7 +356,7 @@ router.get(
     const finalFilter = parts.length > 1 ? { $and: parts } : (parts[0] || {});
 
     // Cache handling
-    const cacheKey = cacheKeyFromReq(req, enforcedTenant);
+    const cacheKey = cacheKeyFromReq(req, bypass ? null : tenantId);
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
     const wantETag = ENABLE_ETAG && req.method === 'GET';
 
@@ -415,7 +389,7 @@ router.get(
         const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
-          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, page, limit, sort, q, userId });
+          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, page, limit, sort, q, userId });
           res.set('ETag', etag);
         }
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
@@ -435,7 +409,7 @@ router.get(
       const payload = docs;
       let etag = null;
       if (wantETag) {
-        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : enforcedTenant, sort, q, userId });
+        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, sort, q, userId });
         res.set('ETag', etag);
       }
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);

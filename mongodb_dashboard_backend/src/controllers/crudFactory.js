@@ -159,58 +159,11 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
         res.set('x-tenant-auth-present', String(authPresent));
       } catch (_) {}
 
-      // Developer-mode log
-      const debugOn = process.env.NODE_ENV !== 'production' || String(process.env.DEBUG || '').toLowerCase() === 'true';
-
-      // Expose bypass status for tests/diagnostics
+      // Expose bypass status for tests/diagnostics (via headers, not logs).
       try {
         const bypassHeader = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
         res.set('X-Tenant-Bypass', String(bypassHeader));
       } catch (_) {}
-
-      if (debugOn) {
-        try {
-          const routeBypass =
-            !!req.usersAllTenantsBypass ||
-            !!req.sessionsAllTenantsBypass ||
-            !!req.deploymentsAllTenantsBypass ||
-            !!req.costsAllTenantsBypass;
-          const globalBypass = !!(req.tenantScopeDisabled || req.allTenants || req?.user?.isSuperAdmin);
-          const bypassAny = routeBypass || globalBypass;
-          console.debug(
-            `[crudFactory.list] ${req.method} ${req.originalUrl} effectiveTenant=${effectiveTenant || 'n/a'} bypass=${bypassAny} (routeBypass=${routeBypass}, globalBypass=${globalBypass})`
-          );
-          // Explicit console.log for specific routes to confirm bypass visibility in terminal
-          const isUsersRoute = (req.baseUrl || '').endsWith('/users') || (req.originalUrl || '').includes('/api/users');
-          const isSessionsRoute = (req.baseUrl || '').endsWith('/session-tracking') || (req.originalUrl || '').includes('/api/session-tracking');
-          const isDeploymentsRoute = (req.baseUrl || '').endsWith('/app-deployments') || (req.originalUrl || '').includes('/api/app-deployments');
-          if (isUsersRoute) {
-            console.log('[crudFactory.list:/api/users] bypass trace', {
-              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
-              usersAllTenantsBypass: !!req.usersAllTenantsBypass
-            });
-          }
-          if (isSessionsRoute) {
-            console.log('[crudFactory.list:/api/session-tracking] bypass trace', {
-              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
-              sessionsAllTenantsBypass: !!req.sessionsAllTenantsBypass
-            });
-          }
-          if (isDeploymentsRoute) {
-            console.log('[crudFactory.list:/api/app-deployments] bypass trace', {
-              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
-              deploymentsAllTenantsBypass: !!req.deploymentsAllTenantsBypass
-            });
-          }
-          const isCostsRoute = (req.baseUrl || '').endsWith('/llm-costs') || (req.originalUrl || '').includes('/api/llm-costs');
-          if (isCostsRoute) {
-            console.log('[crudFactory.list:/api/llm-costs] bypass trace', {
-              bypass: bypassAny, routeBypass, globalBypass, effectiveTenant: effectiveTenant || null,
-              costsAllTenantsBypass: !!req.costsAllTenantsBypass
-            });
-          }
-        } catch (_) {}
-      }
 
       // Parse pagination but hard-cap the limit to prevent heavy responses.
       const { page, limit: parsedLimit, skip, explicit } = parsePagination(req.query);
@@ -310,13 +263,7 @@ function buildCrudController(Model, listDefaultSort = '-timestamp') {
           res.set('X-Exists-Sample', existsSample);
         } catch (_) {}
 
-        if (debugOn) {
-          try {
-            
-            console.debug('[crudFactory.list] appliedFilter=', appliedFilter, 'sort=', safeSort, 'exists=', existsSample);
-          } catch (_) {}
-        }
-          // pagination path
+        // pagination path
 
         if (req.method === 'GET' && explicit) {
                     // cache and return envelope
