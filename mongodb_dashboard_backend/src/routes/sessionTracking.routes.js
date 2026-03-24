@@ -266,8 +266,22 @@ function cacheSet(key, payload, etag) {
   routeCache.set(key, { payload, etag, expiresAt: Date.now() + DEFAULT_CACHE_TTL_MS });
 }
 function invalidateAllSessionTrackingCache() {
+  /**
+   * Clear all cached GET responses for session-tracking list/table endpoints.
+   *
+   * Why:
+   * - The same router is mounted under multiple aliases:
+   *     /api/session-tracking
+   *     /api/sessionTracking
+   *     /api/session-tracking/table
+   *     /api/sessionTracking/table
+   * - Cache keys include the mounted route string, so invalidating only one prefix
+   *   can leave stale/unfiltered cache entries under the other alias.
+   * - Stale cache entries can make it appear that `q` filtering is ignored even when
+   *   `finalFilter` is correct (because the handler returns the cached payload before DB).
+   */
   for (const [k] of routeCache.entries()) {
-    if (k.includes('GET:/api/session-tracking')) {
+    if (k.includes('GET:/api/session-tracking') || k.includes('GET:/api/sessionTracking')) {
       routeCache.delete(k);
     }
   }
