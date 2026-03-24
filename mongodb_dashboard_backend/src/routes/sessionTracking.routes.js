@@ -5,7 +5,7 @@ const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 const { resolveTenantContextFromRequest, isAllTenantsSentinel } = require('../services/tenantContextResolve');
-
+const util = require('util');
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
 
@@ -79,18 +79,20 @@ function buildSafePhraseRegex(qTrimmed) {
  * - Multi-word q uses AND semantics across tokens (both tokens must appear in User_name).
  */
 // PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
 function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
-  /** Build the search filter used by GET /api/session-tracking. */
   const qTrimmed = typeof q === 'string' ? q.trim() : '';
-  console.log('[SEARCH] qTrimmed:', qTrimmed);
   const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
 
-  // if (userIdTrimmed) {
-  //   // Exact equality on user_id
-  //   return { user_id: userIdTrimmed };
-  // }
+  console.log('[SEARCH] qTrimmed:', qTrimmed);
+  console.log('[SEARCH] userId:', userIdTrimmed);
 
-  // if (!qTrimmed) return {};
+  // ✅ PRIORITY: userId exact match
+  if (userIdTrimmed) {
+    return { user_id: userIdTrimmed };
+  }
+
+  if (!qTrimmed) return {};
 
   if (qTrimmed.length > maxQLength) {
     const err = new Error(`q is too long (max ${maxQLength} characters)`);
@@ -98,41 +100,40 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
     throw err;
   }
 
-  // Safe "phrase" regex: literal tokens joined by \s+ so "Aditi S" matches "Aditi  S".
   const phraseRegex = buildSafePhraseRegex(qTrimmed);
   console.log('[SEARCH] phraseRegex:', phraseRegex);
 
-  // Single token: allow exact user_id equality fast-path.
-  const looksLikeId = !/\s/.test(qTrimmed);
-
-  // IMPORTANT (product requirement):
-  // q-search for the session-tracking table/list endpoint must match ONLY the top-level
-  // `User_name` field (case-insensitive).
-  //
-  // Notes:
-  // - We intentionally do NOT search tenant_id, organization_name, or other fields here.
-  // - We keep the existing safe regex behavior (escaped, whitespace-tolerant phrase match).
-  // - userId query param remains the supported exact ID search mechanism (handled above).
   const USER_NAME_FIELD = 'User_name';
 
-  const orParts = [{ [USER_NAME_FIELD]: 'Darssini' }];
+  // Phrase match: whitespace-tolerant (e.g. "Sumi P" matches "Sumi   P")
+  // NOTE: buildSafePhraseRegex already escapes tokens and joins with \\s+.
+  const phraseMatchRegex = new RegExp(phraseRegex || escapeRegexLiteral(qTrimmed), 'i');
 
-  // Multi-token name matching: AND of token regexes for User_name.
-   const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
+  const tokens = qTrimmed.split(/\s+/).filter(Boolean);
   console.log('[SEARCH] tokens:', tokens);
+
+  const orParts = [{ [USER_NAME_FIELD]: phraseMatchRegex }];
+
+  // Multi-word AND match
   if (tokens.length >= 2) {
-    const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
-    const userNameAllTokens = {
-      $and: tokenRegexes.map((r) => ({ [USER_NAME_FIELD]: r })),
+    const tokenRegexes = tokens.map((t) =>
+      new RegExp(escapeRegexLiteral(t), 'i')
+    );
+
+    const andCondition = {
+      $and: tokenRegexes.map((r) => ({ [USER_NAME_FIELD]: r }))
     };
 
-    // Boost the all-token match to the top.
-    orParts.unshift(userNameAllTokens);
+    orParts.unshift(andCondition);
   }
 
-  return { $or: orParts };
-}
+  const finalSearch = { $or: orParts };
 
+  // ✅ FIXED logging
+  console.log('[SEARCH FILTER]', util.inspect(finalSearch, { depth: null }));
+
+  return finalSearch;
+}
 const routeCache = new Map();
 function cacheKeyFromReq(req, enforcedTenant) {
   /**
@@ -177,7 +178,7 @@ function cacheKeyFromReq(req, enforcedTenant) {
     ? `all-tenants:${String(requestedTenantRaw || 'T0000')}`
     : String(enforcedTenant || tenantId || 'n/a');
 
-  return JSON.stringify({
+  return util.inspect({
     route,
     tenant: effectiveTenantKey,
     page,
@@ -210,7 +211,7 @@ function invalidateAllSessionTrackingCache() {
 }
 function computeETag(payload, context) {
   try {
-    const basis = JSON.stringify({
+    const basis = util.inspect({
       ctx: context,
       len: Array.isArray(payload) ? payload.length : Array.isArray(payload?.data) ? payload.data.length : null,
       first: Array.isArray(payload) && payload[0]?._id ? String(payload[0]._id) : Array.isArray(payload?.data) && payload.data[0]?._id ? String(payload.data[0]._id) : null,
@@ -224,10 +225,10 @@ function computeETag(payload, context) {
         }
         return max || null;
       })()
-    });
+    }, { depth: null });
     return crypto.createHash('sha1').update(basis).digest('hex');
   } catch {
-    const s = typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+    const s = typeof payload === 'string' ? payload : util.inspect(payload || {});
     return crypto.createHash('sha1').update(s).digest('hex');
   }
 }
@@ -241,13 +242,13 @@ router.use((req, res, next) => {
     } else if (req.tenantId) {
       const t = String(req.tenantId);
       res.set('X-Applied-Tenant', t);
-      res.set('X-Applied-Filter', JSON.stringify({
+      res.set('X-Applied-Filter', util.inspect({
         $or: [
           { tenant_id: t },
           { organization_id: t },
           { organizationId: t },
         ]
-      }));
+      }, { depth: null }));
     }
   } catch { }
   next();
@@ -333,7 +334,7 @@ router.get(
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       try {
         searchFilter = buildSessionTrackingSearchFilter({ q, userId, maxQLength: MAX_Q_LENGTH });
-        console.log('[SEARCH FILTER]', JSON.stringify(searchFilter, null, 2));
+        console.log('[SEARCH FILTER]', util.inspect(searchFilter, { depth: null, colors: true }));
       } catch (e) {
         const status = e?.statusCode || 400;
         return res.status(status).json({ success: false, message: e?.message || 'Invalid search input' });
@@ -346,15 +347,33 @@ router.get(
     }
 
     // Tenant scope (only when not bypass)
-    const enforcedScope = (!bypass && tenantId) ?? {};
+    // const enforcedScope = (!bypass && tenantId) ?? {};
+    let enforcedScope = {};
+
+    if (!bypass && tenantId) {
+      enforcedScope = {
+        $or: [
+          { tenant_id: tenantId },
+          { organization_id: tenantId },
+          { organizationId: tenantId }
+        ]
+      };
+    }
 
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
+
     if (!isEmpty(searchFilter)) parts.push(searchFilter);
-    // if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
-    console.log('Searchhhhhhhhhhhhhhh', searchFilter, "parts", parts)
-    const finalFilter = { $and: parts };
-    console.log('[FINAL FILTER]', JSON.stringify(finalFilter, null, 2));
+
+    // IMPORTANT:
+    // Tenant scoping must always be applied unless we are explicitly in bypass mode.
+    // If this is skipped, the UI will appear to "ignore" username filtering because the response
+    // includes rows across tenants (and can also be served from cache under broad scope).
+    if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
+
+    console.log('Searchhhhhhhhhhhhhhh', searchFilter, "parts", parts);
+    const finalFilter = parts.length ? { $and: parts } : {};
+    console.log('[FINAL FILTER]', util.inspect(finalFilter, { depth: null, colors: true }));
     // Cache handling
     const cacheKey = cacheKeyFromReq(req, bypass ? null : tenantId);
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
