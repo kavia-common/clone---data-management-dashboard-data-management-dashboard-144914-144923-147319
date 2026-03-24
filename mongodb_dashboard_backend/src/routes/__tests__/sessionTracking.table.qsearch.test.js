@@ -81,11 +81,14 @@ describe('GET /api/session-tracking/table q-search', () => {
       expect(cond.User_name).toBeInstanceOf(RegExp);
     }
 
-    // Also assert the "phrase" regex used in other OR parts is whitespace-tolerant.
-    // One of the standard orParts entries is { user_name: phraseRegex } (later in the array).
-    const phraseUserNamePart = filterArg.$or.find((p) => p && p.user_name instanceof RegExp);
-    expect(phraseUserNamePart).toBeTruthy();
-    expect(String(phraseUserNamePart.user_name)).toMatch(/Aditi\\s\+S/i);
+    // Assert the "phrase" regex used in other OR parts is whitespace-tolerant AND
+    // is applied across supported user-name variants (not only user_name/User_name).
+    const userNameVariantKeys = ['user_name', 'User_name', 'userName', 'UserName', 'username'];
+    for (const key of userNameVariantKeys) {
+      const part = filterArg.$or.find((p) => p && p[key] instanceof RegExp);
+      expect(part).toBeTruthy();
+      expect(String(part[key])).toMatch(/Aditi\\s\+S/i);
+    }
 
     // Sanity check that DB chain was invoked for pagination
     expect(chain.sort).toHaveBeenCalled();

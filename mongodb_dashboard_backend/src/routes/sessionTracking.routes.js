@@ -102,15 +102,32 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   // Single token: allow exact user_id equality fast-path.
   const looksLikeId = !/\s/.test(qTrimmed);
 
+  // User-name fields are historically inconsistent in this collection because:
+  // - session_tracking schema is strict:false
+  // - ingest pipelines have produced different key casing over time
+  //
+  // IMPORTANT INVARIANT:
+  // Searching by "User name" in the UI must match records regardless of which common
+  // variant the document uses.
+  const USER_NAME_FIELDS = [
+    'user_name', // preferred
+    'User_name', // legacy variant observed
+    'userName', // camelCase
+    'UserName', // camelCase + leading cap
+    'username', // compact
+    'user', // sometimes used as a label/name in some ingest payloads
+    'user_email', // common alias; users may paste email into the user-name search box
+    'email', // alias
+  ];
+
   const orParts = [
     // Broad text-like search across key columns
     { task_id: phraseRegex },
     { tenant_id: phraseRegex },
     { organization_name: phraseRegex },
 
-    // IMPORTANT: match both casing variants
-    { user_name: phraseRegex },
-    { User_name: phraseRegex },
+    // User name variants
+    ...USER_NAME_FIELDS.map((f) => ({ [f]: phraseRegex })),
 
     { project_id: phraseRegex },
     { container_id: phraseRegex },
