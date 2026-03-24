@@ -103,64 +103,26 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   // Single token: allow exact user_id equality fast-path.
   const looksLikeId = !/\s/.test(qTrimmed);
 
-  // User-name fields are historically inconsistent in this collection because:
-  // - session_tracking schema is strict:false
-  // - ingest pipelines have produced different key casing over time
+  // IMPORTANT: Per current product requirement, q-search for the session-tracking table
+  // must match ONLY the `User_name` field in the session_tracking collection.
   //
-  // IMPORTANT INVARIANT:
-  // Searching by "User name" in the UI must match records regardless of which common
-  // variant the document uses.
-  const USER_NAME_FIELDS = [
-    'user_name', // preferred
-    'User_name', // legacy variant observed
-    'userName', // camelCase
-    'UserName', // camelCase + leading cap
-    'username', // compact
-    'user', // sometimes used as a label/name in some ingest payloads
-    'user_email', // common alias; users may paste email into the user-name search box
-    'email', // alias
-  ];
+  // Notes:
+  // - We intentionally do NOT search tenant_id, organization_name, or other fields here.
+  // - We keep the existing safe regex behavior (escaped, whitespace-tolerant phrase match).
+  // - We keep userId exact-match precedence unchanged (handled above).
+  const orParts = [{ User_name: phraseRegex }];
 
-  const orParts = [
-    // Broad text-like search across key columns
-    { task_id: phraseRegex },
-    { tenant_id: phraseRegex },
-    { organization_name: phraseRegex },
+  // Do NOT add user_id exact match fast-path for q anymore; q is strictly a User_name search.
+  // (userId query param remains the supported exact ID search mechanism.)
 
-    // User name variants
-    ...USER_NAME_FIELDS.map((f) => ({ [f]: phraseRegex })),
-
-    { project_id: phraseRegex },
-    { container_id: phraseRegex },
-    { service_type: phraseRegex },
-    { status: phraseRegex },
-
-    // user_id can be searched too (regex + exact fast-path below)
-    { user_id: phraseRegex },
-
-    // nested session data
-    { 'session_data.session_name': phraseRegex },
-    { 'session_data.description': phraseRegex },
-    { 'session_data.llm_model': phraseRegex },
-  ];
-
-  if (looksLikeId) {
-    orParts.unshift({ user_id: qTrimmed });
-    return { $or: orParts };
-  }
-
-  // Multi-token name matching: AND of token regexes for each name field.
-  // This fixes the previous bug where token matching only applied to phraseRegex and
-  // could miss user-name matches depending on spacing/casing.
+  // Multi-token name matching: AND of token regexes for User_name.
   const tokens = qTrimmed.split(/\s+/).map((t) => t.trim()).filter(Boolean);
   if (tokens.length >= 2) {
     const tokenRegexes = tokens.map((t) => new RegExp(escapeRegexLiteral(t), 'i'));
+    const userNameAllTokens = { $and: tokenRegexes.map((r) => ({ User_name: r })) };
 
-    const userNameAllTokens = { $and: tokenRegexes.map((r) => ({ user_name: r })) };
-    const userNameAllTokensAlt = { $and: tokenRegexes.map((r) => ({ User_name: r })) };
-
-    // Boost the user-name all-token match to the top.
-    orParts.unshift({ $or: [userNameAllTokens, userNameAllTokensAlt] });
+    // Boost the all-token match to the top.
+    orParts.unshift(userNameAllTokens);
   }
 
   return { $or: orParts };

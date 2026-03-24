@@ -26,9 +26,9 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('multi-word q search builds a valid AND-of-regex tokens for user_name/User_name and uses safe literal regexes', async () => {
+  test('multi-word q search matches ONLY User_name (no tenant_id/organization_name/other-field searching) and uses safe literal regexes', async () => {
     // Arrange: return one matching doc.
-    const docs = [{ _id: '1', user_name: 'Aditi S' }];
+    const docs = [{ _id: '1', User_name: 'Aditi S' }];
 
     // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
@@ -62,32 +62,45 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(filterArg).toHaveProperty('$or');
     expect(Array.isArray(filterArg.$or)).toBe(true);
 
-    // First item is our inserted token matcher (unshift).
+    // First item is our inserted token matcher (unshift): { $and: [ {User_name:/Aditi/i}, {User_name:/S/i} ] }
     const first = filterArg.$or[0];
-    expect(first).toHaveProperty('$or');
-    expect(Array.isArray(first.$or)).toBe(true);
-
-    const [variant1, variant2] = first.$or;
-    expect(variant1).toHaveProperty('$and');
-    expect(variant2).toHaveProperty('$and');
-
-    // Each $and element should be like { user_name: /Aditi/i } etc, and be regex instances.
-    for (const cond of variant1.$and) {
-      expect(cond).toHaveProperty('user_name');
-      expect(cond.user_name).toBeInstanceOf(RegExp);
-    }
-    for (const cond of variant2.$and) {
+    expect(first).toHaveProperty('$and');
+    expect(Array.isArray(first.$and)).toBe(true);
+    for (const cond of first.$and) {
       expect(cond).toHaveProperty('User_name');
       expect(cond.User_name).toBeInstanceOf(RegExp);
     }
 
-    // Assert the "phrase" regex used in other OR parts is whitespace-tolerant AND
-    // is applied across supported user-name variants (not only user_name/User_name).
-    const userNameVariantKeys = ['user_name', 'User_name', 'userName', 'UserName', 'username'];
-    for (const key of userNameVariantKeys) {
-      const part = filterArg.$or.find((p) => p && p[key] instanceof RegExp);
-      expect(part).toBeTruthy();
-      expect(String(part[key])).toMatch(/Aditi\\s\+S/i);
+    // Ensure there is a phraseRegex match part for User_name and it's whitespace-tolerant.
+    const phrasePart = filterArg.$or.find((p) => p && p.User_name instanceof RegExp);
+    expect(phrasePart).toBeTruthy();
+    expect(String(phrasePart.User_name)).toMatch(/Aditi\\s\+S/i);
+
+    // Ensure we are NOT searching other fields anymore.
+    const forbiddenKeys = [
+      'tenant_id',
+      'organization_name',
+      'task_id',
+      'project_id',
+      'container_id',
+      'service_type',
+      'status',
+      'user_id',
+      'session_data.session_name',
+      'session_data.description',
+      'session_data.llm_model',
+      // previously-supported user-name variants that must no longer be searched by q
+      'user_name',
+      'userName',
+      'UserName',
+      'username',
+      'email',
+      'user_email',
+      'user',
+    ];
+    for (const key of forbiddenKeys) {
+      const hit = filterArg.$or.find((p) => p && Object.prototype.hasOwnProperty.call(p, key));
+      expect(hit).toBeFalsy();
     }
 
     // Sanity check that DB chain was invoked for pagination
