@@ -5,7 +5,6 @@ const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 const { resolveTenantContextFromRequest, isAllTenantsSentinel } = require('../services/tenantContextResolve');
-const { resolveTenantContextFromRequest, isAllTenantsSentinel } = require('../services/tenantContextResolve');
 
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
