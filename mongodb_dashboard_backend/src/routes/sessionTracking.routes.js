@@ -409,12 +409,6 @@ router.get(
       });
     }
  
-    // Pagination and sort
-    const rawQuery = { ...req.query };
-    if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
-    const { page, limit, skip, explicit } = parsePagination(rawQuery);
-    const sort = req.query.sort || '-session_start';
- 
     // Exact userId precedence; q fallback
     const q = coerceQueryString(req.query.q);
     const userId = deriveUserIdFromQuery(req.query);
@@ -431,6 +425,42 @@ router.get(
         const status = e?.statusCode || 400;
         return res.status(status).json({ success: false, message: e?.message || 'Invalid search input' });
       }
+    }
+
+    /**
+     * Pagination and sort
+     *
+     * Contract:
+     * - When `q` search is present (non-empty), we disable pagination and return ALL matches
+     *   in a single response (raw array), even if the client sent page/limit.
+     * - When `q` is not present, we preserve the existing behavior:
+     *     - If explicit pagination is provided (page/limit), return envelope {success,data,meta}
+     *     - Otherwise return a raw array.
+     *
+     * Why:
+     * - The Sessions table "search" UX expects all matches without paging through partial results.
+     * - This keeps behavior consistent across both /api/session-tracking and /api/session-tracking/table,
+     *   since the table router re-exports this router.
+     */
+    const rawQuery = { ...req.query };
+    if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
+    const paginationInput = parsePagination(rawQuery);
+    const sort = req.query.sort || '-session_start';
+
+    const hasQStringSearch = Boolean(q);
+
+    // Disable pagination for q-search: treat as non-explicit pagination and return all matches.
+    // Note: we intentionally do NOT disable pagination for userId-only filtering.
+    const page = hasQStringSearch ? 1 : paginationInput.page;
+    const limit = hasQStringSearch ? paginationInput.limit : paginationInput.limit;
+    const skip = hasQStringSearch ? 0 : paginationInput.skip;
+    const explicit = hasQStringSearch ? false : paginationInput.explicit;
+
+    if (hasQStringSearch) {
+      try {
+        res.set('X-Pagination-Disabled', 'true');
+        res.set('X-Pagination-Disabled-Reason', 'q-search');
+      } catch { }
     }
  
     // Ignore client filter param for this route

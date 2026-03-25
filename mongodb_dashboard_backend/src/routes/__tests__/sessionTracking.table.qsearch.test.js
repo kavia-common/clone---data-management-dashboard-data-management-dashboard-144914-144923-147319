@@ -26,12 +26,13 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('q search filters by top-level User_name using {$regex:<escaped string>,$options:"i"} and applies identical filter to find() and aggregate($match)', async () => {
+  test('q search filters by top-level User_name using {$regex:<escaped string>,$options:"i"} and DISABLES pagination (returns raw array of all matches)', async () => {
     // Arrange: return one matching doc (backend filters on `User_name`)
     const docs = [{ _id: '1', User_name: 'Test User' }];
     const q = docs[0].User_name;
 
-    // Provide chainable query builder for find().sort().skip().limit().lean()
+    // Provide chainable query builder for find().sort().lean()
+    // When q is present, the route must not paginate (no skip/limit) and must not run aggregate count.
     const chain = {
       sort: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
@@ -40,31 +41,23 @@ describe('GET /api/session-tracking/table q-search', () => {
     };
 
     SessionTracking.find.mockReturnValue(chain);
-    SessionTracking.aggregate.mockResolvedValue([{ total: 1 }]);
 
     const app = makeApp();
 
-    // Act
+    // Act: even if the client sends page/limit, q-search disables pagination
     const res = await request(app)
       .get('/api/session-tracking/table')
       .query({ page: 1, limit: 10, q, organization_id: 'T0000' })
       .expect(200);
 
-    // Assert payload (route returns standard list envelope)
-    expect(res.body).toEqual({
-      success: true,
-      data: docs,
-      meta: { page: 1, limit: 10, total: 1 },
-    });
+    // Assert payload: raw array (not an envelope)
+    expect(res.body).toEqual(docs);
 
     // Assert DB filter correctness
     expect(SessionTracking.find).toHaveBeenCalledTimes(1);
-    expect(SessionTracking.aggregate).toHaveBeenCalledTimes(1);
+    expect(SessionTracking.aggregate).toHaveBeenCalledTimes(0);
 
     const findFilter = SessionTracking.find.mock.calls[0][0];
-    const aggPipeline = SessionTracking.aggregate.mock.calls[0][0];
-    const matchStage = Array.isArray(aggPipeline) ? aggPipeline[0] : null;
-    const aggMatchFilter = matchStage && matchStage.$match ? matchStage.$match : null;
 
     // Route escapes regex literals, so the $regex value is the literal string (escaped if needed).
     expect(findFilter).toEqual({
@@ -75,13 +68,10 @@ describe('GET /api/session-tracking/table q-search', () => {
       ],
     });
 
-    // Ensure total uses the exact same effective filter as find()
-    expect(aggMatchFilter).toEqual(findFilter);
-
-    // Sanity check pagination chain usage
+    // Sanity check query builder usage
     expect(chain.sort).toHaveBeenCalled();
-    expect(chain.skip).toHaveBeenCalled();
-    expect(chain.limit).toHaveBeenCalled();
+    expect(chain.skip).not.toHaveBeenCalled();
+    expect(chain.limit).not.toHaveBeenCalled();
     expect(chain.lean).toHaveBeenCalled();
   });
 
