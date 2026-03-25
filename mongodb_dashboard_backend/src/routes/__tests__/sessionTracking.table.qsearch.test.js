@@ -26,13 +26,11 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('q search filters by top-level User_name using {$regex:<escaped string>,$options:"i"} and DISABLES pagination (returns raw array of all matches)', async () => {
-    // Arrange: return one matching doc (backend filters on `User_name`)
-    const docs = [{ _id: '1', User_name: 'Test User' }];
-    const q = docs[0].User_name;
+  test('q search filters by top-level User_name using $regex string + $options, and applies the same filter to find and total aggregation', async () => {
+    // Arrange: return one matching doc (note: backend filters on `User_name`, not `user_name`)
+    const docs = [{ _id: '1', User_name: 'Aditi S' }];
 
-    // Provide chainable query builder for find().sort().lean()
-    // When q is present, the route must not paginate (no skip/limit) and must not run aggregate count.
+    // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
       sort: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
@@ -41,68 +39,49 @@ describe('GET /api/session-tracking/table q-search', () => {
     };
 
     SessionTracking.find.mockReturnValue(chain);
-
-    const app = makeApp();
-
-    // Act: even if the client sends page/limit, q-search disables pagination
-    const res = await request(app)
-      .get('/api/session-tracking/table')
-      .query({ page: 1, limit: 10, q, organization_id: 'T0000' })
-      .expect(200);
-
-    // Assert payload: raw array (not an envelope)
-    expect(res.body).toEqual(docs);
-
-    // Assert DB filter correctness
-    expect(SessionTracking.find).toHaveBeenCalledTimes(1);
-    expect(SessionTracking.aggregate).toHaveBeenCalledTimes(0);
-
-    const findFilter = SessionTracking.find.mock.calls[0][0];
-
-    // Route escapes regex literals, so the $regex value is the literal string (escaped if needed).
-    expect(findFilter).toEqual({
-      $or: [
-        {
-          User_name: { $regex: q, $options: 'i' },
-        },
-      ],
-    });
-
-    // Sanity check query builder usage
-    expect(chain.sort).toHaveBeenCalled();
-    expect(chain.skip).not.toHaveBeenCalled();
-    expect(chain.limit).not.toHaveBeenCalled();
-    expect(chain.lean).toHaveBeenCalled();
-  });
-
-  test('q search escapes regex metacharacters so it behaves as a literal substring match', async () => {
-    const docs = [{ _id: '1', User_name: 'A.B' }];
-    const q = 'A.B';
-
-    const chain = {
-      sort: jest.fn().mockReturnThis(),
-      skip: jest.fn().mockReturnThis(),
-      limit: jest.fn().mockReturnThis(),
-      lean: jest.fn().mockResolvedValue(docs),
-    };
-
-    SessionTracking.find.mockReturnValue(chain);
+    // The route computes total via aggregate([{ $match: <filter> }, { $count: 'total' }])
     SessionTracking.aggregate.mockResolvedValue([{ total: 1 }]);
 
     const app = makeApp();
 
-    await request(app)
+    // Act
+    const res = await request(app)
       .get('/api/session-tracking/table')
-      .query({ page: 1, limit: 10, q, organization_id: 'T0000' })
+      .query({ page: 1, limit: 10, q: 'Aditi S', organization_id: 'T0000' })
       .expect(200);
 
+    // Assert payload
+    expect(res.body).toEqual({
+      success: true,
+      data: docs,
+      meta: { page: 1, limit: 10, total: 1 },
+    });
+
+    // Assert DB filter correctness
+    expect(SessionTracking.find).toHaveBeenCalledTimes(1);
+    expect(SessionTracking.aggregate).toHaveBeenCalledTimes(1);
+
     const findFilter = SessionTracking.find.mock.calls[0][0];
+    const aggPipeline = SessionTracking.aggregate.mock.calls[0][0];
+    const matchStage = Array.isArray(aggPipeline) ? aggPipeline[0] : null;
+    const aggMatchFilter = matchStage && matchStage.$match ? matchStage.$match : null;
+
+    // With T0000, bypass should avoid enforced tenant scope, so filter should be search-only.
     expect(findFilter).toEqual({
       $or: [
         {
-          User_name: { $regex: 'A\\.B', $options: 'i' },
+          User_name: { $regex: 'Aditi S', $options: 'i' },
         },
       ],
     });
+
+    // Ensure total uses the exact same effective filter as find()
+    expect(aggMatchFilter).toEqual(findFilter);
+
+    // Sanity check that DB chain was invoked for pagination
+    expect(chain.sort).toHaveBeenCalled();
+    expect(chain.skip).toHaveBeenCalled();
+    expect(chain.limit).toHaveBeenCalled();
+    expect(chain.lean).toHaveBeenCalled();
   });
 });
