@@ -487,54 +487,53 @@ router.get(
       console.log('[CACHE] MISS', { cacheKey });
     }
  
+    /**
+     * Execute the list query + total count using a single canonical, immutable filter.
+     *
+     * Why:
+     * - We log FINAL FILTER BEFORE DB, but historically there were cases where totals/results
+     *   did not reflect that filter (especially with regex + caching/debug).
+     * - Deep-cloning ensures no accidental mutation by downstream code/driver normalization.
+     * - Using an aggregation `$match` + `$count` guarantees the count is computed from the
+     *   same match semantics as the list query (server-side), avoiding drift.
+     */
+    function cloneMongoFilterForDb(filterObj) {
+      // JSON cloning is safe here because we intentionally avoid RegExp instances in the q filter
+      // (we use {$regex: <string>, $options:'i'}). This ensures the clone stays semantically identical.
+      return JSON.parse(JSON.stringify(mongoFilterToLogObject(filterObj || {})));
+    }
+
+    async function executeSessionTrackingTableQuery({ filter, sort, skip, limit, explicit }) {
+      const canonical = cloneMongoFilterForDb(filter);
+
+      if (explicit) {
+        const [docs, totalAgg] = await Promise.all([
+          SessionTracking.find(canonical).sort(sort).skip(skip).limit(limit).lean(),
+          SessionTracking.aggregate([{ $match: canonical }, { $count: 'total' }]),
+        ]);
+        const total = Array.isArray(totalAgg) && totalAgg[0] ? Number(totalAgg[0].total || 0) : 0;
+        return { docs, total };
+      }
+
+      const docs = await SessionTracking.find(canonical).sort(sort).lean();
+      return { docs, total: null };
+    }
+
     // DB execution
     try {
-      if (explicit) {
-        const [docs, total] = await Promise.all([
-          // IMPORTANT: find() and countDocuments() must use the exact same dbFilter.
-          SessionTracking.find(dbFilter).sort(sort).skip(skip).limit(limit).lean(),
-          SessionTracking.countDocuments(dbFilter),
-        ]);
-
-        console.log(
-          '[FILTER AFTER DB]',
-          JSON.stringify({
-            matchedCount: docs.length,
-            total,
-            sample: docs.slice(0, 3).map((d) => ({
-              _id: d?._id,
-              User_name: d?.User_name,
-              user_id: d?.user_id,
-              tenant_id: d?.tenant_id,
-              organization_id: d?.organization_id,
-            })),
-          })
-        );
-
-        const payload = { success: true, data: docs, meta: { page, limit, total } };
-        let etag = null;
-        if (wantETag) {
-          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, page, limit, sort, q, userId });
-          res.set('ETag', etag);
-        }
-        res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
-        if (wantCache) {
-          cacheSet(cacheKey, payload, etag);
-        }
- 
-        const inm = req.headers['if-none-match'];
-        if (wantETag && inm && etag && inm === etag) {
-          return res.status(304).end();
-        }
-        return res.status(200).json(payload);
-      }
- 
-      const docs = await SessionTracking.find(dbFilter).sort(sort).lean();
+      const { docs, total } = await executeSessionTrackingTableQuery({
+        filter: dbFilter,
+        sort,
+        skip,
+        limit,
+        explicit,
+      });
 
       console.log(
         '[FILTER AFTER DB]',
         JSON.stringify({
           matchedCount: docs.length,
+          total: explicit ? total : undefined,
           sample: docs.slice(0, 3).map((d) => ({
             _id: d?._id,
             User_name: d?.User_name,
@@ -545,9 +544,28 @@ router.get(
         })
       );
 
+      if (explicit) {
+        const payload = { success: true, data: docs, meta: { page, limit, total } };
+        let etag = null;
+        if (wantETag) {
+          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, page, limit, sort, q, userId });
+          res.set('ETag', etag);
+        }
+        res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
+        if (wantCache) {
+          cacheSet(cacheKey, payload, etag);
+        }
+
+        const inm = req.headers['if-none-match'];
+        if (wantETag && inm && etag && inm === etag) {
+          return res.status(304).end();
+        }
+        return res.status(200).json(payload);
+      }
+
       console.log('[DB RESULT COUNT]', docs.length);
       console.log('[DB SAMPLE RESULT]', docs[0]);
- 
+
       const payload = docs;
       let etag = null;
       if (wantETag) {
@@ -556,12 +574,12 @@ router.get(
       }
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
       if (wantCache) cacheSet(cacheKey, payload, etag);
- 
+
       const inm = req.headers['if-none-match'];
       if (wantETag && inm && etag && inm === etag) {
         return res.status(304).end();
       }
- 
+
       return res.status(200).json(payload);
     } catch (err) {
       return res.status(400).json({
