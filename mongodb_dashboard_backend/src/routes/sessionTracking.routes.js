@@ -206,11 +206,12 @@ function cacheKeyFromReq(req, enforcedTenant) {
    *   - effective tenant scope / bypass state
    *   - paging/sort/time window inputs
    *   - q + userId search inputs
+   *   - IMPORTANT: an explicit fingerprint of the *effective MongoDB filter*
    *
    * Why:
-   * - The Sessions UI calls /api/session-tracking/table with different q values.
-   *   If the cache key collides across mounts or omits q/tenant, the UI can show
-   *   stale, unfiltered results.
+   * - Historically, the Sessions table showed correct totals but unfiltered rows because
+   *   cached payloads could be served that were generated before/without the final filter.
+   * - Adding a filter fingerprint prevents cache collisions when the effective filter changes.
    */
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || req.query.pageSize || 20);
@@ -224,23 +225,28 @@ function cacheKeyFromReq(req, enforcedTenant) {
   const userId = deriveUserIdFromQuery(req.query);
   const start = roundToMinuteISO(req.query.start || req.query.from || '');
   const end = roundToMinuteISO(req.query.end || req.query.to || '');
- 
+
   // Include the actual mount path to avoid collisions between:
   // - /api/session-tracking
   // - /api/session-tracking/table
   // - /api/sessionTracking (legacy alias)
   // - /api/sessionTracking/table (legacy alias)
   const route = `GET:${req.baseUrl || ''}${req.path || ''}`;
- 
+
   // Include the canonical tenant/bypass resolution so cache never crosses scope boundaries.
   // Note: We compute it here rather than relying solely on middleware-stamped flags,
   // because those flags were historically route-specific and could be absent for some mounts.
   const { bypass, tenantId, requestedTenantRaw } = resolveTenantContextFromRequest(req);
- 
+
   const effectiveTenantKey = bypass
     ? `all-tenants:${String(requestedTenantRaw || 'T0000')}`
     : String(enforcedTenant || tenantId || 'n/a');
- 
+
+  // Include a stable fingerprint of the *effective filter* as computed by the handler.
+  // The handler stamps this after building FINAL FILTER BEFORE DB.
+  // If absent (should not happen for this route), we fall back to q/userId only.
+  const filterFingerprint = coerceQueryString(req.sessionTrackingFilterFingerprint || '');
+
   return util.inspect({
     route,
     tenant: effectiveTenantKey,
@@ -251,6 +257,7 @@ function cacheKeyFromReq(req, enforcedTenant) {
     start,
     end,
     sort,
+    filterFingerprint,
   });
 }
 function cacheGet(key) {
@@ -456,12 +463,24 @@ router.get(
  
     console.log('[FINAL FILTER]', util.inspect(dbFilter, { depth: null, colors: true }));
     // This is the filter actually passed into Mongoose/Mongo. Use a serializer that does not drop RegExp.
-    console.log(
-      '[FINAL FILTER BEFORE DB]',
-      JSON.stringify(mongoFilterToLogObject(dbFilter))
-    );
- 
-    // Cache handling
+    const finalFilterLogObj = mongoFilterToLogObject(dbFilter);
+    const finalFilterLogJson = JSON.stringify(finalFilterLogObj);
+
+    console.log('[FINAL FILTER]', util.inspect(dbFilter, { depth: null, colors: true }));
+    // This is the filter actually passed into Mongoose/Mongo. Use a serializer that does not drop RegExp.
+    console.log('[FINAL FILTER BEFORE DB]', finalFilterLogJson);
+
+    // Deterministic filter fingerprint for debuggability + cache keying
+    // (prevents returning stale/unfiltered cached docs when the effective filter changes).
+    const filterFingerprint = crypto.createHash('sha1').update(finalFilterLogJson).digest('hex');
+    req.sessionTrackingFilterFingerprint = filterFingerprint;
+
+    try {
+      res.set('X-SessionTracking-Filter-Fingerprint', filterFingerprint);
+      res.set('X-SessionTracking-Filter', finalFilterLogJson);
+    } catch { }
+
+    // Cache handling (cache key now includes filterFingerprint via req stamp)
     const cacheKey = cacheKeyFromReq(req, bypass ? null : tenantId);
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
     const wantETag = ENABLE_ETAG && req.method === 'GET';
@@ -470,7 +489,7 @@ router.get(
       const hit = cacheGet(cacheKey);
       if (hit) {
         // Make it explicit in logs when DB is not hit (so “unfiltered results” can be attributed to cache).
-        console.log('[CACHE] HIT', { cacheKey });
+        console.log('[CACHE] HIT', { cacheKey, filterFingerprint: req.sessionTrackingFilterFingerprint });
         if (wantETag) {
           const inm = req.headers['if-none-match'];
           if (inm && inm === hit.etag) {
@@ -484,7 +503,7 @@ router.get(
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
         return res.status(200).json(hit.payload);
       }
-      console.log('[CACHE] MISS', { cacheKey });
+      console.log('[CACHE] MISS', { cacheKey, filterFingerprint: req.sessionTrackingFilterFingerprint });
     }
  
     /**
@@ -532,6 +551,7 @@ router.get(
       console.log(
         '[FILTER AFTER DB]',
         JSON.stringify({
+          filterFingerprint: req.sessionTrackingFilterFingerprint,
           matchedCount: docs.length,
           total: explicit ? total : undefined,
           sample: docs.slice(0, 3).map((d) => ({
