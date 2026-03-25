@@ -354,10 +354,13 @@ function sessionsEarlyBypassDetector(req, res, next) {
    * - /api/session-tracking/table  (via sessionTracking.table.routes.js)
    * - /api/sessionTracking/table
    *
-   * When re-mounted under `/table`, Express will present a different `req.path`
-   * to this middleware (often '/table' instead of '/'). Previously we only ran
-   * bypass detection when req.path === '/', which caused divergent behavior
-   * between aliases/mounts and could lead to confusing cache behavior.
+   * Contract:
+   * - Always runs for GET requests regardless of mount path (no req.path gating).
+   * - Only stamps bypass flags when the *all tenants* sentinel (T0000) is requested.
+   *
+   * Why:
+   * - Route/path-specific bypass behavior caused divergent cache behavior under /table mounts.
+   * - Divergence made it possible for cache keys/payloads to drift across filtered/unfiltered requests.
    */
   if (req.method !== 'GET') return next();
 
@@ -544,7 +547,18 @@ router.get(
     }
 
     async function executeSessionTrackingTableQuery({ filter, sort, skip, limit, explicit }) {
+      /**
+       * Contract:
+       * - `canonical` is the single immutable MongoDB filter used for BOTH:
+       *   - the paginated rows query
+       *   - the totalMatched count query (when explicit pagination is enabled)
+       * - This prevents drift where totalMatched reflects a filter but rows do not.
+       */
       const canonical = cloneMongoFilterForDb(filter);
+
+      // Debug proof: show the exact $match filter used for the rows query.
+      // (This log is intentionally JSON so it can be grepped/compared.)
+      console.log('[SESSION_TRACKING_TABLE][ROWS_QUERY_FILTER]', JSON.stringify(canonical));
 
       if (explicit) {
         const [docs, totalAgg] = await Promise.all([
@@ -552,10 +566,23 @@ router.get(
           SessionTracking.aggregate([{ $match: canonical }, { $count: 'total' }]),
         ]);
         const total = Array.isArray(totalAgg) && totalAgg[0] ? Number(totalAgg[0].total || 0) : 0;
+
+        // Debug proof: show usernames actually returned for this page.
+        console.log(
+          '[SESSION_TRACKING_TABLE][ROWS_RETURNED_USERNAMES]',
+          JSON.stringify((docs || []).slice(0, 10).map((d) => d?.User_name))
+        );
+
         return { docs, total };
       }
 
       const docs = await SessionTracking.find(canonical).sort(sort).lean();
+
+      console.log(
+        '[SESSION_TRACKING_TABLE][ROWS_RETURNED_USERNAMES]',
+        JSON.stringify((docs || []).slice(0, 10).map((d) => d?.User_name))
+      );
+
       return { docs, total: null };
     }
 
