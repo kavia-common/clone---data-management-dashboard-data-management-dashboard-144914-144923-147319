@@ -1,0 +1,14 @@
+{
+  "name": "copy-of-data-management-dashboard-backend-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Root shim package.json to delegate commands to mongodb_dashboard_backend. This prevents preview readiness failures if the runtime working directory is set to the repo root.",
+  "scripts": {
+    "start": "npm --prefix mongodb_dashboard_backend start",
+    "dev": "npm --prefix mongodb_dashboard_backend run dev",
+    "install": "npm --prefix mongodb_dashboard_backend install",
+    "test": "npm --prefix mongodb_dashboard_backend test",
+    "lint": "npm --prefix mongodb_dashboard_backend run lint",
+    "gen:openapi": "npm --prefix mongodb_dashboard_backend run gen:openapi"
+  }
+}
