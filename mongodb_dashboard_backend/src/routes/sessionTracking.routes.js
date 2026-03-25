@@ -269,8 +269,16 @@ function cacheGet(key) {
   }
   return entry;
 }
-function cacheSet(key, payload, etag) {
-  routeCache.set(key, { payload, etag, expiresAt: Date.now() + DEFAULT_CACHE_TTL_MS });
+function cacheSet(key, payload, etag, meta = {}) {
+  routeCache.set(key, {
+    payload,
+    etag,
+    expiresAt: Date.now() + DEFAULT_CACHE_TTL_MS,
+    // Store minimal metadata so we can assert cache correctness vs request filter.
+    meta: {
+      filterFingerprint: meta.filterFingerprint || '',
+    },
+  });
 }
 function invalidateAllSessionTrackingCache() {
   /**
@@ -488,20 +496,32 @@ router.get(
     if (wantCache) {
       const hit = cacheGet(cacheKey);
       if (hit) {
-        // Make it explicit in logs when DB is not hit (so “unfiltered results” can be attributed to cache).
-        console.log('[CACHE] HIT', { cacheKey, filterFingerprint: req.sessionTrackingFilterFingerprint });
-        if (wantETag) {
-          const inm = req.headers['if-none-match'];
-          if (inm && inm === hit.etag) {
-            res.set('ETag', hit.etag);
-            res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
-            return res.status(304).end();
+        // Proof/invariant: cache entries MUST be keyed by and match the effective filter fingerprint.
+        // If this ever mismatches, we must not serve the cached payload.
+        const cachedFp = coerceQueryString(hit?.meta?.filterFingerprint || '');
+        const reqFp = coerceQueryString(req.sessionTrackingFilterFingerprint || '');
+        if (cachedFp && reqFp && cachedFp !== reqFp) {
+          console.warn('[CACHE] FINGERPRINT MISMATCH -> treating as MISS', {
+            cacheKey,
+            cachedFp,
+            reqFp,
+          });
+        } else {
+          // Make it explicit in logs when DB is not hit (so “unfiltered results” can be attributed to cache).
+          console.log('[CACHE] HIT', { cacheKey, filterFingerprint: reqFp });
+          if (wantETag) {
+            const inm = req.headers['if-none-match'];
+            if (inm && inm === hit.etag) {
+              res.set('ETag', hit.etag);
+              res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
+              return res.status(304).end();
+            }
           }
+          res.set('X-Cache', 'HIT');
+          if (wantETag && hit.etag) res.set('ETag', hit.etag);
+          res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
+          return res.status(200).json(hit.payload);
         }
-        res.set('X-Cache', 'HIT');
-        if (wantETag && hit.etag) res.set('ETag', hit.etag);
-        res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
-        return res.status(200).json(hit.payload);
       }
       console.log('[CACHE] MISS', { cacheKey, filterFingerprint: req.sessionTrackingFilterFingerprint });
     }
@@ -573,7 +593,7 @@ router.get(
         }
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
         if (wantCache) {
-          cacheSet(cacheKey, payload, etag);
+          cacheSet(cacheKey, payload, etag, { filterFingerprint: req.sessionTrackingFilterFingerprint });
         }
 
         const inm = req.headers['if-none-match'];
@@ -593,7 +613,7 @@ router.get(
         res.set('ETag', etag);
       }
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
-      if (wantCache) cacheSet(cacheKey, payload, etag);
+      if (wantCache) cacheSet(cacheKey, payload, etag, { filterFingerprint: req.sessionTrackingFilterFingerprint });
 
       const inm = req.headers['if-none-match'];
       if (wantETag && inm && etag && inm === etag) {
