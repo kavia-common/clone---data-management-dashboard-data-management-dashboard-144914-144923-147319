@@ -50,11 +50,13 @@ describe('GET /api/session-tracking/table q-search', () => {
       .query({ page: 1, limit: 10, q: 'Aditi S', organization_id: 'T0000' })
       .expect(200);
 
-    // Assert payload
+    // Assert payload (current table contract includes totalMatched + count + back-compat fields)
     expect(res.body).toEqual({
       success: true,
       data: docs,
-      meta: { page: 1, limit: 10, total: 1 },
+      meta: { page: 1, limit: 10, total: 1, totalMatched: 1, count: 1 },
+      matchedCount: 1,
+      returnedCount: 1,
     });
 
     // Assert DB filter correctness
