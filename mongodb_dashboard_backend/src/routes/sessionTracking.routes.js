@@ -449,11 +449,16 @@ router.get(
     const finalFilter =
       parts.length === 0 ? {} : parts.length === 1 ? parts[0] : { $and: parts };
  
-    console.log('[FINAL FILTER]', util.inspect(finalFilter, { depth: null, colors: true }));
+    // IMPORTANT INVARIANT:
+    // `dbFilter` is the *single* object passed to MongoDB for BOTH the list query and totals.
+    // This prevents drift where the logs show a filter but count/total is computed differently.
+    const dbFilter = finalFilter;
+ 
+    console.log('[FINAL FILTER]', util.inspect(dbFilter, { depth: null, colors: true }));
     // This is the filter actually passed into Mongoose/Mongo. Use a serializer that does not drop RegExp.
     console.log(
       '[FINAL FILTER BEFORE DB]',
-      JSON.stringify(mongoFilterToLogObject(finalFilter))
+      JSON.stringify(mongoFilterToLogObject(dbFilter))
     );
  
     // Cache handling
@@ -464,6 +469,8 @@ router.get(
     if (wantCache) {
       const hit = cacheGet(cacheKey);
       if (hit) {
+        // Make it explicit in logs when DB is not hit (so “unfiltered results” can be attributed to cache).
+        console.log('[CACHE] HIT', { cacheKey });
         if (wantETag) {
           const inm = req.headers['if-none-match'];
           if (inm && inm === hit.etag) {
@@ -477,15 +484,16 @@ router.get(
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
         return res.status(200).json(hit.payload);
       }
+      console.log('[CACHE] MISS', { cacheKey });
     }
  
     // DB execution
     try {
       if (explicit) {
         const [docs, total] = await Promise.all([
-          // IMPORTANT: must use the constructed finalFilter (searchFilter + enforcedScope) for correctness.
-          SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
-          SessionTracking.countDocuments(finalFilter),
+          // IMPORTANT: find() and countDocuments() must use the exact same dbFilter.
+          SessionTracking.find(dbFilter).sort(sort).skip(skip).limit(limit).lean(),
+          SessionTracking.countDocuments(dbFilter),
         ]);
 
         console.log(
@@ -521,7 +529,7 @@ router.get(
         return res.status(200).json(payload);
       }
  
-      const docs = await SessionTracking.find(finalFilter).sort(sort).lean();
+      const docs = await SessionTracking.find(dbFilter).sort(sort).lean();
 
       console.log(
         '[FILTER AFTER DB]',
