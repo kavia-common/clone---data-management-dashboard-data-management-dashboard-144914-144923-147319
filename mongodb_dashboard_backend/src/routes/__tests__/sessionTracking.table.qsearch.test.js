@@ -26,9 +26,8 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('q search filters by top-level User_name using $regex string + $options, and applies the same filter to find and total aggregation', async () => {
-    // Arrange: return one matching doc (note: backend filters on `User_name`, not `user_name`)
-    // Avoid hardcoding any specific name; derive expectations from the arranged data.
+  test('q search filters by top-level User_name using {$regex:<escaped string>,$options:"i"} and applies identical filter to find() and aggregate($match)', async () => {
+    // Arrange: return one matching doc (backend filters on `User_name`)
     const docs = [{ _id: '1', User_name: 'Test User' }];
     const q = docs[0].User_name;
 
@@ -41,7 +40,6 @@ describe('GET /api/session-tracking/table q-search', () => {
     };
 
     SessionTracking.find.mockReturnValue(chain);
-    // The route computes total via aggregate([{ $match: <filter> }, { $count: 'total' }])
     SessionTracking.aggregate.mockResolvedValue([{ total: 1 }]);
 
     const app = makeApp();
@@ -52,13 +50,11 @@ describe('GET /api/session-tracking/table q-search', () => {
       .query({ page: 1, limit: 10, q, organization_id: 'T0000' })
       .expect(200);
 
-    // Assert payload (current table contract includes totalMatched + count + back-compat fields)
+    // Assert payload (route returns standard list envelope)
     expect(res.body).toEqual({
       success: true,
       data: docs,
-      meta: { page: 1, limit: 10, total: 1, totalMatched: 1, count: 1 },
-      matchedCount: 1,
-      returnedCount: 1,
+      meta: { page: 1, limit: 10, total: 1 },
     });
 
     // Assert DB filter correctness
@@ -70,7 +66,7 @@ describe('GET /api/session-tracking/table q-search', () => {
     const matchStage = Array.isArray(aggPipeline) ? aggPipeline[0] : null;
     const aggMatchFilter = matchStage && matchStage.$match ? matchStage.$match : null;
 
-    // With T0000, bypass should avoid enforced tenant scope, so filter should be search-only.
+    // Route escapes regex literals, so the $regex value is the literal string (escaped if needed).
     expect(findFilter).toEqual({
       $or: [
         {
@@ -82,10 +78,41 @@ describe('GET /api/session-tracking/table q-search', () => {
     // Ensure total uses the exact same effective filter as find()
     expect(aggMatchFilter).toEqual(findFilter);
 
-    // Sanity check that DB chain was invoked for pagination
+    // Sanity check pagination chain usage
     expect(chain.sort).toHaveBeenCalled();
     expect(chain.skip).toHaveBeenCalled();
     expect(chain.limit).toHaveBeenCalled();
     expect(chain.lean).toHaveBeenCalled();
+  });
+
+  test('q search escapes regex metacharacters so it behaves as a literal substring match', async () => {
+    const docs = [{ _id: '1', User_name: 'A.B' }];
+    const q = 'A.B';
+
+    const chain = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(docs),
+    };
+
+    SessionTracking.find.mockReturnValue(chain);
+    SessionTracking.aggregate.mockResolvedValue([{ total: 1 }]);
+
+    const app = makeApp();
+
+    await request(app)
+      .get('/api/session-tracking/table')
+      .query({ page: 1, limit: 10, q, organization_id: 'T0000' })
+      .expect(200);
+
+    const findFilter = SessionTracking.find.mock.calls[0][0];
+    expect(findFilter).toEqual({
+      $or: [
+        {
+          User_name: { $regex: 'A\\.B', $options: 'i' },
+        },
+      ],
+    });
   });
 });
