@@ -483,11 +483,26 @@ router.get(
     try {
       if (explicit) {
         const [docs, total] = await Promise.all([
+          // IMPORTANT: must use the constructed finalFilter (searchFilter + enforcedScope) for correctness.
           SessionTracking.find(finalFilter).sort(sort).skip(skip).limit(limit).lean(),
           SessionTracking.countDocuments(finalFilter),
- 
         ]);
- 
+
+        console.log(
+          '[FILTER AFTER DB]',
+          JSON.stringify({
+            matchedCount: docs.length,
+            total,
+            sample: docs.slice(0, 3).map((d) => ({
+              _id: d?._id,
+              User_name: d?.User_name,
+              user_id: d?.user_id,
+              tenant_id: d?.tenant_id,
+              organization_id: d?.organization_id,
+            })),
+          })
+        );
+
         const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
@@ -507,6 +522,21 @@ router.get(
       }
  
       const docs = await SessionTracking.find(finalFilter).sort(sort).lean();
+
+      console.log(
+        '[FILTER AFTER DB]',
+        JSON.stringify({
+          matchedCount: docs.length,
+          sample: docs.slice(0, 3).map((d) => ({
+            _id: d?._id,
+            User_name: d?.User_name,
+            user_id: d?.user_id,
+            tenant_id: d?.tenant_id,
+            organization_id: d?.organization_id,
+          })),
+        })
+      );
+
       console.log('[DB RESULT COUNT]', docs.length);
       console.log('[DB SAMPLE RESULT]', docs[0]);
  
