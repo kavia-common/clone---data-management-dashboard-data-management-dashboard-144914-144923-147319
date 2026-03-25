@@ -148,42 +148,55 @@ describe('SessionTracking list filtering (date range, user)', () => {
 
   test('q filter matches multi-word user_name despite inconsistent whitespace', async () => {
     const t = new Date();
+
+    // Use a non-person-specific, test-generated style name but still multi-word.
+    const first = `Test${Date.now()}`;
+    const last = `User${Math.floor(Math.random() * 100000)}`;
+    const queryName = `${first} ${last}`;
+    const storedName = `${first}  ${last}`; // double-space; query uses single-space
+
     await SessionTracking.insertMany([
-      // Stored name has double-space; query will use single space.
-      { tenant_id: tenant, user_id: 'u-aditi', user_name: 'Aditi  S', status: 'completed', last_updated: t, session_start: t },
+      { tenant_id: tenant, user_id: 'u-match', user_name: storedName, status: 'completed', last_updated: t, session_start: t },
       { tenant_id: tenant, user_id: 'u-other', user_name: 'Someone Else', status: 'completed', last_updated: t, session_start: t },
     ]);
 
     const res = await request(app)
       .get('/api/session-tracking')
-      .query({ q: 'Aditi S', page: 1, limit: 50 })
+      .query({ q: queryName, page: 1, limit: 50 })
       .set(authHeaders(tenant));
 
     expect(res.status).toBe(200);
     const items = Array.isArray(res.body) ? res.body : res.body.data;
     expect(items.length).toBe(1);
-    expect(items[0].user_id).toBe('u-aditi');
+    expect(items[0].user_id).toBe('u-match');
   });
 
   test('tenant_id=T0000 + q multi-word returns matching rows (no empty array)', async () => {
     const t = new Date();
+
+    // Use a non-person-specific, generated phrase to validate whitespace-tolerant q matching.
+    const first = `Global${Date.now()}`;
+    const last = `Tenant${Math.floor(Math.random() * 100000)}`;
+    const queryName = `${first} ${last}`;
+    const storedName = `${first}  ${last}`;
+
     await SessionTracking.insertMany([
       // This record should be returned when explicitly filtering for tenant_id=T0000.
-      { tenant_id: 'T0000', user_id: 'u-aditi-t0000', user_name: 'Aditi  S', status: 'completed', last_updated: t, session_start: t },
+      { tenant_id: 'T0000', user_id: 'u-match-t0000', user_name: storedName, status: 'completed', last_updated: t, session_start: t },
       // Noise in other tenants
-      { tenant_id: 'ORG_X', user_id: 'u-noise', user_name: 'Aditi S', status: 'completed', last_updated: t, session_start: t },
+      { tenant_id: 'ORG_X', user_id: 'u-noise', user_name: queryName, status: 'completed', last_updated: t, session_start: t },
     ]);
 
     // Note: this route has a special early bypass detector for T0000; we still expect it
     // to return the matching row (and not erroneously return []).
     const res = await request(app)
       .get('/api/session-tracking')
-      .query({ tenant_id: 'T0000', q: 'Aditi S', page: 1, limit: 50 })
+      .query({ tenant_id: 'T0000', q: queryName, page: 1, limit: 50 })
       .set(authHeaders('T0000'));
 
     expect(res.status).toBe(200);
     const items = Array.isArray(res.body) ? res.body : res.body.data;
     const ids = items.map((x) => x.user_id);
-    expect(ids).toContain('u-aditi-t0000');
+    expect(ids).toContain('u-match-t0000');
   });
 });

@@ -109,7 +109,7 @@ function deriveUserIdFromQuery(query) {
 * Invariants:
 * - q-search for the session tracking table/list endpoint must match ONLY the top-level
 *   `User_name` field (case-insensitive).
-* - Full-phrase matching must be whitespace-tolerant (\"Aditi S\" matches \"Aditi   S\").
+* - Full-phrase matching must be whitespace-tolerant (e.g. \"First Last\" matches \"First   Last\").
 * - Multi-word q uses AND semantics across tokens (both tokens must appear in User_name).
 */
 // PUBLIC_INTERFACE
