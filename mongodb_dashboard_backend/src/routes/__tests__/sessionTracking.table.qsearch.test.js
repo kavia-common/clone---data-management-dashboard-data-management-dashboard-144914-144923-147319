@@ -6,7 +6,7 @@ const request = require('supertest');
 // Mock the SessionTracking model used by the route so we can inspect the generated filter.
 jest.mock('../../models/sessionTracking.model', () => ({
   find: jest.fn(),
-  countDocuments: jest.fn(),
+  aggregate: jest.fn(),
 }));
 
 const SessionTracking = require('../../models/sessionTracking.model');
@@ -26,7 +26,7 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('q search filters by top-level User_name using $regex string + $options, and applies the same filter to find and count', async () => {
+  test('q search filters by top-level User_name using $regex string + $options, and applies the same filter to find and total aggregation', async () => {
     // Arrange: return one matching doc (note: backend filters on `User_name`, not `user_name`)
     const docs = [{ _id: '1', User_name: 'Aditi S' }];
 
@@ -39,7 +39,8 @@ describe('GET /api/session-tracking/table q-search', () => {
     };
 
     SessionTracking.find.mockReturnValue(chain);
-    SessionTracking.countDocuments.mockResolvedValue(1);
+    // The route computes total via aggregate([{ $match: <filter> }, { $count: 'total' }])
+    SessionTracking.aggregate.mockResolvedValue([{ total: 1 }]);
 
     const app = makeApp();
 
@@ -58,10 +59,12 @@ describe('GET /api/session-tracking/table q-search', () => {
 
     // Assert DB filter correctness
     expect(SessionTracking.find).toHaveBeenCalledTimes(1);
-    expect(SessionTracking.countDocuments).toHaveBeenCalledTimes(1);
+    expect(SessionTracking.aggregate).toHaveBeenCalledTimes(1);
 
     const findFilter = SessionTracking.find.mock.calls[0][0];
-    const countFilter = SessionTracking.countDocuments.mock.calls[0][0];
+    const aggPipeline = SessionTracking.aggregate.mock.calls[0][0];
+    const matchStage = Array.isArray(aggPipeline) ? aggPipeline[0] : null;
+    const aggMatchFilter = matchStage && matchStage.$match ? matchStage.$match : null;
 
     // With T0000, bypass should avoid enforced tenant scope, so filter should be search-only.
     expect(findFilter).toEqual({
@@ -72,8 +75,8 @@ describe('GET /api/session-tracking/table q-search', () => {
       ],
     });
 
-    // Ensure count uses the exact same effective filter as find()
-    expect(countFilter).toEqual(findFilter);
+    // Ensure total uses the exact same effective filter as find()
+    expect(aggMatchFilter).toEqual(findFilter);
 
     // Sanity check that DB chain was invoked for pagination
     expect(chain.sort).toHaveBeenCalled();
