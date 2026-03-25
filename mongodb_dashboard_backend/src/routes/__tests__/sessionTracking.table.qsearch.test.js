@@ -28,7 +28,9 @@ describe('GET /api/session-tracking/table q-search', () => {
 
   test('q search filters by top-level User_name using $regex string + $options, and applies the same filter to find and total aggregation', async () => {
     // Arrange: return one matching doc (note: backend filters on `User_name`, not `user_name`)
-    const docs = [{ _id: '1', User_name: 'Aditi S' }];
+    // Avoid hardcoding any specific name; derive expectations from the arranged data.
+    const docs = [{ _id: '1', User_name: 'Test User' }];
+    const q = docs[0].User_name;
 
     // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
@@ -47,7 +49,7 @@ describe('GET /api/session-tracking/table q-search', () => {
     // Act
     const res = await request(app)
       .get('/api/session-tracking/table')
-      .query({ page: 1, limit: 10, q: 'Aditi S', organization_id: 'T0000' })
+      .query({ page: 1, limit: 10, q, organization_id: 'T0000' })
       .expect(200);
 
     // Assert payload (current table contract includes totalMatched + count + back-compat fields)
@@ -72,7 +74,7 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(findFilter).toEqual({
       $or: [
         {
-          User_name: { $regex: 'Aditi S', $options: 'i' },
+          User_name: { $regex: q, $options: 'i' },
         },
       ],
     });

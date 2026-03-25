@@ -347,47 +347,23 @@ router.use((req, res, next) => {
 * - Does not make authorization decisions; JWT mismatch enforcement is handled in the handler.
 */
 function sessionsEarlyBypassDetector(req, res, next) {
-  /**
-   * This router is mounted under multiple base paths, including:
-   * - /api/session-tracking
-   * - /api/sessionTracking
-   * - /api/session-tracking/table  (via sessionTracking.table.routes.js)
-   * - /api/sessionTracking/table
-   *
-   * Contract:
-   * - Always runs for GET requests regardless of mount path (no req.path gating).
-   * - Only stamps bypass flags when the *all tenants* sentinel (T0000) is requested.
-   *
-   * Why:
-   * - Route/path-specific bypass behavior caused divergent cache behavior under /table mounts.
-   * - Divergence made it possible for cache keys/payloads to drift across filtered/unfiltered requests.
-   */
-  if (req.method !== 'GET') return next();
-
-  // Proof log: shows how Express reports path/baseUrl for this mount.
-  try {
-    console.log('[SESSIONS EARLY BYPASS DETECTOR]', {
-      baseUrl: req.baseUrl,
-      path: req.path,
-      originalUrl: req.originalUrl,
-    });
-  } catch {}
-
+  if (req.method !== 'GET' || req.path !== '/') return next();
+ 
   const { bypass, requestedTenantRaw } = resolveTenantContextFromRequest(req);
-
+ 
   if (bypass && isAllTenantsSentinel(requestedTenantRaw || '')) {
     req.tenantScopeDisabled = true;
     req.allTenants = true;
     req.sessionsAllTenantsBypass = true;
-
+ 
     try {
       res.set('X-Tenant-Bypass', 'true');
       res.set('X-Requested-Tenant', 'T0000');
       res.set('X-All-Tenants', 'true');
       res.set('X-Applied-Tenant', 'all-tenants');
-    } catch {}
+    } catch { }
   }
-
+ 
   return next();
 }
  
@@ -547,18 +523,7 @@ router.get(
     }
 
     async function executeSessionTrackingTableQuery({ filter, sort, skip, limit, explicit }) {
-      /**
-       * Contract:
-       * - `canonical` is the single immutable MongoDB filter used for BOTH:
-       *   - the paginated rows query
-       *   - the totalMatched count query (when explicit pagination is enabled)
-       * - This prevents drift where totalMatched reflects a filter but rows do not.
-       */
       const canonical = cloneMongoFilterForDb(filter);
-
-      // Debug proof: show the exact $match filter used for the rows query.
-      // (This log is intentionally JSON so it can be grepped/compared.)
-      console.log('[SESSION_TRACKING_TABLE][ROWS_QUERY_FILTER]', JSON.stringify(canonical));
 
       if (explicit) {
         const [docs, totalAgg] = await Promise.all([
@@ -566,23 +531,10 @@ router.get(
           SessionTracking.aggregate([{ $match: canonical }, { $count: 'total' }]),
         ]);
         const total = Array.isArray(totalAgg) && totalAgg[0] ? Number(totalAgg[0].total || 0) : 0;
-
-        // Debug proof: show usernames actually returned for this page.
-        console.log(
-          '[SESSION_TRACKING_TABLE][ROWS_RETURNED_USERNAMES]',
-          JSON.stringify((docs || []).slice(0, 10).map((d) => d?.User_name))
-        );
-
         return { docs, total };
       }
 
       const docs = await SessionTracking.find(canonical).sort(sort).lean();
-
-      console.log(
-        '[SESSION_TRACKING_TABLE][ROWS_RETURNED_USERNAMES]',
-        JSON.stringify((docs || []).slice(0, 10).map((d) => d?.User_name))
-      );
-
       return { docs, total: null };
     }
 
@@ -596,18 +548,12 @@ router.get(
         explicit,
       });
 
-      const returnedCount = Array.isArray(docs) ? docs.length : 0;
-      const totalMatched = explicit ? total : undefined;
-
       console.log(
         '[FILTER AFTER DB]',
         JSON.stringify({
           filterFingerprint: req.sessionTrackingFilterFingerprint,
-          // IMPORTANT: "returnedCount" is the number of rows in this page (can equal limit).
-          returnedCount,
-          // IMPORTANT: "totalMatched" is the DB-wide count after applying FINAL FILTER BEFORE DB.
-          // This is the number the UI should use for pagination.
-          totalMatched,
+          matchedCount: docs.length,
+          total: explicit ? total : undefined,
           sample: docs.slice(0, 3).map((d) => ({
             _id: d?._id,
             User_name: d?.User_name,
@@ -619,29 +565,7 @@ router.get(
       );
 
       if (explicit) {
-        /**
-         * Response contract (table pagination):
-         * - meta.total: total number of documents matching the effective DB filter (for pagination)
-         * - meta.totalMatched: alias of meta.total (unambiguous naming for dashboards)
-         * - meta.count: number of rows returned in this page
-         *
-         * Back-compat:
-         * - matchedCount: total matched in DB (NOT page size)
-         * - returnedCount: rows returned in this page
-         */
-        const payload = {
-          success: true,
-          data: docs,
-          meta: {
-            page,
-            limit,
-            total: totalMatched,
-            totalMatched,
-            count: returnedCount,
-          },
-          matchedCount: totalMatched,
-          returnedCount,
-        };
+        const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
           etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, page, limit, sort, q, userId });
