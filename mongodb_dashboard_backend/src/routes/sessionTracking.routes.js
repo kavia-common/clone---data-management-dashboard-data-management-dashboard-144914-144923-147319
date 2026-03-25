@@ -548,12 +548,18 @@ router.get(
         explicit,
       });
 
+      const returnedCount = Array.isArray(docs) ? docs.length : 0;
+      const totalMatched = explicit ? total : undefined;
+
       console.log(
         '[FILTER AFTER DB]',
         JSON.stringify({
           filterFingerprint: req.sessionTrackingFilterFingerprint,
-          matchedCount: docs.length,
-          total: explicit ? total : undefined,
+          // IMPORTANT: "returnedCount" is the number of rows in this page (can equal limit).
+          returnedCount,
+          // IMPORTANT: "totalMatched" is the DB-wide count after applying FINAL FILTER BEFORE DB.
+          // This is the number the UI should use for pagination.
+          totalMatched,
           sample: docs.slice(0, 3).map((d) => ({
             _id: d?._id,
             User_name: d?.User_name,
@@ -565,7 +571,29 @@ router.get(
       );
 
       if (explicit) {
-        const payload = { success: true, data: docs, meta: { page, limit, total } };
+        /**
+         * Response contract (table pagination):
+         * - meta.total: total number of documents matching the effective DB filter (for pagination)
+         * - meta.totalMatched: alias of meta.total (unambiguous naming for dashboards)
+         * - meta.count: number of rows returned in this page
+         *
+         * Back-compat:
+         * - matchedCount: total matched in DB (NOT page size)
+         * - returnedCount: rows returned in this page
+         */
+        const payload = {
+          success: true,
+          data: docs,
+          meta: {
+            page,
+            limit,
+            total: totalMatched,
+            totalMatched,
+            count: returnedCount,
+          },
+          matchedCount: totalMatched,
+          returnedCount,
+        };
         let etag = null;
         if (wantETag) {
           etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, page, limit, sort, q, userId });
