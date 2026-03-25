@@ -1,4 +1,4 @@
 {
     "command": "npm install",
-    "working_directory": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend"
+    "working_directory": "mongodb_dashboard_backend"
 }
