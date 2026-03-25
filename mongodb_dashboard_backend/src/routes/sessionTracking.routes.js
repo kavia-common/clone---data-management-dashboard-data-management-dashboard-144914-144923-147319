@@ -347,23 +347,44 @@ router.use((req, res, next) => {
 * - Does not make authorization decisions; JWT mismatch enforcement is handled in the handler.
 */
 function sessionsEarlyBypassDetector(req, res, next) {
-  if (req.method !== 'GET' || req.path !== '/') return next();
- 
+  /**
+   * This router is mounted under multiple base paths, including:
+   * - /api/session-tracking
+   * - /api/sessionTracking
+   * - /api/session-tracking/table  (via sessionTracking.table.routes.js)
+   * - /api/sessionTracking/table
+   *
+   * When re-mounted under `/table`, Express will present a different `req.path`
+   * to this middleware (often '/table' instead of '/'). Previously we only ran
+   * bypass detection when req.path === '/', which caused divergent behavior
+   * between aliases/mounts and could lead to confusing cache behavior.
+   */
+  if (req.method !== 'GET') return next();
+
+  // Proof log: shows how Express reports path/baseUrl for this mount.
+  try {
+    console.log('[SESSIONS EARLY BYPASS DETECTOR]', {
+      baseUrl: req.baseUrl,
+      path: req.path,
+      originalUrl: req.originalUrl,
+    });
+  } catch {}
+
   const { bypass, requestedTenantRaw } = resolveTenantContextFromRequest(req);
- 
+
   if (bypass && isAllTenantsSentinel(requestedTenantRaw || '')) {
     req.tenantScopeDisabled = true;
     req.allTenants = true;
     req.sessionsAllTenantsBypass = true;
- 
+
     try {
       res.set('X-Tenant-Bypass', 'true');
       res.set('X-Requested-Tenant', 'T0000');
       res.set('X-All-Tenants', 'true');
       res.set('X-Applied-Tenant', 'all-tenants');
-    } catch { }
+    } catch {}
   }
- 
+
   return next();
 }
  
