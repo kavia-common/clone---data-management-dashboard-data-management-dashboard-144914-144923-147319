@@ -218,40 +218,7 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
 
   return finalFilter;
 }
-/**
-* Convert a MongoDB filter object into a JSON-safe structure for logging.
-*
-* Why:
-* - RegExp values do not serialize to JSON well and often appear as `{}` when stringified.
-* - We want logs like "FINAL FILTER BEFORE DB" to reflect the true filter passed to Mongo,
-*   including regex patterns and options.
-*
-* Contract:
-* - Input: any JS value (typically a MongoDB filter object)
-* - Output: plain JSON-serializable value
-* - Side effects: none
-*/
-function mongoFilterToLogObject(value) {
-  /**
-   * For this route, we want logs to reflect the *intended input values*.
-   *
-   * Previously, RegExp values were converted to strings like "/Darssini/i", which confused
-   * debugging because the UI input was "Darssini". We now avoid using RegExp objects in
-   * filters for q-search (we use {$regex: <string>, $options: 'i'}), so this function
-   * only needs to ensure objects/arrays are JSON-safe.
-   */
-  if (Array.isArray(value)) return value.map(mongoFilterToLogObject);
 
-  if (value && typeof value === 'object') {
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-      out[k] = mongoFilterToLogObject(v);
-    }
-    return out;
-  }
-
-  return value;
-}
 
 const routeCache = new Map();
 function cacheKeyFromReq(req, enforcedTenant) {
@@ -531,32 +498,27 @@ router.get(
 
     /**
      * Canonicalize the effective MongoDB filter into the *exact* JSON-safe object that will be
-     * passed to the DB for BOTH:
-     * - rows query (find)
-     * - totals query (aggregate $match + $count)
+     * passed to MongoDB.
      *
-     * Contract:
-     * - Input: any JS object used as a MongoDB filter (may contain RegExp etc.)
-     * - Output: a plain JSON-safe object with identical semantics for this route
-     * - Invariant: the returned object is the single source of truth for logging, cache keys, and DB execution.
+     * CONTRACT (critical invariants for this bugfix):
+     * - The returned object is the single source of truth for:
+     *   - the rows query (find)
+     *   - the totals query (aggregate $match + $count)
+     *   - debug logging ("FINAL FILTER BEFORE DB")
+     *   - cache fingerprinting (prevents collisions returning stale/unfiltered docs)
+     * - The canonical form MUST NOT contain RegExp instances (they do not JSON serialize reliably).
+     *   For q-search, we exclusively use {$regex:<patternString>,$options:'i'}.
      *
-     * Why:
-     * - Prevents drift where totals are computed with one filter but rows are fetched with another.
-     * - Ensures logs/headers reflect what Mongo actually receives.
+     * @param {object} filterObj MongoDB filter candidate
+     * @returns {object} JSON-safe MongoDB filter to execute
      */
     function canonicalizeSessionTrackingDbFilter(filterObj) {
-      // NOTE: For this route, q-search is represented via {$regex: <string>, $options:'i'},
-      // so JSON serialization is safe and preserves semantics.
-      return JSON.parse(JSON.stringify(mongoFilterToLogObject(filterObj || {})));
+      // Ensure we only ever execute a JSON-safe filter object (stable logs + cache keys).
+      // For this route, this is semantics-preserving because q-search uses $regex string + $options.
+      return JSON.parse(JSON.stringify(filterObj || {}));
     }
 
-    // IMPORTANT INVARIANT:
-    // `dbFilter` is the single canonical object passed to MongoDB for BOTH rows and totals.
-    //
-    // We canonicalize to a plain JSON-safe object to ensure:
-    // - the rows query (find) and totals query (aggregate/$count) always use identical semantics
-    // - cache fingerprints/logs/headers reflect the exact DB filter deterministically
-    // - future edits do not accidentally re-introduce RegExp instances or other non-JSON-safe values
+    // IMPORTANT: dbFilter is the ONLY object that may be passed to MongoDB.
     const dbFilter = canonicalizeSessionTrackingDbFilter(finalFilter);
 
     // Log/headers must reflect the filter actually executed against MongoDB.
@@ -564,8 +526,7 @@ router.get(
     console.log('[FINAL FILTER]', util.inspect(dbFilter, { depth: null, colors: true }));
     console.log('[FINAL FILTER BEFORE DB]', finalFilterLogJson);
 
-    // Deterministic filter fingerprint for debuggability + cache keying
-    // (prevents returning stale/unfiltered cached docs when the effective filter changes).
+    // Deterministic filter fingerprint for debuggability + cache keying.
     const filterFingerprint = crypto
       .createHash('sha1')
       .update(finalFilterLogJson)
