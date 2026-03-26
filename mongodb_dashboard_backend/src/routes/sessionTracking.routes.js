@@ -579,16 +579,40 @@ router.get(
 
       console.log('================ DB DEBUG END ==================');
 
+      // const runQueries = async () => {
+      //   const [docs, totalAgg] = await Promise.all([
+      //     SessionTracking.find({ $match: dbFilter },)
+      //       .sort(sort)
+      //       .skip(skip)
+      //       .limit(limit)
+      //       .lean(),
+
+      //     SessionTracking.aggregate([
+      //       { $match: dbFilter },
+      //       { $count: 'total' }
+      //     ])
+      //   ]);
+
+      //   const total =
+      //     explicit && Array.isArray(totalAgg) && totalAgg[0]
+      //       ? Number(totalAgg[0].total || 0)
+      //       : explicit
+      //         ? 0
+      //         : null;
+
+      //   return { docs, total };
+      // };
+
       const runQueries = async () => {
         const [docs, totalAgg] = await Promise.all([
-          SessionTracking.find(dbFilter)
+          SessionTracking.find(dbFilter) // ✅ FIXED (removed extra comma)
             .sort(sort)
             .skip(skip)
             .limit(limit)
             .lean(),
 
           SessionTracking.aggregate([
-            { $match: dbFilter },
+            { $match: dbFilter }, // ✅ SAME FILTER
             { $count: 'total' }
           ])
         ]);
@@ -602,7 +626,6 @@ router.get(
 
         return { docs, total };
       };
-
       let { docs, total } = await runQueries();
 
       // Temporary guard/assert (auto-repair): if q-search active and returned docs don't match,
