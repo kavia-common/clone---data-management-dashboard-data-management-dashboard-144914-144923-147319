@@ -357,15 +357,30 @@ router.use((req, res, next) => {
 * - Does not make authorization decisions; JWT mismatch enforcement is handled in the handler.
 */
 function sessionsEarlyBypassDetector(req, res, next) {
-  if (req.method !== 'GET' || req.path !== '/') return next();
- 
+  /**
+   * This router is mounted at multiple base paths:
+   * - /api/session-tracking
+   * - /api/sessionTracking
+   * - /api/session-tracking/table
+   * - /api/sessionTracking/table
+   *
+   * When mounted, Express sets `req.path` relative to the mount point.
+   * For the list handler, that path can be either '/' OR '' depending on how the mount is invoked.
+   *
+   * If we only treat '/' as the list route, then the all-tenants (T0000) bypass stamping can be skipped
+   * for some mounts (notably the `/table` mount), which can lead to inconsistent cache keys/headers and
+   * the appearance of “total is filtered but rows are not”.
+   */
+  const isListPath = req.path === '/' || req.path === '';
+  if (req.method !== 'GET' || !isListPath) return next();
+
   const { bypass, requestedTenantRaw } = resolveTenantContextFromRequest(req);
- 
+
   if (bypass && isAllTenantsSentinel(requestedTenantRaw || '')) {
     req.tenantScopeDisabled = true;
     req.allTenants = true;
     req.sessionsAllTenantsBypass = true;
- 
+
     try {
       res.set('X-Tenant-Bypass', 'true');
       res.set('X-Requested-Tenant', 'T0000');
@@ -373,7 +388,7 @@ function sessionsEarlyBypassDetector(req, res, next) {
       res.set('X-Applied-Tenant', 'all-tenants');
     } catch { }
   }
- 
+
   return next();
 }
  
