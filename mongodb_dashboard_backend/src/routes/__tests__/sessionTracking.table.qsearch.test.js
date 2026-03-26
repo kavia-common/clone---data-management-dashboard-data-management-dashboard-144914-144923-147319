@@ -70,7 +70,8 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(findFilter).toEqual({
       $or: [
         {
-          User_name: { $regex: 'Aditi S', $options: 'i' },
+          // Multi-word q uses whitespace-tolerant matching: "Aditi   S" should still match.
+          User_name: { $regex: 'Aditi\\s+S', $options: 'i' },
         },
       ],
     });

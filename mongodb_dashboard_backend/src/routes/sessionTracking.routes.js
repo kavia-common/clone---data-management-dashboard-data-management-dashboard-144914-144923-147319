@@ -144,11 +144,21 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
    * For case-insensitive "contains" matching, use MongoDB's $regex + $options with an escaped literal.
    * This avoids regex injection while still allowing partial matches.
    */
-  const escaped = escapeRegexLiteral(qTrimmed);
+  /**
+   * Build a safe, whitespace-tolerant regex *pattern string* for MongoDB.
+   *
+   * Important:
+   * - We intentionally store the pattern as a string (not a RegExp instance) so:
+   *   - JSON cloning in cloneMongoFilterForDb remains safe
+   *   - logs and cache fingerprints remain deterministic
+   * - buildSafePhraseRegex() already escapes literal characters to prevent regex injection.
+   */
+  const safePhraseRegex = buildSafePhraseRegex(qTrimmed);
 
   // This is a "contains" match by default (no ^ or $ anchors), case-insensitive.
+  // Note: We pass Mongo the regex pattern string rather than a RegExp object.
   const userNameRegexClause = {
-    [USER_NAME_FIELD]: { $regex: escaped, $options: 'i' },
+    [USER_NAME_FIELD]: { $regex: safePhraseRegex.source, $options: 'i' },
   };
 
   // Keep the $or structure for compatibility with existing query composition logic,
