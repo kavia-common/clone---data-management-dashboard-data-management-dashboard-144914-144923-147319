@@ -178,6 +178,7 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   console.log('[SEARCH] qTrimmed:', qTrimmed);
   console.log('[SEARCH] userId:', userIdTrimmed);
 
+  // ✅ PRIORITY: userId exact match
   if (userIdTrimmed) {
     return { user_id: userIdTrimmed };
   }
@@ -191,18 +192,29 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   }
 
   const USER_NAME_FIELD = 'User_name';
-
   const safePhraseRegex = buildSafePhraseRegex(qTrimmed);
 
-  // ✅ USE REAL REGEX (NOT STRING)
+  /**
+   * IMPORTANT INVARIANT (contract for this route):
+   * - q-search is represented as an $or array even when searching a single field.
+   *
+   * Why:
+   * - Other composition/canonicalization/caching/debugging logic historically assumed `$or`,
+   *   and tests assert the `$or` structure.
+   * - Keeping a single canonical shape avoids drift where totals and rows appear inconsistent.
+   */
   const finalFilter = {
-    [USER_NAME_FIELD]: {
-      $regex: safePhraseRegex.source,
-      $options: 'i'
-    }
+    $or: [
+      {
+        [USER_NAME_FIELD]: {
+          $regex: safePhraseRegex.source,
+          $options: 'i',
+        },
+      },
+    ],
   };
 
-  console.log('[SEARCH FILTER FINAL FIX]', finalFilter);
+  console.log('[SEARCH FILTER]', util.inspect(finalFilter, { depth: null }));
 
   return finalFilter;
 }
