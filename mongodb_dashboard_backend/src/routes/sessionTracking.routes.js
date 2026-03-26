@@ -8,13 +8,13 @@ const { resolveTenantContextFromRequest, isAllTenantsSentinel } = require('../se
 const util = require('util');
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
- 
+
 // Flags
 const ENABLE_ROUTE_CACHE = String(process.env.ENABLE_ROUTE_CACHE || 'true').toLowerCase() === 'true';
 const ENABLE_ETAG = String(process.env.ENABLE_ETAG || 'true').toLowerCase() === 'true';
 const CACHE_TTL_SECONDS = Number(process.env.CACHE_TTL_SECONDS || 60);
 const DEFAULT_CACHE_TTL_MS = Math.max(5, CACHE_TTL_SECONDS) * 1000;
- 
+
 // Helpers
 function roundToMinuteISO(value) {
   if (!value || typeof value !== 'string') return null;
@@ -23,7 +23,7 @@ function roundToMinuteISO(value) {
   d.setUTCSeconds(0, 0);
   return d.toISOString();
 }
- 
+
 /**
 * Escape user input so it is treated as literal text in a RegExp.
 * This prevents regex injection and reduces the risk of catastrophic backtracking patterns.
@@ -31,7 +31,7 @@ function roundToMinuteISO(value) {
 function escapeRegexLiteral(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
- 
+
 /**
 * Build a case-insensitive RegExp for user-supplied q.
 *
@@ -56,7 +56,7 @@ function buildSafePhraseRegex(qTrimmed) {
   const pattern = tokens.length ? tokens.join('\\s+') : escapeRegexLiteral(qTrimmed);
   return new RegExp(pattern, 'i');
 }
- 
+
 /**
 * Normalize a querystring value to a trimmed string (or '').
 *
@@ -70,7 +70,7 @@ function coerceQueryString(value) {
   if (value === null || typeof value === 'undefined') return '';
   return String(value).trim();
 }
- 
+
 /**
 * Derive userId from supported query aliases without breaking existing callers.
 *
@@ -91,7 +91,7 @@ function deriveUserIdFromQuery(query) {
   }
   return '';
 }
- 
+
 /**
 * Build an $or search filter for session tracking q/userId inputs.
 *
@@ -114,6 +114,63 @@ function deriveUserIdFromQuery(query) {
 */
 // PUBLIC_INTERFACE
 // PUBLIC_INTERFACE
+// function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
+//   const qTrimmed = typeof q === 'string' ? q.trim() : '';
+//   const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
+
+//   console.log('[SEARCH] qTrimmed:', qTrimmed);
+//   console.log('[SEARCH] userId:', userIdTrimmed);
+
+//   // ✅ PRIORITY: userId exact match
+//   if (userIdTrimmed) {
+//     return { user_id: userIdTrimmed };
+//   }
+
+//   if (!qTrimmed) return {};
+
+//   if (qTrimmed.length > maxQLength) {
+//     const err = new Error(`q is too long (max ${maxQLength} characters)`);
+//     err.statusCode = 400;
+//     throw err;
+//   }
+
+//   const USER_NAME_FIELD = 'User_name';
+
+//   /**
+//    * IMPORTANT:
+//    * We intentionally DO NOT wrap qTrimmed into a stringified regex (e.g. "/Darssini/i").
+//    * The UI sends a plain term ("Darssini") and we keep that value as the canonical filter input.
+//    *
+//    * For case-insensitive "contains" matching, use MongoDB's $regex + $options with an escaped literal.
+//    * This avoids regex injection while still allowing partial matches.
+//    */
+//   /**
+//    * Build a safe, whitespace-tolerant regex *pattern string* for MongoDB.
+//    *
+//    * Important:
+//    * - We intentionally store the pattern as a string (not a RegExp instance) so:
+//    *   - JSON cloning in cloneMongoFilterForDb remains safe
+//    *   - logs and cache fingerprints remain deterministic
+//    * - buildSafePhraseRegex() already escapes literal characters to prevent regex injection.
+//    */
+//   const safePhraseRegex = buildSafePhraseRegex(qTrimmed);
+
+//   // This is a "contains" match by default (no ^ or $ anchors), case-insensitive.
+//   // Note: We pass Mongo the regex pattern string rather than a RegExp object.
+//   const userNameRegexClause = {
+//     [USER_NAME_FIELD]: { $regex: safePhraseRegex.source, $options: 'i' },
+//   };
+
+//   // Keep the $or structure for compatibility with existing query composition logic,
+//   // but ensure the filter contains only plain values (string + $options), not RegExp instances.
+//   // const finalSearch = { $or: [userNameRegexClause] };
+//   const finalSearch = userNameRegexClause;
+
+//   console.log('[SEARCH FILTER]', util.inspect(finalSearch, { depth: null }));
+
+//   return finalSearch;
+// }
+
 function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   const qTrimmed = typeof q === 'string' ? q.trim() : '';
   const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
@@ -121,7 +178,6 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   console.log('[SEARCH] qTrimmed:', qTrimmed);
   console.log('[SEARCH] userId:', userIdTrimmed);
 
-  // ✅ PRIORITY: userId exact match
   if (userIdTrimmed) {
     return { user_id: userIdTrimmed };
   }
@@ -136,40 +192,20 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
 
   const USER_NAME_FIELD = 'User_name';
 
-  /**
-   * IMPORTANT:
-   * We intentionally DO NOT wrap qTrimmed into a stringified regex (e.g. "/Darssini/i").
-   * The UI sends a plain term ("Darssini") and we keep that value as the canonical filter input.
-   *
-   * For case-insensitive "contains" matching, use MongoDB's $regex + $options with an escaped literal.
-   * This avoids regex injection while still allowing partial matches.
-   */
-  /**
-   * Build a safe, whitespace-tolerant regex *pattern string* for MongoDB.
-   *
-   * Important:
-   * - We intentionally store the pattern as a string (not a RegExp instance) so:
-   *   - JSON cloning in cloneMongoFilterForDb remains safe
-   *   - logs and cache fingerprints remain deterministic
-   * - buildSafePhraseRegex() already escapes literal characters to prevent regex injection.
-   */
   const safePhraseRegex = buildSafePhraseRegex(qTrimmed);
 
-  // This is a "contains" match by default (no ^ or $ anchors), case-insensitive.
-  // Note: We pass Mongo the regex pattern string rather than a RegExp object.
-  const userNameRegexClause = {
-    [USER_NAME_FIELD]: { $regex: safePhraseRegex.source, $options: 'i' },
+  // ✅ USE REAL REGEX (NOT STRING)
+  const finalFilter = {
+    [USER_NAME_FIELD]: {
+      $regex: safePhraseRegex.source,
+      $options: 'i'
+    }
   };
 
-  // Keep the $or structure for compatibility with existing query composition logic,
-  // but ensure the filter contains only plain values (string + $options), not RegExp instances.
-  const finalSearch = { $or: [userNameRegexClause] };
+  console.log('[SEARCH FILTER FINAL FIX]', finalFilter);
 
-  console.log('[SEARCH FILTER]', util.inspect(finalSearch, { depth: null }));
-
-  return finalSearch;
+  return finalFilter;
 }
- 
 /**
 * Convert a MongoDB filter object into a JSON-safe structure for logging.
 *
@@ -204,7 +240,7 @@ function mongoFilterToLogObject(value) {
 
   return value;
 }
- 
+
 const routeCache = new Map();
 function cacheKeyFromReq(req, enforcedTenant) {
   /**
@@ -326,7 +362,7 @@ function computeETag(payload, context) {
     return crypto.createHash('sha1').update(s).digest('hex');
   }
 }
- 
+
 // Tenant diagnostics
 router.use((req, res, next) => {
   try {
@@ -347,7 +383,7 @@ router.use((req, res, next) => {
   } catch { }
   next();
 });
- 
+
 /**
 * Early bypass detector.
 *
@@ -391,7 +427,7 @@ function sessionsEarlyBypassDetector(req, res, next) {
 
   return next();
 }
- 
+
 router.get(
   '/',
   sessionsEarlyBypassDetector,
@@ -405,33 +441,33 @@ router.get(
       tenantId,
       requestedTenantRaw,
     });
- 
+
     // Security: if JWT tenant is present, do NOT allow client to broaden scope to "all tenants".
     const authTenant =
       (typeof req?.auth?.tenantId === 'string' && req.auth.tenantId.trim()) ||
       (typeof req?.auth?.organization_id === 'string' && req.auth.organization_id.trim()) ||
       null;
- 
+
     if (authTenant && isAllTenantsSentinel(requestedTenantRaw || '')) {
       return res.status(403).json({
         success: false,
         message: 'Forbidden: all-tenants (T0000) bypass is not allowed with Authorization',
       });
     }
- 
+
     if (!bypass && !tenantId) {
       return res.status(400).json({
         success: false,
         message: 'tenant_id is required. Provide ?tenant_id=...'
       });
     }
- 
+
     // Pagination and sort
     const rawQuery = { ...req.query };
     if (rawQuery.pageSize && !rawQuery.limit) rawQuery.limit = rawQuery.pageSize;
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
- 
+
     // Exact userId precedence; q fallback
     const q = coerceQueryString(req.query.q);
     const userId = deriveUserIdFromQuery(req.query);
@@ -443,22 +479,22 @@ router.get(
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       try {
         searchFilter = buildSessionTrackingSearchFilter({ q, userId, maxQLength: MAX_Q_LENGTH });
-        console.log('[SEARCH FILTER]', util.inspect(searchFilter, { depth: null, colors: true }));
+        console.log('[SEARCH FILTER FINAL]', util.inspect(searchFilter, { depth: null, colors: true }));
       } catch (e) {
         const status = e?.statusCode || 400;
         return res.status(status).json({ success: false, message: e?.message || 'Invalid search input' });
       }
     }
- 
+
     // Ignore client filter param for this route
     if (typeof req.query.filter !== 'undefined') {
       try { res.set('X-Filter-Ignored', 'true'); } catch { }
     }
- 
+
     // Tenant scope (only when not bypass)
     // const enforcedScope = (!bypass && tenantId) ?? {};
     let enforcedScope = {};
- 
+
     if (!bypass && tenantId) {
       enforcedScope = {
         $or: [
@@ -468,7 +504,7 @@ router.get(
         ]
       };
     }
- 
+
     // Build final Mongo filter (single canonical code path)
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
@@ -504,16 +540,24 @@ router.get(
 
     // IMPORTANT INVARIANT:
     // `dbFilter` is the single canonical object passed to MongoDB for BOTH rows and totals.
+    //
+    // We canonicalize to a plain JSON-safe object to ensure:
+    // - the rows query (find) and totals query (aggregate/$count) always use identical semantics
+    // - cache fingerprints/logs/headers reflect the exact DB filter deterministically
+    // - future edits do not accidentally re-introduce RegExp instances or other non-JSON-safe values
     const dbFilter = canonicalizeSessionTrackingDbFilter(finalFilter);
 
     // Log/headers must reflect the filter actually executed against MongoDB.
-    const finalFilterLogJson = JSON.stringify(dbFilter);
+    const finalFilterLogJson = util.inspect(dbFilter, { depth: null });
     console.log('[FINAL FILTER]', util.inspect(dbFilter, { depth: null, colors: true }));
     console.log('[FINAL FILTER BEFORE DB]', finalFilterLogJson);
 
     // Deterministic filter fingerprint for debuggability + cache keying
     // (prevents returning stale/unfiltered cached docs when the effective filter changes).
-    const filterFingerprint = crypto.createHash('sha1').update(finalFilterLogJson).digest('hex');
+    const filterFingerprint = crypto
+      .createHash('sha1')
+      .update(finalFilterLogJson)
+      .digest('hex');
     req.sessionTrackingFilterFingerprint = filterFingerprint;
 
     try {
@@ -549,13 +593,32 @@ router.get(
 
     // DB execution (rows + total MUST use the same dbFilter object)
     try {
+      // ✅ ADD DEBUG LOGS HERE
+      console.log('================ DB DEBUG START ================');
+      console.log('[DB FILTER RAW]', util.inspect(dbFilter, { depth: null, colors: true }));
+      console.log('[DB FILTER TYPE]', typeof dbFilter);
+      console.log('[DB FILTER KEYS]', Object.keys(dbFilter));
+
+      if (dbFilter.$and) {
+        console.log('[DB FILTER $AND]', util.inspect(dbFilter.$and, { depth: null }));
+      }
+
+      if (dbFilter.$or) {
+        console.log('[DB FILTER $OR]', util.inspect(dbFilter.$or, { depth: null }));
+      }
+
+      console.log('================ DB DEBUG END ==================');
       const [docs, totalAgg] = await Promise.all([
-        explicit
-          ? SessionTracking.find(dbFilter).sort(sort).skip(skip).limit(limit).lean()
-          : SessionTracking.find(dbFilter).sort(sort).lean(),
-        explicit
-          ? SessionTracking.aggregate([{ $match: dbFilter }, { $count: 'total' }])
-          : Promise.resolve(null),
+        SessionTracking.find(dbFilter)
+          .sort(sort)
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+
+        SessionTracking.aggregate([
+          { $match: dbFilter },
+          { $count: 'total' }
+        ])
       ]);
 
       const total =
@@ -627,13 +690,13 @@ router.get(
     }
   })
 );
- 
+
 // CRUD operations invalidate cache
 router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
 router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
 router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
- 
+
 // Keep ID read unchanged
 router.get('/:id', asyncHandler(controller.getById));
- 
+
 module.exports = router;
