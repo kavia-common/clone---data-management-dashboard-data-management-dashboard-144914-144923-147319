@@ -472,27 +472,43 @@ router.get(
     // Build final Mongo filter (single canonical code path)
     const parts = [];
     const isEmpty = (o) => !o || (typeof o === 'object' && Object.keys(o).length === 0);
- 
+
     if (!isEmpty(searchFilter)) parts.push(searchFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
- 
+
     // If we only have a single part, avoid wrapping in $and (cleaner explain/logging),
     // but keep semantics identical.
     const finalFilter =
       parts.length === 0 ? {} : parts.length === 1 ? parts[0] : { $and: parts };
- 
-    // IMPORTANT INVARIANT:
-    // `dbFilter` is the *single* object passed to MongoDB for BOTH the list query and totals.
-    // This prevents drift where the logs show a filter but count/total is computed differently.
-    const dbFilter = finalFilter;
- 
-    console.log('[FINAL FILTER]', util.inspect(dbFilter, { depth: null, colors: true }));
-    // This is the filter actually passed into Mongoose/Mongo. Use a serializer that does not drop RegExp.
-    const finalFilterLogObj = mongoFilterToLogObject(dbFilter);
-    const finalFilterLogJson = JSON.stringify(finalFilterLogObj);
 
+    /**
+     * Canonicalize the effective MongoDB filter into the *exact* JSON-safe object that will be
+     * passed to the DB for BOTH:
+     * - rows query (find)
+     * - totals query (aggregate $match + $count)
+     *
+     * Contract:
+     * - Input: any JS object used as a MongoDB filter (may contain RegExp etc.)
+     * - Output: a plain JSON-safe object with identical semantics for this route
+     * - Invariant: the returned object is the single source of truth for logging, cache keys, and DB execution.
+     *
+     * Why:
+     * - Prevents drift where totals are computed with one filter but rows are fetched with another.
+     * - Ensures logs/headers reflect what Mongo actually receives.
+     */
+    function canonicalizeSessionTrackingDbFilter(filterObj) {
+      // NOTE: For this route, q-search is represented via {$regex: <string>, $options:'i'},
+      // so JSON serialization is safe and preserves semantics.
+      return JSON.parse(JSON.stringify(mongoFilterToLogObject(filterObj || {})));
+    }
+
+    // IMPORTANT INVARIANT:
+    // `dbFilter` is the single canonical object passed to MongoDB for BOTH rows and totals.
+    const dbFilter = canonicalizeSessionTrackingDbFilter(finalFilter);
+
+    // Log/headers must reflect the filter actually executed against MongoDB.
+    const finalFilterLogJson = JSON.stringify(dbFilter);
     console.log('[FINAL FILTER]', util.inspect(dbFilter, { depth: null, colors: true }));
-    // This is the filter actually passed into Mongoose/Mongo. Use a serializer that does not drop RegExp.
     console.log('[FINAL FILTER BEFORE DB]', finalFilterLogJson);
 
     // Deterministic filter fingerprint for debuggability + cache keying
@@ -509,7 +525,7 @@ router.get(
     const cacheKey = cacheKeyFromReq(req, bypass ? null : tenantId);
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
     const wantETag = ENABLE_ETAG && req.method === 'GET';
- 
+
     if (wantCache) {
       const hit = cacheGet(cacheKey);
       if (hit) {
@@ -530,48 +546,24 @@ router.get(
       }
       console.log('[CACHE] MISS', { cacheKey, filterFingerprint: req.sessionTrackingFilterFingerprint });
     }
- 
-    /**
-     * Execute the list query + total count using a single canonical, immutable filter.
-     *
-     * Why:
-     * - We log FINAL FILTER BEFORE DB, but historically there were cases where totals/results
-     *   did not reflect that filter (especially with regex + caching/debug).
-     * - Deep-cloning ensures no accidental mutation by downstream code/driver normalization.
-     * - Using an aggregation `$match` + `$count` guarantees the count is computed from the
-     *   same match semantics as the list query (server-side), avoiding drift.
-     */
-    function cloneMongoFilterForDb(filterObj) {
-      // JSON cloning is safe here because we intentionally avoid RegExp instances in the q filter
-      // (we use {$regex: <string>, $options:'i'}). This ensures the clone stays semantically identical.
-      return JSON.parse(JSON.stringify(mongoFilterToLogObject(filterObj || {})));
-    }
 
-    async function executeSessionTrackingTableQuery({ filter, sort, skip, limit, explicit }) {
-      const canonical = cloneMongoFilterForDb(filter);
-
-      if (explicit) {
-        const [docs, totalAgg] = await Promise.all([
-          SessionTracking.find(canonical).sort(sort).skip(skip).limit(limit).lean(),
-          SessionTracking.aggregate([{ $match: canonical }, { $count: 'total' }]),
-        ]);
-        const total = Array.isArray(totalAgg) && totalAgg[0] ? Number(totalAgg[0].total || 0) : 0;
-        return { docs, total };
-      }
-
-      const docs = await SessionTracking.find(canonical).sort(sort).lean();
-      return { docs, total: null };
-    }
-
-    // DB execution
+    // DB execution (rows + total MUST use the same dbFilter object)
     try {
-      const { docs, total } = await executeSessionTrackingTableQuery({
-        filter: dbFilter,
-        sort,
-        skip,
-        limit,
-        explicit,
-      });
+      const [docs, totalAgg] = await Promise.all([
+        explicit
+          ? SessionTracking.find(dbFilter).sort(sort).skip(skip).limit(limit).lean()
+          : SessionTracking.find(dbFilter).sort(sort).lean(),
+        explicit
+          ? SessionTracking.aggregate([{ $match: dbFilter }, { $count: 'total' }])
+          : Promise.resolve(null),
+      ]);
+
+      const total =
+        explicit && Array.isArray(totalAgg) && totalAgg[0]
+          ? Number(totalAgg[0].total || 0)
+          : explicit
+            ? 0
+            : null;
 
       console.log(
         '[FILTER AFTER DB]',
