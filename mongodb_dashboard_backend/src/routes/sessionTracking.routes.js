@@ -109,69 +109,9 @@ function deriveUserIdFromQuery(query) {
 * Invariants:
 * - q-search for the session tracking table/list endpoint must match ONLY the top-level
 *   `User_name` field (case-insensitive).
-* - Full-phrase matching must be whitespace-tolerant (\"Aditi S\" matches \"Aditi   S\").
+* - Full-phrase matching must be whitespace-tolerant ("Aditi S" matches "Aditi   S").
 * - Multi-word q uses AND semantics across tokens (both tokens must appear in User_name).
 */
-// PUBLIC_INTERFACE
-// PUBLIC_INTERFACE
-//  // PUBLIC_INTERFACE
-function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
-//   const qTrimmed = typeof q === 'string' ? q.trim() : '';
-//   const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
-
-//   console.log('[SEARCH] qTrimmed:', qTrimmed);
-//   console.log('[SEARCH] userId:', userIdTrimmed);
-
-//   // ✅ PRIORITY: userId exact match
-//   if (userIdTrimmed) {
-//     return { user_id: userIdTrimmed };
-//   }
-
-//   if (!qTrimmed) return {};
-
-//   if (qTrimmed.length > maxQLength) {
-//     const err = new Error(`q is too long (max ${maxQLength} characters)`);
-//     err.statusCode = 400;
-//     throw err;
-//   }
-
-//   const USER_NAME_FIELD = 'User_name';
-
-//   /**
-//    * IMPORTANT:
-//    * We intentionally DO NOT wrap qTrimmed into a stringified regex (e.g. "/Darssini/i").
-//    * The UI sends a plain term ("Darssini") and we keep that value as the canonical filter input.
-//    *
-//    * For case-insensitive "contains" matching, use MongoDB's $regex + $options with an escaped literal.
-//    * This avoids regex injection while still allowing partial matches.
-//    */
-//   /**
-//    * Build a safe, whitespace-tolerant regex *pattern string* for MongoDB.
-//    *
-//    * Important:
-//    * - We intentionally store the pattern as a string (not a RegExp instance) so:
-//    *   - JSON cloning in cloneMongoFilterForDb remains safe
-//    *   - logs and cache fingerprints remain deterministic
-//    * - buildSafePhraseRegex() already escapes literal characters to prevent regex injection.
-//    */
-//   const safePhraseRegex = buildSafePhraseRegex(qTrimmed);
-
-//   // This is a "contains" match by default (no ^ or $ anchors), case-insensitive.
-//   // Note: We pass Mongo the regex pattern string rather than a RegExp object.
-//   const userNameRegexClause = {
-//     [USER_NAME_FIELD]: { $regex: safePhraseRegex.source, $options: 'i' },
-//   };
-
-//   // Keep the $or structure for compatibility with existing query composition logic,
-//   // but ensure the filter contains only plain values (string + $options), not RegExp instances.
-//   // const finalSearch = { $or: [userNameRegexClause] };
-//   const finalSearch = userNameRegexClause;
-
-//   console.log('[SEARCH FILTER]', util.inspect(finalSearch, { depth: null }));
-
-//   return finalSearch;
-// }
-
 // PUBLIC_INTERFACE
 function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   const qTrimmed = typeof q === 'string' ? q.trim() : '';
@@ -220,7 +160,6 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
 
   return finalFilter;
 }
-
 
 const routeCache = new Map();
 function cacheKeyFromReq(req, enforcedTenant) {
@@ -473,7 +412,6 @@ router.get(
     }
 
     // Tenant scope (only when not bypass)
-    // const enforcedScope = (!bypass && tenantId) ?? {};
     let enforcedScope = {};
 
     if (!bypass && tenantId) {
