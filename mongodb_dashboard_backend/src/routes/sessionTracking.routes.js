@@ -114,7 +114,8 @@ function deriveUserIdFromQuery(query) {
 */
 // PUBLIC_INTERFACE
 // PUBLIC_INTERFACE
-// function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
+//  // PUBLIC_INTERFACE
+function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
 //   const qTrimmed = typeof q === 'string' ? q.trim() : '';
 //   const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
 
@@ -171,6 +172,7 @@ function deriveUserIdFromQuery(query) {
 //   return finalSearch;
 // }
 
+// PUBLIC_INTERFACE
 function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   const qTrimmed = typeof q === 'string' ? q.trim() : '';
   const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
