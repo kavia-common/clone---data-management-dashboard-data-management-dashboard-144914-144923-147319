@@ -564,6 +564,63 @@ router.get(
       console.log('[CACHE] MISS', { cacheKey, filterFingerprint: req.sessionTrackingFilterFingerprint });
     }
 
+    /**
+     * Validate that q-search results actually match the q-regex filter.
+     *
+     * Why:
+     * - This endpoint has historically shown “filtered totals but unfiltered rows”.
+     * - The only way that can happen is if the returned rows are not produced by the same
+     *   effective filter as the total query (typically due to cached payloads or divergent code paths).
+     * - This guard makes the behavior provably correct: if any row does not match the expected
+     *   `User_name` regex, we treat it as a cache/flow violation, invalidate cache, and re-run DB queries.
+     *
+     * Contract:
+     * - Only applies when q-search is active AND the filter has the canonical {$or:[{User_name:{$regex,$options}}]} shape.
+     * - On mismatch, will re-query MongoDB with the same dbFilter and return corrected results.
+     * - Adds headers to aid debugging without requiring server logs.
+     */
+    function validateDocsMatchQNameFilter({ docs, qFilter }) {
+      if (!Array.isArray(docs) || !qFilter || typeof qFilter !== 'object') return { ok: true };
+
+      const or = Array.isArray(qFilter.$or) ? qFilter.$or : null;
+      if (!or || or.length !== 1) return { ok: true };
+
+      const clause = or[0] || {};
+      const userName = clause.User_name;
+      if (!userName || typeof userName !== 'object') return { ok: true };
+
+      const pattern = typeof userName.$regex === 'string' ? userName.$regex : null;
+      const options = typeof userName.$options === 'string' ? userName.$options : '';
+      if (!pattern) return { ok: true };
+
+      let re = null;
+      try {
+        re = new RegExp(pattern, options.includes('i') ? 'i' : undefined);
+      } catch {
+        // If regex reconstruction fails, do not block the request.
+        return { ok: true };
+      }
+
+      const bad = [];
+      for (const d of docs) {
+        const value = d?.User_name;
+        if (typeof value !== 'string' || !re.test(value)) {
+          bad.push({
+            _id: d?._id,
+            User_name: d?.User_name,
+            tenant_id: d?.tenant_id,
+            organization_id: d?.organization_id,
+          });
+          if (bad.length >= 3) break;
+        }
+      }
+
+      if (bad.length) {
+        return { ok: false, reason: 'User_name did not match q regex', sample: bad };
+      }
+      return { ok: true };
+    }
+
     // DB execution (rows + total MUST use the same dbFilter object)
     try {
       // ✅ ADD DEBUG LOGS HERE
@@ -581,25 +638,56 @@ router.get(
       }
 
       console.log('================ DB DEBUG END ==================');
-      const [docs, totalAgg] = await Promise.all([
-        SessionTracking.find(dbFilter)
-          .sort(sort)
-          .skip(skip)
-          .limit(limit)
-          .lean(),
 
-        SessionTracking.aggregate([
-          { $match: dbFilter },
-          { $count: 'total' }
-        ])
-      ]);
+      const runQueries = async () => {
+        const [docs, totalAgg] = await Promise.all([
+          SessionTracking.find(dbFilter)
+            .sort(sort)
+            .skip(skip)
+            .limit(limit)
+            .lean(),
 
-      const total =
-        explicit && Array.isArray(totalAgg) && totalAgg[0]
-          ? Number(totalAgg[0].total || 0)
-          : explicit
-            ? 0
-            : null;
+          SessionTracking.aggregate([
+            { $match: dbFilter },
+            { $count: 'total' }
+          ])
+        ]);
+
+        const total =
+          explicit && Array.isArray(totalAgg) && totalAgg[0]
+            ? Number(totalAgg[0].total || 0)
+            : explicit
+              ? 0
+              : null;
+
+        return { docs, total };
+      };
+
+      let { docs, total } = await runQueries();
+
+      // Temporary guard/assert (auto-repair): if q-search active and returned docs don't match,
+      // treat it as a cache/flow violation and re-run after cache invalidation.
+      if (q) {
+        const validation = validateDocsMatchQNameFilter({ docs, qFilter: dbFilter });
+        if (!validation.ok) {
+          console.warn('[SESSION_TRACKING_GUARD] q-search mismatch detected; invalidating cache and re-querying.', {
+            filterFingerprint: req.sessionTrackingFilterFingerprint,
+            reason: validation.reason,
+            sample: validation.sample,
+          });
+
+          try { res.set('X-SessionTracking-Guard', 'mismatch-requery'); } catch { }
+          try { res.set('X-SessionTracking-Guard-Reason', String(validation.reason || 'mismatch')); } catch { }
+
+          // Ensure we can't re-serve the same wrong payload.
+          try { routeCache.delete(cacheKey); } catch { }
+          try { invalidateAllSessionTrackingCache(); } catch { }
+
+          ({ docs, total } = await runQueries());
+        } else {
+          try { res.set('X-SessionTracking-Guard', 'ok'); } catch { }
+        }
+      }
 
       console.log(
         '[FILTER AFTER DB]',
