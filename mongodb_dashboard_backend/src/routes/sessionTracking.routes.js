@@ -323,19 +323,24 @@ function cacheKeyFromReq(req, enforcedTenant) {
   /**
    * Route cache key for session-tracking list/table endpoints.
    *
+   * Flow name: SessionTrackingRouteCacheKeyFlow
+   *
    * Contract:
    * - Must vary by:
    *   - actual mounted route (so /api/session-tracking and /api/session-tracking/table never collide)
    *   - effective tenant scope / bypass state
    *   - paging/sort/time window inputs
-   *   - q + userId search inputs
-   *   - IMPORTANT: an explicit fingerprint of the *effective MongoDB filter*
-   *   - IMPORTANT: resolved q(name)->userIds (so q-search cache can never collide with other q modes)
+   *   - q + userId inputs
+   *   - IMPORTANT: effective MongoDB filter (fingerprinted as JSON)
+   *   - IMPORTANT: resolved q(name)->userIds (fingerprinted) when present
    *
    * Why:
-   * - If q resolves to matched user ids, the effective DB filter becomes a user_id $in filter.
-   *   Cache keys MUST include that resolution; otherwise a cached payload with an unfiltered
-   *   meta.total can be served for a filtered rows request (or vice versa).
+   * - Prevents cache collisions where a request with a restrictive filter (q->userIds)
+   *   accidentally reuses a cache entry created for an unfiltered/legacy-q request.
+   *
+   * Implementation note:
+   * - Prefer deriving key material directly from request inputs and the computed DB filter
+   *   (req.sessionTrackingEffectiveDbFilter) rather than relying on mutable, optional stamps.
    */
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || req.query.pageSize || 20);
@@ -363,12 +368,7 @@ function cacheKeyFromReq(req, enforcedTenant) {
     ? `all-tenants:${String(requestedTenantRaw || 'T0000')}`
     : String(enforcedTenant || tenantId || 'n/a');
 
-  // Filter fingerprint is computed by the handler after assembling the effective DB filter.
-  const filterFingerprint = coerceQueryString(req.sessionTrackingFilterFingerprint || '');
-
-  // If the handler resolved q(name)->userIds, it stamps response headers. We also stamp the request
-  // (via res.set) but Express makes them readable only on the response; therefore we additionally
-  // stamp req.sessionTrackingResolvedUserIds for cache key stability.
+  // Resolved-userIds fingerprint (when q->userIds resolution occurred)
   const resolvedUserIds = Array.isArray(req.sessionTrackingResolvedUserIds)
     ? req.sessionTrackingResolvedUserIds.map((v) => String(v || '').trim()).filter(Boolean)
     : [];
@@ -377,6 +377,22 @@ function cacheKeyFromReq(req, enforcedTenant) {
     ? crypto.createHash('sha1').update(resolvedUserIds.join(',')).digest('hex')
     : '';
 
+  // Effective DB filter fingerprint: hash of the JSON-stable representation of the filter that will be used.
+  // This is the strongest guarantee that cached payloads match executed queries.
+  const effectiveDbFilter =
+    req.sessionTrackingEffectiveDbFilter && typeof req.sessionTrackingEffectiveDbFilter === 'object'
+      ? req.sessionTrackingEffectiveDbFilter
+      : null;
+
+  const effectiveDbFilterJson = effectiveDbFilter ? util.inspect(effectiveDbFilter, { depth: null }) : '';
+  const effectiveDbFilterFingerprint = effectiveDbFilterJson
+    ? crypto.createHash('sha1').update(effectiveDbFilterJson).digest('hex')
+    : '';
+
+  // Small guardrail to prevent “same q, different mode” collisions when stamps are missing:
+  // if q is present and no explicit userId is present, q resolution was eligible.
+  const qResolutionEligible = Boolean(q) && !Boolean(userId);
+
   return util.inspect({
     route,
     tenant: effectiveTenantKey,
@@ -384,10 +400,11 @@ function cacheKeyFromReq(req, enforcedTenant) {
     limit,
     q,
     userId,
+    qResolutionEligible,
     start,
     end,
     sort,
-    filterFingerprint,
+    effectiveDbFilterFingerprint,
     resolvedUserIdsFingerprint,
   });
 }
@@ -641,6 +658,10 @@ router.get(
     }
 
     const dbFilter = canonicalizeSessionTrackingDbFilter(finalFilter);
+
+    // Make the effective DB filter explicitly available for cache key generation.
+    // This avoids relying on optional stamps that can drift across mounts/middleware.
+    req.sessionTrackingEffectiveDbFilter = dbFilter;
 
     const finalFilterLogJson = util.inspect(dbFilter, { depth: null });
     console.log('[FINAL FILTER]', util.inspect(dbFilter, { depth: null, colors: true }));
