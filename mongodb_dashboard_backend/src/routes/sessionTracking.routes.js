@@ -649,12 +649,27 @@ router.get(
     const finalFilter = parts.length === 0 ? {} : parts.length === 1 ? parts[0] : { $and: parts };
 
     /**
-     * Canonicalize filter into a JSON-safe object.
+     * Canonicalize/clamp the DB filter into a safe, reusable object without altering Mongo operators.
+     *
+     * IMPORTANT:
+     * - Do NOT JSON.stringify/parse Mongo filters. That can corrupt operator trees (e.g. $expr),
+     *   leading to filters being ignored and returning unfiltered rows/totals.
+     * - For caching/debug headers we only need a stable *string representation*; for Mongo queries
+     *   we must preserve the original operator structure.
+     *
+     * Contract:
+     * - Input: any MongoDB filter object (or null/undefined)
+     * - Output: a plain object suitable for passing to Mongoose find()/countDocuments()
+     * - Side effects: none
+     *
      * @param {object} filterObj
      * @returns {object}
      */
     function canonicalizeSessionTrackingDbFilter(filterObj) {
-      return JSON.parse(JSON.stringify(filterObj || {}));
+      if (!filterObj || typeof filterObj !== "object") return {};
+      // Shallow clone is sufficient here since we never mutate nested objects afterwards;
+      // it also preserves $expr trees and other Mongo operator objects.
+      return { ...filterObj };
     }
 
     const dbFilter = canonicalizeSessionTrackingDbFilter(finalFilter);
