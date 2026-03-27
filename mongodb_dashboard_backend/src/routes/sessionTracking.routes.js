@@ -604,17 +604,22 @@ router.get(
       // };
 
       const runQueries = async () => {
+        /**
+         * CRITICAL INVARIANT:
+         * - rows (find) and total (aggregate+$count) MUST execute with the same MongoDB filter object.
+         * - `dbFilter` is the single canonical JSON-safe filter for this request.
+         */
         const [docs, totalAgg] = await Promise.all([
-          SessionTracking.find(dbFilter) // ✅ FIXED (removed extra comma)
+          SessionTracking.find(dbFilter)
             .sort(sort)
             .skip(skip)
             .limit(limit)
             .lean(),
 
           SessionTracking.aggregate([
-            { $match: dbFilter }, // ✅ SAME FILTER
-            { $count: 'total' }
-          ])
+            { $match: dbFilter },
+            { $count: 'total' },
+          ]),
         ]);
 
         const total =
