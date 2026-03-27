@@ -10,9 +10,12 @@ jest.mock('../../models/sessionTracking.model', () => ({
   countDocuments: jest.fn(),
 }));
 
-// Mock User model used to resolve q(user_name) -> user_id
+/**
+ * Mock User model used to resolve q(user_name) -> user_id(s)
+ * For this route, q name lookup can match multiple users; we must return all matching IDs.
+ */
 jest.mock('../../models/user.model', () => ({
-  findOne: jest.fn(),
+  find: jest.fn(),
 }));
 
 const SessionTracking = require('../../models/sessionTracking.model');
@@ -32,21 +35,25 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('when q matches a user name, it resolves user_id and filters sessions by that user_id (returning all sessions for the user)', async () => {
-    const resolvedUserId = '5468b4d8-a011-70ba-9c6a-107907f7cd7d';
+  test('when q matches a user name, it resolves ALL matching user_ids and filters sessions by user_id ∈ matched ids', async () => {
+    const resolvedUserIds = [
+      '5468b4d8-a011-70ba-9c6a-107907f7cd7d',
+      '2458c458-c001-70c5-2723-eb967913b891',
+    ];
 
-    // Mock: users lookup chain findOne().sort().lean()
+    // Mock: users lookup chain find().sort().lean()
     const userChain = {
       sort: jest.fn().mockReturnThis(),
-      lean: jest
-        .fn()
-        .mockResolvedValue({ _id: '507f1f77bcf86cd799439011', user_id: resolvedUserId }),
+      lean: jest.fn().mockResolvedValue([
+        { _id: '507f1f77bcf86cd799439011', user_id: resolvedUserIds[0] },
+        { _id: '507f1f77bcf86cd799439012', user_id: resolvedUserIds[1] },
+      ]),
     };
-    User.findOne.mockReturnValue(userChain);
+    User.find.mockReturnValue(userChain);
 
     const docs = [
-      { _id: 's1', user_id: resolvedUserId, User_name: 'Sumi P' },
-      { _id: 's2', user_id: resolvedUserId, User_name: 'Sumi P' },
+      { _id: 's1', user_id: resolvedUserIds[0], User_name: 'Sumi P' },
+      { _id: 's2', user_id: resolvedUserIds[1], User_name: 'Sumi P' },
     ];
 
     // Mock: SessionTracking find() chain
@@ -72,20 +79,22 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(res.body).toEqual({
       success: true,
       data: docs,
-      meta: { page: 1, limit: 50, total: 29 },
+      meta: { page: 1, limit: 50, total: 29, matchedUserIds: resolvedUserIds },
     });
 
-    // Backend should expose resolved user id for debuggability
-    expect(res.headers['x-sessiontracking-q-resolved-userid']).toBe(resolvedUserId);
+    // Backend should expose resolved user ids for debuggability
+    expect(res.headers['x-sessiontracking-q-resolved-userids']).toBe(resolvedUserIds.join(','));
+    // Back-compat header still provides the first id
+    expect(res.headers['x-sessiontracking-q-resolved-userid']).toBe(resolvedUserIds[0]);
 
-    // Ensure q->userId resolution was attempted
-    expect(User.findOne).toHaveBeenCalledTimes(1);
+    // Ensure q->userIds resolution was attempted
+    expect(User.find).toHaveBeenCalledTimes(1);
 
-    // Ensure DB was filtered by the resolved userId (type-safe via $toString)
+    // Ensure DB was filtered by the resolved userIds (type-safe via $toString + $in)
     expect(SessionTracking.find).toHaveBeenCalledTimes(1);
     const findFilter = SessionTracking.find.mock.calls[0][0];
     expect(findFilter).toEqual({
-      $expr: { $eq: [{ $toString: '$user_id' }, resolvedUserId] },
+      $expr: { $in: [{ $toString: '$user_id' }, resolvedUserIds] },
     });
 
     expect(SessionTracking.countDocuments).toHaveBeenCalledTimes(1);

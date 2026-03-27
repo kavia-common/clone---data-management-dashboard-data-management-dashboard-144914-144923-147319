@@ -8,6 +8,7 @@ const { buildCrudController } = require('../controllers/crudFactory');
 const { resolveTenantContextFromRequest, isAllTenantsSentinel } = require('../services/tenantContextResolve');
 const { logMongoExecutionPlan } = require('../utils/mongoQueryDebug');
 const util = require('util');
+
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
 
@@ -27,25 +28,25 @@ function roundToMinuteISO(value) {
 }
 
 /**
-* Escape user input so it is treated as literal text in a RegExp.
-* This prevents regex injection and reduces the risk of catastrophic backtracking patterns.
-*/
+ * Escape user input so it is treated as literal text in a RegExp.
+ * This prevents regex injection and reduces the risk of catastrophic backtracking patterns.
+ */
 function escapeRegexLiteral(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
-* Build a case-insensitive RegExp for user-supplied q.
-*
-* Contract:
-* - Input: arbitrary user-provided string (already trimmed by caller)
-* - Output: RegExp that matches the literal text, but treats whitespace runs as "\\s+"
-* - Errors: none (always returns a valid RegExp)
-*
-* Why:
-* - Avoids unescaped regex meta characters from causing slow queries or ReDoS-like behavior.
-* - Makes multi-word queries resilient to inconsistent whitespace in stored values.
-*/
+ * Build a case-insensitive RegExp for user-supplied q.
+ *
+ * Contract:
+ * - Input: arbitrary user-provided string (already trimmed by caller)
+ * - Output: RegExp that matches the literal text, but treats whitespace runs as "\\s+"
+ * - Errors: none (always returns a valid RegExp)
+ *
+ * Why:
+ * - Avoids unescaped regex meta characters from causing slow queries or ReDoS-like behavior.
+ * - Makes multi-word queries resilient to inconsistent whitespace in stored values.
+ */
 function buildSafePhraseRegex(qTrimmed) {
   // Split on any whitespace, escape each token, then join with \s+.
   // Example: "Aditi   S" => /Aditi\s+S/i
@@ -60,13 +61,13 @@ function buildSafePhraseRegex(qTrimmed) {
 }
 
 /**
-* Normalize a querystring value to a trimmed string (or '').
-*
-* Contract:
-* - Input: any value from req.query[key]
-* - Output: '' if missing/non-stringable; otherwise trimmed string
-* - Notes: supports array query params by taking the first element.
-*/
+ * Normalize a querystring value to a trimmed string (or '').
+ *
+ * Contract:
+ * - Input: any value from req.query[key]
+ * - Output: '' if missing/non-stringable; otherwise trimmed string
+ * - Notes: supports array query params by taking the first element.
+ */
 function coerceQueryString(value) {
   if (Array.isArray(value)) return coerceQueryString(value[0]);
   if (value === null || typeof value === 'undefined') return '';
@@ -74,19 +75,14 @@ function coerceQueryString(value) {
 }
 
 /**
-* Derive userId from supported query aliases without breaking existing callers.
-*
-* Contract:
-* - Checks (in order): userId, user_id, userID, userid
-* - Returns: '' when not provided
-*/
+ * Derive userId from supported query aliases without breaking existing callers.
+ *
+ * Contract:
+ * - Checks (in order): userId, user_id, userID, userid
+ * - Returns: '' when not provided
+ */
 function deriveUserIdFromQuery(query) {
-  const candidates = [
-    query?.userId,
-    query?.user_id,
-    query?.userID,
-    query?.userid,
-  ];
+  const candidates = [query?.userId, query?.user_id, query?.userID, query?.userid];
   for (const c of candidates) {
     const v = coerceQueryString(c);
     if (v) return v;
@@ -112,9 +108,12 @@ function normalizeMongoIdToString(value) {
 
 /**
  * PUBLIC_INTERFACE
- * resolveUserIdForQNameSearch
+ * resolveUserIdsForQNameSearch
  *
- * Resolve a query string `q` (which may be a user's display name) into a canonical session-tracking user_id string.
+ * Flow name: SessionTrackingQNameToUserIdsFlow
+ *
+ * Resolve a query string `q` (which may be a user's display name) into one-or-more canonical
+ * session-tracking user_id strings.
  *
  * Contract:
  * - Inputs:
@@ -122,20 +121,25 @@ function normalizeMongoIdToString(value) {
  *   - tenantId: string tenant id (required when bypass=false)
  *   - bypass: boolean; when true, do not tenant-scope the lookup
  * - Output:
- *   - { userId: string, matched: boolean, strategy: 'exact-id'|'users-by-name'|'none' }
+ *   - {
+ *       userIds: string[],
+ *       matched: boolean,
+ *       strategy: 'exact-id'|'users-by-name'|'none'
+ *     }
  * - Errors:
  *   - Never throws (errors are caught and logged); returns matched:false on failures
  *
  * Notes:
- * - If q already looks like an id, we return it as-is (exact-id).
- * - Otherwise, we attempt to find a user whose name fields match q (case-insensitive, whitespace tolerant).
- * - If multiple users match, we pick the first deterministic result (sorted by _id asc).
+ * - If q already looks like an id, we return it as the single element list (exact-id).
+ * - Otherwise, we find *all* users whose name fields match q (case-insensitive, whitespace tolerant),
+ *   and return their user_id (or _id fallback) as strings.
+ * - Output list is deterministic and de-duplicated.
  */
-async function resolveUserIdForQNameSearch({ q, tenantId, bypass }) {
+async function resolveUserIdsForQNameSearch({ q, tenantId, bypass }) {
   const qTrimmed = typeof q === 'string' ? q.trim() : '';
   const tenantIdString = tenantId !== undefined && tenantId !== null ? String(tenantId) : '';
 
-  if (!qTrimmed) return { userId: '', matched: false, strategy: 'none' };
+  if (!qTrimmed) return { userIds: [], matched: false, strategy: 'none' };
 
   // Strategy 1: treat q as an explicit id if it resembles one (uuid-ish or long hex-ish)
   // This keeps backward compatibility for UIs that paste user_id directly into q.
@@ -145,7 +149,7 @@ async function resolveUserIdForQNameSearch({ q, tenantId, bypass }) {
     qTrimmed.length >= 32;
 
   if (looksLikeId) {
-    return { userId: qTrimmed, matched: true, strategy: 'exact-id' };
+    return { userIds: [qTrimmed], matched: true, strategy: 'exact-id' };
   }
 
   // Strategy 2: resolve via users collection by name-like fields
@@ -185,52 +189,74 @@ async function resolveUserIdForQNameSearch({ q, tenantId, bypass }) {
       };
 
   try {
-    const doc = await User.findOne(userLookupFilter, { _id: 1, user_id: 1 })
-      .sort({ _id: 1 })
-      .lean();
+    const docs = await User.find(userLookupFilter, { _id: 1, user_id: 1 }).sort({ _id: 1 }).lean();
 
-    const resolved =
-      (doc && (normalizeMongoIdToString(doc.user_id) || normalizeMongoIdToString(doc._id))) || '';
+    const ids = (Array.isArray(docs) ? docs : [])
+      .map((doc) => normalizeMongoIdToString(doc?.user_id) || normalizeMongoIdToString(doc?._id))
+      .map((s) => String(s || '').trim())
+      .filter(Boolean);
 
-    if (resolved) return { userId: resolved, matched: true, strategy: 'users-by-name' };
-    return { userId: '', matched: false, strategy: 'none' };
+    // De-dupe while preserving order
+    const seen = new Set();
+    const unique = [];
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      unique.push(id);
+    }
+
+    if (unique.length) return { userIds: unique, matched: true, strategy: 'users-by-name' };
+    return { userIds: [], matched: false, strategy: 'none' };
   } catch (err) {
-    console.warn('[sessionTracking.routes] resolveUserIdForQNameSearch failed', {
+    console.warn('[sessionTracking.routes] resolveUserIdsForQNameSearch failed', {
       message: err?.message || String(err),
     });
-    return { userId: '', matched: false, strategy: 'none' };
+    return { userIds: [], matched: false, strategy: 'none' };
   }
 }
 
 /**
-* Build a search filter for session tracking inputs.
-*
-* Contract:
-* - Inputs:
-*   - q: string (may be empty/whitespace)
-*   - userId: string (may be empty/whitespace)
-* - Output:
-*   - {} when neither is provided
-*   - { $expr: { $eq: [ { $toString: "$user_id" }, <userIdString> ] } } when userId is provided
-*   - { $or: [...] } when q is provided
-* - Errors:
-*   - Throws an Error when q exceeds MAX_Q_LENGTH
-*
-* Invariants:
-* - When filtering by userId, we match session_tracking.user_id *string form* to avoid type mismatches
-*   (some datasets store user_id as ObjectId, some as string/uuid).
-* - When filtering by q (name search), we match ONLY the top-level `User_name` field (case-insensitive),
-*   preserving the existing $or shape for backward compatibility with debug/caching assumptions.
-*/
+ * Build a search filter for session tracking inputs.
+ *
+ * Contract:
+ * - Inputs:
+ *   - q: string (may be empty/whitespace)
+ *   - userId: string (may be empty/whitespace) [legacy]
+ *   - userIds: string[] (optional) preferred multi-id form
+ * - Output:
+ *   - {} when no search inputs are provided
+ *   - { $expr: { $in: [ { $toString: "$user_id" }, [<id1>, <id2>, ...] ] } } when userIds is provided
+ *   - { $expr: { $eq: [ { $toString: "$user_id" }, <userIdString> ] } } when userId is provided
+ *   - { $or: [...] } when q is provided
+ * - Errors:
+ *   - Throws an Error when q exceeds MAX_Q_LENGTH
+ *
+ * Invariants:
+ * - When filtering by userId(s), we match session_tracking.user_id *string form* to avoid type mismatches
+ *   (some datasets store user_id as ObjectId, some as string/uuid).
+ * - When filtering by q (name search), we match ONLY the top-level `User_name` field (case-insensitive),
+ *   preserving the existing $or shape for backward compatibility with debug/caching assumptions.
+ */
 // PUBLIC_INTERFACE
-function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
+function buildSessionTrackingSearchFilter({ q, userId, userIds, maxQLength }) {
   const qTrimmed = typeof q === 'string' ? q.trim() : '';
   const userIdTrimmed = typeof userId === 'string' ? userId.trim() : '';
 
+  const userIdsArray = Array.isArray(userIds) ? userIds : [];
+  const userIdsTrimmed = userIdsArray
+    .map((v) => String(v || '').trim())
+    .filter(Boolean);
+
   console.log('[SEARCH] qTrimmed:', qTrimmed);
   console.log('[SEARCH] userId:', userIdTrimmed);
+  console.log('[SEARCH] userIds:', userIdsTrimmed);
 
-  // ✅ PRIORITY: userId match (type-safe via $toString)
+  // ✅ PRIORITY: userIds match (type-safe via $toString)
+  if (userIdsTrimmed.length) {
+    return { $expr: { $in: [{ $toString: '$user_id' }, userIdsTrimmed] } };
+  }
+
+  // ✅ Next: single userId match (legacy)
   if (userIdTrimmed) {
     return { $expr: { $eq: [{ $toString: '$user_id' }, String(userIdTrimmed)] } };
   }
@@ -263,6 +289,7 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
 }
 
 const routeCache = new Map();
+
 function cacheKeyFromReq(req, enforcedTenant) {
   /**
    * Route cache key for session-tracking list/table endpoints.
@@ -283,10 +310,9 @@ function cacheKeyFromReq(req, enforcedTenant) {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || req.query.pageSize || 20);
   const sort =
-    typeof req.query.sort === 'string' && req.query.sort.trim()
-      ? req.query.sort.trim()
-      : '-session_start';
+    typeof req.query.sort === 'string' && req.query.sort.trim() ? req.query.sort.trim() : '-session_start';
   const q = coerceQueryString(req.query.q);
+
   // IMPORTANT: must match the same alias resolution used by the handler (deriveUserIdFromQuery),
   // otherwise cache keys can collide and return stale/unfiltered results even when finalFilter is correct.
   const userId = deriveUserIdFromQuery(req.query);
@@ -310,8 +336,6 @@ function cacheKeyFromReq(req, enforcedTenant) {
     : String(enforcedTenant || tenantId || 'n/a');
 
   // Include a stable fingerprint of the *effective filter* as computed by the handler.
-  // The handler stamps this after building FINAL FILTER BEFORE DB.
-  // If absent (should not happen for this route), we fall back to q/userId only.
   const filterFingerprint = coerceQueryString(req.sessionTrackingFilterFingerprint || '');
 
   return util.inspect({
@@ -327,6 +351,7 @@ function cacheKeyFromReq(req, enforcedTenant) {
     filterFingerprint,
   });
 }
+
 function cacheGet(key) {
   const entry = routeCache.get(key);
   if (!entry) return null;
@@ -336,23 +361,14 @@ function cacheGet(key) {
   }
   return entry;
 }
+
 function cacheSet(key, payload, etag) {
   routeCache.set(key, { payload, etag, expiresAt: Date.now() + DEFAULT_CACHE_TTL_MS });
 }
+
 function invalidateAllSessionTrackingCache() {
   /**
    * Clear all cached GET responses for session-tracking list/table endpoints.
-   *
-   * Why:
-   * - The same router is mounted under multiple aliases:
-   *     /api/session-tracking
-   *     /api/sessionTracking
-   *     /api/session-tracking/table
-   *     /api/sessionTracking/table
-   * - Cache keys include the mounted route string, so invalidating only one prefix
-   *   can leave stale/unfiltered cache entries under the other alias.
-   * - Stale cache entries can make it appear that `q` filtering is ignored even when
-   *   `finalFilter` is correct (because the handler returns the cached payload before DB).
    */
   for (const [k] of routeCache.entries()) {
     if (k.includes('GET:/api/session-tracking') || k.includes('GET:/api/sessionTracking')) {
@@ -360,23 +376,41 @@ function invalidateAllSessionTrackingCache() {
     }
   }
 }
+
 function computeETag(payload, context) {
   try {
-    const basis = util.inspect({
-      ctx: context,
-      len: Array.isArray(payload) ? payload.length : Array.isArray(payload?.data) ? payload.data.length : null,
-      first: Array.isArray(payload) && payload[0]?._id ? String(payload[0]._id) : Array.isArray(payload?.data) && payload.data[0]?._id ? String(payload.data[0]._id) : null,
-      last: Array.isArray(payload) && payload[payload.length - 1]?._id ? String(payload[payload.length - 1]._id) : Array.isArray(payload?.data) && payload.data[payload.data.length - 1]?._id ? String(payload.data[payload.data.length - 1]._id) : null,
-      max_last_updated: (() => {
-        const arr = Array.isArray(payload) ? payload : (Array.isArray(payload?.data) ? payload.data : []);
-        let max = 0;
-        for (const it of arr) {
-          const v = new Date(it?.last_updated || it?.timestamp || it?.session_start || 0).getTime();
-          if (v > max) max = v;
-        }
-        return max || null;
-      })()
-    }, { depth: null });
+    const basis = util.inspect(
+      {
+        ctx: context,
+        len: Array.isArray(payload)
+          ? payload.length
+          : Array.isArray(payload?.data)
+            ? payload.data.length
+            : null,
+        first:
+          Array.isArray(payload) && payload[0]?._id
+            ? String(payload[0]._id)
+            : Array.isArray(payload?.data) && payload.data[0]?._id
+              ? String(payload.data[0]._id)
+              : null,
+        last:
+          Array.isArray(payload) && payload[payload.length - 1]?._id
+            ? String(payload[payload.length - 1]._id)
+            : Array.isArray(payload?.data) && payload.data[payload.data.length - 1]?._id
+              ? String(payload.data[payload.data.length - 1]._id)
+              : null,
+        max_last_updated: (() => {
+          const arr = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+          let max = 0;
+          for (const it of arr) {
+            const v = new Date(it?.last_updated || it?.timestamp || it?.session_start || 0).getTime();
+            if (v > max) max = v;
+          }
+          return max || null;
+        })(),
+      },
+      { depth: null }
+    );
     return crypto.createHash('sha1').update(basis).digest('hex');
   } catch {
     const s = typeof payload === 'string' ? payload : util.inspect(payload || {});
@@ -393,41 +427,29 @@ router.use((req, res, next) => {
     } else if (req.tenantId) {
       const t = String(req.tenantId);
       res.set('X-Applied-Tenant', t);
-      res.set('X-Applied-Filter', util.inspect({
-        $or: [
-          { tenant_id: t },
-          { organization_id: t },
-          { organizationId: t },
-        ]
-      }, { depth: null }));
+      res.set(
+        'X-Applied-Filter',
+        util.inspect(
+          {
+            $or: [{ tenant_id: t }, { organization_id: t }, { organizationId: t }],
+          },
+          { depth: null }
+        )
+      );
     }
-  } catch { }
+  } catch {}
   next();
 });
 
 /**
-* Early bypass detector.
-*
-* Contract:
-* - Stamps request flags when the caller indicates the all-tenants sentinel (T0000),
-*   so downstream code can skip tenant scoping.
-* - Does not make authorization decisions; JWT mismatch enforcement is handled in the handler.
-*/
+ * Early bypass detector.
+ *
+ * Contract:
+ * - Stamps request flags when the caller indicates the all-tenants sentinel (T0000),
+ *   so downstream code can skip tenant scoping.
+ * - Does not make authorization decisions; JWT mismatch enforcement is handled in the handler.
+ */
 function sessionsEarlyBypassDetector(req, res, next) {
-  /**
-   * This router is mounted at multiple base paths:
-   * - /api/session-tracking
-   * - /api/sessionTracking
-   * - /api/session-tracking/table
-   * - /api/sessionTracking/table
-   *
-   * When mounted, Express sets `req.path` relative to the mount point.
-   * For the list handler, that path can be either '/' OR '' depending on how the mount is invoked.
-   *
-   * If we only treat '/' as the list route, then the all-tenants (T0000) bypass stamping can be skipped
-   * for some mounts (notably the `/table` mount), which can lead to inconsistent cache keys/headers and
-   * the appearance of “total is filtered but rows are not”.
-   */
   const isListPath = req.path === '/' || req.path === '';
   if (req.method !== 'GET' || !isListPath) return next();
 
@@ -443,7 +465,7 @@ function sessionsEarlyBypassDetector(req, res, next) {
       res.set('X-Requested-Tenant', 'T0000');
       res.set('X-All-Tenants', 'true');
       res.set('X-Applied-Tenant', 'all-tenants');
-    } catch { }
+    } catch {}
   }
 
   return next();
@@ -455,13 +477,10 @@ router.get(
   asyncHandler(async (req, res) => {
     console.log('================ REQUEST START ================');
     console.log('[REQ QUERY]', req.query);
+
     // Canonical tenant/bypass resolution (shared flow)
     const { bypass, tenantId, requestedTenantRaw } = resolveTenantContextFromRequest(req);
-    console.log('[TENANT]', {
-      bypass,
-      tenantId,
-      requestedTenantRaw,
-    });
+    console.log('[TENANT]', { bypass, tenantId, requestedTenantRaw });
 
     // Security: if JWT tenant is present, do NOT allow client to broaden scope to "all tenants".
     const authTenant =
@@ -479,7 +498,7 @@ router.get(
     if (!bypass && !tenantId) {
       return res.status(400).json({
         success: false,
-        message: 'tenant_id is required. Provide ?tenant_id=...'
+        message: 'tenant_id is required. Provide ?tenant_id=...',
       });
     }
 
@@ -489,20 +508,23 @@ router.get(
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
-    // Exact userId precedence; q fallback (with q→userId resolution when q matches a user name)
+    // Exact userId precedence; q fallback (with q→userIds resolution when q matches a user name)
     const q = coerceQueryString(req.query.q);
     const userIdDirect = deriveUserIdFromQuery(req.query);
 
     // If userId is explicitly provided, we use it as-is.
-    // Otherwise, we attempt to resolve q as a user name to a canonical userId.
-    let effectiveUserId = userIdDirect;
+    // Otherwise, we attempt to resolve q as a user name to one-or-more canonical userIds.
+    const effectiveUserId = userIdDirect;
+    let matchedUserIds = [];
 
     if (!effectiveUserId && q) {
-      const resolution = await resolveUserIdForQNameSearch({ q, tenantId, bypass });
-      if (resolution?.matched && resolution?.userId) {
-        effectiveUserId = String(resolution.userId);
+      const resolution = await resolveUserIdsForQNameSearch({ q, tenantId, bypass });
+      if (resolution?.matched && Array.isArray(resolution.userIds) && resolution.userIds.length) {
+        matchedUserIds = resolution.userIds.map((v) => String(v));
         try {
-          res.set('X-SessionTracking-Q-Resolved-UserId', effectiveUserId);
+          // Keep single-id header (first id) for backward compatibility + add multi-id header.
+          res.set('X-SessionTracking-Q-Resolved-UserId', String(matchedUserIds[0]));
+          res.set('X-SessionTracking-Q-Resolved-UserIds', matchedUserIds.join(','));
           res.set('X-SessionTracking-Q-Resolve-Strategy', String(resolution.strategy || 'unknown'));
         } catch {}
       } else {
@@ -512,20 +534,24 @@ router.get(
       }
     }
 
-    console.log('[SEARCH INPUT]', { q, userId: userIdDirect, effectiveUserId });
+    console.log('[SEARCH INPUT]', {
+      q,
+      userId: userIdDirect,
+      effectiveUserId,
+      matchedUserIdsCount: matchedUserIds.length,
+    });
 
     let searchFilter = {};
-    if (q || effectiveUserId) {
+    if (q || effectiveUserId || matchedUserIds.length) {
       // Guardrail: avoid extremely long q creating huge regex scans.
-      // This endpoint can scan many fields (and with T0000 can scan across all tenants).
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       try {
-        // IMPORTANT:
-        // - If q resolved to a userId, we switch the search mode to userId filtering (return ALL sessions for that user).
-        // - Otherwise, keep legacy q behavior (User_name regex search).
+        // If q resolved to userIds, switch search mode to userId(s) filtering.
+        // Otherwise, keep legacy q behavior (User_name regex search).
         searchFilter = buildSessionTrackingSearchFilter({
-          q: effectiveUserId ? '' : q,
+          q: matchedUserIds.length || effectiveUserId ? '' : q,
           userId: effectiveUserId,
+          userIds: matchedUserIds,
           maxQLength: MAX_Q_LENGTH,
         });
         console.log('[SEARCH FILTER FINAL]', util.inspect(searchFilter, { depth: null, colors: true }));
@@ -537,19 +563,16 @@ router.get(
 
     // Ignore client filter param for this route
     if (typeof req.query.filter !== 'undefined') {
-      try { res.set('X-Filter-Ignored', 'true'); } catch { }
+      try {
+        res.set('X-Filter-Ignored', 'true');
+      } catch {}
     }
 
     // Tenant scope (only when not bypass)
     let enforcedScope = {};
-
     if (!bypass && tenantId) {
       enforcedScope = {
-        $or: [
-          { tenant_id: tenantId },
-          { organization_id: tenantId },
-          { organizationId: tenantId }
-        ]
+        $or: [{ tenant_id: tenantId }, { organization_id: tenantId }, { organizationId: tenantId }],
       };
     }
 
@@ -560,54 +583,32 @@ router.get(
     if (!isEmpty(searchFilter)) parts.push(searchFilter);
     if (!isEmpty(enforcedScope)) parts.push(enforcedScope);
 
-    // If we only have a single part, avoid wrapping in $and (cleaner explain/logging),
-    // but keep semantics identical.
-    const finalFilter =
-      parts.length === 0 ? {} : parts.length === 1 ? parts[0] : { $and: parts };
+    const finalFilter = parts.length === 0 ? {} : parts.length === 1 ? parts[0] : { $and: parts };
 
     /**
-     * Canonicalize the effective MongoDB filter into the *exact* JSON-safe object that will be
-     * passed to MongoDB.
-     *
-     * CONTRACT (critical invariants for this bugfix):
-     * - The returned object is the single source of truth for:
-     *   - the rows query (find)
-     *   - the totals query (aggregate $match + $count)
-     *   - debug logging ("FINAL FILTER BEFORE DB")
-     *   - cache fingerprinting (prevents collisions returning stale/unfiltered docs)
-     * - The canonical form MUST NOT contain RegExp instances (they do not JSON serialize reliably).
-     *   For q-search, we exclusively use {$regex:<patternString>,$options:'i'}.
-     *
-     * @param {object} filterObj MongoDB filter candidate
-     * @returns {object} JSON-safe MongoDB filter to execute
+     * Canonicalize filter into a JSON-safe object.
+     * @param {object} filterObj
+     * @returns {object}
      */
     function canonicalizeSessionTrackingDbFilter(filterObj) {
-      // Ensure we only ever execute a JSON-safe filter object (stable logs + cache keys).
-      // For this route, this is semantics-preserving because q-search uses $regex string + $options.
       return JSON.parse(JSON.stringify(filterObj || {}));
     }
 
-    // IMPORTANT: dbFilter is the ONLY object that may be passed to MongoDB.
     const dbFilter = canonicalizeSessionTrackingDbFilter(finalFilter);
 
-    // Log/headers must reflect the filter actually executed against MongoDB.
     const finalFilterLogJson = util.inspect(dbFilter, { depth: null });
     console.log('[FINAL FILTER]', util.inspect(dbFilter, { depth: null, colors: true }));
     console.log('[FINAL FILTER BEFORE DB]', finalFilterLogJson);
 
-    // Deterministic filter fingerprint for debuggability + cache keying.
-    const filterFingerprint = crypto
-      .createHash('sha1')
-      .update(finalFilterLogJson)
-      .digest('hex');
+    const filterFingerprint = crypto.createHash('sha1').update(finalFilterLogJson).digest('hex');
     req.sessionTrackingFilterFingerprint = filterFingerprint;
 
     try {
       res.set('X-SessionTracking-Filter-Fingerprint', filterFingerprint);
       res.set('X-SessionTracking-Filter', finalFilterLogJson);
-    } catch { }
+    } catch {}
 
-    // Cache handling (cache key now includes filterFingerprint via req stamp)
+    // Cache handling
     const cacheKey = cacheKeyFromReq(req, bypass ? null : tenantId);
     const wantCache = ENABLE_ROUTE_CACHE && req.method === 'GET';
     const wantETag = ENABLE_ETAG && req.method === 'GET';
@@ -615,7 +616,6 @@ router.get(
     if (wantCache) {
       const hit = cacheGet(cacheKey);
       if (hit) {
-        // Make it explicit in logs when DB is not hit (so “unfiltered results” can be attributed to cache).
         console.log('[CACHE] HIT', { cacheKey, filterFingerprint: req.sessionTrackingFilterFingerprint });
         if (wantETag) {
           const inm = req.headers['if-none-match'];
@@ -635,47 +635,19 @@ router.get(
 
     /**
      * Validate that q-search results actually match the q-regex filter.
-     *
-     * Why:
-     * - This endpoint has historically shown “filtered totals but unfiltered rows”.
-     * - The only way that can happen is if the returned rows are not produced by the same
-     *   effective filter as the total query (typically due to cached payloads or divergent code paths).
-     * - This guard makes the behavior provably correct: if any row does not match the expected
-     *   `User_name` regex, we treat it as a cache/flow violation, invalidate cache, and re-run DB queries.
-     *
-     * Contract:
-     * - Only applies when q-search is active AND the filter has the canonical {$or:[{User_name:{$regex,$options}}]} shape.
-     * - On mismatch, will re-query MongoDB with the same dbFilter and return corrected results.
-     * - Adds headers to aid debugging without requiring server logs.
+     * NOTE: Only applies for legacy q-regex mode (User_name search), not userIds filtering mode.
      */
     function validateDocsMatchQNameFilter({ docs, qFilter }) {
-      /**
-       * Validates that returned docs match the q-search constraint on top-level `User_name`.
-       *
-       * IMPORTANT:
-       * - `qFilter` may be either:
-       *    (a) search-only: { $or: [ { User_name: { $regex, $options } } ] }
-       *    (b) combined:    { $and: [ <search-only>, <tenantScope>, ... ] }
-       * - We must extract the *search clause* regardless of whether the full DB filter is wrapped
-       *   in $and, otherwise the guard becomes a no-op when tenant scoping is present.
-       */
       if (!Array.isArray(docs) || !qFilter || typeof qFilter !== 'object') return { ok: true };
 
       const extractSearchOrClause = (filterObj) => {
         if (!filterObj || typeof filterObj !== 'object') return null;
-
-        // Case (a): direct $or
         if (Array.isArray(filterObj.$or)) return filterObj.$or;
-
-        // Case (b): $and wrapping search + scope
         if (Array.isArray(filterObj.$and)) {
           for (const part of filterObj.$and) {
-            if (part && typeof part === 'object' && Array.isArray(part.$or)) {
-              return part.$or;
-            }
+            if (part && typeof part === 'object' && Array.isArray(part.$or)) return part.$or;
           }
         }
-
         return null;
       };
 
@@ -694,7 +666,6 @@ router.get(
       try {
         re = new RegExp(pattern, options.includes('i') ? 'i' : undefined);
       } catch {
-        // If regex reconstruction fails, do not block the request.
         return { ok: true };
       }
 
@@ -712,69 +683,20 @@ router.get(
         }
       }
 
-      if (bad.length) {
-        return { ok: false, reason: 'User_name did not match q regex', sample: bad };
-      }
+      if (bad.length) return { ok: false, reason: 'User_name did not match q regex', sample: bad };
       return { ok: true };
     }
 
-    // DB execution (rows + total MUST use the same dbFilter object)
     try {
-      // ✅ ADD DEBUG LOGS HERE
       console.log('================ DB DEBUG START ================');
       console.log('[DB FILTER RAW]', util.inspect(dbFilter, { depth: null, colors: true }));
       console.log('[DB FILTER TYPE]', typeof dbFilter);
       console.log('[DB FILTER KEYS]', Object.keys(dbFilter));
-
-      if (dbFilter.$and) {
-        console.log('[DB FILTER $AND]', util.inspect(dbFilter.$and, { depth: null }));
-      }
-
-      if (dbFilter.$or) {
-        console.log('[DB FILTER $OR]', util.inspect(dbFilter.$or, { depth: null }));
-      }
-
+      if (dbFilter.$and) console.log('[DB FILTER $AND]', util.inspect(dbFilter.$and, { depth: null }));
+      if (dbFilter.$or) console.log('[DB FILTER $OR]', util.inspect(dbFilter.$or, { depth: null }));
       console.log('================ DB DEBUG END ==================');
 
-      // const runQueries = async () => {
-      //   const [docs, totalAgg] = await Promise.all([
-      //     SessionTracking.find({ $match: dbFilter },)
-      //       .sort(sort)
-      //       .skip(skip)
-      //       .limit(limit)
-      //       .lean(),
-
-      //     SessionTracking.aggregate([
-      //       { $match: dbFilter },
-      //       { $count: 'total' }
-      //     ])
-      //   ]);
-
-      //   const total =
-      //     explicit && Array.isArray(totalAgg) && totalAgg[0]
-      //       ? Number(totalAgg[0].total || 0)
-      //       : explicit
-      //         ? 0
-      //         : null;
-
-      //   return { docs, total };
-      // };
-
       const runQueries = async ({ phase, cacheBypass }) => {
-        /**
-         * CRITICAL INVARIANT:
-         * - rows (find) and total (count) MUST execute with the same MongoDB filter object.
-         * - `dbFilter` is the single canonical JSON-safe filter for this request.
-         *
-         * Why countDocuments():
-         * - In real-world datasets with inconsistent field presence/types (common with strict:false),
-         *   aggregation-based $match+$count can behave differently than the find() path used for rows.
-         * - Using countDocuments(dbFilter) ensures `meta.total` reflects the same match semantics
-         *   as the rows query, eliminating “total filtered but rows not filtered” mismatches.
-         *
-         * Observability:
-         * - We still log the $match shape for debugging (even though total is computed via countDocuments).
-         */
         const aggPipelineForDebug = [{ $match: dbFilter }, { $count: 'total' }];
 
         logMongoExecutionPlan({
@@ -784,15 +706,8 @@ router.get(
           aggregatePipeline: aggPipelineForDebug,
         });
 
-        const findQuery = SessionTracking.find(dbFilter)
-          .sort(sort)
-          .skip(skip)
-          .limit(limit)
-          .lean();
+        const findQuery = SessionTracking.find(dbFilter).sort(sort).skip(skip).limit(limit).lean();
 
-        // If we are in a guard-triggered requery, we MUST bypass any Mongoose query cache plugins
-        // (if present) and also ensure we don't accidentally reuse any prior in-process results.
-        // (Most apps don't have such plugins, but this is a safe no-op if absent.)
         if (cacheBypass && typeof findQuery?.setOptions === 'function') {
           findQuery.setOptions({ _guardRequery: true, _cacheBypass: true });
         }
@@ -808,9 +723,10 @@ router.get(
 
       let { docs, total } = await runQueries({ phase: 'initial', cacheBypass: false });
 
-      // Temporary guard/assert (auto-repair): if q-search active and returned docs don't match,
-      // treat it as a cache/flow violation and re-run with forced DB execution.
-      if (q) {
+      // Only run the q-regex guard when we're actually in q-regex mode (no matchedUserIds and no explicit userId).
+      const inLegacyQNameRegexMode = Boolean(q) && !matchedUserIds.length && !effectiveUserId;
+
+      if (inLegacyQNameRegexMode) {
         const validation1 = validateDocsMatchQNameFilter({ docs, qFilter: dbFilter });
         if (!validation1.ok) {
           console.warn('[SESSION_TRACKING_GUARD] q-search mismatch detected; invalidating cache and re-querying.', {
@@ -819,27 +735,34 @@ router.get(
             sample: validation1.sample,
           });
 
-          try { res.set('X-SessionTracking-Guard', 'mismatch-requery'); } catch { }
-          try { res.set('X-SessionTracking-Guard-Reason', String(validation1.reason || 'mismatch')); } catch { }
+          try {
+            res.set('X-SessionTracking-Guard', 'mismatch-requery');
+            res.set('X-SessionTracking-Guard-Reason', String(validation1.reason || 'mismatch'));
+          } catch {}
 
-          // Ensure we can't re-serve the same wrong payload.
-          try { routeCache.delete(cacheKey); } catch { }
-          try { invalidateAllSessionTrackingCache(); } catch { }
+          try {
+            routeCache.delete(cacheKey);
+          } catch {}
+          try {
+            invalidateAllSessionTrackingCache();
+          } catch {}
 
           ({ docs, total } = await runQueries({ phase: 'guard-requery', cacheBypass: true }));
 
-          // If it STILL doesn't match, enforce correctness to avoid returning unfiltered rows.
           const validation2 = validateDocsMatchQNameFilter({ docs, qFilter: dbFilter });
           if (!validation2.ok) {
-            console.error('[SESSION_TRACKING_GUARD] mismatch persists after forced re-query; enforcing in-memory q filter to guarantee correctness.', {
-              filterFingerprint: req.sessionTrackingFilterFingerprint,
-              reason: validation2.reason,
-              sample: validation2.sample,
-            });
-            try { res.set('X-SessionTracking-Guard', 'mismatch-enforced-filter'); } catch { }
+            console.error(
+              '[SESSION_TRACKING_GUARD] mismatch persists after forced re-query; enforcing in-memory q filter to guarantee correctness.',
+              {
+                filterFingerprint: req.sessionTrackingFilterFingerprint,
+                reason: validation2.reason,
+                sample: validation2.sample,
+              }
+            );
+            try {
+              res.set('X-SessionTracking-Guard', 'mismatch-enforced-filter');
+            } catch {}
 
-            // Enforce the q constraint using the same extracted regex semantics as the validator.
-            // This is a last-resort correctness mechanism; root cause should be visible in logs now.
             const extractSearchOrClause = (filterObj) => {
               if (!filterObj || typeof filterObj !== 'object') return null;
               if (Array.isArray(filterObj.$or)) return filterObj.$or;
@@ -861,15 +784,13 @@ router.get(
               if (pattern) re = new RegExp(pattern, options.includes('i') ? 'i' : undefined);
             } catch {}
 
-            if (re) {
-              docs = docs.filter((d) => typeof d?.User_name === 'string' && re.test(d.User_name));
-            } else {
-              // If we can't reconstruct the regex, safest behavior is to return empty for q-search.
-              docs = [];
-            }
+            if (re) docs = docs.filter((d) => typeof d?.User_name === 'string' && re.test(d.User_name));
+            else docs = [];
           }
         } else {
-          try { res.set('X-SessionTracking-Guard', 'ok'); } catch { }
+          try {
+            res.set('X-SessionTracking-Guard', 'ok');
+          } catch {}
         }
       }
 
@@ -890,7 +811,17 @@ router.get(
       );
 
       if (explicit) {
-        const payload = { success: true, data: docs, meta: { page, limit, total } };
+        const payload = {
+          success: true,
+          data: docs,
+          meta: {
+            page,
+            limit,
+            total,
+            ...(matchedUserIds.length ? { matchedUserIds } : {}),
+          },
+        };
+
         let etag = null;
         if (wantETag) {
           etag = computeETag(payload, {
@@ -900,53 +831,89 @@ router.get(
             sort,
             q,
             userId: effectiveUserId,
+            matchedUserIds,
           });
           res.set('ETag', etag);
         }
+
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
-        if (wantCache) {
-          cacheSet(cacheKey, payload, etag);
-        }
+        if (wantCache) cacheSet(cacheKey, payload, etag);
 
         const inm = req.headers['if-none-match'];
-        if (wantETag && inm && etag && inm === etag) {
-          return res.status(304).end();
-        }
+        if (wantETag && inm && etag && inm === etag) return res.status(304).end();
+
         return res.status(200).json(payload);
       }
-
-      console.log('[DB RESULT COUNT]', docs.length);
-      console.log('[DB SAMPLE RESULT]', docs[0]);
 
       const payload = docs;
       let etag = null;
       if (wantETag) {
-        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, sort, q, userId: effectiveUserId });
+        etag = computeETag(payload, {
+          tenant: bypass ? 'all-tenants' : tenantId,
+          sort,
+          q,
+          userId: effectiveUserId,
+          matchedUserIds,
+        });
         res.set('ETag', etag);
       }
+
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
       if (wantCache) cacheSet(cacheKey, payload, etag);
 
       const inm = req.headers['if-none-match'];
-      if (wantETag && inm && etag && inm === etag) {
-        return res.status(304).end();
-      }
+      if (wantETag && inm && etag && inm === etag) return res.status(304).end();
 
       return res.status(200).json(payload);
     } catch (err) {
       return res.status(400).json({
         success: false,
         message: 'Request failed',
-        details: err?.message || ''
+        details: err?.message || '',
       });
     }
   })
 );
 
 // CRUD operations invalidate cache
-router.post('/', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.create), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
-router.put('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.update), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
-router.delete('/:id', asyncHandler(async (req, res, next) => { next(); }), asyncHandler(controller.remove), async () => { try { invalidateAllSessionTrackingCache(); } catch { } });
+router.post(
+  '/',
+  asyncHandler(async (req, res, next) => {
+    next();
+  }),
+  asyncHandler(controller.create),
+  async () => {
+    try {
+      invalidateAllSessionTrackingCache();
+    } catch {}
+  }
+);
+
+router.put(
+  '/:id',
+  asyncHandler(async (req, res, next) => {
+    next();
+  }),
+  asyncHandler(controller.update),
+  async () => {
+    try {
+      invalidateAllSessionTrackingCache();
+    } catch {}
+  }
+);
+
+router.delete(
+  '/:id',
+  asyncHandler(async (req, res, next) => {
+    next();
+  }),
+  asyncHandler(controller.remove),
+  async () => {
+    try {
+      invalidateAllSessionTrackingCache();
+    } catch {}
+  }
+);
 
 // Keep ID read unchanged
 router.get('/:id', asyncHandler(controller.getById));
