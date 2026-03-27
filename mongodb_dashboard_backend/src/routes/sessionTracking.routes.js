@@ -170,23 +170,29 @@ async function resolveUserIdsForQNameSearch({ q, tenantId, bypass }) {
     [f]: { $regex: safePhraseRegex.source, $options: 'i' },
   }));
 
-  // Tenant scope for user lookup: users typically have organization_id.
-  // If bypass, do not scope.
-  const userLookupFilter = bypass
-    ? { $or: nameOr }
-    : {
-        $and: [
-          { $or: nameOr },
-          {
-            $or: [
-              { organization_id: tenantIdString },
-              { tenant_id: tenantIdString }, // tolerate alternate shapes
-              { organizationId: tenantIdString },
-              { tenantId: tenantIdString },
-            ],
-          },
-        ],
-      };
+  /**
+   * Tenant scope for user lookup:
+   * - When bypass=true (T0000/all-tenants), we MUST NOT scope by tenant at all.
+   * - When bypass=false, scope to tenantIdString (as before).
+   * - If tenantIdString is empty (can occur in bypass/sentinel flows), treat it as bypass to avoid
+   *   accidentally generating an always-false scope.
+   */
+  const userLookupFilter =
+    bypass || !tenantIdString
+      ? { $or: nameOr }
+      : {
+          $and: [
+            { $or: nameOr },
+            {
+              $or: [
+                { organization_id: tenantIdString },
+                { tenant_id: tenantIdString }, // tolerate alternate shapes
+                { organizationId: tenantIdString },
+                { tenantId: tenantIdString },
+              ],
+            },
+          ],
+        };
 
   try {
     const docs = await User.find(userLookupFilter, { _id: 1, user_id: 1 }).sort({ _id: 1 }).lean();
@@ -205,7 +211,17 @@ async function resolveUserIdsForQNameSearch({ q, tenantId, bypass }) {
       unique.push(id);
     }
 
-    if (unique.length) return { userIds: unique, matched: true, strategy: 'users-by-name' };
+    if (unique.length) {
+      if (unique.length === 1) {
+        console.log('[sessionTracking.routes] q->userIds resolved single id', {
+          q: qTrimmed,
+          bypass,
+          tenantId: tenantIdString || null,
+          userId: unique[0],
+        });
+      }
+      return { userIds: unique, matched: true, strategy: 'users-by-name' };
+    }
     return { userIds: [], matched: false, strategy: 'none' };
   } catch (err) {
     console.warn('[sessionTracking.routes] resolveUserIdsForQNameSearch failed', {
@@ -809,6 +825,24 @@ router.get(
             res.set('X-SessionTracking-Guard', 'ok');
           } catch {}
         }
+      }
+
+      // Targeted diagnostics for resolved-userIds mode
+      if (Array.isArray(matchedUserIds) && matchedUserIds.length) {
+        try {
+          res.set('X-SessionTracking-Q-Resolved-UserIds-Count', String(matchedUserIds.length));
+        } catch {}
+
+        console.log('[SESSION_TRACKING_Q_RESOLVED_MODE]', {
+          q,
+          matchedUserIdsCount: matchedUserIds.length,
+          matchedUserIdsSample: matchedUserIds.slice(0, 5),
+          filterFingerprint: req.sessionTrackingFilterFingerprint,
+          docsReturned: Array.isArray(docs) ? docs.length : 0,
+          total: explicit ? total : null,
+          page,
+          limit,
+        });
       }
 
       console.log(
