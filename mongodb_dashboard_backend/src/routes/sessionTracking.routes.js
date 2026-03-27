@@ -635,22 +635,25 @@ router.get(
       const runQueries = async ({ phase, cacheBypass }) => {
         /**
          * CRITICAL INVARIANT:
-         * - rows (find) and total (aggregate+$count) MUST execute with the same MongoDB filter object.
+         * - rows (find) and total (count) MUST execute with the same MongoDB filter object.
          * - `dbFilter` is the single canonical JSON-safe filter for this request.
          *
+         * Why countDocuments():
+         * - In real-world datasets with inconsistent field presence/types (common with strict:false),
+         *   aggregation-based $match+$count can behave differently than the find() path used for rows.
+         * - Using countDocuments(dbFilter) ensures `meta.total` reflects the same match semantics
+         *   as the rows query, eliminating “total filtered but rows not filtered” mismatches.
+         *
          * Observability:
-         * - We log the exact filter/pipeline executed for each phase so mismatch bugs are debuggable.
+         * - We still log the $match shape for debugging (even though total is computed via countDocuments).
          */
-        const aggPipeline = [
-          { $match: dbFilter },
-          { $count: 'total' },
-        ];
+        const aggPipelineForDebug = [{ $match: dbFilter }, { $count: 'total' }];
 
         logMongoExecutionPlan({
           label: phase,
           modelName: 'SessionTracking',
           findFilter: dbFilter,
-          aggregatePipeline: aggPipeline,
+          aggregatePipeline: aggPipelineForDebug,
         });
 
         const findQuery = SessionTracking.find(dbFilter)
@@ -666,18 +669,12 @@ router.get(
           findQuery.setOptions({ _guardRequery: true, _cacheBypass: true });
         }
 
-        const [docs, totalAgg] = await Promise.all([
+        const [docs, totalCount] = await Promise.all([
           findQuery,
-          SessionTracking.aggregate(aggPipeline),
+          explicit ? SessionTracking.countDocuments(dbFilter) : Promise.resolve(null),
         ]);
 
-        const total =
-          explicit && Array.isArray(totalAgg) && totalAgg[0]
-            ? Number(totalAgg[0].total || 0)
-            : explicit
-              ? 0
-              : null;
-
+        const total = explicit ? Number(totalCount || 0) : null;
         return { docs, total };
       };
 
