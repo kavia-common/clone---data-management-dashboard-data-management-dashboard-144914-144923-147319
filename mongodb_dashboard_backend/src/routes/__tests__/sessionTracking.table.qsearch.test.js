@@ -106,4 +106,67 @@ describe('GET /api/session-tracking/table q-search', () => {
     expect(chain.limit).toHaveBeenCalled();
     expect(chain.lean).toHaveBeenCalled();
   });
+
+  test('cache cannot collide between legacy q-regex mode and q->userIds mode (prevents unfiltered meta.total)', async () => {
+    // 1) First request: legacy q-regex mode (no users resolved)
+    const userChainNone = {
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([]),
+    };
+    User.find.mockReturnValueOnce(userChainNone);
+
+    const legacyDocs = [{ _id: 'legacy1', User_name: 'Sumi P', user_id: 'u_legacy' }];
+
+    const chainLegacy = {
+      setOptions: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(legacyDocs),
+    };
+    SessionTracking.find.mockReturnValueOnce(chainLegacy);
+    SessionTracking.countDocuments.mockResolvedValueOnce(33505);
+
+    // 2) Second request: q resolves to userIds => user_id $in filter
+    const resolvedUserIds = ['u1', 'u2'];
+    const userChainYes = {
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        { _id: '507f1f77bcf86cd799439011', user_id: resolvedUserIds[0] },
+        { _id: '507f1f77bcf86cd799439012', user_id: resolvedUserIds[1] },
+      ]),
+    };
+    User.find.mockReturnValueOnce(userChainYes);
+
+    const resolvedDocs = [{ _id: 'resolved1', User_name: 'Sumi P', user_id: 'u1' }];
+    const chainResolved = {
+      setOptions: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(resolvedDocs),
+    };
+    SessionTracking.find.mockReturnValueOnce(chainResolved);
+    SessionTracking.countDocuments.mockResolvedValueOnce(29);
+
+    const app = makeApp();
+
+    const res1 = await request(app)
+      .get('/api/session-tracking/table')
+      .query({ page: 1, limit: 50, q: 'Sumi P', organization_id: 'T0000' })
+      .expect(200);
+
+    const res2 = await request(app)
+      .get('/api/session-tracking/table')
+      .query({ page: 1, limit: 50, q: 'Sumi P', organization_id: 'T0000' })
+      .expect(200);
+
+    // Ensure totals reflect their respective filters (no cache cross-talk)
+    expect(res1.body.meta.total).toBe(33505);
+    expect(res2.body.meta.total).toBe(29);
+    expect(res2.body.meta.matchedUserIds).toEqual(resolvedUserIds);
+
+    // Sanity: second request is in resolved-userIds mode
+    expect(res2.headers['x-sessiontracking-q-resolved-userids']).toBe(resolvedUserIds.join(','));
+  });
 });

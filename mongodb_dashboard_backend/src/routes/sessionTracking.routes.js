@@ -301,11 +301,12 @@ function cacheKeyFromReq(req, enforcedTenant) {
    *   - paging/sort/time window inputs
    *   - q + userId search inputs
    *   - IMPORTANT: an explicit fingerprint of the *effective MongoDB filter*
+   *   - IMPORTANT: resolved q(name)->userIds (so q-search cache can never collide with other q modes)
    *
    * Why:
-   * - Historically, the Sessions table showed correct totals but unfiltered rows because
-   *   cached payloads could be served that were generated before/without the final filter.
-   * - Adding a filter fingerprint prevents cache collisions when the effective filter changes.
+   * - If q resolves to matched user ids, the effective DB filter becomes a user_id $in filter.
+   *   Cache keys MUST include that resolution; otherwise a cached payload with an unfiltered
+   *   meta.total can be served for a filtered rows request (or vice versa).
    */
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || req.query.pageSize || 20);
@@ -327,16 +328,25 @@ function cacheKeyFromReq(req, enforcedTenant) {
   const route = `GET:${req.baseUrl || ''}${req.path || ''}`;
 
   // Include the canonical tenant/bypass resolution so cache never crosses scope boundaries.
-  // Note: We compute it here rather than relying solely on middleware-stamped flags,
-  // because those flags were historically route-specific and could be absent for some mounts.
   const { bypass, tenantId, requestedTenantRaw } = resolveTenantContextFromRequest(req);
 
   const effectiveTenantKey = bypass
     ? `all-tenants:${String(requestedTenantRaw || 'T0000')}`
     : String(enforcedTenant || tenantId || 'n/a');
 
-  // Include a stable fingerprint of the *effective filter* as computed by the handler.
+  // Filter fingerprint is computed by the handler after assembling the effective DB filter.
   const filterFingerprint = coerceQueryString(req.sessionTrackingFilterFingerprint || '');
+
+  // If the handler resolved q(name)->userIds, it stamps response headers. We also stamp the request
+  // (via res.set) but Express makes them readable only on the response; therefore we additionally
+  // stamp req.sessionTrackingResolvedUserIds for cache key stability.
+  const resolvedUserIds = Array.isArray(req.sessionTrackingResolvedUserIds)
+    ? req.sessionTrackingResolvedUserIds.map((v) => String(v || '').trim()).filter(Boolean)
+    : [];
+
+  const resolvedUserIdsFingerprint = resolvedUserIds.length
+    ? crypto.createHash('sha1').update(resolvedUserIds.join(',')).digest('hex')
+    : '';
 
   return util.inspect({
     route,
@@ -349,6 +359,7 @@ function cacheKeyFromReq(req, enforcedTenant) {
     end,
     sort,
     filterFingerprint,
+    resolvedUserIdsFingerprint,
   });
 }
 
@@ -521,6 +532,10 @@ router.get(
       const resolution = await resolveUserIdsForQNameSearch({ q, tenantId, bypass });
       if (resolution?.matched && Array.isArray(resolution.userIds) && resolution.userIds.length) {
         matchedUserIds = resolution.userIds.map((v) => String(v));
+
+        // IMPORTANT: stamp on req for cache key stability (response headers are not readable here).
+        req.sessionTrackingResolvedUserIds = matchedUserIds;
+
         try {
           // Keep single-id header (first id) for backward compatibility + add multi-id header.
           res.set('X-SessionTracking-Q-Resolved-UserId', String(matchedUserIds[0]));
@@ -528,6 +543,8 @@ router.get(
           res.set('X-SessionTracking-Q-Resolve-Strategy', String(resolution.strategy || 'unknown'));
         } catch {}
       } else {
+        // Ensure cache key doesn't accidentally reuse a prior request's value.
+        req.sessionTrackingResolvedUserIds = [];
         try {
           res.set('X-SessionTracking-Q-Resolve-Strategy', String(resolution?.strategy || 'none'));
         } catch {}
