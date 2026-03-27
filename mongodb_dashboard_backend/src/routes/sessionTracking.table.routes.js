@@ -61,7 +61,13 @@ function buildTenantScopeFilter(tenantId) {
 }
 
 function buildDateRangeFilter(req) {
-  // When both start/end and from/to are provided, start/end wins.
+  /**
+   * Build an explicit date-range filter (table endpoint).
+   *
+   * IMPORTANT (back-compat / restored behavior):
+   * - No implicit default window. If the client does not provide start/end (or from/to),
+   *   we return null and do not constrain by session_start.
+   */
   const rawStart = req.query.start ?? req.query.from;
   const rawEnd = req.query.end ?? req.query.to;
 
@@ -71,23 +77,17 @@ function buildDateRangeFilter(req) {
   const hasValidStart = start && !Number.isNaN(start.getTime());
   const hasValidEnd = end && !Number.isNaN(end.getTime());
 
+  if (!hasValidStart && !hasValidEnd) return null;
+
   if (hasValidEnd) {
-    // Inclusive end-of-day (UTC) behavior
     end = new Date(end);
     end.setUTCHours(23, 59, 59, 999);
   }
 
-  if (hasValidStart || hasValidEnd) {
-    const cond = {};
-    if (hasValidStart) cond.$gte = start;
-    if (hasValidEnd) cond.$lte = end;
-    return { session_start: cond };
-  }
-
-  // Default window: last N days, applied to session_start
-  const now = new Date();
-  const windowStart = new Date(now.getTime() - DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-  return { session_start: { $gte: windowStart, $lte: now } };
+  const cond = {};
+  if (hasValidStart) cond.$gte = start;
+  if (hasValidEnd) cond.$lte = end;
+  return { session_start: cond };
 }
 
 function buildUserEmailFilter(req) {
