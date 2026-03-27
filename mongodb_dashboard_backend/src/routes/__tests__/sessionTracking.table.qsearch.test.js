@@ -32,6 +32,7 @@ describe('GET /api/session-tracking/table q-search', () => {
 
     // Provide chainable query builder for find().sort().skip().limit().lean()
     const chain = {
+      setOptions: jest.fn().mockReturnThis(),
       sort: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),

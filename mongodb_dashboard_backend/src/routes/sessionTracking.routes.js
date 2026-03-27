@@ -5,6 +5,7 @@ const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 const { resolveTenantContextFromRequest, isAllTenantsSentinel } = require('../services/tenantContextResolve');
+const { logMongoExecutionPlan } = require('../utils/mongoQueryDebug');
 const util = require('util');
 const router = express.Router();
 const controller = buildCrudController(SessionTracking, '-session_start');
@@ -631,23 +632,43 @@ router.get(
       //   return { docs, total };
       // };
 
-      const runQueries = async () => {
+      const runQueries = async ({ phase, cacheBypass }) => {
         /**
          * CRITICAL INVARIANT:
          * - rows (find) and total (aggregate+$count) MUST execute with the same MongoDB filter object.
          * - `dbFilter` is the single canonical JSON-safe filter for this request.
+         *
+         * Observability:
+         * - We log the exact filter/pipeline executed for each phase so mismatch bugs are debuggable.
          */
-        const [docs, totalAgg] = await Promise.all([
-          SessionTracking.find(dbFilter)
-            .sort(sort)
-            .skip(skip)
-            .limit(limit)
-            .lean(),
+        const aggPipeline = [
+          { $match: dbFilter },
+          { $count: 'total' },
+        ];
 
-          SessionTracking.aggregate([
-            { $match: dbFilter },
-            { $count: 'total' },
-          ]),
+        logMongoExecutionPlan({
+          label: phase,
+          modelName: 'SessionTracking',
+          findFilter: dbFilter,
+          aggregatePipeline: aggPipeline,
+        });
+
+        const findQuery = SessionTracking.find(dbFilter)
+          .sort(sort)
+          .skip(skip)
+          .limit(limit)
+          .lean();
+
+        // If we are in a guard-triggered requery, we MUST bypass any Mongoose query cache plugins
+        // (if present) and also ensure we don't accidentally reuse any prior in-process results.
+        // (Most apps don't have such plugins, but this is a safe no-op if absent.)
+        if (cacheBypass && typeof findQuery?.setOptions === 'function') {
+          findQuery.setOptions({ _guardRequery: true, _cacheBypass: true });
+        }
+
+        const [docs, totalAgg] = await Promise.all([
+          findQuery,
+          SessionTracking.aggregate(aggPipeline),
         ]);
 
         const total =
@@ -659,27 +680,69 @@ router.get(
 
         return { docs, total };
       };
-      let { docs, total } = await runQueries();
+
+      let { docs, total } = await runQueries({ phase: 'initial', cacheBypass: false });
 
       // Temporary guard/assert (auto-repair): if q-search active and returned docs don't match,
-      // treat it as a cache/flow violation and re-run after cache invalidation.
+      // treat it as a cache/flow violation and re-run with forced DB execution.
       if (q) {
-        const validation = validateDocsMatchQNameFilter({ docs, qFilter: dbFilter });
-        if (!validation.ok) {
+        const validation1 = validateDocsMatchQNameFilter({ docs, qFilter: dbFilter });
+        if (!validation1.ok) {
           console.warn('[SESSION_TRACKING_GUARD] q-search mismatch detected; invalidating cache and re-querying.', {
             filterFingerprint: req.sessionTrackingFilterFingerprint,
-            reason: validation.reason,
-            sample: validation.sample,
+            reason: validation1.reason,
+            sample: validation1.sample,
           });
 
           try { res.set('X-SessionTracking-Guard', 'mismatch-requery'); } catch { }
-          try { res.set('X-SessionTracking-Guard-Reason', String(validation.reason || 'mismatch')); } catch { }
+          try { res.set('X-SessionTracking-Guard-Reason', String(validation1.reason || 'mismatch')); } catch { }
 
           // Ensure we can't re-serve the same wrong payload.
           try { routeCache.delete(cacheKey); } catch { }
           try { invalidateAllSessionTrackingCache(); } catch { }
 
-          ({ docs, total } = await runQueries());
+          ({ docs, total } = await runQueries({ phase: 'guard-requery', cacheBypass: true }));
+
+          // If it STILL doesn't match, enforce correctness to avoid returning unfiltered rows.
+          const validation2 = validateDocsMatchQNameFilter({ docs, qFilter: dbFilter });
+          if (!validation2.ok) {
+            console.error('[SESSION_TRACKING_GUARD] mismatch persists after forced re-query; enforcing in-memory q filter to guarantee correctness.', {
+              filterFingerprint: req.sessionTrackingFilterFingerprint,
+              reason: validation2.reason,
+              sample: validation2.sample,
+            });
+            try { res.set('X-SessionTracking-Guard', 'mismatch-enforced-filter'); } catch { }
+
+            // Enforce the q constraint using the same extracted regex semantics as the validator.
+            // This is a last-resort correctness mechanism; root cause should be visible in logs now.
+            const extractSearchOrClause = (filterObj) => {
+              if (!filterObj || typeof filterObj !== 'object') return null;
+              if (Array.isArray(filterObj.$or)) return filterObj.$or;
+              if (Array.isArray(filterObj.$and)) {
+                for (const part of filterObj.$and) {
+                  if (part && typeof part === 'object' && Array.isArray(part.$or)) return part.$or;
+                }
+              }
+              return null;
+            };
+
+            const or = extractSearchOrClause(dbFilter);
+            const clause = Array.isArray(or) && or.length ? or[0] : null;
+            const userName = clause && clause.User_name && typeof clause.User_name === 'object' ? clause.User_name : null;
+            const pattern = userName && typeof userName.$regex === 'string' ? userName.$regex : null;
+            const options = userName && typeof userName.$options === 'string' ? userName.$options : '';
+            let re = null;
+            try {
+              if (pattern) re = new RegExp(pattern, options.includes('i') ? 'i' : undefined);
+            } catch {}
+
+            if (re) {
+              docs = docs.filter((d) => typeof d?.User_name === 'string' && re.test(d.User_name));
+            } else {
+              // If we can't reconstruct the regex, safest behavior is to return empty for q-search.
+              docs = [];
+            }
+          }
         } else {
           try { res.set('X-SessionTracking-Guard', 'ok'); } catch { }
         }
