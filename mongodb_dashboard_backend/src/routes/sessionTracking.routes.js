@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { asyncHandler } = require('../utils/http');
 const { parsePagination } = require('../utils/http');
 const SessionTracking = require('../models/sessionTracking.model');
+const User = require('../models/user.model');
 const { buildCrudController } = require('../controllers/crudFactory');
 const { resolveTenantContextFromRequest, isAllTenantsSentinel } = require('../services/tenantContextResolve');
 const { logMongoExecutionPlan } = require('../utils/mongoQueryDebug');
@@ -94,7 +95,115 @@ function deriveUserIdFromQuery(query) {
 }
 
 /**
-* Build an $or search filter for session tracking q/userId inputs.
+ * Normalize a MongoDB _id / user_id field to a stable string.
+ * This is used only for comparisons and for matching the string form stored in session_tracking.user_id.
+ *
+ * @param {any} value
+ * @returns {string}
+ */
+function normalizeMongoIdToString(value) {
+  if (value === null || typeof value === 'undefined') return '';
+  try {
+    // Handle ObjectId-ish values
+    if (typeof value === 'object' && typeof value.toString === 'function') return String(value.toString());
+  } catch {}
+  return String(value);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * resolveUserIdForQNameSearch
+ *
+ * Resolve a query string `q` (which may be a user's display name) into a canonical session-tracking user_id string.
+ *
+ * Contract:
+ * - Inputs:
+ *   - q: trimmed search string (may contain whitespace)
+ *   - tenantId: string tenant id (required when bypass=false)
+ *   - bypass: boolean; when true, do not tenant-scope the lookup
+ * - Output:
+ *   - { userId: string, matched: boolean, strategy: 'exact-id'|'users-by-name'|'none' }
+ * - Errors:
+ *   - Never throws (errors are caught and logged); returns matched:false on failures
+ *
+ * Notes:
+ * - If q already looks like an id, we return it as-is (exact-id).
+ * - Otherwise, we attempt to find a user whose name fields match q (case-insensitive, whitespace tolerant).
+ * - If multiple users match, we pick the first deterministic result (sorted by _id asc).
+ */
+async function resolveUserIdForQNameSearch({ q, tenantId, bypass }) {
+  const qTrimmed = typeof q === 'string' ? q.trim() : '';
+  const tenantIdString = tenantId !== undefined && tenantId !== null ? String(tenantId) : '';
+
+  if (!qTrimmed) return { userId: '', matched: false, strategy: 'none' };
+
+  // Strategy 1: treat q as an explicit id if it resembles one (uuid-ish or long hex-ish)
+  // This keeps backward compatibility for UIs that paste user_id directly into q.
+  const looksLikeId =
+    /^[0-9a-f]{24}$/i.test(qTrimmed) || // Mongo ObjectId
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(qTrimmed) || // UUID
+    qTrimmed.length >= 32;
+
+  if (looksLikeId) {
+    return { userId: qTrimmed, matched: true, strategy: 'exact-id' };
+  }
+
+  // Strategy 2: resolve via users collection by name-like fields
+  const safePhraseRegex = buildSafePhraseRegex(qTrimmed);
+
+  const nameFields = [
+    'user_name',
+    'User_name',
+    'name',
+    'displayName',
+    'display_name',
+    'full_name',
+    'fullName',
+    'username',
+  ];
+
+  const nameOr = nameFields.map((f) => ({
+    [f]: { $regex: safePhraseRegex.source, $options: 'i' },
+  }));
+
+  // Tenant scope for user lookup: users typically have organization_id.
+  // If bypass, do not scope.
+  const userLookupFilter = bypass
+    ? { $or: nameOr }
+    : {
+        $and: [
+          { $or: nameOr },
+          {
+            $or: [
+              { organization_id: tenantIdString },
+              { tenant_id: tenantIdString }, // tolerate alternate shapes
+              { organizationId: tenantIdString },
+              { tenantId: tenantIdString },
+            ],
+          },
+        ],
+      };
+
+  try {
+    const doc = await User.findOne(userLookupFilter, { _id: 1, user_id: 1 })
+      .sort({ _id: 1 })
+      .lean();
+
+    const resolved =
+      (doc && (normalizeMongoIdToString(doc.user_id) || normalizeMongoIdToString(doc._id))) || '';
+
+    if (resolved) return { userId: resolved, matched: true, strategy: 'users-by-name' };
+    return { userId: '', matched: false, strategy: 'none' };
+  } catch (err) {
+    console.warn('[sessionTracking.routes] resolveUserIdForQNameSearch failed', {
+      message: err?.message || String(err),
+    });
+    return { userId: '', matched: false, strategy: 'none' };
+  }
+}
+
+/**
+* Build a search filter for session tracking inputs.
 *
 * Contract:
 * - Inputs:
@@ -102,16 +211,16 @@ function deriveUserIdFromQuery(query) {
 *   - userId: string (may be empty/whitespace)
 * - Output:
 *   - {} when neither is provided
-*   - { user_id: <userId> } when userId is provided (takes precedence)
+*   - { $expr: { $eq: [ { $toString: "$user_id" }, <userIdString> ] } } when userId is provided
 *   - { $or: [...] } when q is provided
 * - Errors:
 *   - Throws an Error when q exceeds MAX_Q_LENGTH
 *
 * Invariants:
-* - q-search for the session tracking table/list endpoint must match ONLY the top-level
-*   `User_name` field (case-insensitive).
-* - Full-phrase matching must be whitespace-tolerant ("Aditi S" matches "Aditi   S").
-* - Multi-word q uses AND semantics across tokens (both tokens must appear in User_name).
+* - When filtering by userId, we match session_tracking.user_id *string form* to avoid type mismatches
+*   (some datasets store user_id as ObjectId, some as string/uuid).
+* - When filtering by q (name search), we match ONLY the top-level `User_name` field (case-insensitive),
+*   preserving the existing $or shape for backward compatibility with debug/caching assumptions.
 */
 // PUBLIC_INTERFACE
 function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
@@ -121,9 +230,9 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   console.log('[SEARCH] qTrimmed:', qTrimmed);
   console.log('[SEARCH] userId:', userIdTrimmed);
 
-  // ✅ PRIORITY: userId exact match
+  // ✅ PRIORITY: userId match (type-safe via $toString)
   if (userIdTrimmed) {
-    return { user_id: userIdTrimmed };
+    return { $expr: { $eq: [{ $toString: '$user_id' }, String(userIdTrimmed)] } };
   }
 
   if (!qTrimmed) return {};
@@ -137,15 +246,6 @@ function buildSessionTrackingSearchFilter({ q, userId, maxQLength }) {
   const USER_NAME_FIELD = 'User_name';
   const safePhraseRegex = buildSafePhraseRegex(qTrimmed);
 
-  /**
-   * IMPORTANT INVARIANT (contract for this route):
-   * - q-search is represented as an $or array even when searching a single field.
-   *
-   * Why:
-   * - Other composition/canonicalization/caching/debugging logic historically assumed `$or`,
-   *   and tests assert the `$or` structure.
-   * - Keeping a single canonical shape avoids drift where totals and rows appear inconsistent.
-   */
   const finalFilter = {
     $or: [
       {
@@ -389,17 +489,45 @@ router.get(
     const { page, limit, skip, explicit } = parsePagination(rawQuery);
     const sort = req.query.sort || '-session_start';
 
-    // Exact userId precedence; q fallback
+    // Exact userId precedence; q fallback (with q→userId resolution when q matches a user name)
     const q = coerceQueryString(req.query.q);
-    const userId = deriveUserIdFromQuery(req.query);
-    console.log('[SEARCH INPUT]', { q, userId });
+    const userIdDirect = deriveUserIdFromQuery(req.query);
+
+    // If userId is explicitly provided, we use it as-is.
+    // Otherwise, we attempt to resolve q as a user name to a canonical userId.
+    let effectiveUserId = userIdDirect;
+
+    if (!effectiveUserId && q) {
+      const resolution = await resolveUserIdForQNameSearch({ q, tenantId, bypass });
+      if (resolution?.matched && resolution?.userId) {
+        effectiveUserId = String(resolution.userId);
+        try {
+          res.set('X-SessionTracking-Q-Resolved-UserId', effectiveUserId);
+          res.set('X-SessionTracking-Q-Resolve-Strategy', String(resolution.strategy || 'unknown'));
+        } catch {}
+      } else {
+        try {
+          res.set('X-SessionTracking-Q-Resolve-Strategy', String(resolution?.strategy || 'none'));
+        } catch {}
+      }
+    }
+
+    console.log('[SEARCH INPUT]', { q, userId: userIdDirect, effectiveUserId });
+
     let searchFilter = {};
-    if (q || userId) {
+    if (q || effectiveUserId) {
       // Guardrail: avoid extremely long q creating huge regex scans.
       // This endpoint can scan many fields (and with T0000 can scan across all tenants).
       const MAX_Q_LENGTH = Number(process.env.SESSION_TRACKING_MAX_Q_LENGTH || 128);
       try {
-        searchFilter = buildSessionTrackingSearchFilter({ q, userId, maxQLength: MAX_Q_LENGTH });
+        // IMPORTANT:
+        // - If q resolved to a userId, we switch the search mode to userId filtering (return ALL sessions for that user).
+        // - Otherwise, keep legacy q behavior (User_name regex search).
+        searchFilter = buildSessionTrackingSearchFilter({
+          q: effectiveUserId ? '' : q,
+          userId: effectiveUserId,
+          maxQLength: MAX_Q_LENGTH,
+        });
         console.log('[SEARCH FILTER FINAL]', util.inspect(searchFilter, { depth: null, colors: true }));
       } catch (e) {
         const status = e?.statusCode || 400;
@@ -765,7 +893,14 @@ router.get(
         const payload = { success: true, data: docs, meta: { page, limit, total } };
         let etag = null;
         if (wantETag) {
-          etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, page, limit, sort, q, userId });
+          etag = computeETag(payload, {
+            tenant: bypass ? 'all-tenants' : tenantId,
+            page,
+            limit,
+            sort,
+            q,
+            userId: effectiveUserId,
+          });
           res.set('ETag', etag);
         }
         res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);
@@ -786,7 +921,7 @@ router.get(
       const payload = docs;
       let etag = null;
       if (wantETag) {
-        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, sort, q, userId });
+        etag = computeETag(payload, { tenant: bypass ? 'all-tenants' : tenantId, sort, q, userId: effectiveUserId });
         res.set('ETag', etag);
       }
       res.set('Cache-Control', `public, max-age=${Math.floor(DEFAULT_CACHE_TTL_MS / 1000)}, must-revalidate`);

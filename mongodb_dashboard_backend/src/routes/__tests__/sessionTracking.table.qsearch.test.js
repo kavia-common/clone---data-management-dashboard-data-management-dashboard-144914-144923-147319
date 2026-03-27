@@ -3,19 +3,25 @@
 const express = require('express');
 const request = require('supertest');
 
-// Mock the SessionTracking model used by the route so we can inspect the generated filter.
+// Mock SessionTracking model used by the route so we can inspect generated filters.
 jest.mock('../../models/sessionTracking.model', () => ({
   find: jest.fn(),
   aggregate: jest.fn(),
+  countDocuments: jest.fn(),
+}));
+
+// Mock User model used to resolve q(user_name) -> user_id
+jest.mock('../../models/user.model', () => ({
+  findOne: jest.fn(),
 }));
 
 const SessionTracking = require('../../models/sessionTracking.model');
+const User = require('../../models/user.model');
 
 function makeApp() {
   const app = express();
   // Mount exactly the same router used by /api/session-tracking/table.
-  // The table router is only a re-export of sessionTracking.routes.
-  // We test via the table path to reflect the real failing endpoint.
+  // The table router is a re-export of sessionTracking.routes.
   const tableRouter = require('../sessionTracking.table.routes');
   app.use('/api/session-tracking/table', tableRouter);
   return app;
@@ -26,11 +32,24 @@ describe('GET /api/session-tracking/table q-search', () => {
     jest.clearAllMocks();
   });
 
-  test('q search filters by top-level User_name using $regex string + $options, and applies the same filter to find and total aggregation', async () => {
-    // Arrange: return one matching doc (note: backend filters on `User_name`, not `user_name`)
-    const docs = [{ _id: '1', User_name: 'Aditi S' }];
+  test('when q matches a user name, it resolves user_id and filters sessions by that user_id (returning all sessions for the user)', async () => {
+    const resolvedUserId = '5468b4d8-a011-70ba-9c6a-107907f7cd7d';
 
-    // Provide chainable query builder for find().sort().skip().limit().lean()
+    // Mock: users lookup chain findOne().sort().lean()
+    const userChain = {
+      sort: jest.fn().mockReturnThis(),
+      lean: jest
+        .fn()
+        .mockResolvedValue({ _id: '507f1f77bcf86cd799439011', user_id: resolvedUserId }),
+    };
+    User.findOne.mockReturnValue(userChain);
+
+    const docs = [
+      { _id: 's1', user_id: resolvedUserId, User_name: 'Sumi P' },
+      { _id: 's2', user_id: resolvedUserId, User_name: 'Sumi P' },
+    ];
+
+    // Mock: SessionTracking find() chain
     const chain = {
       setOptions: jest.fn().mockReturnThis(),
       sort: jest.fn().mockReturnThis(),
@@ -38,49 +57,41 @@ describe('GET /api/session-tracking/table q-search', () => {
       limit: jest.fn().mockReturnThis(),
       lean: jest.fn().mockResolvedValue(docs),
     };
-
     SessionTracking.find.mockReturnValue(chain);
-    // The route computes total via aggregate([{ $match: <filter> }, { $count: 'total' }])
-    SessionTracking.aggregate.mockResolvedValue([{ total: 1 }]);
+
+    // Total should be computed via countDocuments(dbFilter)
+    SessionTracking.countDocuments.mockResolvedValue(29);
 
     const app = makeApp();
 
-    // Act
     const res = await request(app)
       .get('/api/session-tracking/table')
-      .query({ page: 1, limit: 10, q: 'Aditi S', organization_id: 'T0000' })
+      .query({ page: 1, limit: 50, q: 'Sumi P', organization_id: 'T0000' })
       .expect(200);
 
-    // Assert payload
     expect(res.body).toEqual({
       success: true,
       data: docs,
-      meta: { page: 1, limit: 10, total: 1 },
+      meta: { page: 1, limit: 50, total: 29 },
     });
 
-    // Assert DB filter correctness
+    // Backend should expose resolved user id for debuggability
+    expect(res.headers['x-sessiontracking-q-resolved-userid']).toBe(resolvedUserId);
+
+    // Ensure q->userId resolution was attempted
+    expect(User.findOne).toHaveBeenCalledTimes(1);
+
+    // Ensure DB was filtered by the resolved userId (type-safe via $toString)
     expect(SessionTracking.find).toHaveBeenCalledTimes(1);
-    expect(SessionTracking.aggregate).toHaveBeenCalledTimes(1);
-
     const findFilter = SessionTracking.find.mock.calls[0][0];
-    const aggPipeline = SessionTracking.aggregate.mock.calls[0][0];
-    const matchStage = Array.isArray(aggPipeline) ? aggPipeline[0] : null;
-    const aggMatchFilter = matchStage && matchStage.$match ? matchStage.$match : null;
-
-    // With T0000, bypass should avoid enforced tenant scope, so filter should be search-only.
     expect(findFilter).toEqual({
-      $or: [
-        {
-          // Multi-word q uses whitespace-tolerant matching: "Aditi   S" should still match.
-          User_name: { $regex: 'Aditi\\s+S', $options: 'i' },
-        },
-      ],
+      $expr: { $eq: [{ $toString: '$user_id' }, resolvedUserId] },
     });
 
-    // Ensure total uses the exact same effective filter as find()
-    expect(aggMatchFilter).toEqual(findFilter);
+    expect(SessionTracking.countDocuments).toHaveBeenCalledTimes(1);
+    expect(SessionTracking.countDocuments.mock.calls[0][0]).toEqual(findFilter);
 
-    // Sanity check that DB chain was invoked for pagination
+    // Pagination chain sanity
     expect(chain.sort).toHaveBeenCalled();
     expect(chain.skip).toHaveBeenCalled();
     expect(chain.limit).toHaveBeenCalled();
