@@ -520,9 +520,37 @@ router.get(
      * - Adds headers to aid debugging without requiring server logs.
      */
     function validateDocsMatchQNameFilter({ docs, qFilter }) {
+      /**
+       * Validates that returned docs match the q-search constraint on top-level `User_name`.
+       *
+       * IMPORTANT:
+       * - `qFilter` may be either:
+       *    (a) search-only: { $or: [ { User_name: { $regex, $options } } ] }
+       *    (b) combined:    { $and: [ <search-only>, <tenantScope>, ... ] }
+       * - We must extract the *search clause* regardless of whether the full DB filter is wrapped
+       *   in $and, otherwise the guard becomes a no-op when tenant scoping is present.
+       */
       if (!Array.isArray(docs) || !qFilter || typeof qFilter !== 'object') return { ok: true };
 
-      const or = Array.isArray(qFilter.$or) ? qFilter.$or : null;
+      const extractSearchOrClause = (filterObj) => {
+        if (!filterObj || typeof filterObj !== 'object') return null;
+
+        // Case (a): direct $or
+        if (Array.isArray(filterObj.$or)) return filterObj.$or;
+
+        // Case (b): $and wrapping search + scope
+        if (Array.isArray(filterObj.$and)) {
+          for (const part of filterObj.$and) {
+            if (part && typeof part === 'object' && Array.isArray(part.$or)) {
+              return part.$or;
+            }
+          }
+        }
+
+        return null;
+      };
+
+      const or = extractSearchOrClause(qFilter);
       if (!or || or.length !== 1) return { ok: true };
 
       const clause = or[0] || {};
