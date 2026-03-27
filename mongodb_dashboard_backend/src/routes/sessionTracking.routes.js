@@ -291,18 +291,25 @@ function buildSessionTrackingSearchFilter({ q, userId, userIds, maxQLength }) {
     throw err;
   }
 
-  const USER_NAME_FIELD = 'User_name';
+  // Some datasets use different casing/field names for user display name.
+  // To make q-search reliable (especially when q->userIds resolution yields no hits),
+  // search across a small set of common fields.
   const safePhraseRegex = buildSafePhraseRegex(qTrimmed);
 
+  const userNameFields = [
+    'User_name', // legacy/session_tracking canonical in this repo
+    'user_name', // common alternate casing
+    'username', // sometimes stored in sessions
+    'userName', // camelCase variant
+  ];
+
   const finalFilter = {
-    $or: [
-      {
-        [USER_NAME_FIELD]: {
-          $regex: safePhraseRegex.source,
-          $options: 'i',
-        },
+    $or: userNameFields.map((field) => ({
+      [field]: {
+        $regex: safePhraseRegex.source,
+        $options: 'i',
       },
-    ],
+    })),
   };
 
   console.log('[SEARCH FILTER]', util.inspect(finalFilter, { depth: null }));
