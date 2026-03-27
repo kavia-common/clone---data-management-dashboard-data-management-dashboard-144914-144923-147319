@@ -185,10 +185,16 @@ async function resolveUserIdsForQNameSearch({ q, tenantId, bypass }) {
             { $or: nameOr },
             {
               $or: [
+                // Common top-level tenant fields
                 { organization_id: tenantIdString },
                 { tenant_id: tenantIdString }, // tolerate alternate shapes
                 { organizationId: tenantIdString },
                 { tenantId: tenantIdString },
+
+                // Common nested membership shapes (user belongs to multiple tenants)
+                { 'tenants.tenant_id': tenantIdString },
+                { 'tenants.organization_id': tenantIdString },
+                { 'tenants.id': tenantIdString },
               ],
             },
           ],
