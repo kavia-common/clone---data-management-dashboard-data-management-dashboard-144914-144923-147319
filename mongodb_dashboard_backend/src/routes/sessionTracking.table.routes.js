@@ -199,7 +199,8 @@ router.get('/', async (req, res) => {
     const skip = (page - 1) * limit;
 
     // In dev/test, server may start without DB - return predictable empty envelope.
-    if (!isDbConnected()) {
+    // But: when running unit tests, models are mocked and we still want to exercise filtering logic.
+    if (!isDbConnected() && process.env.NODE_ENV !== 'test') {
       return res.status(200).json({ success: true, data: [], meta: { page, limit, total: 0 } });
     }
 
