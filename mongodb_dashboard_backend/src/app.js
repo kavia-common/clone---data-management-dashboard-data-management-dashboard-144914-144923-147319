@@ -73,16 +73,9 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    // Use same-origin server so Swagger calls hit this backend instance
-    // url: `${protocol}://${fullHost}`,
-    servers: [
-      {
-        // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-        url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
-        // description: 'Predefined dev server',
-        description: 'Predefined beta server',
-      },
-    ],
+    // Use same-origin server so Swagger "Try it out" calls hit THIS preview instance.
+    // This is critical in Kavia preview where the backend is exposed via a dynamic URL+port.
+    servers: [{ url: `${protocol}://${fullHost}`, description: 'Current server (preview/runtime)' }],
   };
 };
 
