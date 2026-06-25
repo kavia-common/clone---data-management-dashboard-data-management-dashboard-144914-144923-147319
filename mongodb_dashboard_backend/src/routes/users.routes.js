@@ -671,8 +671,68 @@ router.get(
 
     const tenantId = tenantIdRaw ? String(tenantIdRaw).trim() : '';
 
-    // Safe fallback: if tenant isn't provided, only filter by user_id.
-    const andClauses = [{ $expr: { $eq: [{ $toString: '$user_id' }, userIdString] } }];
+    /**
+     * Normalize incoming time bounds for this endpoint.
+     * Supports:
+     * - ISODate("...") wrapper (frontend legacy behavior)
+     * - Full ISO timestamp
+     * - Date-only "YYYY-MM-DD" (expanded to full-day UTC bounds)
+     *
+     * Returns undefined when input is empty/invalid.
+     */
+    function normalizeSessionDetailsRangeParam(value, { mode }) {
+      if (value === undefined || value === null || value === '') return undefined;
+
+      let s = String(value).trim();
+
+      // Unwrap ISODate("...") or ISODate('...') if present
+      const isoDateWrapped = /^ISODate\((.*)\)$/i.exec(s);
+      if (isoDateWrapped && isoDateWrapped[1]) {
+        s = isoDateWrapped[1].trim().replace(/^['"]|['"]$/g, '');
+      }
+
+      // Date-only => expand to UTC full-day bounds
+      const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+      if (ymd) {
+        const y = Number(ymd[1]);
+        const m0 = Number(ymd[2]) - 1;
+        const d = Number(ymd[3]);
+        const dt =
+          mode === 'from'
+            ? new Date(Date.UTC(y, m0, d, 0, 0, 0, 0))
+            : new Date(Date.UTC(y, m0, d, 23, 59, 59, 999));
+        return dt.toISOString();
+      }
+
+      const dt = new Date(s);
+      if (Number.isNaN(dt.getTime())) return undefined;
+      return dt.toISOString();
+    }
+
+    const rawFrom = req.query?.from;
+    const rawTo = req.query?.to;
+    const from = normalizeSessionDetailsRangeParam(rawFrom, { mode: 'from' });
+    const to = normalizeSessionDetailsRangeParam(rawTo, { mode: 'to' });
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+
+    // Optional username filter (reference query uses User_name)
+    const userNameRaw =
+      (typeof req.query?.user_name === 'string' && req.query.user_name) ||
+      (typeof req.query?.User_name === 'string' && req.query.User_name) ||
+      '';
+    const userName = userNameRaw ? String(userNameRaw).trim() : '';
+
+    // Safe fallback:
+    // - Always filter by user_id (canonical in our system)
+    // - Also allow a fallback match on User_name/user_name when provided to handle mixed schemas.
+    const identityOrClauses = [{ $expr: { $eq: [{ $toString: '$user_id' }, userIdString] } }];
+    if (userName) {
+      identityOrClauses.push({ User_name: userName });
+      identityOrClauses.push({ user_name: userName });
+    }
+
+    const andClauses = [{ $or: identityOrClauses }];
 
     // If tenant is provided, enforce tenant/org filter too.
     if (tenantId) {
@@ -684,6 +744,36 @@ router.get(
           { tenantId: tenantId },
           { orgId: tenantId },
           { 'tenant.tenant_id': tenantId },
+        ],
+      });
+    }
+
+    // Date range filtering (reference query uses created_at + last_updated).
+    // We apply BOTH constraints when range is provided:
+    // - created_at within [from,to]
+    // - last_updated within [from,to]
+    //
+    // If a field is missing, we fall back to session_start/timestamp where reasonable,
+    // but keep behavior conservative and consistent across totals + records.
+    if (fromDate || toDate) {
+      const range = {};
+      if (fromDate) range.$gte = fromDate;
+      if (toDate) range.$lte = toDate;
+
+      andClauses.push({
+        $or: [
+          { created_at: range },
+          { createdAt: range },
+          { timestamp: range },
+          { session_start: range },
+        ],
+      });
+      andClauses.push({
+        $or: [
+          { last_updated: range },
+          { lastUpdated: range },
+          { updated_at: range },
+          { updatedAt: range },
         ],
       });
     }

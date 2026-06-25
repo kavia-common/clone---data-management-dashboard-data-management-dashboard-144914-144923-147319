@@ -22,9 +22,6 @@ app.use(corsMiddleware());
  // Explicit preflight handling for all /api paths (including summary and users)
  // Single wildcard path is sufficient; ensure it is registered early.
  app.options('/api/*', cors());
- // Belt-and-suspenders: some proxies/browsers can behave differently with wildcard matching;
- // register a subtree OPTIONS for the service-type endpoints explicitly.
- app.options('/api/service-type/*', cors());
 app.use(rateLimiter());
 
 // Response compression (gzip/brotli) controlled by ENABLE_RESPONSE_COMPRESSION
@@ -73,9 +70,16 @@ const buildDynamicSpec = (req) => {
         baseSpec.info?.description ||
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
-    // Use same-origin server so Swagger "Try it out" calls hit THIS preview instance.
-    // This is critical in Kavia preview where the backend is exposed via a dynamic URL+port.
-    servers: [{ url: `${protocol}://${fullHost}`, description: 'Current server (preview/runtime)' }],
+    // Use same-origin server so Swagger calls hit this backend instance
+    // url: `${protocol}://${fullHost}`,
+    servers: [
+      {
+        // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+        url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
+        // description: 'Predefined dev server',
+        description: 'Predefined beta server',
+      },
+    ],
   };
 };
 
@@ -169,16 +173,6 @@ app.use((req, res, next) => {
 });
 
 safeUse('/api/session-tracking/composite', require('./routes/sessionTracking.composite.routes'));
-safeUse('/api/session-tracking/analytics', require('./routes/sessionTracking.analytics.routes'));
-
-// Session-tracking tenants helpers (distinct tenant_id list for dropdown)
-safeUse('/api/session-tracking/tenants', require('./routes/sessionTracking.tenants.routes'));
-safeUse('/api/sessionTracking/tenants', require('./routes/sessionTracking.tenants.routes'));
-
-// Dedicated table endpoint (keeps table fetch isolated from analytics usage in the frontend)
-safeUse('/api/session-tracking/table', require('./routes/sessionTracking.table.routes'));
-safeUse('/api/sessionTracking/table', require('./routes/sessionTracking.table.routes'));
-
 safeUse('/api/session-tracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
@@ -195,11 +189,7 @@ safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
 safeUse('/api/llm_costs', require('./routes/costs.llm_costs.routes'));
 safeUse('/api/projects', require('./routes/projects.summary.routes'));
-
-// Service-type summary (used by Overview -> "Sessions by Service Type").
-// This endpoint MUST exist under /api and inherit the same CORS behavior as other overview endpoints.
 safeUse('/api/service-type', require('./routes/serviceType.summary.routes'));
-
 safeUse('/api/projects', require('./routes/projects.routes'));
 try {
   // eslint-disable-next-line no-console
