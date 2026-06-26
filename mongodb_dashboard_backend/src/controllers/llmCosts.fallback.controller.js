@@ -349,6 +349,26 @@ async function listLlmCosts(req, res) {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('GET /api/llm-costs error', err);
+
+    // If DB isn't connected, surface the correct status to avoid masking infra/config issues.
+    // getDb() in src/config/db.js throws an Error('Database unavailable (not connected)') with err.status=503.
+    const status = err?.status || err?.statusCode;
+    const code = String(err?.code || '');
+    const msg = String(err?.message || '');
+    const isDbUnavailable =
+      status === 503 ||
+      code === 'SERVICE_UNAVAILABLE' ||
+      /database unavailable/i.test(msg) ||
+      /not connected/i.test(msg);
+
+    if (isDbUnavailable) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database unavailable',
+        hint: 'Verify MONGODB_URI is set correctly and the MongoDB instance/network allows connections (IP allowlist, auth, TLS options).',
+      });
+    }
+
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 }

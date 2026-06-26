@@ -723,29 +723,49 @@ router.get(
       '';
     const userName = userNameRaw ? String(userNameRaw).trim() : '';
 
-    // Safe fallback:
-    // - Always filter by user_id (canonical in our system)
-    // - Also allow a fallback match on User_name/user_name when provided to handle mixed schemas.
-    const identityOrClauses = [{ $expr: { $eq: [{ $toString: '$user_id' }, userIdString] } }];
-    if (userName) {
-      identityOrClauses.push({ User_name: userName });
-      identityOrClauses.push({ user_name: userName });
-    }
+    /**
+     * IMPORTANT (bugfix):
+     * When User_name + tenant_id are provided, this endpoint must aggregate using EXACTLY:
+     *   $match:   { User_name: "<name>", tenant_id: "<tenant>" }
+     *   $group:   { _id:{User_name:"$User_name",tenant_id:"$tenant_id"}, session_count:{$sum:1},
+     *              total_cost:{$sum:"$total_cost"}, total_duration:{$sum:"$total_duration"} }
+     *   $project: { _id:0, User_name:"$_id.User_name", tenant_id:"$_id.tenant_id", session_count:1, total_cost:1, total_duration:1 }
+     *
+     * Reason: current implementation can over-match (user_id OR User_name) and inflates counts by summing total_count.
+     */
 
-    const andClauses = [{ $or: identityOrClauses }];
+    const andClauses = [];
 
-    // If tenant is provided, enforce tenant/org filter too.
-    if (tenantId) {
-      andClauses.push({
-        $or: [
-          { tenant_id: tenantId },
-          { organization_id: tenantId },
-          { organizationId: tenantId },
-          { tenantId: tenantId },
-          { orgId: tenantId },
-          { 'tenant.tenant_id': tenantId },
-        ],
-      });
+    // Prefer strict match on User_name + tenant_id when both are provided (per user-provided pipeline).
+    // This ensures counts are document counts and costs sum the correct field.
+    const hasStrictUserNameTenantMatch = Boolean(userName && tenantId);
+    if (hasStrictUserNameTenantMatch) {
+      andClauses.push({ User_name: userName });
+      andClauses.push({ tenant_id: tenantId });
+    } else {
+      // Backward-compatible fallback:
+      // - Match by user_id (canonical in our system)
+      // - If User_name is provided without tenant_id, also allow matching by User_name/user_name
+      const identityOrClauses = [{ $expr: { $eq: [{ $toString: '$user_id' }, userIdString] } }];
+      if (userName) {
+        identityOrClauses.push({ User_name: userName });
+        identityOrClauses.push({ user_name: userName });
+      }
+      andClauses.push({ $or: identityOrClauses });
+
+      // If tenant is provided (but no strict match), enforce broader tenant aliases too.
+      if (tenantId) {
+        andClauses.push({
+          $or: [
+            { tenant_id: tenantId },
+            { organization_id: tenantId },
+            { organizationId: tenantId },
+            { tenantId: tenantId },
+            { orgId: tenantId },
+            { 'tenant.tenant_id': tenantId },
+          ],
+        });
+      }
     }
 
     // Date range filtering (reference query uses created_at + last_updated).
@@ -810,20 +830,60 @@ router.get(
       return 0;
     }
 
-    // Aggregate totals across the matched records (DB-side for counts/duration/last_updated,
-    // app-side for service_type/org_name/total_cost to allow flexible field fallbacks).
-    const totalsAgg = await SessionTracking.aggregate([
-      { $match: matchFilter },
-      {
-        $group: {
-          _id: null,
-          total_count: { $sum: { $ifNull: ['$total_count', 1] } },
-          total_duration: { $sum: { $ifNull: ['$total_duration', 0] } },
-          last_updated: { $max: { $ifNull: ['$last_updated', '$session_start'] } },
-        },
-      },
-      { $project: { _id: 0, total_count: 1, total_duration: 1, last_updated: 1 } },
-    ]).allowDiskUse(true);
+    // Aggregate totals.
+    // For strict User_name + tenant_id mode, EXACTLY match requested pipeline semantics:
+    // - session_count is document count ($sum: 1)
+    // - total_cost sums $total_cost (cast to numeric safely)
+    // - total_duration sums $total_duration (cast to numeric safely)
+    // In fallback mode, retain existing behavior but improve cost/duration casting safety.
+    const totalsAgg = await SessionTracking.aggregate(
+      hasStrictUserNameTenantMatch
+        ? [
+            { $match: matchFilter },
+            {
+              $group: {
+                _id: { User_name: '$User_name', tenant_id: '$tenant_id' },
+                session_count: { $sum: 1 },
+                total_cost: {
+                  $sum: {
+                    $convert: { input: '$total_cost', to: 'double', onError: 0, onNull: 0 },
+                  },
+                },
+                total_duration: {
+                  $sum: {
+                    $convert: { input: '$total_duration', to: 'double', onError: 0, onNull: 0 },
+                  },
+                },
+                last_updated: { $max: { $ifNull: ['$last_updated', '$session_start'] } },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                User_name: '$_id.User_name',
+                tenant_id: '$_id.tenant_id',
+                session_count: 1,
+                total_cost: 1,
+                total_duration: 1,
+                last_updated: 1,
+              },
+            },
+          ]
+        : [
+            { $match: matchFilter },
+            {
+              $group: {
+                _id: null,
+                total_count: { $sum: { $ifNull: ['$total_count', 1] } },
+                total_duration: {
+                  $sum: { $convert: { input: '$total_duration', to: 'double', onError: 0, onNull: 0 } },
+                },
+                last_updated: { $max: { $ifNull: ['$last_updated', '$session_start'] } },
+              },
+            },
+            { $project: { _id: 0, total_count: 1, total_duration: 1, last_updated: 1 } },
+          ]
+    ).allowDiskUse(true);
 
     const totalsRow = Array.isArray(totalsAgg) && totalsAgg.length ? totalsAgg[0] : null;
 
@@ -855,21 +915,26 @@ router.get(
     }
     const service_type = Array.from(serviceTypeSet);
 
-    // total_cost: sum across records using flexible field fallbacks.
+    // total_cost:
+    // - In strict User_name+tenant_id mode, use DB aggregate sum($total_cost) to match expected pipeline.
+    // - Otherwise, keep best-effort fallback across possible fields.
     let total_cost = 0;
-    for (const r of records || []) {
-      const v =
-        r?.total_cost ??
-        r?.totalCost ??
-        r?.cost_usd ??
-        r?.costUSD ??
-        r?.llm_cost ??
-        r?.llmCost ??
-        r?.session_data?.total_cost ??
-        r?.session_data?.cost_usd ??
-        null;
-
-      total_cost += parseNumericCost(v);
+    if (hasStrictUserNameTenantMatch) {
+      total_cost = Number(totalsRow?.total_cost || 0);
+    } else {
+      for (const r of records || []) {
+        const v =
+          r?.total_cost ??
+          r?.totalCost ??
+          r?.cost_usd ??
+          r?.costUSD ??
+          r?.llm_cost ??
+          r?.llmCost ??
+          r?.session_data?.total_cost ??
+          r?.session_data?.cost_usd ??
+          null;
+        total_cost += parseNumericCost(v);
+      }
     }
 
     // organization_name: prefer from session docs; else try to derive from tenant/user context.
@@ -942,7 +1007,10 @@ router.get(
       tenant_id: tenantId || null,
 
       // Existing fields (keep semantics)
-      total_count: Number(totalsRow?.total_count ?? 0),
+      // IMPORTANT:
+      // - In strict mode we return session_count semantics (doc count) via totalsRow.session_count.
+      // - Otherwise preserve prior behavior (sum of total_count or fallback).
+      total_count: Number(totalsRow?.session_count ?? totalsRow?.total_count ?? 0),
       total_duration: Number(totalsRow?.total_duration ?? 0),
       last_updated: totalsRow?.last_updated ? new Date(totalsRow.last_updated).toISOString() : null,
 
