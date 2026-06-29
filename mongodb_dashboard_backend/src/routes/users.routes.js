@@ -1221,6 +1221,69 @@ router.get('/:userId/projects', asyncHandler(async (req, res) => {
  * IMPORTANT: Keep static subpaths (e.g., '/summary' mounted via users.summary.js) registered BEFORE this dynamic ':id'
  * to avoid collisions such as '/api/users/summary' being treated as ':id'.
  */
+
+/**
+ * PUBLIC_INTERFACE
+ * GET /api/users/session-stats-by-domain
+ *
+ * Returns per-user total session duration for all users whose email matches the
+ * provided email domain.  The aggregation is executed entirely in MongoDB using a
+ * $lookup + $group pipeline (no in-process joining).
+ *
+ * Query parameters:
+ *  - domain (string, required): email domain to filter by, e.g. "davinci.com"
+ *
+ * Response 200:
+ *  [
+ *    {
+ *      "userId": "<ObjectId string>",
+ *      "email": "john@davinci.com",
+ *      "totalSessionDuration": 5400,
+ *      "sessionBreakdown": [
+ *        { "sessionId": "...", "duration": 1200, "status": "completed", ... },
+ *        ...
+ *      ]
+ *    },
+ *    ...
+ *  ]
+ *
+ * Response 400: missing or invalid domain query parameter.
+ * Response 500: internal server error.
+ */
+router.get(
+  '/session-stats-by-domain',
+  asyncHandler(async (req, res) => {
+    const domain = typeof req.query.domain === 'string' ? req.query.domain.trim() : '';
+
+    if (!domain) {
+      return res.status(400).json({
+        success: false,
+        message: 'Query parameter "domain" is required (e.g. ?domain=example.com)',
+      });
+    }
+
+    // Basic domain format guard: must contain at least one dot and no spaces
+    const domainPattern = /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$/;
+    if (!domainPattern.test(domain)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid domain format. Provide a domain like "example.com" without "@".',
+      });
+    }
+
+    const { getUserSessionStatsByDomain } = require('../services/users.service');
+
+    const results = await getUserSessionStatsByDomain(domain);
+
+    return res.status(200).json({
+      success: true,
+      domain,
+      count: results.length,
+      data: results,
+    });
+  })
+);
+
 /**
  * Guard: validate MongoDB ObjectId to avoid casting errors when static paths like 'summary' slip through.
  * Returns 404 when id is not a valid ObjectId, preventing CastError.

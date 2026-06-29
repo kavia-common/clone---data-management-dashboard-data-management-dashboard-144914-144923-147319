@@ -2020,6 +2020,7 @@
     "/api/users/referral-sources": {
       "get": {
         "summary": "Top referral sources",
+        "operationId": "getUsersReferralSources",
         "description": "Aggregates users.referral_history by source (or infers from referral_code) and returns top N sources by count.",
         "tags": [
           "Users"
@@ -2093,6 +2094,10 @@
     {
       "name": "AppDeployments",
       "description": "Application deployments endpoints"
+    },
+    {
+      "name": "TATA",
+      "description": "TATA session analytics endpoints"
     },
     {
       "name": "Counts",
