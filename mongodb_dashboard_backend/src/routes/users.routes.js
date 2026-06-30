@@ -9,6 +9,7 @@ const { requireTenant } = require('../middleware/requireTenant');
 const { extractOrganization } = require('../middleware/extractOrganization');
 const SessionTracking = require('../models/sessionTracking.model');
 const Tenant = require('../models/tenant.model');
+const { usdToCredits } = require('../utils/credits');
 
 // Batch endpoint router: POST /api/users/projects
 const usersProjectsBatchRoutes = require('./users.projects.batch.routes');
@@ -406,6 +407,177 @@ router.get(
     const response = { items, total: items.length };
     setCache(TENANT_SUMMARY_CACHE, cacheKey, response, TENANT_SUMMARY_TTL_MS);
     res.status(200).json(response);
+  })
+);
+
+/**
+ * PUBLIC_INTERFACE
+ * POST /api/users/costs-summary
+ *
+ * Aggregates session_tracking records by user name to compute:
+ *  - total_cost_spent: sum(total_cost) with safe numeric parsing
+ *  - credits_used: sum(credits consumed) from session_tracking when available
+ *    (falls back to USD->credits conversion only when no credits fields exist)
+ *
+ * Body:
+ *   { "User_name": "Aditi S" }
+ *
+ * Tenant scoping:
+ *  - For normal tenants: requires tenant_id (or organization_id) to match records' tenant_id.
+ *  - If JWT-based auth is present, tenant mismatch is rejected with 403.
+ *  - tenant_id=T0000 aggregates across all tenants (super-admin selector).
+ */
+router.post(
+  '/costs-summary',
+  asyncHandler(async (req, res) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const userName =
+      (typeof body.User_name === 'string' && body.User_name.trim()) ||
+      (typeof body.user_name === 'string' && body.user_name.trim()) ||
+      (typeof body.userName === 'string' && body.userName.trim()) ||
+      '';
+
+    if (!userName) {
+      return res.status(400).json({ success: false, message: 'User_name is required' });
+    }
+
+    // Resolve tenant scope (prefer explicit query; else fallback to JWT tenant if present).
+    const tenantIdRaw =
+      (typeof req.query?.organization_id === 'string' && req.query.organization_id) ||
+      (typeof req.query?.tenant_id === 'string' && req.query.tenant_id) ||
+      (typeof req.tenantId === 'string' && req.tenantId) ||
+      '';
+    const tenantId = tenantIdRaw ? String(tenantIdRaw).trim() : '';
+    const isT0000 = String(tenantId || '').toUpperCase() === 'T0000';
+
+    // Enforce JWT tenant match when not in all-tenants mode.
+    if (!isT0000 && req.tenantId && tenantId && String(req.tenantId) !== String(tenantId)) {
+      return res.status(403).json({ success: false, message: 'Forbidden: tenant scope mismatch' });
+    }
+
+    if (!isT0000 && !tenantId) {
+      return res.status(400).json({ success: false, message: 'tenant_id (or organization_id) is required' });
+    }
+
+    // IMPORTANT:
+    // session_tracking may store user name under User_name OR user_name.
+    // Tenant may appear in multiple alias fields as well.
+    const nameMatch = { $or: [{ User_name: userName }, { user_name: userName }] };
+    const tenantMatch = isT0000
+      ? {}
+      : {
+          $or: [
+            { tenant_id: tenantId },
+            { organization_id: tenantId },
+            { organizationId: tenantId },
+            { tenantId: tenantId },
+            { orgId: tenantId },
+            { 'tenant.tenant_id': tenantId },
+          ],
+        };
+
+    const matchStage =
+      isT0000
+        ? { $match: nameMatch }
+        : { $match: { $and: [nameMatch, tenantMatch] } };
+
+    const pipeline = [
+      matchStage,
+      {
+        // Normalize total_cost to a numeric double. Supports numbers and currency-like strings ($, commas).
+        $project: {
+          User_name: 1,
+          user_name: 1,
+          total_cost_num: {
+            $convert: {
+              input: {
+                $replaceAll: {
+                  input: {
+                    $replaceAll: {
+                      input: { $toString: { $ifNull: ['$total_cost', 0] } },
+                      find: { $literal: '$' },
+                      replacement: '',
+                    },
+                  },
+                  find: ',',
+                  replacement: '',
+                },
+              },
+              to: 'double',
+              onError: 0,
+              onNull: 0,
+            },
+          },
+          // Normalize credits consumed to numeric double.
+          // We intentionally support a few likely field variants because session_tracking is strict:false.
+          credits_used_num: {
+            $convert: {
+              input: {
+                $replaceAll: {
+                  input: {
+                    $replaceAll: {
+                      input: {
+                        $toString: {
+                          $ifNull: [
+                            '$credits_consumed',
+                            {
+                              $ifNull: [
+                                '$credits_used',
+                                { $ifNull: ['$creditsConsumed', { $ifNull: ['$credits', 0] }] },
+                              ],
+                            },
+                          ],
+                        },
+                      },
+                      find: ',',
+                      replacement: '',
+                    },
+                  },
+                  // allow strings like "64,773,196 credits"
+                  find: { $literal: 'credits' },
+                  replacement: '',
+                },
+              },
+              to: 'double',
+              onError: 0,
+              onNull: 0,
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          // group by the normalized input name (prefer User_name if present)
+          _id: { $ifNull: ['$User_name', '$user_name'] },
+          total_cost_spent: { $sum: '$total_cost_num' },
+          credits_used_sum: { $sum: '$credits_used_num' },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          User_name: '$_id',
+          total_cost_spent: 1,
+          credits_used: '$credits_used_sum',
+        },
+      },
+    ];
+
+    const rows = await SessionTracking.aggregate(pipeline).allowDiskUse(true);
+    const row = rows && rows[0] ? rows[0] : { User_name: userName, total_cost_spent: 0, credits_used: 0 };
+
+    // Fallback: if credits are not stored in session_tracking (sum is 0), derive using configured conversion.
+    // This preserves legacy behavior while preferring DB-ground-truth when available.
+    const totalCost = Number(row.total_cost_spent || 0);
+    const creditsFromDb = Number(row.credits_used || 0);
+    const creditsUsed = creditsFromDb > 0 ? creditsFromDb : usdToCredits(totalCost);
+
+    return res.status(200).json({
+      success: true,
+      User_name: String(row.User_name || userName),
+      total_cost_spent: totalCost,
+      credits_used: creditsUsed,
+    });
   })
 );
 
@@ -846,7 +1018,29 @@ router.get(
                 session_count: { $sum: 1 },
                 total_cost: {
                   $sum: {
-                    $convert: { input: '$total_cost', to: 'double', onError: 0, onNull: 0 },
+                    // total_cost may be stored as a number OR a currency-like string (e.g. "$1,234.56").
+                    // $convert alone fails on "$" and "," and yields 0, undercounting totals.
+                    // Normalize by stripping "$" and "," before conversion.
+                    $convert: {
+                      input: {
+                        $replaceAll: {
+                          input: {
+                            $replaceAll: {
+                              input: { $toString: { $ifNull: ['$total_cost', 0] } },
+                              // IMPORTANT: "$" must be a literal string, otherwise Mongo interprets it as a FieldPath.
+                              // Using $literal prevents: "'$' by itself is not a valid FieldPath".
+                              find: { $literal: '$' },
+                              replacement: '',
+                            },
+                          },
+                          find: ',',
+                          replacement: '',
+                        },
+                      },
+                      to: 'double',
+                      onError: 0,
+                      onNull: 0,
+                    },
                   },
                 },
                 total_duration: {

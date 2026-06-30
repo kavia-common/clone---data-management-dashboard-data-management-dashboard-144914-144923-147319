@@ -175,6 +175,14 @@ app.use((req, res, next) => {
 safeUse('/api/session-tracking/composite', require('./routes/sessionTracking.composite.routes'));
 safeUse('/api/session-tracking', require('./routes/sessionTracking.routes'));
 safeUse('/api/sessionTracking', require('./routes/sessionTracking.routes'));
+// Session Tracking sub-routes used by the Sessions UI (table + tenant dropdown)
+safeUse('/api/session-tracking/table', require('./routes/sessionTracking.table.routes'));
+safeUse('/api/session-tracking/tenants', require('./routes/sessionTracking.tenants.routes'));
+// Session Tracking analytics sub-routes used by the Sessions Analytics UI sections:
+// - Sessions by Organization
+// - Sessions by Type
+// - Most/Least used services
+safeUse('/api/session-tracking/analytics', require('./routes/sessionTracking.analytics.routes'));
 safeUse('/api/analytics/agents', require('./routes/analyticsAgents'));
 
 safeUse('/api/analytics', require('./routes/analytics'));

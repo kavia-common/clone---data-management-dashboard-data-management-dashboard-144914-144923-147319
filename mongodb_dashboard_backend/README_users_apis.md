@@ -56,3 +56,36 @@ Output shape:
   "start_date": "2025-01-01",
   "end_date": "2025-01-31"
 }
+
+
+## User costs summary (from session_tracking)
+
+POST /api/users/costs-summary?tenant_id=<TENANT_ID>
+
+Purpose:
+- Computes a user's Total Cost and Credits Consumed from the `session_tracking` collection.
+
+Request body:
+```json
+{ "User_name": "Aditi S" }
+```
+
+Matching behavior (important):
+- Matches the user name from either `User_name` or `user_name` (session_tracking is `strict:false`).
+- Tenant scoping matches common tenant alias fields in session_tracking:
+  `tenant_id`, `organization_id`, `organizationId`, `tenantId`, `orgId`, `tenant.tenant_id`.
+- `tenant_id=T0000` aggregates across all tenants (super-admin selector).
+
+Aggregation behavior:
+- `total_cost_spent` = sum of `total_cost` across matching documents.
+  - Supports numeric values and currency-like strings (e.g. `"$1,234.56"`).
+- `credits_used` = sum of stored credits fields when present:
+  - `credits_consumed`, `credits_used`, `creditsConsumed`, `credits`
+  - If credits are missing (or sum to 0), falls back to USD->credits conversion using `CREDITS_PER_USD` (default 20000).
+
+Example:
+```bash
+curl -s "http://localhost:3001/api/users/costs-summary?tenant_id=org1" \
+  -H "Content-Type: application/json" \
+  -d '{"User_name":"Aditi S"}' | jq
+```
