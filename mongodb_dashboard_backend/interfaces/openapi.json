@@ -2088,6 +2088,109 @@
           }
         }
       }
+    },
+    "/api/users/session-stats-by-domain": {
+      "get": {
+        "summary": "Per-user session statistics aggregated by email domain (TATA)",
+        "operationId": "getUserSessionStatsByDomain",
+        "description": "Returns per-user total session duration, cost, credits, and aggregated organization IDs for all users whose email matches the given domain. Supports date range filtering via the `range` preset (last7/last14/lastMonth/all) or a custom startDate+endDate pair. All aggregation metrics (duration, cost, credits, session counts) are computed only for sessions within the selected date range. Defaults to 'last7' (last 7 days) when no range is specified. Users with multiple organization registrations are consolidated into a single row with organization IDs as a comma-separated string in the organizationId field.",
+        "tags": ["TATA", "Users"],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "domain",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Email domain to filter users by, e.g. 'davinci.com' (without leading @)."
+          },
+          {
+            "in": "query",
+            "name": "range",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["last7", "last14", "lastMonth", "all"],
+              "default": "last7"
+            },
+            "description": "Preset date range for filtering session_tracking records. 'last7' = last 7 days, 'last14' = last 14 days, 'lastMonth' = last calendar month, 'all' = no date filter (full dataset). Ignored when both startDate and endDate are provided."
+          },
+          {
+            "in": "query",
+            "name": "startDate",
+            "required": false,
+            "schema": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+            "description": "Custom range start date (YYYY-MM-DD or ISO). Must be used together with endDate. When both startDate and endDate are provided, this custom range overrides the `range` preset."
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "required": false,
+            "schema": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+            "description": "Custom range end date (YYYY-MM-DD or ISO). Must be used together with startDate. The end date is inclusive (treated as end-of-day UTC)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-user session statistics with organization aggregation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "domain": { "type": "string", "description": "Normalized domain used for the query" },
+                    "count": { "type": "integer", "description": "Number of distinct users returned" },
+                    "dateFilter": {
+                      "type": "object",
+                      "description": "The date range filter that was applied to the query",
+                      "properties": {
+                        "range": { "type": "string", "description": "Applied preset range id (last7/last14/lastMonth/all/custom)" },
+                        "startDate": { "type": "string", "nullable": true, "description": "Custom start date if provided" },
+                        "endDate": { "type": "string", "nullable": true, "description": "Custom end date if provided" }
+                      }
+                    },
+                    "data": {
+                      "type": "array",
+                      "description": "One element per distinct email address (users with multiple org registrations are merged)",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "userId": { "type": "string", "description": "MongoDB user _id (string)" },
+                          "email": { "type": "string", "description": "User email address" },
+                          "organizationId": {
+                            "type": "string",
+                            "description": "Comma-separated, alphabetically sorted organization IDs from the users collection. Single-org users show one value; multi-org users show all IDs joined by ', '.",
+                            "example": "org-a, org-b"
+                          },
+                          "totalSessionDuration": { "type": "number", "description": "Total session duration in seconds" },
+                          "totalCost": { "type": "number", "description": "Total session cost in USD" },
+                          "totalCredits": { "type": "integer", "description": "Total credits (totalCost * CREDIT_MULTIPLIER)" },
+                          "sessionBreakdown": {
+                            "type": "array",
+                            "description": "Per-session breakdown for chart drill-down",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "sessionId": { "type": "string" },
+                                "duration": { "type": "number" },
+                                "status": { "type": "string" },
+                                "sessionStart": { "type": "string", "format": "date-time", "nullable": true },
+                                "lastUpdated": { "type": "string", "format": "date-time", "nullable": true }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Bad request: missing or invalid domain parameter" },
+          "500": { "description": "Internal server error" }
+        }
+      }
     }
   },
   "tags": [

@@ -1273,12 +1273,26 @@ router.get(
 
     const { getUserSessionStatsByDomain } = require('../services/users.service');
 
-    const results = await getUserSessionStatsByDomain(domain);
+    // Extract date-range parameters from query string.
+    // - range: preset ('last7'|'last14'|'lastMonth'|'all'). Default 'last7'.
+    //   'all' passes no date filter to preserve the previous full-dataset behavior.
+    // - startDate / endDate: custom date bounds (YYYY-MM-DD or ISO string).
+    //   When both are provided they override the preset range.
+    const range = typeof req.query.range === 'string' ? req.query.range.trim() : 'last7';
+    const startDate = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : null;
+    const endDate = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : null;
+
+    const results = await getUserSessionStatsByDomain(domain, { range, startDate, endDate });
 
     return res.status(200).json({
       success: true,
       domain,
       count: results.length,
+      dateFilter: {
+        range,
+        startDate: startDate || null,
+        endDate: endDate || null,
+      },
       data: results,
     });
   })
