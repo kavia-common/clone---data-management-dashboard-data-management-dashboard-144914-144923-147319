@@ -58,7 +58,15 @@ const server = app
     if (err && err.code === 'EADDRINUSE') {
       // eslint-disable-next-line no-console
       console.error(
-        `[startup] Port ${normalizedPort} is already in use. Ensure no other process is running on this port.`
+        `[startup] Port ${normalizedPort} is already in use.`
+      );
+      // eslint-disable-next-line no-console
+      console.error(
+        '[startup] Tip: On WSL2, Windows Hyper-V may silently reserve port ranges (e.g. 3001-3059).\n' +
+        '           Check reserved ranges from a Windows admin prompt:\n' +
+        '             netsh interface ipv4 show excludedportrange protocol=tcp\n' +
+        '           To release them temporarily: net stop winnat && net start winnat\n' +
+        `           Or set a different port: PORT=3060 npm run dev`
       );
     } else {
       // eslint-disable-next-line no-console

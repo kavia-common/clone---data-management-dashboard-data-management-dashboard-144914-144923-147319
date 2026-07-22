@@ -30,7 +30,7 @@ async function connectDB() {
   mongoose.set('strictQuery', true);
 
   // In test mode, prefer fast failures and no buffering to keep tests snappy.
-  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'pre_prod_kaviaroot';
+  const isTest = String(process.env.NODE_ENV || '').toLowerCase() === 'test';
   if (isTest) {
     try {
       mongoose.set('bufferCommands', false);
@@ -45,7 +45,7 @@ async function connectDB() {
   const autoIndex =
     (process.env.MONGOOSE_AUTO_INDEX || '').toString().toLowerCase() === 'true';
 
-  const dbName = 'pre_prod_kaviaroot'; // Optional; if not set, Mongo will use the URI/path default
+  const dbName = (process.env.MONGODB_DB || '').trim() || undefined;
 
   const options = {
     autoIndex,
@@ -53,7 +53,7 @@ async function connectDB() {
     serverSelectionTimeoutMS: isTest ? 250 : 5000,
     socketTimeoutMS: isTest ? 500 : 45000,
     family: 4,
-    dbName,
+    ...(dbName ? { dbName } : {}),
   };
 
   // Prepare a safe, masked log for the cluster host (never log credentials)
@@ -72,7 +72,7 @@ async function connectDB() {
     );
     if (dbName) {
        
-      console.log(`MongoDB dbName selected via env: ${dbName}`);
+      console.log(`MongoDB dbName selected via MONGODB_DB: ${dbName}`);
     }
      
     console.log(`Mongoose autoIndex=${autoIndex ? 'ENABLED' : 'DISABLED'}`);
