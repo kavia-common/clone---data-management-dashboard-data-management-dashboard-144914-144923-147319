@@ -74,13 +74,16 @@ function corsMiddleware() {
   // Localhost defaults
   whitelist.add('http://localhost:3000');
   whitelist.add('https://localhost:3000');
+  whitelist.add('http://localhost:3070');
+  whitelist.add('https://localhost:3070');
 
   // Preview environment frontend
   // Preview environment frontends
   // whitelist.add('https://kavia-dashboard-kavia-dev.cloud.kavia.ai');
-  whitelist.add('https://kavia-dashboard-kavia-beta.cloud.kavia.ai');
+  // whitelist.add('https://kavia-dashboard-kavia-beta.cloud.kavia.ai');
   // Explicitly allow VSCode internal preview origin used by frontend
-  // whitelist.add('https://vscode-internal-20445-beta.beta01.cloud.kavia.ai:3000');
+  // whitelist.add('https://vscode-internal-39903-beta.beta01.cloud.kavia.ai:3000');
+  whitelist.add('http://localhost:3000');
   
 
 

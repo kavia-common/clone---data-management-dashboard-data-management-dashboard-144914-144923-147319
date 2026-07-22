@@ -71,15 +71,15 @@ const buildDynamicSpec = (req) => {
         'REST API for Data Management Dashboard with MongoDB and Express',
     },
     // Use same-origin server so Swagger calls hit this backend instance
-    // url: `${protocol}://${fullHost}`,
-    servers: [
-      {
-        // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
-        url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
-        // description: 'Predefined dev server',
-        description: 'Predefined beta server',
-      },
-    ],
+    url: `${protocol}://${fullHost}`,
+    // servers: [
+    //   {
+    //     // url: 'https://kavia-dashboard-kavia-dev.cloud.kavia.ai',
+    //     url:'https://kavia-dashboard-kavia-beta.cloud.kavia.ai',
+    //     // description: 'Predefined dev server',
+    //     description: 'Predefined beta server',
+    //   },
+    // ],
   };
 };
 
@@ -195,6 +195,7 @@ safeUse('/api/llm-costs', require('./routes/llmCosts.public.routes')); // list e
 safeUse('/api/llm-costs', require('./routes/llmCosts.routes'));
 safeUse('/api/llm-costs', require('./routes/llmCosts.hierarchy.routes'));
 safeUse('/api/tenants', require('./routes/tenants.routes'));
+safeUse('/api/organizations', require('./routes/organizations.routes'));
 safeUse('/api/llm_costs', require('./routes/costs.llm_costs.routes'));
 safeUse('/api/projects', require('./routes/projects.summary.routes'));
 safeUse('/api/service-type', require('./routes/serviceType.summary.routes'));
